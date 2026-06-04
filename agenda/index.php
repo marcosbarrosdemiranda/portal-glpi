@@ -527,19 +527,19 @@ $user_id_sessao = (int)($_SESSION['user_id'] ?? 0);
               <small class="text-muted">Clique para selecionar um ou mais atendentes</small>
             </div>
           </div>
-          <div class="col-md-4" id="campo-requerente">
+          <div class="col-md-6" id="campo-requerente">
             <label class="form-label">Requerente <span class="text-danger">*</span></label>
             <select class="form-select" id="ev-requerente">
               <option value="">Selecione o requerente...</option>
             </select>
           </div>
-          <div class="col-md-4" id="campo-categoria">
+          <div class="col-md-6" id="campo-categoria">
             <label class="form-label">Categoria</label>
             <select class="form-select" id="ev-categoria">
               <option value="">Carregando...</option>
             </select>
           </div>
-          <div class="col-md-4" id="campo-origem">
+          <div class="col-md-6" id="campo-origem">
             <label class="form-label">Origem</label>
             <select class="form-select" id="ev-origem">
               <option value="1">Helpdesk</option>
@@ -548,7 +548,7 @@ $user_id_sessao = (int)($_SESSION['user_id'] ?? 0);
               <option value="4">Presencial</option>
             </select>
           </div>
-          <div class="col-md-4" id="campo-prioridade">
+          <div class="col-md-6" id="campo-prioridade">
             <label class="form-label">Prioridade</label>
             <select class="form-select" id="ev-prioridade">
               <option value="baixa">🟢 Baixa</option>
