@@ -27,13 +27,8 @@ function parseProjeto(string $filepath): ?array {
     foreach ($lines as $line) {
         $l = rtrim($line);
 
-        // toggle bloco de código (```)
-        if (preg_match('/^```/', $l)) {
-            $inCodeBlock = !$inCodeBlock;
-            continue;
-        }
+        if (preg_match('/^```/', $l)) { $inCodeBlock = !$inCodeBlock; continue; }
 
-        // dentro de bloco de código: só parseia cronograma
         if ($inCodeBlock) {
             if ($modo === 'cronograma' &&
                 preg_match('/Semana\s*(\d+)\s*\(([^)]+)\)\s*[→\-]+\s*(.+)/u', $l, $m)) {
@@ -46,14 +41,9 @@ function parseProjeto(string $filepath): ?array {
             continue;
         }
 
-        // H1 — título
         if (preg_match('/^# (.+)$/u', $l, $m)) {
-            $proj['titulo'] = trim($m[1]);
-            $modo = 'header';
-            continue;
+            $proj['titulo'] = trim($m[1]); $modo = 'header'; continue;
         }
-
-        // Metadados (> **Chave:** valor)
         if ($modo === 'header' && preg_match('/^> \*\*(.+?):\*\*\s*(.+)/u', $l, $m)) {
             $k = mb_strtolower($m[1]);
             if (str_contains($k,'objetivo'))    $proj['objetivo'] = $m[2];
@@ -62,31 +52,21 @@ function parseProjeto(string $filepath): ?array {
             elseif (str_contains($k,'reposit')) $proj['repo']     = $m[2];
             continue;
         }
-
-        // H2 — módulo ou seção especial
         if (preg_match('/^## (.+)$/u', $l, $m)) {
             if ($moduloAtual !== null) $proj['modulos'][] = $moduloAtual;
             $nome = trim($m[1]);
-
-            if (preg_match('/cronograma/iu', $nome)) {
-                $modo = 'cronograma'; $moduloAtual = null;
-            } elseif (preg_match('/progresso\s+geral/iu', $nome)) {
-                $modo = 'tabprog'; $moduloAtual = null;
-            } else {
+            if (preg_match('/cronograma/iu', $nome))      { $modo='cronograma'; $moduloAtual=null; }
+            elseif (preg_match('/progresso/iu', $nome))   { $modo='tabprog';    $moduloAtual=null; }
+            else {
                 $modo = 'modulo';
                 $moduloAtual = ['nome'=>$nome,'descricao'=>'','tarefas'=>[]];
                 $subSecao = null;
             }
             continue;
         }
-
-        // H3 — subseção dentro do módulo
         if ($modo === 'modulo' && preg_match('/^### (.+)$/u', $l, $m)) {
-            $subSecao = trim($m[1]);
-            continue;
+            $subSecao = trim($m[1]); continue;
         }
-
-        // Tarefas
         if ($modo === 'modulo' && $moduloAtual !== null) {
             if (preg_match('/^- \[x\] (.+)/iu', $l, $m))
                 $moduloAtual['tarefas'][] = ['done'=>true,  'texto'=>$m[1], 'sub'=>$subSecao];
@@ -96,15 +76,20 @@ function parseProjeto(string $filepath): ?array {
                 $moduloAtual['descricao'] = trim($m[1]);
         }
     }
-
     if ($moduloAtual !== null) $proj['modulos'][] = $moduloAtual;
 
-    // % total calculado das tarefas
     $tot = $done = 0;
-    foreach ($proj['modulos'] as $mod) {
-        $tot  += count($mod['tarefas']);
-        $done += count(array_filter($mod['tarefas'], fn($t) => $t['done']));
+    foreach ($proj['modulos'] as &$mod) {
+        $mt = count($mod['tarefas']);
+        $md = count(array_filter($mod['tarefas'], fn($t) => $t['done']));
+        $mod['pct']  = $mt > 0 ? round($md / $mt * 100) : 0;
+        $mod['done'] = $md;
+        $mod['tot']  = $mt;
+        $tot  += $mt;
+        $done += $md;
     }
+    unset($mod);
+
     $proj['pct']   = $tot > 0 ? round($done / $tot * 100) : 0;
     $proj['done']  = $done;
     $proj['total'] = $tot;
@@ -112,39 +97,27 @@ function parseProjeto(string $filepath): ?array {
     return $proj['titulo'] ? $proj : null;
 }
 
-// ── Converte "dd/mm" ou "dd–dd/mm" para timestamp ─────────────────────────
-function parseData(string $str, int $ano = 2026): ?int {
-    $str = trim($str);
-    // "02/07" → dia/mes
-    if (preg_match('/^(\d{1,2})\/(\d{1,2})$/', $str, $m))
-        return mktime(0,0,0,(int)$m[2],(int)$m[1],$ano);
-    // "03" sem mês — não conseguimos parsear sem contexto
-    return null;
-}
-
 function parsePeriodo(string $periodo, int $ano = 2026): array {
-    // "03–10/06"  "25/06–01/07"  "02–03/07"
     $p = trim($periodo);
-    $p = preg_replace('/[–—-]/', '-', $p); // normaliza traços
-
-    // "25/06-01/07"
+    $p = preg_replace('/[–—-]/', '-', $p);
     if (preg_match('/^(\d{1,2})\/(\d{1,2})-(\d{1,2})\/(\d{1,2})$/', $p, $m))
-        return [
-            mktime(0,0,0,(int)$m[2],(int)$m[1],$ano),
-            mktime(0,0,0,(int)$m[4],(int)$m[3],$ano),
-        ];
-
-    // "03-10/06"
+        return [mktime(0,0,0,(int)$m[2],(int)$m[1],$ano), mktime(0,0,0,(int)$m[4],(int)$m[3],$ano)];
     if (preg_match('/^(\d{1,2})-(\d{1,2})\/(\d{1,2})$/', $p, $m))
-        return [
-            mktime(0,0,0,(int)$m[3],(int)$m[1],$ano),
-            mktime(0,0,0,(int)$m[3],(int)$m[2],$ano),
-        ];
-
+        return [mktime(0,0,0,(int)$m[3],(int)$m[1],$ano), mktime(0,0,0,(int)$m[3],(int)$m[2],$ano)];
     return [0, 0];
 }
 
-// ── Carrega projetos ───────────────────────────────────────────────────────
+function corPct(int $pct): string {
+    if ($pct >= 80) return '#1e8e3e';
+    if ($pct >= 40) return '#f57c00';
+    return '#1a73e8';
+}
+
+function esc(string $s): string {
+    return htmlspecialchars($s, ENT_QUOTES, 'UTF-8');
+}
+
+// ── Carrega todos os projetos ──────────────────────────────────────────────
 $pastaProj = __DIR__ . '/Docs/wiki/projects';
 $projetos  = [];
 if (is_dir($pastaProj)) {
@@ -154,19 +127,21 @@ if (is_dir($pastaProj)) {
     }
 }
 
-// Projeto selecionado (query string ?proj=nome-do-arquivo)
-$selArq  = $_GET['proj'] ?? ($projetos[0]['arquivo'] ?? null);
+// ── Modo: lista (padrão) ou detalhe (?proj=arquivo.md) ────────────────────
+$selArq  = $_GET['proj'] ?? null;
 $projeto = null;
-foreach ($projetos as $p) {
-    if ($p['arquivo'] === $selArq) { $projeto = $p; break; }
+if ($selArq) {
+    foreach ($projetos as $p) {
+        if ($p['arquivo'] === $selArq) { $projeto = $p; break; }
+    }
 }
-if (!$projeto && $projetos) $projeto = $projetos[0];
+$modoDetalhe = $projeto !== null;
 
-// ── Calcula dados do Gantt ─────────────────────────────────────────────────
+// ── Gantt (só no detalhe) ──────────────────────────────────────────────────
 $ganttBars  = [];
 $dataInicio = 0;
 $dataFim    = 0;
-if ($projeto && $projeto['cronograma']) {
+if ($modoDetalhe && $projeto['cronograma']) {
     foreach ($projeto['cronograma'] as $cr) {
         [$ini, $fim] = parsePeriodo($cr['periodo']);
         if ($ini && $fim) {
@@ -176,17 +151,11 @@ if ($projeto && $projeto['cronograma']) {
         }
     }
 }
-$totalDias = ($dataInicio && $dataFim) ? max(1, ($dataFim - $dataInicio) / 86400) : 0;
-$hoje      = mktime(0,0,0, date('n'), date('j'), date('Y'));
+$totalDias = ($dataInicio && $dataFim) ? max(1,($dataFim-$dataInicio)/86400) : 0;
+$hoje      = mktime(0,0,0,date('n'),date('j'),date('Y'));
 
 function barPct(int $ts, int $inicio, int $total): float {
-    return $total > 0 ? round(($ts - $inicio) / 86400 / $total * 100, 2) : 0;
-}
-
-function corPct(int $pct): string {
-    if ($pct >= 80) return '#1e8e3e';
-    if ($pct >= 40) return '#f57c00';
-    return '#1a73e8';
+    return $total > 0 ? round(($ts-$inicio)/86400/$total*100,2) : 0;
 }
 ?>
 <!DOCTYPE html>
@@ -198,7 +167,7 @@ function corPct(int $pct): string {
 <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet"/>
 <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.css" rel="stylesheet"/>
 <style>
-:root { --primary:#1a237e; --accent:#e91e63; }
+:root { --primary:#1a237e; }
 body  { background:#f0f4f9; font-family:'Segoe UI',sans-serif; font-size:.9rem; }
 .topbar { background:linear-gradient(135deg,var(--primary),#1565c0); color:#fff;
           padding:.75rem 1.5rem; display:flex; align-items:center;
@@ -210,33 +179,53 @@ body  { background:#f0f4f9; font-family:'Segoe UI',sans-serif; font-size:.9rem; 
         padding:1.75rem 1rem 3.5rem; text-align:center; }
 .wrap { max-width:1200px; margin:-2rem auto 3rem; padding:0 1rem; }
 
-/* Nav de projetos */
-.proj-nav { display:flex; gap:.5rem; flex-wrap:wrap; margin-bottom:1rem; }
-.proj-nav a { background:#fff; border:1px solid #e5e7eb; border-radius:8px;
-              padding:.4rem .9rem; font-size:.8rem; font-weight:600; color:#374151;
-              text-decoration:none; transition:all .15s; }
-.proj-nav a:hover { border-color:#1a237e; color:#1a237e; }
-.proj-nav a.ativo { background:#1a237e; color:#fff; border-color:#1a237e; }
+/* ── CARDS ─────────────────────────────────────────────────── */
+.proj-card { background:#fff; border-radius:14px; border:1px solid #e5e7eb;
+             box-shadow:0 2px 10px rgba(0,0,0,.06); padding:1.35rem;
+             cursor:pointer; transition:all .18s; text-decoration:none; color:inherit;
+             display:block; }
+.proj-card:hover { box-shadow:0 6px 24px rgba(26,35,126,.13);
+                   border-color:#1a237e; transform:translateY(-2px); color:inherit; }
+.proj-card-title { font-size:1rem; font-weight:700; margin-bottom:.2rem;
+                   display:flex; align-items:center; justify-content:space-between; gap:.5rem; }
+.proj-card-desc  { font-size:.78rem; color:#6b7280; margin-bottom:.75rem;
+                   display:-webkit-box; -webkit-line-clamp:2;
+                   -webkit-box-orient:vertical; overflow:hidden; }
+.prog-bar  { height:8px; border-radius:4px; background:#e5e7eb; overflow:hidden; }
+.prog-fill { height:100%; border-radius:4px; transition:width .6s ease; }
+.prog-label { font-size:.75rem; font-weight:700; min-width:36px; text-align:right; }
 
-/* Card principal */
+/* Mini módulos no card */
+.mod-mini { margin-top:.85rem; display:flex; flex-direction:column; gap:.35rem; }
+.mod-mini-row { display:flex; align-items:center; gap:.5rem; }
+.mod-mini-name { font-size:.76rem; color:#374151; flex:1;
+                 white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.mod-mini-bar  { width:80px; height:5px; border-radius:3px;
+                 background:#e5e7eb; flex-shrink:0; overflow:hidden; }
+.mod-mini-fill { height:100%; border-radius:3px; }
+.mod-mini-pct  { font-size:.68rem; font-weight:700; min-width:28px; text-align:right; }
+.mod-mais      { font-size:.72rem; color:#9ca3af; margin-top:.25rem; }
+
+/* Meta info */
+.card-meta { display:flex; flex-wrap:wrap; gap:.5rem; margin-top:.85rem;
+             padding-top:.75rem; border-top:1px solid #f3f4f6; }
+.meta-pill { font-size:.72rem; color:#6b7280; display:flex; align-items:center; gap:.25rem; }
+.btn-detalhe { font-size:.75rem; font-weight:700; color:#1a237e;
+               display:flex; align-items:center; gap:.25rem; margin-left:auto; }
+
+/* ── DETALHE ───────────────────────────────────────────────── */
 .card-box { background:#fff; border-radius:12px; border:1px solid #e5e7eb;
             box-shadow:0 2px 8px rgba(0,0,0,.06); padding:1.25rem; margin-bottom:1rem; }
-
-/* Progresso */
-.prog-bar  { height:10px; border-radius:5px; background:#e5e7eb; overflow:hidden; }
-.prog-fill { height:100%; border-radius:5px; transition:width .6s ease; }
-
-/* ── GANTT ──────────────────────────────────────────────────────────────── */
-.gantt-wrap { overflow-x:auto; }
-.gantt { min-width:600px; }
+.gantt-wrap  { overflow-x:auto; }
+.gantt       { min-width:600px; }
 .gantt-header { display:flex; border-bottom:2px solid #e5e7eb; margin-bottom:.25rem; }
-.gantt-col-label { width:180px; flex-shrink:0; font-size:.75rem; font-weight:700;
+.gantt-col-label { width:190px; flex-shrink:0; font-size:.75rem; font-weight:700;
                    color:#6b7280; padding:.25rem 0; }
-.gantt-timeline { flex:1; position:relative; display:flex; }
+.gantt-timeline { flex:1; display:flex; }
 .gantt-week { flex:1; font-size:.68rem; font-weight:600; color:#9ca3af;
               text-align:center; border-left:1px dashed #e5e7eb; padding:.2rem 2px; }
 .gantt-row { display:flex; align-items:center; margin-bottom:.4rem; min-height:32px; }
-.gantt-label { width:180px; flex-shrink:0; font-size:.76rem; color:#374151;
+.gantt-label { width:190px; flex-shrink:0; font-size:.76rem; color:#374151;
                font-weight:600; padding-right:.5rem;
                white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
 .gantt-track { flex:1; position:relative; height:22px; background:#f3f4f6;
@@ -244,28 +233,21 @@ body  { background:#f0f4f9; font-family:'Segoe UI',sans-serif; font-size:.9rem; 
 .gantt-bar { position:absolute; top:2px; height:18px; border-radius:4px;
              display:flex; align-items:center; padding:0 6px;
              font-size:.65rem; font-weight:700; color:#fff;
-             white-space:nowrap; overflow:hidden; transition:opacity .2s; }
+             white-space:nowrap; overflow:hidden; }
 .gantt-bar:hover { opacity:.85; }
 .gantt-today { position:absolute; top:0; bottom:0; width:2px;
                background:#ef4444; z-index:5; }
-.gantt-today-label { position:absolute; top:-16px; font-size:.6rem;
+.gantt-today-label { position:absolute; top:-15px; font-size:.6rem;
                      color:#ef4444; font-weight:700; transform:translateX(-50%); }
-
-/* Módulos */
 .mod-header { display:flex; align-items:center; gap:.5rem; cursor:pointer;
-              padding:.5rem 0; border-bottom:1px solid #f3f4f6;
-              user-select:none; }
+              padding:.5rem 0; border-bottom:1px solid #f3f4f6; user-select:none; }
 .mod-header:hover { color:#1a237e; }
 .mod-body { padding:.5rem 0 .25rem 1rem; }
 .task-item { display:flex; align-items:flex-start; gap:.5rem;
              padding:.2rem 0; font-size:.8rem; color:#374151; }
 .task-item.done { color:#9ca3af; text-decoration:line-through; }
-.task-check { flex-shrink:0; margin-top:1px; }
 .sub-label { font-size:.68rem; font-weight:700; color:#9ca3af;
-             text-transform:uppercase; letter-spacing:.04em;
-             margin:.5rem 0 .2rem; }
-
-/* Stats */
+             text-transform:uppercase; letter-spacing:.04em; margin:.5rem 0 .2rem; }
 .stat-pill { background:#fff; border:1px solid #e5e7eb; border-radius:8px;
              padding:.4rem .9rem; font-size:.8rem; font-weight:600;
              display:inline-flex; align-items:center; gap:.35rem;
@@ -278,18 +260,37 @@ body  { background:#f0f4f9; font-family:'Segoe UI',sans-serif; font-size:.9rem; 
 
 <div class="topbar">
   <div style="font-weight:700;font-size:1rem;display:flex;align-items:center;gap:.5rem">
-    <i class="bi bi-kanban-fill"></i> Projetos de TI
+    <i class="bi bi-kanban-fill"></i>
+    <?php if ($modoDetalhe): ?>
+      <a href="projetos.php" style="background:none;padding:0;font-weight:400;font-size:.85rem;opacity:.8">
+        Projetos
+      </a>
+      <i class="bi bi-chevron-right" style="font-size:.7rem;opacity:.6"></i>
+      <?= esc(mb_substr($projeto['titulo'],0,40)) ?>
+    <?php else: ?>
+      Projetos de TI
+    <?php endif; ?>
   </div>
-  <a href="dashboard.php"><i class="bi bi-grid me-1"></i>Início</a>
+  <div style="display:flex;gap:.5rem">
+    <?php if ($modoDetalhe): ?>
+      <a href="projetos.php"><i class="bi bi-grid-3x3-gap me-1"></i>Todos os projetos</a>
+    <?php endif; ?>
+    <a href="dashboard.php"><i class="bi bi-grid me-1"></i>Início</a>
+  </div>
 </div>
 
 <div class="hero">
   <h1 style="font-size:1.5rem;font-weight:700;margin:0">
-    <i class="bi bi-kanban-fill me-2"></i>Projetos de TI
+    <i class="bi bi-kanban-fill me-2"></i>
+    <?= $modoDetalhe ? esc($projeto['titulo']) : 'Projetos de TI' ?>
   </h1>
   <p style="opacity:.8;margin-top:.35rem;font-size:.85rem">
-    Documentação lida direto do Obsidian
-    <span class="badge-obsidian ms-2"><i class="bi bi-journal-bookmark me-1"></i>Obsidian</span>
+    <?php if ($modoDetalhe): ?>
+      <?= esc($projeto['objetivo']) ?>
+    <?php else: ?>
+      Acompanhe o progresso de cada projeto
+      <span class="badge-obsidian ms-2"><i class="bi bi-journal-bookmark me-1"></i>Obsidian</span>
+    <?php endif; ?>
   </p>
 </div>
 
@@ -298,52 +299,107 @@ body  { background:#f0f4f9; font-family:'Segoe UI',sans-serif; font-size:.9rem; 
 <?php if (!$projetos): ?>
   <div class="card-box text-center py-5 text-muted">
     <i class="bi bi-folder-x fs-1 d-block mb-2"></i>
-    <p>Nenhum projeto encontrado em <code>Docs/wiki/projects/</code></p>
+    <p>Nenhum projeto em <code>Docs/wiki/projects/</code></p>
     <p class="small">Crie um arquivo <code>.md</code> no Obsidian para aparecer aqui.</p>
   </div>
-<?php else: ?>
 
-  <!-- Nav de projetos -->
-  <?php if (count($projetos) > 1): ?>
-  <div class="proj-nav">
-    <?php foreach ($projetos as $p): ?>
-      <a href="?proj=<?= urlencode($p['arquivo']) ?>"
-         class="<?= $p['arquivo'] === $selArq ? 'ativo' : '' ?>">
-        <?= htmlspecialchars($p['titulo']) ?>
+<?php elseif (!$modoDetalhe): ?>
+  <!-- ═══════════════ LISTA DE CARDS ═══════════════ -->
+  <div class="row g-3">
+  <?php foreach ($projetos as $p):
+      $modsVisiveis = array_filter($p['modulos'], fn($m) => $m['tot'] > 0);
+      $modsVisiveis = array_values($modsVisiveis);
+      $exibir = array_slice($modsVisiveis, 0, 5);
+      $extras  = max(0, count($modsVisiveis) - 5);
+  ?>
+    <div class="col-md-6 col-xl-4">
+      <a href="projetos.php?proj=<?= urlencode($p['arquivo']) ?>" class="proj-card h-100">
+
+        <!-- Título + % -->
+        <div class="proj-card-title">
+          <span><?= esc($p['titulo']) ?></span>
+          <span style="font-size:1.1rem;font-weight:800;color:<?= corPct($p['pct']) ?>;flex-shrink:0">
+            <?= $p['pct'] ?>%
+          </span>
+        </div>
+
+        <!-- Descrição -->
+        <?php if ($p['objetivo']): ?>
+          <div class="proj-card-desc"><?= esc($p['objetivo']) ?></div>
+        <?php endif; ?>
+
+        <!-- Barra geral -->
+        <div class="d-flex align-items-center gap-2">
+          <div class="prog-bar flex-grow-1">
+            <div class="prog-fill" style="width:<?= $p['pct'] ?>%;background:<?= corPct($p['pct']) ?>"></div>
+          </div>
+          <span class="prog-label" style="color:<?= corPct($p['pct']) ?>">
+            <?= $p['done'] ?>/<?= $p['total'] ?>
+          </span>
+        </div>
+
+        <!-- Mini módulos -->
+        <?php if ($exibir): ?>
+        <div class="mod-mini">
+          <?php foreach ($exibir as $mod): ?>
+            <div class="mod-mini-row">
+              <span class="mod-mini-name"><?= esc($mod['nome']) ?></span>
+              <div class="mod-mini-bar">
+                <div class="mod-mini-fill" style="width:<?= $mod['pct'] ?>%;background:<?= corPct($mod['pct']) ?>"></div>
+              </div>
+              <span class="mod-mini-pct" style="color:<?= corPct($mod['pct']) ?>"><?= $mod['pct'] ?>%</span>
+            </div>
+          <?php endforeach; ?>
+          <?php if ($extras > 0): ?>
+            <div class="mod-mais">+ <?= $extras ?> módulos</div>
+          <?php endif; ?>
+        </div>
+        <?php endif; ?>
+
+        <!-- Meta info + botão -->
+        <div class="card-meta">
+          <?php if ($p['equipe']): ?>
+            <span class="meta-pill"><i class="bi bi-people"></i><?= esc($p['equipe']) ?></span>
+          <?php endif; ?>
+          <?php if ($p['prazo']): ?>
+            <span class="meta-pill"><i class="bi bi-calendar-check"></i><?= esc($p['prazo']) ?></span>
+          <?php endif; ?>
+          <span class="btn-detalhe">
+            Ver detalhes <i class="bi bi-arrow-right"></i>
+          </span>
+        </div>
+
       </a>
-    <?php endforeach; ?>
+    </div>
+  <?php endforeach; ?>
   </div>
-  <?php endif; ?>
 
-  <!-- Header do projeto -->
+<?php else: ?>
+  <!-- ═══════════════ DETALHE DO PROJETO ═══════════════ -->
+
+  <!-- Header -->
   <div class="card-box">
     <div class="d-flex align-items-start justify-content-between flex-wrap gap-2 mb-3">
       <div>
-        <h2 style="font-size:1.15rem;font-weight:700;margin:0">
-          <?= htmlspecialchars($projeto['titulo']) ?>
-        </h2>
+        <h2 style="font-size:1.1rem;font-weight:700;margin:0"><?= esc($projeto['titulo']) ?></h2>
         <?php if ($projeto['objetivo']): ?>
-          <p style="color:#6b7280;font-size:.82rem;margin:.3rem 0 0">
-            <?= htmlspecialchars($projeto['objetivo']) ?>
-          </p>
+          <p style="color:#6b7280;font-size:.82rem;margin:.3rem 0 0"><?= esc($projeto['objetivo']) ?></p>
         <?php endif; ?>
       </div>
       <div class="d-flex flex-wrap gap-2">
         <?php if ($projeto['equipe']): ?>
-          <span class="stat-pill"><i class="bi bi-people text-primary"></i><?= htmlspecialchars($projeto['equipe']) ?></span>
+          <span class="stat-pill"><i class="bi bi-people text-primary"></i><?= esc($projeto['equipe']) ?></span>
         <?php endif; ?>
         <?php if ($projeto['prazo']): ?>
-          <span class="stat-pill"><i class="bi bi-calendar-check text-danger"></i><?= htmlspecialchars($projeto['prazo']) ?></span>
+          <span class="stat-pill"><i class="bi bi-calendar-check text-danger"></i><?= esc($projeto['prazo']) ?></span>
         <?php endif; ?>
         <?php if ($projeto['repo']): ?>
-          <a href="<?= htmlspecialchars($projeto['repo']) ?>" target="_blank" class="stat-pill text-decoration-none">
+          <a href="<?= esc($projeto['repo']) ?>" target="_blank" class="stat-pill text-decoration-none">
             <i class="bi bi-github"></i>GitHub
           </a>
         <?php endif; ?>
       </div>
     </div>
-
-    <!-- Progresso geral -->
     <div class="d-flex align-items-center gap-3 mb-1">
       <div class="prog-bar flex-grow-1">
         <div class="prog-fill" style="width:<?= $projeto['pct'] ?>%;background:<?= corPct($projeto['pct']) ?>"></div>
@@ -353,68 +409,53 @@ body  { background:#f0f4f9; font-family:'Segoe UI',sans-serif; font-size:.9rem; 
       </span>
     </div>
     <div style="font-size:.75rem;color:#9ca3af">
-      <?= $projeto['done'] ?> / <?= $projeto['total'] ?> tarefas concluídas
-      · <?= count($projeto['modulos']) ?> módulos
+      <?= $projeto['done'] ?> / <?= $projeto['total'] ?> tarefas · <?= count($projeto['modulos']) ?> módulos
     </div>
   </div>
 
+  <!-- Gantt -->
   <?php if ($ganttBars): ?>
-  <!-- ── GANTT ─────────────────────────────────────────────────────────── -->
   <div class="card-box">
     <h6 style="font-weight:700;margin-bottom:.75rem">
       <i class="bi bi-bar-chart-steps me-2 text-primary"></i>Cronograma — Linha do Tempo
     </h6>
-    <div class="gantt-wrap">
-      <div class="gantt">
-        <!-- Cabeçalho de semanas -->
-        <div class="gantt-header">
-          <div class="gantt-col-label">Etapa</div>
-          <div class="gantt-timeline">
-            <?php foreach ($ganttBars as $bar): ?>
-              <div class="gantt-week"><?= htmlspecialchars($bar['semana']) ?><br><?= htmlspecialchars($bar['periodo']) ?></div>
-            <?php endforeach; ?>
-          </div>
+    <div class="gantt-wrap"><div class="gantt">
+      <div class="gantt-header">
+        <div class="gantt-col-label">Etapa</div>
+        <div class="gantt-timeline">
+          <?php foreach ($ganttBars as $bar): ?>
+            <div class="gantt-week"><?= esc($bar['semana']) ?><br><?= esc($bar['periodo']) ?></div>
+          <?php endforeach; ?>
         </div>
-
-        <!-- Linha de hoje -->
-        <?php
-        $hojePct = ($dataInicio && $totalDias) ? barPct($hoje, $dataInicio, $totalDias) : -1;
-        ?>
-
-        <!-- Barras do Gantt -->
-        <?php
-        $cores = ['#1a73e8','#1e8e3e','#f57c00','#7b1fa2','#c62828','#0097a7'];
-        foreach ($ganttBars as $i => $bar):
-            $left  = barPct($bar['ini'], $dataInicio, $totalDias);
-            $width = barPct($bar['fim'], $dataInicio, $totalDias) - $left;
-            $cor   = $cores[$i % count($cores)];
-            $isPast= $bar['fim'] < $hoje;
-            $isNow = $bar['ini'] <= $hoje && $bar['fim'] >= $hoje;
-        ?>
-        <div class="gantt-row">
-          <div class="gantt-label" title="<?= htmlspecialchars($bar['descricao']) ?>">
-            <?= htmlspecialchars($bar['semana']) ?> — <?= htmlspecialchars(mb_substr($bar['descricao'],0,30)) ?>…
-          </div>
-          <div class="gantt-track">
-            <?php if ($hojePct >= 0 && $hojePct <= 100): ?>
-              <div class="gantt-today" style="left:<?= $hojePct ?>%">
-                <?php if ($i === 0): ?>
-                  <span class="gantt-today-label">Hoje</span>
-                <?php endif; ?>
-              </div>
-            <?php endif; ?>
-            <div class="gantt-bar"
-                 style="left:<?= $left ?>%;width:<?= max($width,2) ?>%;
-                        background:<?= $cor ?>;opacity:<?= $isPast ? '.5' : '1' ?>;
-                        outline:<?= $isNow ? '2px solid '.$cor : 'none' ?>;"
-                 title="<?= htmlspecialchars($bar['descricao']) ?>">
-              <?= htmlspecialchars($bar['periodo']) ?>
-            </div>
-          </div>
-        </div>
-        <?php endforeach; ?>
       </div>
-    </div>
+      <?php
+      $cores = ['#1a73e8','#1e8e3e','#f57c00','#7b1fa2','#c62828','#0097a7'];
+      $hojePct = ($dataInicio && $totalDias) ? barPct($hoje,$dataInicio,$totalDias) : -1;
+      foreach ($ganttBars as $i => $bar):
+          $left  = barPct($bar['ini'],$dataInicio,$totalDias);
+          $width = barPct($bar['fim'],$dataInicio,$totalDias) - $left;
+          $cor   = $cores[$i % count($cores)];
+          $isPast= $bar['fim'] < $hoje;
+      ?>
+      <div class="gantt-row">
+        <div class="gantt-label" title="<?= esc($bar['descricao']) ?>">
+          <?= esc($bar['semana']) ?> — <?= esc(mb_substr($bar['descricao'],0,28)) ?>…
+        </div>
+        <div class="gantt-track">
+          <?php if ($hojePct >= 0 && $hojePct <= 100): ?>
+            <div class="gantt-today" style="left:<?= $hojePct ?>%">
+              <?php if ($i===0): ?><span class="gantt-today-label">Hoje</span><?php endif; ?>
+            </div>
+          <?php endif; ?>
+          <div class="gantt-bar"
+               style="left:<?= $left ?>%;width:<?= max($width,2) ?>%;background:<?= $cor ?>;opacity:<?= $isPast?.5:1 ?>"
+               title="<?= esc($bar['descricao']) ?>">
+            <?= esc($bar['periodo']) ?>
+          </div>
+        </div>
+      </div>
+      <?php endforeach; ?>
+    </div></div>
     <div style="font-size:.72rem;color:#9ca3af;margin-top:.5rem">
       <span style="display:inline-block;width:10px;height:10px;background:#ef4444;border-radius:50%;margin-right:4px"></span>Hoje
       &nbsp;·&nbsp; Barras opacas = semanas passadas
@@ -422,47 +463,32 @@ body  { background:#f0f4f9; font-family:'Segoe UI',sans-serif; font-size:.9rem; 
   </div>
   <?php endif; ?>
 
-  <!-- ── MÓDULOS ──────────────────────────────────────────────────────────── -->
+  <!-- Módulos -->
   <div class="row g-2">
   <?php foreach ($projeto['modulos'] as $idx => $mod):
-      $tot  = count($mod['tarefas']);
-      $done = count(array_filter($mod['tarefas'], fn($t) => $t['done']));
-      $pct  = $tot > 0 ? round($done / $tot * 100) : 0;
-      if ($tot === 0) continue;
-  ?>
+      if ($mod['tot'] === 0) continue; ?>
     <div class="col-md-6">
       <div class="card-box" style="padding:1rem">
-        <!-- Cabeçalho do módulo -->
         <div class="mod-header" onclick="toggleMod(<?= $idx ?>)">
-          <i class="bi bi-chevron-right" id="chevron-<?= $idx ?>" style="font-size:.75rem;color:#9ca3af;transition:transform .2s"></i>
-          <span style="font-weight:700;font-size:.85rem;flex:1"><?= htmlspecialchars($mod['nome']) ?></span>
-          <span style="font-size:.72rem;color:<?= corPct($pct) ?>;font-weight:700"><?= $done ?>/<?= $tot ?></span>
+          <i class="bi bi-chevron-right" id="chv-<?= $idx ?>" style="font-size:.75rem;color:#9ca3af;transition:transform .2s"></i>
+          <span style="font-weight:700;font-size:.85rem;flex:1"><?= esc($mod['nome']) ?></span>
+          <span style="font-size:.72rem;font-weight:700;color:<?= corPct($mod['pct']) ?>"><?= $mod['done'] ?>/<?= $mod['tot'] ?></span>
         </div>
-        <!-- Barra de progresso do módulo -->
-        <div class="prog-bar" style="height:6px;margin:.35rem 0">
-          <div class="prog-fill" style="width:<?= $pct ?>%;background:<?= corPct($pct) ?>"></div>
+        <div class="prog-bar" style="height:5px;margin:.3rem 0">
+          <div class="prog-fill" style="width:<?= $mod['pct'] ?>%;background:<?= corPct($mod['pct']) ?>"></div>
         </div>
-
-        <!-- Lista de tarefas (colapsável) -->
         <div id="mod-body-<?= $idx ?>" style="display:none">
-          <?php
-          $subAtual = null;
+          <?php $subAtual = null;
           foreach ($mod['tarefas'] as $t):
               if ($t['sub'] !== $subAtual):
                   $subAtual = $t['sub'];
-                  if ($subAtual):
-          ?>
-            <div class="sub-label"><?= htmlspecialchars($subAtual) ?></div>
-          <?php       endif; endif; ?>
-            <div class="task-item <?= $t['done'] ? 'done' : '' ?>">
-              <span class="task-check">
-                <?php if ($t['done']): ?>
-                  <i class="bi bi-check-circle-fill text-success"></i>
-                <?php else: ?>
-                  <i class="bi bi-circle" style="color:#d1d5db"></i>
-                <?php endif; ?>
+                  if ($subAtual): ?><div class="sub-label"><?= esc($subAtual) ?></div><?php endif;
+              endif; ?>
+            <div class="task-item <?= $t['done']?'done':'' ?>">
+              <span style="flex-shrink:0;margin-top:1px">
+                <?= $t['done'] ? '<i class="bi bi-check-circle-fill text-success"></i>' : '<i class="bi bi-circle" style="color:#d1d5db"></i>' ?>
               </span>
-              <span><?= htmlspecialchars($t['texto']) ?></span>
+              <span><?= esc($t['texto']) ?></span>
             </div>
           <?php endforeach; ?>
         </div>
@@ -471,25 +497,23 @@ body  { background:#f0f4f9; font-family:'Segoe UI',sans-serif; font-size:.9rem; 
   <?php endforeach; ?>
   </div>
 
-  <!-- Nota Obsidian -->
   <div style="text-align:center;margin-top:1.5rem;font-size:.75rem;color:#9ca3af">
     <i class="bi bi-journal-bookmark me-1"></i>
-    Dados lidos de <code>Docs/wiki/projects/<?= htmlspecialchars($projeto['arquivo']) ?></code>
-    · Edite no Obsidian e recarregue para atualizar
-    · Última leitura: <?= date('d/m/Y H:i') ?>
+    <code>Docs/wiki/projects/<?= esc($projeto['arquivo']) ?></code>
+    · Edite no Obsidian e recarregue · <?= date('d/m/Y H:i') ?>
   </div>
 
 <?php endif; ?>
-</div><!-- wrap -->
+</div>
 
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
 <script>
 function toggleMod(idx) {
-  const body    = document.getElementById('mod-body-' + idx);
-  const chevron = document.getElementById('chevron-' + idx);
-  const aberto  = body.style.display !== 'none';
-  body.style.display    = aberto ? 'none' : '';
-  chevron.style.transform = aberto ? '' : 'rotate(90deg)';
+  const b = document.getElementById('mod-body-' + idx);
+  const c = document.getElementById('chv-' + idx);
+  const open = b.style.display !== 'none';
+  b.style.display     = open ? 'none' : '';
+  c.style.transform   = open ? '' : 'rotate(90deg)';
 }
 </script>
 </body>
