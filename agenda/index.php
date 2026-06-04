@@ -1121,14 +1121,14 @@ function carregarAtendentes() {
       // Popula select do modal (edição de evento)
       document.getElementById('ev-atendente').innerHTML =
         '<option value="">Selecione...</option>' +
-        data.map(a => `<option value="${escHtml(a.nome)}" data-cor="${a.cor}" data-id="${a.id}">${escHtml(a.nome)}</option>`).join('');
+        data.map(a => `<option value="${escHtml(a.nome)}" data-cor="${a.cor}" data-id="${a.id}">${escHtml(apelidoAtendente(a.nome))}</option>`).join('');
       renderAtendentesMulti([]);
 
       // Popula filtro do navbar
       const filtro = document.getElementById('filtro-atendente');
       filtro.innerHTML =
         '<option value="">👥 Todos os atendentes</option>' +
-        data.map(a => `<option value="${escHtml(a.nome)}">${escHtml(a.nome)}</option>`).join('');
+        data.map(a => `<option value="${escHtml(a.nome)}">${escHtml(apelidoAtendente(a.nome))}</option>`).join('');
 
       // Pré-seleciona o atendente logado (por ID ou por nome)
       const atendenteLogado = data.find(a => a.id === USUARIO_LOGADO_ID || a.nome === USUARIO_LOGADO_NOME);
@@ -1310,7 +1310,7 @@ function abrirModalAtendentes() {
   lista.innerHTML = atendentes.map(a => `
     <div class="atendente-check-item" data-nome="${escHtml(a.nome)}" data-id="${a.id}" data-cor="${a.cor}" onclick="toggleAtendente(this)">
       <span class="atendente-dot" style="background:${a.cor}"></span>
-      <span class="fw-semibold">${escHtml(a.nome)}</span>
+      <span class="fw-semibold">${escHtml(apelidoAtendente(a.nome))}</span>
       <i class="bi bi-check-circle-fill ms-auto text-primary d-none check-icon"></i>
     </div>
   `).join('');
@@ -1500,7 +1500,7 @@ function preencherModal(dados) {
         if (fw.length) {
           fwWrap.innerHTML = fw.map(f => `
             <div class="followup-item">
-              <span class="fw-autor">${escHtml(f.autor)}</span>
+              <span class="fw-autor">${escHtml(apelidoAtendente(f.autor))}</span>
               <span class="fw-data">${escHtml(f.data)}</span>
               <div class="fw-texto">${escHtml(f.texto)}</div>
             </div>`).join('');

@@ -340,7 +340,7 @@ $atribuidos  = array_filter($users_req, fn($u) => ($u['type'] ?? 0) == 2);
         ?>
         <div class="followup">
           <div>
-            <span class="fu-author"><i class="bi bi-person-circle me-1"></i><?= htmlspecialchars($fu['users_id'] ?? 'Sistema') ?></span>
+            <span class="fu-author"><i class="bi bi-person-circle me-1"></i><?= htmlspecialchars(primeiro_nome($fu['users_id'] ?? 'Sistema')) ?></span>
             <span class="fu-date"><?= substr($fu['date'] ?? '', 0, 16) ?></span>
           </div>
           <div class="fu-body"><?= $fu_content ?></div>

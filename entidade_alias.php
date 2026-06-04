@@ -16,3 +16,15 @@ function apelido_entidade(string $nome): string {
     ];
     return $mapa[$nome] ?? $nome;
 }
+
+/**
+ * Retorna só o primeiro nome do atendente para exibição.
+ * GLPI armazena "realname firstname" — pega a última palavra (firstname).
+ * Ex: "Barros de Miranda Marcos" → "Marcos"
+ *     "Lima Cavalheiro Celso"    → "Celso"
+ */
+function primeiro_nome(string $nome): string {
+    $partes = explode(' ', trim($nome));
+    $ultimo = end($partes);
+    return $ultimo ?: $nome;
+}

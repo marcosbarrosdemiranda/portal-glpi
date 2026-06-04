@@ -4,6 +4,7 @@ if (empty($_SESSION['autenticado'])) { header('Location: auth.php'); exit; }
 if (($_SESSION['perfil'] ?? '') === 'self-service') { header('Location: dashboard.php'); exit; }
 
 require_once __DIR__ . '/agenda/config.php';
+require_once __DIR__ . '/entidade_alias.php';
 
 // ── Buscar técnicos via API GLPI ──────────────────────────────────────────────
 $tecnicos  = [];
@@ -294,7 +295,7 @@ function iniciais(string $nome): string {
       <div class="avatar-circle" style="background:<?= $cor ?>">
         <?= htmlspecialchars($ini) ?>
       </div>
-      <div class="tec-nome"><?= htmlspecialchars($tec['nome']) ?></div>
+      <div class="tec-nome"><?= htmlspecialchars(primeiro_nome($tec['nome'])) ?></div>
       <?php if ($tec['email']): ?>
       <div class="tec-email"><i class="bi bi-envelope me-1"></i><?= htmlspecialchars($tec['email']) ?></div>
       <?php endif; ?>
