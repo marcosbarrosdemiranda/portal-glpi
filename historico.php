@@ -7,6 +7,7 @@ $nome    = $_SESSION['nome']    ?? '';
 $user_id = (int)($_SESSION['user_id'] ?? 0);
 
 require_once __DIR__ . '/agenda/config.php';
+require_once __DIR__ . '/entidade_alias.php';
 
 define('POR_PAGINA', 200);
 
@@ -76,7 +77,7 @@ function glpi_tickets(array $filtros = [], int $pagina = 1): array {
         'tipo_n'    => (int)($t['type'] ?? 1),
         'urgencia'  => $urg_map[$t['urgency'] ?? 3] ?? 'Média',
         'urg_cor'   => $urg_cor[$t['urgency'] ?? 3] ?? 'warning',
-        'entidade'  => $t['entities_id'] ?? '',
+        'entidade'  => apelido_entidade($t['entities_id'] ?? ''),
         'data'      => substr($t['date'] ?? '', 0, 16),
         'atualizado'=> substr($t['date_mod'] ?? '', 0, 16),
     ], $tickets)));

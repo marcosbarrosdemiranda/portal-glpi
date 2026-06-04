@@ -6,6 +6,7 @@ $ticket_id = (int)($_GET['id'] ?? 0);
 if (!$ticket_id) { header('Location: historico.php'); exit; }
 
 require_once __DIR__ . '/agenda/config.php';
+require_once __DIR__ . '/entidade_alias.php';
 
 function glpi_req(string $url, string $token): array {
     $ch = curl_init($url);
@@ -238,7 +239,7 @@ $atribuidos  = array_filter($users_req, fn($u) => ($u['type'] ?? 0) == 2);
     <div class="meta-grid">
       <div class="meta-item">
         <div class="label">Entidade</div>
-        <div class="val"><?= htmlspecialchars($ticket['entities_id'] ?? '') ?></div>
+        <div class="val"><?= htmlspecialchars(apelido_entidade($ticket['entities_id'] ?? '')) ?></div>
       </div>
       <div class="meta-item">
         <div class="label">Abertura</div>

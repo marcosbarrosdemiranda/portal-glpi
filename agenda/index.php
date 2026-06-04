@@ -527,7 +527,7 @@ $user_id_sessao = (int)($_SESSION['user_id'] ?? 0);
               <small class="text-muted">Clique para selecionar um ou mais atendentes</small>
             </div>
           </div>
-          <div class="col-md-6" id="campo-requerente">
+          <div class="col-md-4" id="campo-requerente">
             <label class="form-label">Requerente <span class="text-danger">*</span></label>
             <select class="form-select" id="ev-requerente">
               <option value="">Selecione o requerente...</option>
@@ -715,6 +715,15 @@ const ALIAS_ENTIDADES = {
 /** Retorna o alias visual da entidade, ou o nome original se não há mapeamento. */
 function apelidoEntidade(nome) {
   return ALIAS_ENTIDADES[nome] ?? nome;
+}
+
+/** Reduz nome completo do atendente para "Primeiro InícialSobrenome."
+ *  Ex: "Barros de Miranda Marcos" → "Marcos B."
+ *      "Lima Cavalheiro Celso"    → "Celso L."
+ *      "Agnelo Felix"             → "Felix A."  */
+function apelidoAtendente(nome) {
+  const p = nome.trim().split(/\s+/);
+  return p[p.length - 1] || nome; // última palavra = primeiro nome no GLPI
 }
 
 function toast(msg, type = 'success') {
@@ -1388,6 +1397,10 @@ function abrirModalEvento(dataStr) {
   document.getElementById('ev-prioridade').value = 'media';
   document.getElementById('ev-setor').value = '';
   document.getElementById('ev-tipo').value = 'chamado';
+  document.getElementById('ev-entidade').value   = '';
+  document.getElementById('ev-requerente').value = '';
+  document.getElementById('ev-categoria').value  = '';
+  document.getElementById('ev-origem').value     = '';
   renderAtendentesMulti([]); // limpa chips de atendente da sessão anterior
   document.getElementById('ev-followups').innerHTML = '';
   document.getElementById('campo-followups').style.display = 'none';
@@ -1592,9 +1605,10 @@ function renderAtendentesMulti(selecionados) {
     const sel = selecionados.includes(a.nome);
     return `<div class="atendente-multi-chip ${sel ? 'selected' : ''}"
                  data-nome="${escHtml(a.nome)}" data-id="${a.id}" data-cor="${a.cor}"
+                 title="${escHtml(a.nome)}"
                  onclick="toggleChip(this)">
               <span class="dot" style="background:${a.cor}"></span>
-              ${escHtml(a.nome)}
+              ${escHtml(apelidoAtendente(a.nome))}
             </div>`;
   }).join('');
 }
@@ -2056,10 +2070,13 @@ function salvarEvento() {
     const _desc     = document.getElementById('ev-descricao').value.trim();
     const _entId    = document.getElementById('ev-entidade').selectedOptions[0]?.dataset?.id || '';
     const _reqId    = document.getElementById('ev-requerente').selectedOptions[0]?.dataset?.id || '';
-    const _temAtend = multiSel.length > 0;
+    // chamado/requisicao usa o select único; reunião/evento usa multi-chips
+    const _temAtend = isChamadoOuReq
+      ? !!document.getElementById('ev-atendente').value
+      : multiSel.length > 0;
     if (!_desc)     { errosVal.push('Descrição');  marcarInvalido('ev-descricao'); }
     if (!_entId)    { errosVal.push('Entidade');   marcarInvalido('ev-entidade'); }
-    if (!_temAtend) { errosVal.push('Atendente');  marcarInvalido('lista-atendentes-multi'); }
+    if (!_temAtend) { errosVal.push('Atendente');  marcarInvalido(isChamadoOuReq ? 'ev-atendente' : 'lista-atendentes-multi'); }
     if (!_reqId)    { errosVal.push('Requerente'); marcarInvalido('ev-requerente'); }
   }
 

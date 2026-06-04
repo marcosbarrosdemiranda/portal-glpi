@@ -9,6 +9,7 @@ if (($_SESSION['perfil'] ?? '') === 'self-service') { echo json_encode([]); exit
 
 header('Content-Type: application/json');
 require_once __DIR__ . '/agenda/config.php';
+require_once __DIR__ . '/entidade_alias.php';
 
 $ultimo = $_GET['ultimo'] ?? date('Y-m-d H:i:s', strtotime('-1 minute'));
 $ultimo = str_replace('T', ' ', $ultimo);
@@ -43,7 +44,7 @@ foreach ($tickets as $t) {
         $novos[] = [
             'id'       => $t['id'],
             'titulo'   => $t['name'] ?? 'Sem título',
-            'entidade' => $t['entities_id'] ?? '',
+            'entidade' => apelido_entidade($t['entities_id'] ?? ''),
             'data'     => $t['date'] ?? '',
             'tipo'     => ($t['type'] ?? 1) == 1 ? 'Incidente' : 'Requisição',
         ];

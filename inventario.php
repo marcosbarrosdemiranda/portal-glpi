@@ -4,6 +4,7 @@ if (empty($_SESSION['autenticado'])) { header('Location: auth.php'); exit; }
 if (($_SESSION['perfil'] ?? '') === 'self-service') { header('Location: dashboard.php'); exit; }
 
 require_once __DIR__ . '/agenda/config.php';
+require_once __DIR__ . '/entidade_alias.php';
 
 function glpi_req(string $endpoint, string $token): array {
     $ch = curl_init(GLPI_URL . '/apirest.php/' . $endpoint);
@@ -77,14 +78,14 @@ curl_exec($ch); curl_close($ch);
 $entidades = [];
 foreach ($entidades_raw as $e) {
     if (!isset($e['id'])) continue;
-    $entidades[$e['id']] = $e['completename'] ?? $e['name'] ?? 'Entidade '.$e['id'];
+    $entidades[$e['id']] = apelido_entidade($e['completename'] ?? $e['name'] ?? 'Entidade '.$e['id']);
 }
 
 // Organiza computadores por entidade
 $por_entidade = [];
 foreach ($computadores_raw as $c) {
     if (!isset($c['id'])) continue;
-    $ent_nome = $c['entities_id'] ?? 'Entidade raiz';
+    $ent_nome = apelido_entidade($c['entities_id'] ?? 'Entidade raiz');
     if (!isset($por_entidade[$ent_nome])) $por_entidade[$ent_nome] = [];
     $por_entidade[$ent_nome][] = [
         'id'          => $c['id'],
