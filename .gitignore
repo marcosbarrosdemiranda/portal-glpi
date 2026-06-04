@@ -1,0 +1,38 @@
+# ─────────────────────────────────────────────────────────────
+#  .gitignore — portal-glpi
+# ─────────────────────────────────────────────────────────────
+
+# ── Credenciais e configurações sensíveis ─────────────────────
+# NUNCA versionar — contém senhas, tokens e caminhos de servidor
+agenda/config.php
+config_db_prod.php
+
+# ── Ferramentas de debug ───────────────────────────────────────
+# Expõem informações internas; não devem ir para produção
+debug_login.php
+debug_proxy.php
+debug_docs.php
+agenda/debug_db.php
+
+# ── Backups e arquivos de documentação gerados ────────────────
+Documentação e Backup*/
+*.zip
+*.bak
+*.sql
+
+# ── Ambiente local do Claude Code ─────────────────────────────
+.claude/
+
+# ── Sistema operacional ────────────────────────────────────────
+Thumbs.db
+desktop.ini
+.DS_Store
+
+# ── Logs e temporários ────────────────────────────────────────
+*.log
+*.tmp
+*.cache
+
+# ── Dependências (se vier a usar composer/npm) ─────────────────
+/vendor/
+/node_modules/
