@@ -1,5 +1,6 @@
 <?php
 require_once 'config.php';
+require_once __DIR__ . '/../entidade_alias.php';
 
 function glpi_session(): string {
     $auth = base64_encode(GLPI_USER . ':' . GLPI_PASS);
@@ -90,7 +91,7 @@ function glpi_get_tickets(): array {
             'status'     => $status_map[$t['status']] ?? 'Desconhecido',
             'urgencia'   => $urgency_map[$t['urgency']] ?? 'média',
             'urgencia_n' => $t['urgency'] ?? 3,
-            'setor'       => $t['entities_id'] ?? '',
+            'setor'       => apelido_entidade($t['entities_id'] ?? ''),
             'data'        => substr($t['date'] ?? '', 0, 10),
             'date_mod'    => $t['date_mod'] ?? '',
             'solicitante' => $t['_users_id_requester'] ?? '',
