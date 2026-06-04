@@ -286,16 +286,16 @@ $user_id_sessao = (int)($_SESSION['user_id'] ?? 0);
     .fc-event { overflow: visible !important; }
 
     /* Multi-select de atendentes no modal */
-    .atendentes-multi-wrap { display:flex; flex-wrap:wrap; gap:.4rem; margin-bottom:.3rem; }
+    .atendentes-multi-wrap { display:flex; flex-wrap:wrap; gap:.3rem; margin-bottom:.1rem; }
     .atendente-multi-chip {
-      display:flex; align-items:center; gap:.4rem;
-      padding:.3rem .7rem; border-radius:20px;
-      border:2px solid #dee2e6; cursor:pointer;
-      font-size:.82rem; transition:all .15s; user-select:none;
+      display:inline-flex; align-items:center; gap:.3rem;
+      padding:.18rem .55rem; border-radius:14px;
+      border:1.5px solid #dee2e6; cursor:pointer;
+      font-size:.76rem; transition:all .12s; user-select:none; white-space:nowrap;
     }
     .atendente-multi-chip:hover { border-color:#1a73e8; background:#f0f4ff; }
-    .atendente-multi-chip.selected { border-color:#1a73e8; background:#e8f0fe; font-weight:600; }
-    .atendente-multi-chip .dot { width:10px; height:10px; border-radius:50%; flex-shrink:0; }
+    .atendente-multi-chip.selected { border-color:#1a73e8; background:#e8f0fe; font-weight:700; }
+    .atendente-multi-chip .dot { width:8px; height:8px; border-radius:50%; flex-shrink:0; }
     .atendentes-multi-wrap.is-invalid { border:2px solid #dc3545 !important; border-radius:6px; padding:2px; }
     .form-control.is-invalid, .form-select.is-invalid { border-color:#dc3545 !important; box-shadow:0 0 0 .2rem rgba(220,53,69,.15) !important; }
 
@@ -517,14 +517,14 @@ $user_id_sessao = (int)($_SESSION['user_id'] ?? 0);
           </div>
           <div class="col-md-6" id="campo-atendentes">
             <label class="form-label" id="label-atendente">Atendentes <span class="text-danger">*</span></label>
-            <!-- Single: chamado/requisição -->
-            <select class="form-select" id="ev-atendente">
+            <!-- Dropdown oculto (mantido para compatibilidade de leitura) -->
+            <select class="form-select" id="ev-atendente" style="display:none">
               <option value="">Selecione...</option>
             </select>
-            <!-- Multi: evento/reunião -->
-            <div id="ev-atendentes-multi" style="display:none">
+            <!-- Chips — usados para todos os tipos -->
+            <div id="ev-atendentes-multi">
               <div id="lista-atendentes-multi" class="atendentes-multi-wrap"></div>
-              <small class="text-muted">Clique para selecionar um ou mais atendentes</small>
+              <small class="text-muted" style="font-size:.7rem">Clique para selecionar</small>
             </div>
           </div>
           <div class="col-md-6" id="campo-requerente">
@@ -1562,8 +1562,15 @@ function ajustarCamposPorTipo() {
 
   // Prioridade: oculta em reunião e evento
   document.getElementById('campo-prioridade').style.display  = (reuniao || evento) ? 'none' : '';
-  // Atendentes: oculta apenas em evento
-  document.getElementById('campo-atendentes').style.display  = evento ? 'none' : '';
+  // Atendentes: oculta apenas em evento; ajusta largura por tipo
+  const atCampo = document.getElementById('campo-atendentes');
+  atCampo.style.display = evento ? 'none' : '';
+  // Chamado/Requisição → col-md-6 (ao lado da Entidade); Reunião → col-12 (linha inteira)
+  atCampo.className = atCampo.className.replace(/\bcol-\S+/g, '').trim()
+    + (isChamado ? ' col-md-6' : ' col-12');
+  // Chips sempre visíveis, dropdown sempre oculto
+  document.getElementById('ev-atendente').style.display        = 'none';
+  document.getElementById('ev-atendentes-multi').style.display = '';
   // Entidade, Requerente, Categoria e Origem: apenas em chamado e requisição
   document.getElementById('campo-entidade').style.display   = isChamado ? '' : 'none';
   document.getElementById('campo-requerente').style.display = isChamado ? '' : 'none';
@@ -2070,13 +2077,11 @@ function salvarEvento() {
     const _desc     = document.getElementById('ev-descricao').value.trim();
     const _entId    = document.getElementById('ev-entidade').selectedOptions[0]?.dataset?.id || '';
     const _reqId    = document.getElementById('ev-requerente').selectedOptions[0]?.dataset?.id || '';
-    // chamado/requisicao usa o select único; reunião/evento usa multi-chips
-    const _temAtend = isChamadoOuReq
-      ? !!document.getElementById('ev-atendente').value
-      : multiSel.length > 0;
+    // Todos os tipos usam chips — verifica multiSel
+    const _temAtend = multiSel.length > 0;
     if (!_desc)     { errosVal.push('Descrição');  marcarInvalido('ev-descricao'); }
     if (!_entId)    { errosVal.push('Entidade');   marcarInvalido('ev-entidade'); }
-    if (!_temAtend) { errosVal.push('Atendente');  marcarInvalido(isChamadoOuReq ? 'ev-atendente' : 'lista-atendentes-multi'); }
+    if (!_temAtend) { errosVal.push('Atendente');  marcarInvalido('lista-atendentes-multi'); }
     if (!_reqId)    { errosVal.push('Requerente'); marcarInvalido('ev-requerente'); }
   }
 
