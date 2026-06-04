@@ -526,7 +526,6 @@ $user_id_sessao = (int)($_SESSION['user_id'] ?? 0);
             </select>
             <div id="ev-atendentes-multi">
               <div id="lista-atendentes-multi" class="atendentes-multi-wrap"></div>
-              <small class="text-muted" style="font-size:.68rem;white-space:nowrap">Clique para selecionar</small>
             </div>
           </div>
           <div class="col-md-6" id="campo-requerente">
