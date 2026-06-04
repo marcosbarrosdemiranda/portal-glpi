@@ -169,9 +169,13 @@ $user_id_sessao = (int)($_SESSION['user_id'] ?? 0);
     #campos-evento .col-md-6 > .form-control,
     #campos-evento .col-inline > .form-control,
     #campos-evento .col-inline > .form-select { flex: 1; }
-    /* Exceções: atendentes e entidade/loja ficam em coluna (mais complexos) */
-    #campo-atendentes { flex-direction: column; align-items: flex-start; }
-    #campo-atendentes > .form-label { width: auto; text-align: left; margin-bottom: .3rem; }
+    /* Atendentes: label + chips na mesma linha */
+    #campo-atendentes { display:flex !important; flex-direction:row !important;
+                        align-items:center; flex-wrap:wrap; gap:.4rem; }
+    #campo-atendentes > .form-label { margin-bottom:0 !important; white-space:nowrap; flex-shrink:0; }
+    #ev-atendentes-multi { display:flex !important; flex-direction:row !important;
+                           align-items:center; flex-wrap:wrap; gap:.3rem; flex:1; }
+    .atendentes-multi-wrap { margin-bottom:0 !important; }
     /* Descrição, followups e concluído ficam em coluna */
     #campo-followups,
     .col-descricao,
@@ -516,15 +520,13 @@ $user_id_sessao = (int)($_SESSION['user_id'] ?? 0);
             </select>
           </div>
           <div class="col-md-6" id="campo-atendentes">
-            <label class="form-label" id="label-atendente">Atendentes <span class="text-danger">*</span></label>
-            <!-- Dropdown oculto (mantido para compatibilidade de leitura) -->
+            <label class="form-label mb-0" id="label-atendente">Atendentes <span class="text-danger">*</span></label>
             <select class="form-select" id="ev-atendente" style="display:none">
               <option value="">Selecione...</option>
             </select>
-            <!-- Chips — usados para todos os tipos -->
             <div id="ev-atendentes-multi">
               <div id="lista-atendentes-multi" class="atendentes-multi-wrap"></div>
-              <small class="text-muted" style="font-size:.7rem">Clique para selecionar</small>
+              <small class="text-muted" style="font-size:.68rem;white-space:nowrap">Clique para selecionar</small>
             </div>
           </div>
           <div class="col-md-6" id="campo-requerente">
