@@ -1,5 +1,28 @@
 ﻿# Timeline de Atividades Macro
 
+## [2026-06-03] — Sessão 3 — 9 melhorias na Agenda + Git + Obsidian
+- **Tipo:** fix + feat + infra
+- **Arquivos alterados:** `agenda/index.php`, `glpi_doc_proxy.php`, `agenda/config.php`, `debug_proxy.php`
+- **Arquivos novos:** `.gitignore`, `agenda/config.example.php`, `.obsidian/`
+
+### Correções e Funcionalidades
+1. **Preview de imagens no modal de resposta** — DOM puro em vez de innerHTML+= (fix)
+2. **Ctrl+V duplicava anexo** — stopPropagation no listener do textarea (fix)
+3. **Lupa/lightbox não abria** — mesma causa do bug 1 (fix)
+4. **Evento aparecia em "Todos"** — auto-atribui criador como atendente quando tipo=evento (feat)
+5. **Anexos do histórico sumindo** — proxy reescrito para ler arquivo direto do disco via XAMPP (fix crítico)
+6. **Validação obrigatória** — Entidade, Atendente, Requerente, Descrição com feedback visual (feat)
+7. **Gabarito de entidades** — aliases visuais (Lj 001, Lj 010, etc.) sem alterar GLPI (feat)
+8. **Duração livre** — select 15min→8h no modal; eventos ocupam espaço correto na grade (feat + fix crítico)
+   - Causa do bug visual: `.fc-event { position: relative !important }` colapsava o card para 25px
+9. **Repositório Git** — criado e publicado em github.com/marcosbarrosdemiranda/portal-glpi
+
+### Infraestrutura
+- Obsidian configurado como wiki do projeto (`.obsidian/` com plugins, graph e filtros)
+- `GLPI_ABSPATH = C:/xampp/htdocs/glpi2` adicionado ao config
+
+---
+
 ## [2026-06-02] — Sessão 2 — Paste de imagem + bug evento verde sumindo
 - **Tipo:** fix + feat
 - **Arquivo alterado:** `agenda/index.php`

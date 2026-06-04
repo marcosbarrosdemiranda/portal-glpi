@@ -1,0 +1,22 @@
+{
+  "monospaceFont": "",
+  "defaultViewMode": "preview",
+  "foldHeading": false,
+  "spellcheck": false,
+  "spellcheckLanguages": [
+    "pt-BR"
+  ],
+  "promptDelete": true,
+  "trashOption": "local",
+  "legacyEditor": false,
+  "livePreview": true,
+  "showInlineTitle": true,
+  "showRibbonCommands": true,
+  "userIgnoreFilters": [
+    "agenda",
+    "assets",
+    "portal",
+    "Documentação e Backup do Projeto Data 01-06-26",
+    ".claude"
+  ]
+}
