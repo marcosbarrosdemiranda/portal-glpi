@@ -20,7 +20,7 @@
 | 📚 Área do Conhecimento | 🔴 Pendente | ~20% |
 | 🔧 Infraestrutura | 🟡 Em andamento | ~60% |
 | 🏭 Ferramentas ERP | 🟡 Em andamento | ~50% |
-| 📁 Projetos | 🟡 Em andamento | ~40% |
+| 📁 Projetos | 🟡 Em andamento | ~75% |
 | 👥 Equipe | 🟡 Em andamento | ~50% |
 | 💰 Orçamento | 🟡 Em andamento | ~40% |
 | 📄 Contratos | 🟡 Em andamento | ~50% |
@@ -194,18 +194,23 @@
 ---
 
 ## 📁 Módulo 9 — Projetos
-> Gestão de projetos de TI com status, responsáveis e prazo.
+> Gestão de projetos de TI com visualização de timeline e progresso por módulo.
 
 - [x] CRUD básico de projetos
 - [x] Status (planejado, em andamento, concluído)
+- [x] Portal lê arquivos `.md` do Obsidian automaticamente (`Docs/wiki/projects/`)
+- [x] Parser PHP de markdown — extrai módulos, tarefas e cronograma
+- [x] Timeline Gantt semanal com barra de "hoje" e cores por etapa
+- [x] Progresso calculado em tempo real dos checkboxes do markdown
+- [x] Módulos colapsáveis com lista de tarefas (✅ concluída / ⭕ pendente)
+- [x] Badge Obsidian com link para o arquivo fonte e horário de leitura
+- [x] Suporte a múltiplos projetos (nav por abas)
 
 ### Pendente
-- [ ] Migrar de localStorage para banco de dados MySQL
-- [ ] Responsável e co-responsáveis por projeto
-- [ ] Prazo e % de conclusão
-- [ ] Tarefas dentro de cada projeto
-- [ ] Vinculação de chamados a projetos
-- [ ] Timeline/Gantt básico
+- [ ] Responsável e co-responsáveis por projeto (campo no markdown)
+- [ ] Vinculação de chamados GLPI a projetos
+- [ ] Filtro por módulo / status na view do portal
+- [ ] Exportação do projeto como PDF
 
 ---
 
