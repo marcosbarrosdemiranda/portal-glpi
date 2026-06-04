@@ -124,8 +124,37 @@ Adicionado ao PRD com 4 seções e 14 tarefas:
 
 ---
 
+---
+
+## Horários de Plantão — Destaque Visual na Grade
+
+### Implementação
+- Adicionado destaque visual (fundo cinza claro `#f5f3f1`) nas células dos horários de plantão
+- Períodos destacados: 06-07h, 11-13h, 17-22h
+- Geração via JS dinâmico: injeta `<style>` com regras `.fc-timegrid-slot[data-time="..."]` 
+  para cada slot de 30 min dentro dos ranges definidos
+- Se adapta automaticamente à granularidade dos slots (30 min)
+- Zero impacto em performance — executa uma vez após `calendar.render()`
+- Constante `RANGES` facilmente editável no código para adicionar/remover períodos
+
+### Arquivo modificado
+| Arquivo | Alteração | Status |
+|---------|-----------|--------|
+| `agenda/index.php` | Injeção de CSS plantonista após `calendar.render()` (linha 997) | ✅ CONGELADO |
+
+---
+
 ## Pendências em aberto
 1. **Equipe** — `search/Ticket` ainda retorna 0 chamados para todos os técnicos.
    Debug necessário: criar `debug_equipe.php` temporário e inspecionar retorno da API.
 2. **Obsidian compartilhado** — pasta de rede para projetos de todos os técnicos
-   (pendência futura, registrada em memory).
+   (pendência futura, sem data — alterar `$pastaProj` em `projetos.php` quando definido).
+3. **Mobile (Módulo 15)** — aguardando início da implementação (prazo 03/07).
+
+## Ideias Anotadas
+1. **Agenda — Configurar ranges de plantão** futuramente via interface (select no topo da agenda)
+   em vez de código, permitindo que cada técnico defina seus próprios horários de plantão.
+2. **Cores diferentes por tipo de plantão** (ex: amarelo claro para almoço, cinza para após-expediente)
+   para tornar a grade ainda mais informativa.
+3. **Badge "Plantão"** nos eventos criados dentro desses horários, indicando visualmente que
+   foi um atendimento de plantão.

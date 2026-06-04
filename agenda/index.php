@@ -993,6 +993,27 @@ document.addEventListener('DOMContentLoaded', function() {
   });
 
   calendar.render();
+
+  // ── Destaque visual: horários de plantão (fundo cinza claro na grade) ──
+  // As células dos horários 06-07h, 11-13h e 17-22h recebem fundo cinza
+  // para indicar períodos cobertos por plantonistas.
+  // Gera via JS para acompanhar a granularidade dos slots (30 min).
+  (function() {
+    const RANGES = [[6,7],[11,13],[17,22]];
+    const pad = n => String(n).padStart(2,'0');
+    const style = document.createElement('style');
+    style.id = 'plantonista-slots';
+    let css = '/* Plantonista hours */\n';
+    for (const [s,e] of RANGES) {
+      for (let h = s; h < e; h++) {
+        css += `.fc-timegrid-slot[data-time="${pad(h)}:00:00"],.fc-timegrid-slot[data-time="${pad(h)}:30:00"],`;
+      }
+    }
+    css = css.replace(/,$/,'') + '{background:#f5f3f1!important}';
+    style.textContent = css;
+    document.head.appendChild(style);
+  })();
+
   carregarAtendentes();
   // verificarAtrasados → syncRotinas → refetchEvents + carregarTickets (sequencial)
   // evita race condition onde refetchEvents do verificar removeria rotinas recém-inseridas
