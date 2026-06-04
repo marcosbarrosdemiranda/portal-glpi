@@ -56,16 +56,18 @@ try {
                 $nome_tec = trim(($u['firstname'] ?? '') . ' ' . ($u['realname'] ?? ''));
                 if (!$nome_tec) $nome_tec = $u['name'] ?? 'Técnico';
 
-                // Buscar chamados abertos atribuídos ao técnico
-                $tickets = glpi_request('GET',
-                    'Ticket?range=0-200&expand_dropdowns=false' .
-                    '&searchText[status]=1&searchText[status]=2' .
-                    '&searchText[_users_id_assign]=' . $u['id'],
-                    $hdrs
-                );
+                // Buscar chamados abertos atribuídos ao técnico via Search API
+                // field=5 = técnico atribuído | field=12 = status | lessthan 5 = não resolvido/fechado
+                $search = 'search/Ticket' .
+                    '?criteria[0][field]=5&criteria[0][searchtype]=equals&criteria[0][value]=' . $u['id'] .
+                    '&criteria[1][link]=AND&criteria[1][field]=12&criteria[1][searchtype]=lessthan&criteria[1][value]=5' .
+                    '&range=0-0';
+                $tickets     = glpi_request('GET', $search, $hdrs);
                 $qtd_abertos = 0;
-                if (!empty($tickets['data']) && is_array($tickets['data'])) {
-                    $qtd_abertos = count($tickets['data']);
+                if (isset($tickets['data']['totalcount'])) {
+                    $qtd_abertos = (int) $tickets['data']['totalcount'];
+                } elseif (!empty($tickets['data']['data']) && is_array($tickets['data']['data'])) {
+                    $qtd_abertos = $tickets['data']['count'] ?? count($tickets['data']['data']);
                 }
 
                 $tecnicos[] = [

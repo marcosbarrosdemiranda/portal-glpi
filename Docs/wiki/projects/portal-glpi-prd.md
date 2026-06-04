@@ -31,6 +31,7 @@
 
 ## 📅 Módulo 1 — Agenda de Atendimentos
 > Agenda semanal com integração total ao GLPI. Técnicos agendam, arrastam e fecham chamados diretamente.
+> **Prazo:** 10/06/2026
 
 ### Funcionalidades Core
 - [x] Visualização semanal e mensal
@@ -71,6 +72,7 @@
 
 ## 🎫 Módulo 2 — Abertura de Chamado
 > Formulário completo de abertura de chamado com integração direta ao GLPI.
+> **Prazo:** 10/06/2026
 
 - [x] Modal de criação no portal
 - [x] Seleção de entidade/loja (aliases visuais)
@@ -89,6 +91,7 @@
 
 ## 📋 Módulo 3 — Histórico de Chamados
 > Visualização completa do histórico de um chamado: followups, anexos e status.
+> **Prazo:** 10/06/2026
 
 - [x] Listagem de chamados abertos
 - [x] Detalhe do chamado (descrição, entidade, categoria, requerente)
@@ -108,6 +111,7 @@
 
 ## 📊 Módulo 4 — Painel de Relatórios
 > Indicadores de desempenho da equipe de TI com foco em SLA e produtividade.
+> **Prazo:** 17/06/2026
 
 - [x] Aba Monitor SLA (semáforo por urgência)
 - [x] Chamados em atraso destacados em vermelho
@@ -126,6 +130,7 @@
 
 ## 🖥️ Módulo 5 — Inventário
 > Inventário de equipamentos da rede com dados detalhados via GLPI e status online/offline.
+> **Prazo:** 17/06/2026
 
 - [x] Listagem de todos os equipamentos
 - [x] Status online/offline em tempo real (ping TCP/ICMP)
@@ -146,6 +151,7 @@
 
 ## 📚 Módulo 6 — Área do Conhecimento
 > Base de conhecimento interna da equipe com artigos, procedimentos e tutoriais.
+> **Prazo:** 01/07/2026
 
 - [ ] Listagem de artigos por categoria
 - [ ] Busca por palavra-chave
@@ -160,6 +166,7 @@
 
 ## 🔧 Módulo 7 — Infraestrutura
 > Acesso centralizado às ferramentas de infraestrutura de rede e servidores.
+> **Prazo:** 01/07/2026
 
 ### Acesso Remoto
 - [x] RDP — gera arquivo .rdp com hostname configurado
@@ -184,6 +191,7 @@
 
 ## 🏭 Módulo 8 — Ferramentas ERP
 > Acesso rápido às ferramentas de gestão do grupo (SAP, Totvs, etc.).
+> **Prazo:** 01/07/2026
 
 - [x] Cards configuráveis por URL
 - [x] Agrupamento por categoria
@@ -195,6 +203,7 @@
 
 ## 📁 Módulo 9 — Projetos
 > Gestão de projetos de TI com visualização de timeline e progresso por módulo.
+> **Prazo:** 24/06/2026
 
 - [x] CRUD básico de projetos
 - [x] Status (planejado, em andamento, concluído)
@@ -216,6 +225,7 @@
 
 ## 👥 Módulo 10 — Equipe
 > Visão da equipe de TI com carga de trabalho e disponibilidade.
+> **Prazo:** 24/06/2026
 
 - [x] Listagem dos técnicos via GLPI API
 - [x] Foto e informações básicas
@@ -230,6 +240,7 @@
 
 ## 💰 Módulo 11 — Orçamento
 > Controle de orçamento do departamento de TI.
+> **Prazo:** 24/06/2026
 
 - [x] CRUD básico de itens de orçamento
 
@@ -245,6 +256,7 @@
 
 ## 📄 Módulo 12 — Contratos
 > Gestão de contratos de TI com alertas de vencimento.
+> **Prazo:** 24/06/2026
 
 - [x] CRUD de contratos
 - [x] Alertas visuais de vencimento
@@ -260,6 +272,7 @@
 
 ## 🔑 Módulo 13 — Licenças de Software
 > Controle de licenças de software instaladas via GLPI.
+> **Prazo:** 01/07/2026
 
 - [x] Listagem de licenças via GLPI API
 
@@ -274,6 +287,7 @@
 
 ## 🔒 Módulo 14 — Cofre TI
 > Cofre seguro para senhas, comandos, links e documentações críticas da TI.
+> **Prazo:** 01/07/2026
 
 - [x] CRUD completo com criptografia AES-256-CBC
 - [x] Categorias (Senha, Comando, Documentação, Link, Outro)
