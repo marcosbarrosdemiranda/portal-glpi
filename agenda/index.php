@@ -279,7 +279,11 @@ $user_id_sessao = (int)($_SESSION['user_id'] ?? 0);
     /* Badge de concluído na beirada */
     .ev-check-badge { position:absolute; top:-6px; right:-6px; width:18px; height:18px; background:#fff; border-radius:50%; display:flex; align-items:center; justify-content:center; box-shadow:0 1px 4px rgba(0,0,0,.3); }
     .ev-check-badge i { font-size:.7rem; color:#1e8e3e; font-weight:900; }
-    .fc-event { position: relative !important; }
+    /* REMOVIDO: .fc-event { position: relative !important; }
+       Essa regra sobrescrevia o position:absolute do FullCalendar nos eventos
+       do timeGrid, fazendo o card colapsar para 25px (tamanho do conteúdo)
+       em vez de preencher o harness corretamente (ex: 150px para 3h). */
+    .fc-event { overflow: visible !important; }
 
     /* Multi-select de atendentes no modal */
     .atendentes-multi-wrap { display:flex; flex-wrap:wrap; gap:.4rem; margin-bottom:.3rem; }
@@ -485,13 +489,27 @@ $user_id_sessao = (int)($_SESSION['user_id'] ?? 0);
           </div>
           <div class="col-md-4">
             <label class="form-label">Início <span class="text-danger">*</span></label>
-            <input type="datetime-local" class="form-control" id="ev-start"/>
+            <input type="datetime-local" class="form-control" id="ev-start" oninput="aoMudarInicio()"/>
           </div>
-          <div class="col-md-4">
-            <label class="form-label">Fim <span class="text-danger">*</span></label>
-            <input type="datetime-local" class="form-control" id="ev-end"/>
+          <div class="col-md-3">
+            <label class="form-label">Duração</label>
+            <select class="form-select" id="ev-duracao" onchange="aoMudarDuracao()">
+              <option value="900000">15 min</option>
+              <option value="1800000" selected>30 min</option>
+              <option value="3600000">1 hora</option>
+              <option value="5400000">1h 30min</option>
+              <option value="7200000">2 horas</option>
+              <option value="10800000">3 horas</option>
+              <option value="14400000">4 horas</option>
+              <option value="28800000">8 horas</option>
+              <option value="0">Personalizado</option>
+            </select>
           </div>
-          <div class="col-md-4" id="campo-entidade">
+          <div class="col-md-5">
+            <label class="form-label" id="label-fim">Fim <span class="text-danger">*</span></label>
+            <input type="datetime-local" class="form-control" id="ev-end" oninput="aoMudarFim()"/>
+          </div>
+          <div class="col-md-6" id="campo-entidade">
             <label class="form-label">Entidade <span class="text-danger">*</span></label>
             <select class="form-select" id="ev-entidade">
               <option value="">---</option>
@@ -961,6 +979,7 @@ document.addEventListener('DOMContentLoaded', function() {
                ${checkBadge}`
       };
     },
+
   });
 
   calendar.render();
@@ -981,11 +1000,16 @@ function carregarEventos(info, success) {
         const concluido = !!e.concluido;
         const atrasado  = estaAtrasado(e.end, concluido);
         const cor = corDoEvento(e.tipo, concluido, atrasado);
+        // FullCalendar 6 exige formato ISO 8601 com 'T' para interpretar como
+        // horário LOCAL. Sem o 'T', o parser trata como UTC → end fica errado
+        // e o evento colapsa para a altura mínima do slot (parecendo 30 min).
+        const fcStart = (e.start || '').replace(' ', 'T');
+        const fcEnd   = (e.end   || e.start || '').replace(' ', 'T');
         return {
           id: e.id,
           title: e.titulo,
-          start: e.start,
-          end: e.end || e.start,
+          start: fcStart,
+          end:   fcEnd,
           backgroundColor: cor.bg,
           borderColor: cor.border,
           // ⚠️ REGRA PROTEGIDA — NÃO ALTERAR SEM PERMISSÃO DO RESPONSÁVEL ⚠️
@@ -1342,7 +1366,9 @@ function salvarEventoObjAsync(dados) {
 
 // Duração padrão em ms por tipo
 function duracaoPadrao(tipo) {
-  return (tipo === 'chamado' || tipo === 'reuniao') ? 30 * 60 * 1000 : 15 * 60 * 1000;
+  if (tipo === 'reuniao')                              return 60 * 60 * 1000;  // 1 hora
+  if (tipo === 'chamado' || tipo === 'requisicao')     return 30 * 60 * 1000;  // 30 min
+  return 30 * 60 * 1000;                                                        // evento: 30 min
 }
 
 // ──────────────────────────────────────────
@@ -1376,10 +1402,9 @@ function abrirModalEvento(dataStr) {
   setModoLeitura(false); // novo evento sempre em modo edição
 
   const now = dataStr ? new Date(dataStr) : new Date();
-  // Evento e Requisição = 15 min padrão (tipo padrão é 'evento')
-  const end = new Date(now.getTime() + duracaoPadrao('evento'));
-  document.getElementById('ev-start').value = toDatetimeLocal(now);
-  document.getElementById('ev-end').value   = toDatetimeLocal(end);
+  document.getElementById('ev-start').value  = toDatetimeLocal(now);
+  document.getElementById('ev-duracao').value = String(duracaoPadrao('chamado')); // 30 min padrão
+  aoMudarInicio(); // calcula ev-end = start + duração
 
   modalEvento.show();
 }
@@ -1390,8 +1415,15 @@ function preencherModal(dados) {
   document.getElementById('ev-ticket-id').value = dados.ticket_id || '';
   document.getElementById('ev-titulo').value    = dados.titulo || '';
   document.getElementById('ev-orig-start').value = dados.start || '';
-  document.getElementById('ev-start').value      = toDatetimeLocal(new Date(dados.start));
-  document.getElementById('ev-end').value       = toDatetimeLocal(new Date(dados.end || dados.start));
+  document.getElementById('ev-start').value = toDatetimeLocal(new Date(dados.start));
+  document.getElementById('ev-end').value   = toDatetimeLocal(new Date(dados.end || dados.start));
+  // Sincroniza o select de duração com a diferença real do evento
+  (function() {
+    const diffMs = new Date(dados.end || dados.start).getTime() - new Date(dados.start).getTime();
+    const sel    = document.getElementById('ev-duracao');
+    const match  = diffMs > 0 && Array.from(sel.options).find(o => +o.value === diffMs);
+    sel.value = match ? match.value : (diffMs > 0 ? '0' : String(duracaoPadrao(dados.tipo || 'chamado')));
+  })();
   document.getElementById('ev-prioridade').value  = dados.prioridade || 'media';
   document.getElementById('ev-tipo').value         = dados.tipo || 'chamado';
   document.getElementById('ev-setor').value        = dados.setor || '';
@@ -1500,8 +1532,11 @@ function preencherModal(dados) {
       .catch(() => {});
   }
 
-  // Atualiza modo single/multi e chips
-  ajustarDuracaoPorTipo();
+  // Atualiza modo single/multi e chips (NÃO chama ajustarDuracaoPorTipo aqui —
+  // a duração e o ev-end já foram sincronizados pela IIFE acima com os dados reais do evento)
+  document.getElementById('ev-atendente').style.display        = 'none';
+  document.getElementById('ev-atendentes-multi').style.display = '';
+  document.getElementById('label-atendente').innerHTML = 'Atendentes <span class="text-danger">*</span>';
   const selecionados = dados.atendentes_lista || (dados.atendente ? [dados.atendente] : []);
   renderAtendentesMulti(selecionados);
 }
@@ -1541,12 +1576,10 @@ function ajustarCamposPorTipo() {
 }
 
 function ajustarDuracaoPorTipo() {
-  const tipo  = document.getElementById('ev-tipo').value;
-  const start = document.getElementById('ev-start').value;
-  if (start) {
-    const end = new Date(new Date(start).getTime() + duracaoPadrao(tipo));
-    document.getElementById('ev-end').value = toDatetimeLocal(end);
-  }
+  const tipo = document.getElementById('ev-tipo').value;
+  // Reseta o select de duração para o padrão do tipo e recalcula o Fim
+  document.getElementById('ev-duracao').value = String(duracaoPadrao(tipo));
+  aoMudarInicio();
   // Sempre usa multi-select para todos os tipos
   document.getElementById('ev-atendente').style.display         = 'none';
   document.getElementById('ev-atendentes-multi').style.display  = '';
@@ -1942,6 +1975,39 @@ function habilitarEdicao() {
   setModoLeitura(false);
 }
 
+// ── Controle de Duração ───────────────────────────────────────────────────────
+// aoMudarInicio: recalcula Fim mantendo a duração selecionada
+function aoMudarInicio() {
+  const dur = parseInt(document.getElementById('ev-duracao').value);
+  if (dur > 0) {
+    const start = document.getElementById('ev-start').value;
+    if (start) {
+      document.getElementById('ev-end').value =
+        toDatetimeLocal(new Date(new Date(start).getTime() + dur));
+    }
+  }
+}
+
+// aoMudarDuracao: ao trocar o select de duração, recalcula Fim
+function aoMudarDuracao() {
+  const dur = parseInt(document.getElementById('ev-duracao').value);
+  // "Personalizado" (0): o usuário digita o Fim manualmente — deixa como está
+  if (dur > 0) aoMudarInicio();
+}
+
+// aoMudarFim: quando o usuário edita o Fim manualmente, marca como Personalizado
+// e atualiza o select para refletir o novo valor (se coincidir com opção padrão)
+function aoMudarFim() {
+  const start = document.getElementById('ev-start').value;
+  const end   = document.getElementById('ev-end').value;
+  if (!start || !end) return;
+  const diffMs = new Date(end).getTime() - new Date(start).getTime();
+  if (diffMs <= 0) return;
+  const sel    = document.getElementById('ev-duracao');
+  const match  = Array.from(sel.options).find(o => +o.value === diffMs);
+  sel.value = match ? match.value : '0'; // 0 = Personalizado
+}
+
 // ── Helpers de validação do modal ────────────────────────────────────────────
 function limparValidacao() {
   document.querySelectorAll('#campos-evento .is-invalid').forEach(el => el.classList.remove('is-invalid'));
@@ -1970,9 +2036,12 @@ function mostrarErroModal(erros) {
 function salvarEvento() {
   const titulo   = document.getElementById('ev-titulo').value.trim();
   const start    = document.getElementById('ev-start').value;
-  const end      = document.getElementById('ev-end').value;
   const tipo     = document.getElementById('ev-tipo').value;
   const multiSel = getAtendentesMultiSelecionados();
+
+  // Garante que o ev-end esteja atualizado com a duração selecionada antes de qualquer leitura
+  aoMudarInicio();
+  const end = document.getElementById('ev-end').value;
 
   // ── Validação de campos obrigatórios ──────────────────────────────────
   limparValidacao();
