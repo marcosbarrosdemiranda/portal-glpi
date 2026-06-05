@@ -819,7 +819,7 @@ document.addEventListener('DOMContentLoaded', function() {
     },
     height: '100%',
     nowIndicator: true,
-    slotMinTime: '06:00:00',
+    slotMinTime: '05:00:00',
     slotMaxTime: '23:00:00',
     slotDuration: '00:15:00',
     slotLabelInterval: '00:30:00',
@@ -1075,6 +1075,7 @@ function eventosFiltrados() {
   //   - Eventos (ativos ou concluídos) só aparecem na agenda do atendente que os possui.
   //   - Concluídos sem atendente (histórico) aparecem apenas para o usuário logado.
   //   - NUNCA mostrar eventos de um atendente na agenda de outro.
+  //   - Eventos tipo "evento" são pessoais — só aparecem na agenda de quem criou
   if (filtroAtendente) {
     return todosEventos.filter(e => {
       if (e.extendedProps.atendente === filtroAtendente) return true;
@@ -1085,18 +1086,26 @@ function eventosFiltrados() {
     });
   }
 
-  // Visão "Todos" → agrupa eventos do mesmo ticket_id em um só
-  // Primeiro: ignora eventos sem atendente se já existe versão com atendente do mesmo ticket
+  // Visão "Todos"
+  // Regras:
+  //   1. Eventos tipo "evento" são pessoais → não aparecem em "Todos"
+  //   2. Chamados com MESMO ticket + MESMO horário → agrupa (multi-atendente)
+  //   3. Chamados com MESMO ticket + HORÁRIOS diferentes → exibe separadamente (multi-período)
+
+  // Filtra eventos pessoais (tipo "evento") — só aparecem na agenda do dono
+  const eventosVisiveis = todosEventos.filter(e => e.extendedProps.tipo !== 'evento');
+
+  // Ignora eventos sem atendente se já existe versão com atendente do mesmo ticket
   const ticketsComAtendente = new Set(
-    todosEventos
+    eventosVisiveis
       .filter(e => e.extendedProps.ticket_id && e.extendedProps.atendente)
       .map(e => e.extendedProps.ticket_id)
   );
 
-  const vistos    = {}; // ticket_id → índice no resultado
+  const vistos    = {}; // "ticket_id|start" → índice no resultado
   const resultado = [];
 
-  for (const ev of todosEventos) {
+  for (const ev of eventosVisiveis) {
     const tid = ev.extendedProps.ticket_id;
 
     // Ignora eventos sem atendente se já existe versão com atendente do mesmo ticket
@@ -1108,9 +1117,14 @@ function eventosFiltrados() {
       continue;
     }
 
-    if (vistos[tid] !== undefined) {
-      // Já existe — marca como multi-atendente e acumula nomes
-      const base = resultado[vistos[tid]];
+    // Agrupa por ticket_id + horário de início
+    // Isso separa chamados com múltiplos períodos (cada período aparece no seu horário)
+    // e agrupa apenas eventos do mesmo chamado no mesmo horário (multi-atendente)
+    const key = tid + '|' + (ev.start || '');
+
+    if (vistos[key] !== undefined) {
+      // Mesmo período — marca como multi-atendente e acumula nomes
+      const base = resultado[vistos[key]];
       if (!base.extendedProps.multi) {
         base.extendedProps.multi      = true;
         base.extendedProps.atendentes = [base.extendedProps.atendente].filter(Boolean);
@@ -1119,10 +1133,10 @@ function eventosFiltrados() {
         base.extendedProps.atendentes.push(ev.extendedProps.atendente);
       }
     } else {
-      // Primeiro evento deste ticket
+      // Primeiro evento deste ticket NESTE horário
       const clone = JSON.parse(JSON.stringify(ev));
       clone.extendedProps.multi = false;
-      vistos[tid] = resultado.length;
+      vistos[key] = resultado.length;
       resultado.push(clone);
     }
   }
@@ -1481,8 +1495,9 @@ function preencherModal(dados) {
 
         // Entidade: options têm data-id → busca por ID numérico (evita mismatch de HTML entities)
         // Se a entidade não estiver na lista (ex: Entidade raiz excluída), insere dinamicamente
+        // ⚠️ d.entidade_id pode ser 0 (entidade raiz) — NÃO usar if (d.entidade_id) pois 0 é falsy
         const selEnt = document.getElementById('ev-entidade');
-        if (selEnt && d.entidade_id) {
+        if (selEnt && d.entidade_id !== undefined && d.entidade_id !== null) {
           const opt = selEnt.querySelector(`option[data-id="${d.entidade_id}"]`);
           if (opt) {
             selEnt.value = opt.value;
@@ -1906,8 +1921,16 @@ function mostrarSalvarSeConcluido() {
 function toggleFecharGlpi() {
   const concluido = document.getElementById('ev-concluido').checked;
   const temTicket = !!document.getElementById('ev-ticket-id').value;
-  document.getElementById('campo-fechar-glpi').style.display = (concluido && temTicket) ? '' : 'none';
-  if (!concluido) document.getElementById('ev-fechar-glpi').checked = false;
+  const campoFechar = document.getElementById('campo-fechar-glpi');
+  const fecharCheck = document.getElementById('ev-fechar-glpi');
+  if (concluido && temTicket) {
+    campoFechar.style.display = '';
+    // Auto-marca "Fechar GLPI" — concluir = fechar no GLPI por padrão
+    fecharCheck.checked = true;
+  } else {
+    campoFechar.style.display = 'none';
+    if (!concluido) fecharCheck.checked = false;
+  }
 }
 
 function atualizarPreviewCor() {
@@ -2334,7 +2357,8 @@ function salvarEventoObj(dados, cb) {
             tipo:          dados.tipo          || null,
             prioridade:    dados.prioridade    || null,
             categoria_id:  dados.categoria_id  || null,
-            entidade_id:   dados.entidade_id   || null,
+            // entities_id NÃO é enviado — entidade é definida na criação
+            // e NUNCA deve ser alterada por atualização da agenda
             requerente_id: dados.requerente_id || null,
             origem_id:     dados.origem_id     || null,
           }),

@@ -24,7 +24,12 @@ $descricao     = isset($body['descricao'])     && $body['descricao']     !== '' 
 $tipo          = isset($body['tipo'])          && $body['tipo']          !== '' ? $body['tipo']              : null;
 $prioridade    = isset($body['prioridade'])    && $body['prioridade']    !== '' ? $body['prioridade']        : null;
 $categoria_id  = isset($body['categoria_id'])  && $body['categoria_id']  ? (int)$body['categoria_id']       : null;
-$entidade_id   = isset($body['entidade_id'])   && $body['entidade_id']   ? (int)$body['entidade_id']        : null;
+// ⚠️ REGRA PROTEGIDA — NÃO ALTERAR SEM PERMISSÃO DO RESPONSÁVEL ⚠️
+// entidade_id é BLOQUEADO aqui: entidade é definida na criação do ticket
+// e NUNCA deve ser alterada por atualização da agenda.
+// Isso protege chamados de rotina (entidade raiz) de terem sua entidade alterada
+// inadvertidamente pelo modal da agenda.
+$entidade_id = null; // FORÇADO: sempre nulo — nunca enviar entities_id no PUT
 $requerente_id = isset($body['requerente_id']) && $body['requerente_id'] ? (int)$body['requerente_id']      : null;
 $origem_id     = isset($body['origem_id'])     && $body['origem_id']     ? (int)$body['origem_id']          : null;
 

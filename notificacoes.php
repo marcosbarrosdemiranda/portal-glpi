@@ -25,7 +25,7 @@ try {
         FROM glpi_tickets t
         LEFT JOIN glpi_entities e ON e.id = t.entities_id
         WHERE t.is_deleted = 0
-          AND t.status = 1
+          AND t.status IN (1, 2)  -- Novo ou Em atendimento (criado da agenda com técnico)
           AND t.date > ?
         ORDER BY t.date DESC
         LIMIT 20
