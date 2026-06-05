@@ -1,940 +1,1041 @@
 <?php
+/**
+ * Painel de Relatórios — BI Reformulado
+ * Frontend: ApexCharts + Count-up KPIs + Tema escuro profissional
+ * Backend: relatorios_dados.php (SQL direto via PDO, sem REST API)
+ */
 session_start();
 if (empty($_SESSION['autenticado'])) { header('Location: auth.php'); exit; }
 if (($_SESSION['perfil'] ?? '') === 'self-service') { header('Location: dashboard.php'); exit; }
 
-require_once __DIR__ . '/agenda/config.php';
+// ── Entities list for the filter dropdown ─────────────────────
+require_once __DIR__ . '/agenda/db.php';
+require_once __DIR__ . '/entidade_alias.php';
+$entidades_lista = [];
+try {
+    $st = $pdo->query("SELECT id, completename FROM glpi_entities WHERE id > 0 ORDER BY completename");
+    while ($r = $st->fetch()) {
+        $entidades_lista[] = ['id' => (int)$r['id'], 'nome' => apelido_entidade($r['completename'])];
+    }
+} catch (Exception $e) { /* fallback */ }
 
-// ── Busca dados do GLPI ─────────────────────────────────────────
-function glpi_api(string $endpoint, string $token): array {
-    $ch = curl_init(GLPI_URL . '/apirest.php/' . $endpoint);
-    curl_setopt_array($ch, [
-        CURLOPT_RETURNTRANSFER => true,
-        CURLOPT_TIMEOUT        => 20,
-        CURLOPT_HTTPHEADER     => ['Session-Token: '.$token, 'App-Token: '.GLPI_APP_TOKEN],
-    ]);
-    $r = json_decode(curl_exec($ch), true);
-    curl_close($ch);
-    return is_array($r) && !isset($r['ERROR']) ? $r : [];
-}
-
-// Abre sessão admin
-$auth  = base64_encode(GLPI_USER . ':' . GLPI_PASS);
-$ch    = curl_init(GLPI_URL . '/apirest.php/initSession');
-curl_setopt_array($ch, [CURLOPT_RETURNTRANSFER=>true, CURLOPT_HTTPHEADER=>['Authorization: Basic '.$auth,'App-Token: '.GLPI_APP_TOKEN]]);
-$r     = json_decode(curl_exec($ch), true); curl_close($ch);
-$token = $r['session_token'] ?? '';
-
-// Parâmetros de filtro
+$entidade_id = (int)($_GET['entidade_id'] ?? 0);
 $dt_ini = $_GET['dt_ini'] ?? date('Y-m-01');
 $dt_fim = $_GET['dt_fim'] ?? date('Y-m-d');
-$entidade_filtro = $_GET['entidade'] ?? '';
-
-// ── Search API: tickets do período + nome do técnico em uma chamada ──
-// Campos: 2=ID, 1=Título, 5=Técnico, 12=Status, 15=Abertura, 16=Fechamento,
-//         80=Entidade, 10=Urgência, 7=Categoria
-$fd = 'forcedisplay[0]=2&forcedisplay[1]=1&forcedisplay[2]=5&forcedisplay[3]=12' .
-      '&forcedisplay[4]=15&forcedisplay[5]=16&forcedisplay[6]=80&forcedisplay[7]=10&forcedisplay[8]=7';
-
-// Filtra abertura OU fechamento dentro do período (cobre abertos e fechados)
-$crit_periodo =
-    'criteria[0][field]=15&criteria[0][searchtype]=morethan&criteria[0][value]=' . urlencode($dt_ini . ' 00:00:00') .
-    '&criteria[1][link]=AND&criteria[1][field]=15&criteria[1][searchtype]=lessthan&criteria[1][value]=' . urlencode($dt_fim . ' 23:59:59');
-
-$sf = "$fd&$crit_periodo&range=0-1000&order=DESC&sort=15";
-$res_all = glpi_api("search/Ticket?$sf", $token);
-
-// Busca separada para chamados fechados no período (por closedate = field 16)
-$crit_fechados =
-    'criteria[0][field]=12&criteria[0][searchtype]=equals&criteria[0][value]=6' .
-    '&criteria[1][link]=AND&criteria[1][field]=16&criteria[1][searchtype]=morethan&criteria[1][value]=' . urlencode($dt_ini . ' 00:00:00') .
-    '&criteria[2][link]=AND&criteria[2][field]=16&criteria[2][searchtype]=lessthan&criteria[2][value]=' . urlencode($dt_fim . ' 23:59:59');
-$sf_fechados = "$fd&$crit_fechados&range=0-1000&order=DESC&sort=16";
-$res_fechados = glpi_api("search/Ticket?$sf_fechados", $token);
-
-// Evolução mensal: só precisa de ID, data de abertura (sem filtro de período)
-$sf_evolucao = 'forcedisplay[0]=2&forcedisplay[1]=15&range=0-2000&order=DESC&sort=15';
-$res_evolucao = glpi_api("search/Ticket?$sf_evolucao", $token);
-
-// SLA: mesmos campos, filtra apenas abertos (status notold = 1,2,3,4)
-$sf_sla = 'forcedisplay[0]=2&forcedisplay[1]=1&forcedisplay[2]=5&forcedisplay[3]=12' .
-          '&forcedisplay[4]=15&forcedisplay[5]=80&forcedisplay[6]=10' .
-          '&criteria[0][field]=12&criteria[0][searchtype]=equals&criteria[0][value]=notold' .
-          '&range=0-500&order=ASC&sort=15';
-$res_sla = glpi_api("search/Ticket?$sf_sla", $token);
-
-$entidades_raw = glpi_api('Entity?range=0-100', $token);
-
-// Encerra sessão
-$ch = curl_init(GLPI_URL . '/apirest.php/killSession');
-curl_setopt_array($ch, [CURLOPT_RETURNTRANSFER=>true, CURLOPT_HTTPHEADER=>['Session-Token: '.$token,'App-Token: '.GLPI_APP_TOKEN]]);
-curl_exec($ch); curl_close($ch);
-
-// ── Normaliza linha da Search API → array ticket ───────────────
-function norm_ticket(array $row): array {
-    $tec = $row[5] ?? '';
-    if (is_array($tec)) $tec = implode(', ', array_filter(array_map('trim', $tec)));
-    $cat = $row[7] ?? '';
-    if (is_array($cat)) $cat = implode(', ', array_filter(array_map('trim', $cat)));
-    return [
-        'id'          => (int)($row[2]  ?? 0),
-        'name'        => (string)($row[1]  ?? ''),
-        '_technician' => trim((string)$tec),
-        'status'      => (int)($row[12] ?? 0),
-        'date'        => (string)($row[15] ?? ''),
-        'closedate'   => (string)($row[16] ?? ''),
-        'entities_id' => (string)($row[80] ?? ''),
-        'urgency'     => (int)($row[10] ?? 3),
-        'categoria'   => trim((string)$cat) ?: '(Sem categoria)',
-    ];
-}
-
-// ── Normaliza resultados das buscas ───────────────────────────
-function norm_rows(array $res): array {
-    $out = [];
-    foreach ((array)($res['data'] ?? []) as $row) {
-        $t = norm_ticket($row);
-        if ($t['id']) $out[] = $t;
-    }
-    return $out;
-}
-
-$mapa_atendente_full = [];
-
-// Tickets do período (abertura dentro do range)
-$tickets_raw = norm_rows($res_all);
-foreach ($tickets_raw as $t) {
-    if ($t['_technician']) $mapa_atendente_full[$t['id']] = $t['_technician'];
-}
-
-// Tickets fechados no período (por closedate) — busca separada
-$fechados_raw = norm_rows($res_fechados);
-foreach ($fechados_raw as $t) {
-    if ($t['_technician']) $mapa_atendente_full[$t['id']] = $t['_technician'];
-}
-
-// SLA
-$sla_raw = norm_rows($res_sla);
-
-// ── Filtra $tickets_raw pela entidade ─────────────────────────
-// (data já filtrada pelo GLPI; só aplica filtro de entidade local)
-$tickets = array_values(array_filter($tickets_raw, function($t) use ($entidade_filtro) {
-    $ent = $t['entities_id'];
-    if ($ent === '' || strtolower($ent) === 'entidade raiz') return false;
-    if ($entidade_filtro && $ent !== $entidade_filtro) return false;
-    return true;
-}));
-$total = count($tickets);
-
-// ── Mapa atendente filtrado pelo período ──────────────────────
-$mapa_atendente = [];
-foreach ($tickets as $t) {
-    if ($t['_technician']) $mapa_atendente[$t['id']] = $t['_technician'];
-}
-
-// 1. Por atendente
-$por_atendente = [];
-foreach ($tickets as $t) {
-    $tec = $t['_technician'] ?: 'Sem atendente';
-    $por_atendente[$tec] = ($por_atendente[$tec] ?? 0) + 1;
-}
-arsort($por_atendente);
-
-// 2. Por entidade (loja)
-$por_entidade = [];
-foreach ($tickets as $t) {
-    $ent = $t['entities_id'] ?: 'Entidade raiz';
-    $por_entidade[$ent] = ($por_entidade[$ent] ?? 0) + 1;
-}
-arsort($por_entidade);
-
-// 3. Por categoria
-$por_categoria = [];
-foreach ($tickets as $t) {
-    $cat = $t['categoria'];
-    $por_categoria[$cat] = ($por_categoria[$cat] ?? 0) + 1;
-}
-arsort($por_categoria);
-
-// 4. Chamados FECHADOS no período (já filtrados pelo GLPI por closedate)
-$fechados = array_values(array_filter($fechados_raw, function($t) use ($entidade_filtro) {
-    $ent = $t['entities_id'];
-    if ($ent === '' || strtolower($ent) === 'entidade raiz') return false;
-    if ($entidade_filtro && $ent !== $entidade_filtro) return false;
-    return true;
-}));
-$total_fechados = count($fechados);
-
-$por_atendente_fechados = [];
-foreach ($fechados as $t) {
-    $tec = $t['_technician'] ?: 'Sem atendente';
-    $por_atendente_fechados[$tec] = ($por_atendente_fechados[$tec] ?? 0) + 1;
-}
-arsort($por_atendente_fechados);
-
-// 5. Por hora do dia
-$por_hora = array_fill(0, 24, 0);
-foreach ($tickets as $t) {
-    $hora = (int)substr($t['date'] ?? '00:00:00', 11, 2);
-    $por_hora[$hora]++;
-}
-
-// 5. Por dia da semana
-$por_dia = [0=>0,1=>0,2=>0,3=>0,4=>0,5=>0,6=>0];
-foreach ($tickets as $t) {
-    if (!empty($t['date'])) {
-        $dow = (int)date('w', strtotime($t['date']));
-        $por_dia[$dow]++;
-    }
-}
-
-// 6. Evolução mensal — usa busca sem filtro de data ($res_evolucao)
-$por_mes = [];
-foreach ((array)($res_evolucao['data'] ?? []) as $row) {
-    $mes = substr((string)($row[15] ?? ''), 0, 7);
-    if (!$mes) continue;
-    $por_mes[$mes] = ($por_mes[$mes] ?? 0) + 1;
-}
-ksort($por_mes);
-
-// 7. Chamados com múltiplos atendentes
-$multiplos = 0; // placeholder — seria via Ticket_User
-
-// Entidades para filtro — exclui entidade raiz (id=0)
-$entidades_lista = [];
-foreach ($entidades_raw as $e) {
-    if (!isset($e['id'])) continue;
-    if ((int)$e['id'] === 0) continue; // Exclui entidade raiz
-    $nome = $e['completename'] ?? $e['name'] ?? '';
-    if (strtolower($nome) === 'entidade raiz' || $nome === '') continue;
-    $entidades_lista[] = ['id' => $nome, 'nome' => $nome];
-}
-
-// ── Monitor SLA ───────────────────────────────────────────────
-// Threshold em horas por urgência (1=Muito baixa … 5=Muito alta)
-$sla_thresh = [1 => 24, 2 => 12, 3 => 8, 4 => 4, 5 => 2];
-$agora_ts   = time();
-$sla_status_label = [1=>'Novo', 2=>'Em atendimento', 3=>'Planejado', 4=>'Em espera'];
-$sla_urg_label    = [1=>'Muito baixa', 2=>'Baixa', 3=>'Média', 4=>'Alta', 5=>'Muito alta'];
-
-$sla_dados = [];
-foreach ($sla_raw as $t) {
-    if (!isset($t['id'])) continue;
-    $st = (int)($t['status'] ?? 0);
-    if (!in_array($st, [1, 2, 3])) continue; // exclui Em espera e fechados
-    $abertura = strtotime($t['date'] ?? '');
-    if (!$abertura) continue;
-    $horas    = round(($agora_ts - $abertura) / 3600, 1);
-    $urg      = max(1, min(5, (int)($t['urgency'] ?? 3)));
-    $thresh   = $sla_thresh[$urg];
-    $cor = $horas <= $thresh * 0.5 ? 'verde' : ($horas <= $thresh ? 'amarelo' : 'vermelho');
-    $sla_dados[] = [
-        'id'        => $t['id'],
-        'titulo'    => $t['name'] ?? '(sem título)',
-        'status'    => $sla_status_label[$st] ?? $st,
-        'urgencia'  => $sla_urg_label[$urg],
-        'urg_n'     => $urg,
-        'entidade'  => $t['entities_id'] ?? '—',
-        'abertura'  => substr($t['date'] ?? '', 0, 16),
-        'horas'     => $horas,
-        'thresh'    => $thresh,
-        'cor'       => $cor,
-        'atendente' => $t['_technician'] ?: ($mapa_atendente_full[$t['id']] ?? '—'),
-    ];
-}
-usort($sla_dados, fn($a,$b) =>
-    ['vermelho'=>0,'amarelo'=>1,'verde'=>2][$a['cor']] <=>
-    ['vermelho'=>0,'amarelo'=>1,'verde'=>2][$b['cor']] ?: $b['horas'] <=> $a['horas']
-);
-$sla_verde    = count(array_filter($sla_dados, fn($x)=>$x['cor']==='verde'));
-$sla_amarelo  = count(array_filter($sla_dados, fn($x)=>$x['cor']==='amarelo'));
-$sla_vermelho = count(array_filter($sla_dados, fn($x)=>$x['cor']==='vermelho'));
-
-// JSON para JS
-$json_atendente         = json_encode(array_map(fn($k,$v)=>['nome'=>$k,'total'=>$v], array_keys($por_atendente), $por_atendente));
-$json_atendente_fechados= json_encode(array_map(fn($k,$v)=>['nome'=>$k,'total'=>$v], array_keys($por_atendente_fechados), $por_atendente_fechados));
-$json_entidade          = json_encode(array_map(fn($k,$v)=>['nome'=>$k,'total'=>$v], array_keys($por_entidade), $por_entidade));
-$json_categoria         = json_encode(array_map(fn($k,$v)=>['nome'=>$k,'total'=>$v], array_keys($por_categoria), $por_categoria));
-$json_hora              = json_encode(array_values($por_hora));
-$json_dia               = json_encode(array_values($por_dia));
-$json_mes               = json_encode(array_map(fn($k,$v)=>['mes'=>$k,'total'=>$v], array_keys($por_mes), $por_mes));
-$total_mes_todos        = array_sum($por_mes);
 ?>
 <!DOCTYPE html>
 <html lang="pt-BR">
 <head>
   <meta charset="UTF-8"/>
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
-  <title>Painel de Chamados</title>
-  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+  <title>BI — Painel de Chamados</title>
   <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.css" rel="stylesheet"/>
-  <style>
-    :root {
-      --bg: #050d1a;
-      --bg2: #0a1628;
-      --bg3: #0d1f3c;
-      --accent: #00bfff;
-      --gold: #ffd700;
-      --green: #00ff88;
-      --text: #c8d8f0;
-      --border: #1a3a6a;
-    }
+  <script src="https://cdn.jsdelivr.net/npm/apexcharts@3.45.2/dist/apexcharts.min.js"></script>
+  <script src="assets/notificacoes.js"></script>
+<style>
+/* ══════════════════════════════════════════════════════════════
+   DESIGN SYSTEM — Dark BI Theme
+   ══════════════════════════════════════════════════════════════ */
+:root {
+  --bg-page:     #070b14;
+  --bg-card:     #0f1525;
+  --bg-card-hov: #141c30;
+  --bg-elevated: #1a2440;
+  --border:      #1e2d50;
+  --border-subtle:#162040;
+  --text:        #d1d9f0;
+  --text-dim:    #7a8aaa;
+  --text-bright: #f0f4ff;
+  --cyan:        #06b6d4;
+  --green:       #22c55e;
+  --gold:        #eab308;
+  --red:         #ef4444;
+  --purple:      #8b5cf6;
+  --orange:      #f97316;
+  --pink:        #ec4899;
+  --chart-colors:#06b6d4,#22c55e,#eab308,#ef4444,#8b5cf6,#f97316,#ec4899,#14b8a6,#f59e0b,#6366f1;
+  --radius:      12px;
+  --radius-sm:   8px;
+  --transition:  .25s cubic-bezier(.4,0,.2,1);
+}
 
-    * { box-sizing: border-box; margin: 0; padding: 0; }
+* { box-sizing: border-box; margin: 0; padding: 0; }
 
-    body {
-      background: var(--bg);
-      color: var(--text);
-      font-family: 'Segoe UI', sans-serif;
-      min-height: 100vh;
-    }
+body {
+  background: var(--bg-page);
+  color: var(--text);
+  font-family: 'Segoe UI', -apple-system, sans-serif;
+  min-height: 100vh;
+}
 
-    /* Topbar */
-    .topbar {
-      background: linear-gradient(90deg, #020a18, #0d1f3c, #020a18);
-      border-bottom: 2px solid var(--accent);
-      padding: .75rem 1.5rem;
-      display: flex; align-items: center; justify-content: space-between;
-      position: sticky; top: 0; z-index: 100;
-    }
-    .topbar .brand {
-      color: var(--gold);
-      font-size: 1.1rem;
-      font-weight: 900;
-      letter-spacing: .1em;
-      text-transform: uppercase;
-    }
-    .topbar a {
-      color: var(--accent); text-decoration: none; font-size: .82rem;
-      border: 1px solid var(--accent); border-radius: 6px; padding: .3rem .75rem;
-      transition: all .2s;
-    }
-    .topbar a:hover { background: var(--accent); color: #000; }
+/* ═══ Topbar ═══════════════════════════════════════════════ */
+.topbar {
+  background: linear-gradient(135deg,#0a0f1f 0%,#0f1a35 50%,#0a0f1f 100%);
+  border-bottom: 1px solid var(--border);
+  padding: .7rem 1.5rem;
+  display: flex; align-items: center; justify-content: space-between;
+  position: sticky; top: 0; z-index: 100;
+}
+.topbar .brand {
+  display: flex; align-items: center; gap: .6rem;
+  color: var(--text-bright);
+  font-size: 1.05rem; font-weight: 800;
+  letter-spacing: .04em;
+}
+.topbar .brand i { color: var(--cyan); font-size: 1.3rem; }
+.topbar .brand small {
+  font-weight: 400; font-size: .7rem; color: var(--text-dim);
+  letter-spacing: .08em; text-transform: uppercase;
+  margin-left: .3rem;
+}
+.topbar a.btn-top {
+  color: var(--text-dim); text-decoration: none; font-size: .8rem;
+  border: 1px solid var(--border); border-radius: var(--radius-sm);
+  padding: .35rem .85rem; transition: var(--transition);
+  display: flex; align-items: center; gap: .4rem;
+}
+.topbar a.btn-top:hover { border-color: var(--cyan); color: var(--cyan); background: rgba(6,182,212,.08); }
 
-    /* Filtros */
-    .filtros {
-      background: var(--bg2);
-      border-bottom: 1px solid var(--border);
-      padding: .75rem 1.5rem;
-      display: flex; flex-wrap: wrap; gap: 1rem; align-items: center;
-    }
-    .filtros label { font-size: .78rem; color: var(--gold); font-weight: 700; margin-bottom: .2rem; display: block; }
-    .filtros input, .filtros select {
-      background: var(--bg3); color: var(--text);
-      border: 1px solid var(--border); border-radius: 6px;
-      padding: .35rem .75rem; font-size: .82rem;
-      color-scheme: dark;
-    }
-    .btn-filtrar {
-      background: var(--accent); color: #000;
-      border: none; border-radius: 6px; padding: .4rem 1.2rem;
-      font-size: .85rem; font-weight: 700; cursor: pointer;
-      transition: opacity .2s; align-self: flex-end;
-    }
-    .btn-filtrar:hover { opacity: .85; }
+/* ═══ Filters ═══════════════════════════════════════════════ */
+.filtros {
+  background: var(--bg-card);
+  border-bottom: 1px solid var(--border);
+  padding: .75rem 1.5rem;
+  display: flex; flex-wrap: wrap; gap: 1rem; align-items: flex-end;
+}
+.filtros .campo { display: flex; flex-direction: column; gap: .25rem; }
+.filtros .campo label {
+  font-size: .68rem; color: var(--text-dim); text-transform: uppercase;
+  letter-spacing: .06em; font-weight: 700;
+}
+.filtros .campo input,
+.filtros .campo select {
+  background: var(--bg-elevated); color: var(--text);
+  border: 1px solid var(--border); border-radius: var(--radius-sm);
+  padding: .4rem .75rem; font-size: .82rem;
+  color-scheme: dark; min-width: 150px;
+  transition: border-color var(--transition);
+}
+.filtros .campo input:focus,
+.filtros .campo select:focus { outline: none; border-color: var(--cyan); }
+.btn-filtrar {
+  background: var(--cyan); color: #000;
+  border: none; border-radius: var(--radius-sm); padding: .4rem 1.2rem;
+  font-size: .8rem; font-weight: 700; cursor: pointer;
+  transition: var(--transition); white-space: nowrap;
+  display: flex; align-items: center; gap: .4rem;
+}
+.btn-filtrar:hover { opacity: .85; transform: translateY(-1px); }
+.btn-limpar {
+  color: var(--text-dim); text-decoration: none; font-size: .78rem;
+  padding: .4rem .9rem; border: 1px solid var(--border);
+  border-radius: var(--radius-sm); transition: var(--transition);
+}
+.btn-limpar:hover { border-color: var(--text-dim); color: var(--text); }
 
-    /* Tabs de painéis */
-    .tabs {
-      display: flex; flex-wrap: wrap; gap: .3rem;
-      padding: .75rem 1.5rem;
-      background: var(--bg2);
-      border-bottom: 1px solid var(--border);
-    }
-    .tab-btn {
-      background: var(--bg3); color: var(--text);
-      border: 1px solid var(--border); border-radius: 6px;
-      padding: .4rem 1rem; font-size: .8rem; font-weight: 600;
-      cursor: pointer; transition: all .2s;
-    }
-    .tab-btn.active { background: var(--accent); color: #000; border-color: var(--accent); }
-    .tab-btn:hover:not(.active) { border-color: var(--accent); color: var(--accent); }
+/* ═══ Tabs ══════════════════════════════════════════════════ */
+.tabs {
+  display: flex; flex-wrap: wrap; gap: .25rem;
+  padding: .6rem 1.5rem;
+  background: var(--bg-card);
+  border-bottom: 1px solid var(--border);
+  overflow-x: auto;
+}
+.tab-btn {
+  background: transparent; color: var(--text-dim);
+  border: 1px solid transparent; border-radius: var(--radius-sm);
+  padding: .4rem 1rem; font-size: .78rem; font-weight: 600;
+  cursor: pointer; transition: var(--transition);
+  white-space: nowrap;
+}
+.tab-btn:hover { color: var(--text); border-color: var(--border); }
+.tab-btn.active {
+  background: rgba(6,182,212,.12); color: var(--cyan);
+  border-color: var(--cyan);
+}
+.tab-btn .badge-tab {
+  display: inline-block; background: var(--bg-elevated); color: var(--text-dim);
+  border-radius: 20px; padding: 0 7px; font-size: .68rem;
+  margin-left: .35rem; font-weight: 700;
+}
+.tab-btn.active .badge-tab { background: var(--cyan); color: #000; }
 
-    /* Painéis */
-    .painel { display: none; padding: 1.25rem 1.5rem; }
-    .painel.active { display: block; }
+/* ═══ Painéis ═══════════════════════════════════════════════ */
+.painel { display: none; padding: 1.25rem 1.5rem; animation: fadeIn .35s ease; }
+.painel.active { display: block; }
+@keyframes fadeIn { from { opacity:0; transform:translateY(8px); } to { opacity:1; transform:translateY(0); } }
 
-    .painel-title {
-      text-align: center; margin-bottom: 1.5rem;
-      color: var(--gold);
-      font-size: 1.4rem; font-weight: 900;
-      text-transform: uppercase; letter-spacing: .08em;
-      text-shadow: 0 0 20px rgba(255,215,0,.4);
-    }
+.painel-title {
+  text-align: center; margin-bottom: 1.5rem;
+  color: var(--text-bright);
+  font-size: 1.2rem; font-weight: 800;
+  letter-spacing: .04em;
+}
+.painel-title i { color: var(--cyan); margin-right: .5rem; }
 
-    /* Grid de cards */
-    .cards-row { display: flex; flex-wrap: wrap; gap: 1rem; margin-bottom: 1.25rem; }
+/* ═══ Loading / Error ═══════════════════════════════════════ */
+.loading-overlay {
+  display: flex; flex-direction: column; align-items: center;
+  justify-content: center; padding: 4rem 2rem; gap: 1rem;
+}
+.spinner {
+  width: 40px; height: 40px;
+  border: 3px solid var(--border); border-top-color: var(--cyan);
+  border-radius: 50%; animation: spin .8s linear infinite;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+.loading-overlay p { color: var(--text-dim); font-size: .85rem; }
 
-    .kpi-card {
-      background: var(--bg2);
-      border: 1px solid var(--border);
-      border-radius: 10px; padding: 1rem 1.5rem;
-      min-width: 140px; text-align: center;
-    }
-    .kpi-card .kpi-label { font-size: .72rem; color: var(--text); text-transform: uppercase; letter-spacing: .05em; margin-bottom: .3rem; }
-    .kpi-card .kpi-val { font-size: 2.5rem; font-weight: 900; line-height: 1; }
-    .kpi-card.green .kpi-val { color: var(--green); }
-    .kpi-card.gold  .kpi-val { color: var(--gold); }
-    .kpi-card.blue  .kpi-val { color: var(--accent); }
+.error-box {
+  background: rgba(239,68,68,.1); border: 1px solid rgba(239,68,68,.3);
+  border-radius: var(--radius); padding: 2rem; text-align: center;
+}
+.error-box i { font-size: 2.5rem; color: var(--red); margin-bottom: .75rem; display: block; }
+.error-box p { color: var(--text-dim); font-size: .85rem; margin-bottom: 1rem; }
+.error-box .btn-retry {
+  background: var(--red); color: #fff; border: none;
+  border-radius: var(--radius-sm); padding: .4rem 1rem;
+  cursor: pointer; font-weight: 600; font-size: .8rem;
+}
 
-    /* Chart containers */
-    .chart-card {
-      background: var(--bg2);
-      border: 1px solid var(--border);
-      border-radius: 10px; padding: 1rem;
-      margin-bottom: 1rem;
-    }
-    .chart-card h3 {
-      color: var(--accent); font-size: .9rem; font-weight: 700;
-      margin-bottom: .75rem; text-transform: uppercase; letter-spacing: .05em;
-    }
-    .chart-wrap { position: relative; }
+/* ═══ KPIs ══════════════════════════════════════════════════ */
+.kpi-row {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 1rem; margin-bottom: 1.25rem;
+}
+.kpi-card {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 1rem 1.25rem;
+  position: relative; overflow: hidden;
+  transition: var(--transition);
+}
+.kpi-card:hover { border-color: var(--text-dim); background: var(--bg-card-hov); }
+.kpi-card .kpi-icon {
+  position: absolute; top: .75rem; right: .75rem;
+  font-size: 1.8rem; opacity: .15;
+}
+.kpi-card .kpi-label {
+  font-size: .65rem; color: var(--text-dim); text-transform: uppercase;
+  letter-spacing: .08em; font-weight: 700; margin-bottom: .3rem;
+}
+.kpi-card .kpi-val {
+  font-size: 2.2rem; font-weight: 900; line-height: 1.1;
+  color: var(--text-bright); font-variant-numeric: tabular-nums;
+}
+.kpi-card .kpi-sub {
+  font-size: .7rem; color: var(--text-dim); margin-top: .2rem;
+}
+.kpi-card.accent-cyan   { border-top: 3px solid var(--cyan); }
+.kpi-card.accent-green  { border-top: 3px solid var(--green); }
+.kpi-card.accent-gold   { border-top: 3px solid var(--gold); }
+.kpi-card.accent-red    { border-top: 3px solid var(--red); }
+.kpi-card.accent-purple { border-top: 3px solid var(--purple); }
 
-    /* Tabela atendente */
-    .tabela-atendente {
-      width: 100%; border-collapse: collapse; font-size: .83rem;
-    }
-    .tabela-atendente th {
-      background: #1a2a4a; color: var(--gold);
-      padding: .5rem .75rem; text-align: left; font-size: .75rem;
-      text-transform: uppercase;
-    }
-    .tabela-atendente td { padding: .45rem .75rem; border-bottom: 1px solid #0d1f3c; }
-    .tabela-atendente tr:nth-child(odd) td { background: rgba(0,191,255,.04); }
-    .tabela-atendente .bar-inline {
-      height: 16px; background: linear-gradient(90deg, #d93025, #ff5252);
-      border-radius: 3px; display: inline-block; min-width: 4px;
-      transition: width .5s;
-    }
-    .tabela-atendente tfoot td { font-weight: 700; color: var(--gold); border-top: 2px solid var(--border); }
+/* ═══ Charts grid ═══════════════════════════════════════════ */
+.chart-grid-2 {
+  display: grid; grid-template-columns: 1fr 1fr; gap: 1rem;
+  margin-bottom: 1rem;
+}
+.chart-card {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 1rem;
+}
+.chart-card h3 {
+  font-size: .8rem; font-weight: 700; color: var(--text-dim);
+  text-transform: uppercase; letter-spacing: .06em;
+  margin-bottom: .75rem; padding-bottom: .5rem;
+  border-bottom: 1px solid var(--border-subtle);
+}
+.chart-card .chart-wrap { width: 100%; }
+.chart-card.full-width { grid-column: 1 / -1; }
 
-    /* Grid dois painéis */
-    .two-col { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; }
-    .three-col { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 1rem; }
+/* ═══ Tables ════════════════════════════════════════════════ */
+.tabela-bi {
+  width: 100%; border-collapse: collapse; font-size: .8rem;
+}
+.tabela-bi thead th {
+  background: rgba(30,45,80,.5); color: var(--text-dim);
+  padding: .5rem .75rem; text-align: left; font-size: .68rem;
+  text-transform: uppercase; letter-spacing: .05em;
+  font-weight: 700; border-bottom: 1px solid var(--border);
+}
+.tabela-bi tbody td {
+  padding: .4rem .75rem; border-bottom: 1px solid var(--border-subtle);
+}
+.tabela-bi tbody tr:hover td { background: rgba(6,182,212,.04); }
+.tabela-bi tbody tr:last-child td { border-bottom: none; }
+.tabela-bi .bar-bg {
+  background: var(--bg-elevated); border-radius: 4px; height: 8px;
+  overflow: hidden; display: inline-block; vertical-align: middle;
+  width: 120px; margin-right: .5rem;
+}
+.tabela-bi .bar-fill {
+  height: 100%; border-radius: 4px; transition: width .8s ease;
+}
+.tabela-bi tfoot td {
+  font-weight: 700; color: var(--text-bright);
+  border-top: 2px solid var(--border);
+  padding: .5rem .75rem;
+}
 
-    @media(max-width:900px) {
-      .two-col, .three-col { grid-template-columns: 1fr; }
-    }
-  </style>
+/* ═══ SLA ══════════════════════════════════════════════════ */
+.sla-verde   { color: var(--green); }
+.sla-amarelo { color: var(--gold); }
+.sla-vermelho{ color: var(--red); }
+
+/* ═══ Responsive ═══════════════════════════════════════════ */
+@media(max-width:900px) {
+  .chart-grid-2 { grid-template-columns: 1fr; }
+  .filtros { flex-direction: column; }
+  .filtros .campo input, .filtros .campo select { min-width: 100%; }
+  .kpi-row { grid-template-columns: repeat(2, 1fr); }
+  .painel { padding: 1rem; }
+  .tabs { padding: .6rem 1rem; flex-wrap: nowrap; }
+}
+@media(max-width:480px) {
+  .kpi-row { grid-template-columns: 1fr; }
+  .kpi-card .kpi-val { font-size: 1.6rem; }
+}
+</style>
 </head>
 <body>
 
+<!-- ═══════════════════ Topbar ═══════════════════════════ -->
 <div class="topbar">
-  <div class="brand"><i class="bi bi-bar-chart-fill me-2"></i>Painel de Chamados</div>
-  <a href="dashboard.php"><i class="bi bi-grid me-1"></i>Início</a>
+  <div class="brand">
+    <i class="bi bi-bar-chart-fill"></i>
+    Painel BI
+    <small>Chamados</small>
+  </div>
+  <div style="display:flex;gap:.5rem;align-items:center">
+    <span id="status-badge" style="font-size:.68rem;color:var(--text-dim);display:none">
+      <i class="bi bi-check-circle-fill" style="color:var(--green)"></i>
+    </span>
+    <a href="dashboard.php" class="btn-top"><i class="bi bi-grid"></i> Início</a>
+  </div>
 </div>
 
-<!-- Filtros -->
-<form method="GET">
-<div class="filtros">
-  <div>
+<!-- ═══════════════════ Filters ═══════════════════════════ -->
+<form id="form-filtros" class="filtros">
+  <div class="campo">
     <label>Data Início</label>
-    <input type="date" name="dt_ini" value="<?= $dt_ini ?>"/>
+    <input type="date" name="dt_ini" value="<?= htmlspecialchars($dt_ini) ?>"/>
   </div>
-  <div>
+  <div class="campo">
     <label>Data Fim</label>
-    <input type="date" name="dt_fim" value="<?= $dt_fim ?>"/>
+    <input type="date" name="dt_fim" value="<?= htmlspecialchars($dt_fim) ?>"/>
   </div>
-  <div>
+  <div class="campo">
     <label>Entidade</label>
-    <select name="entidade" style="min-width:180px">
-      <option value="">Selecionar tudo</option>
+    <select name="entidade_id" style="min-width:170px">
+      <option value="">Todas as lojas</option>
       <?php foreach ($entidades_lista as $e): ?>
-        <option value="<?= htmlspecialchars($e['id']) ?>" <?= $entidade_filtro===$e['id']?'selected':'' ?>><?= htmlspecialchars($e['nome']) ?></option>
+        <option value="<?= $e['id'] ?>" <?= $entidade_id === $e['id'] ? 'selected' : '' ?>>
+          <?= htmlspecialchars($e['nome']) ?>
+        </option>
       <?php endforeach; ?>
     </select>
   </div>
-  <button type="submit" class="btn-filtrar"><i class="bi bi-search me-1"></i>Filtrar</button>
-  <a href="relatorios.php" style="align-self:flex-end;padding:.4rem .9rem;border-radius:6px;border:1px solid #1a3a6a;color:#c8d8f0;text-decoration:none;font-size:.82rem">Limpar</a>
-</div>
+  <button type="submit" class="btn-filtrar"><i class="bi bi-search"></i> Filtrar</button>
+  <a href="relatorios.php" class="btn-limpar"><i class="bi bi-x-circle"></i> Limpar</a>
 </form>
 
-<!-- Tabs -->
-<div class="tabs">
-  <button class="tab-btn active" onclick="showTab('atendimentos')">📊 Atendimentos</button>
-  <button class="tab-btn" onclick="showTab('lojas')">🏪 Lojas</button>
-  <button class="tab-btn" onclick="showTab('categorias')">🏷️ Categorias</button>
-  <button class="tab-btn" onclick="showTab('monitor')">⏰ Monitor Hora/Dia</button>
-  <button class="tab-btn" onclick="showTab('evolucao')">📈 Evolução Mensal</button>
-  <button class="tab-btn" onclick="showTab('sla')" style="border-left:2px solid #e53935">🚦 Monitor SLA</button>
+<!-- ═══════════════════ Tabs ═════════════════════════════ -->
+<div class="tabs" id="tab-nav">
+  <button class="tab-btn active" data-tab="atendimentos">
+    <i class="bi bi-people"></i> Atendimentos
+    <span class="badge-tab" id="badge-fechados">0</span>
+  </button>
+  <button class="tab-btn" data-tab="lojas"><i class="bi bi-shop"></i> Lojas</button>
+  <button class="tab-btn" data-tab="categorias"><i class="bi bi-tags"></i> Categorias</button>
+  <button class="tab-btn" data-tab="horario"><i class="bi bi-clock"></i> Horário</button>
+  <button class="tab-btn" data-tab="evolucao"><i class="bi bi-graph-up-arrow"></i> Evolução</button>
+  <button class="tab-btn" data-tab="sla"><i class="bi bi-shield-exclamation"></i> SLA</button>
+  <button class="tab-btn" data-tab="rotinas"><i class="bi bi-arrow-repeat"></i> Rotinas</button>
+  <button class="tab-btn" data-tab="projetos"><i class="bi bi-folder"></i> Projetos</button>
 </div>
 
-<!-- ══════════════════════════════════════════════════════════════ -->
-<!-- PAINEL 1: ATENDIMENTOS                                        -->
-<!-- ══════════════════════════════════════════════════════════════ -->
-<div class="painel active" id="painel-atendimentos">
-  <div class="painel-title">Painel de Chamados — Atendimentos</div>
+<!-- ═══════════════════ Content ══════════════════════════ -->
+<div id="conteudo">
 
-  <div class="cards-row">
-    <div class="kpi-card green">
-      <div class="kpi-label">Total Abertos</div>
-      <div class="kpi-val"><?= $total ?></div>
-    </div>
-    <div class="kpi-card" style="border-color:#00ff88">
-      <div class="kpi-label">Total Fechados</div>
-      <div class="kpi-val" style="color:#00ff88"><?= $total_fechados ?></div>
+  <!-- Loading state -->
+  <div class="loading-overlay" id="loading-state">
+    <div class="spinner"></div>
+    <p>Carregando dados do período…</p>
+  </div>
+
+  <!-- Error state -->
+  <div class="painel" id="painel-erro">
+    <div class="error-box" id="error-box">
+      <i class="bi bi-exclamation-triangle-fill"></i>
+      <p id="error-msg">Erro ao carregar dados.</p>
+      <button class="btn-retry" onclick="carregarDados()"><i class="bi bi-arrow-clockwise"></i> Tentar novamente</button>
     </div>
   </div>
 
-  <!-- Chamados abertos por atendente -->
-  <div class="two-col" style="margin-bottom:1rem">
-    <div class="chart-card">
-      <h3>Chamados Abertos por Atendente</h3>
-      <table class="tabela-atendente">
-        <thead><tr><th>Atendente</th><th>Chamados</th><th>%</th></tr></thead>
-        <tbody>
-          <?php $max_at = max(array_values($por_atendente) ?: [1]); ?>
-          <?php foreach ($por_atendente as $nome_at => $qtd): ?>
-          <tr>
-            <td><?= htmlspecialchars($nome_at) ?></td>
-            <td>
-              <span class="bar-inline" style="width:<?= round(($qtd/$max_at)*120) ?>px"></span>
-              <strong style="color:#fff;margin-left:6px"><?= $qtd ?></strong>
-            </td>
-            <td style="color:#9ca3af"><?= $total > 0 ? round($qtd/$total*100) : 0 ?>%</td>
-          </tr>
-          <?php endforeach; ?>
-        </tbody>
-        <tfoot><tr><td>Total</td><td><?= $total ?></td><td>100%</td></tr></tfoot>
-      </table>
+  <!-- ════════════════════════════════════════════════════ -->
+  <!-- PAINEL 1: ATENDIMENTOS                              -->
+  <!-- ════════════════════════════════════════════════════ -->
+  <div class="painel active" id="painel-atendimentos">
+    <div class="painel-title"><i class="bi bi-people"></i>Atendimentos</div>
+    <div class="kpi-row" id="kpi-atendimentos">
+      <div class="kpi-card accent-cyan"><div class="kpi-label">📋 Total Abertos</div><div class="kpi-val" id="kpi-abertos">—</div><div class="kpi-sub">abertos no período</div></div>
+      <div class="kpi-card accent-green"><div class="kpi-label">✅ Total Fechados</div><div class="kpi-val" id="kpi-fechados">—</div><div class="kpi-sub">fechados no período</div></div>
+      <div class="kpi-card accent-gold"><div class="kpi-label">⚡ Em Andamento</div><div class="kpi-val" id="kpi-andamento">—</div><div class="kpi-sub">carga atual</div></div>
+      <div class="kpi-card accent-purple"><div class="kpi-label">⏱ Tempo Médio</div><div class="kpi-val" id="kpi-tempomedio">—</div><div class="kpi-sub">horas para fechamento</div></div>
     </div>
-    <div class="chart-card">
-      <h3>Chamados Abertos — Atendentes</h3>
-      <div class="chart-wrap" style="height:280px">
-        <canvas id="chartAtendente"></canvas>
+    <div class="chart-card full-width">
+      <h3>📊 Produtividade — Fechados vs Em Andamento por Atendente</h3>
+      <div class="chart-wrap" id="chart-produtividade"></div>
+    </div>
+  </div>
+
+  <!-- ════════════════════════════════════════════════════ -->
+  <!-- PAINEL 2: LOJAS                                     -->
+  <!-- ════════════════════════════════════════════════════ -->
+  <div class="painel" id="painel-lojas">
+    <div class="painel-title"><i class="bi bi-shop"></i>Chamados por Loja</div>
+    <div class="chart-grid-2">
+      <div class="chart-card"><h3>Distribuição por Loja</h3><div class="chart-wrap" id="chart-lojas-donut"></div></div>
+      <div class="chart-card"><h3>Ranking — Chamados por Loja</h3>
+        <div style="overflow-x:auto"><table class="tabela-bi" id="tabela-lojas">
+          <thead><tr><th>Loja</th><th>Chamados</th><th>%</th></tr></thead>
+          <tbody id="tbody-lojas"></tbody>
+        </table></div>
       </div>
     </div>
   </div>
 
-  <!-- Chamados FECHADOS por atendente -->
-  <div class="two-col">
-    <div class="chart-card" style="border-color:#1e8e3e">
-      <h3 style="color:#00ff88">Chamados Fechados por Atendente <small style="font-size:.75rem;color:#9ca3af">(por data de fechamento)</small></h3>
-      <table class="tabela-atendente">
-        <thead><tr><th>Atendente</th><th>Fechados</th><th>%</th></tr></thead>
-        <tbody>
-          <?php if (empty($por_atendente_fechados)): ?>
-          <tr><td colspan="3" style="color:#9ca3af;text-align:center;padding:1rem">Nenhum chamado fechado no período</td></tr>
-          <?php else: ?>
-          <?php $max_f = max(array_values($por_atendente_fechados) ?: [1]); ?>
-          <?php foreach ($por_atendente_fechados as $nome_at => $qtd): ?>
-          <tr>
-            <td><?= htmlspecialchars($nome_at) ?></td>
-            <td>
-              <span class="bar-inline" style="width:<?= round(($qtd/$max_f)*120) ?>px;background:linear-gradient(90deg,#0f9d58,#00ff88)"></span>
-              <strong style="color:#fff;margin-left:6px"><?= $qtd ?></strong>
-            </td>
-            <td style="color:#9ca3af"><?= $total_fechados > 0 ? round($qtd/$total_fechados*100) : 0 ?>%</td>
-          </tr>
-          <?php endforeach; ?>
-          <?php endif; ?>
-        </tbody>
-        <tfoot><tr><td>Total</td><td><?= $total_fechados ?></td><td>100%</td></tr></tfoot>
-      </table>
-    </div>
-    <div class="chart-card" style="border-color:#1e8e3e">
-      <h3 style="color:#00ff88">Chamados Fechados — Atendentes</h3>
-      <div class="chart-wrap" style="height:280px">
-        <canvas id="chartAtendenteFechados"></canvas>
+  <!-- ════════════════════════════════════════════════════ -->
+  <!-- PAINEL 3: CATEGORIAS                                -->
+  <!-- ════════════════════════════════════════════════════ -->
+  <div class="painel" id="painel-categorias">
+    <div class="painel-title"><i class="bi bi-tags"></i>Chamados por Categoria</div>
+    <div class="chart-grid-2">
+      <div class="chart-card"><h3>Distribuição</h3><div class="chart-wrap" id="chart-categorias-bar"></div></div>
+      <div class="chart-card"><h3>Ranking</h3>
+        <div style="overflow-x:auto"><table class="tabela-bi" id="tabela-categorias">
+          <thead><tr><th>Categoria</th><th>Chamados</th><th>%</th></tr></thead>
+          <tbody id="tbody-categorias"></tbody>
+        </table></div>
       </div>
     </div>
   </div>
-</div>
 
-<!-- ══════════════════════════════════════════════════════════════ -->
-<!-- PAINEL 2: LOJAS                                               -->
-<!-- ══════════════════════════════════════════════════════════════ -->
-<div class="painel" id="painel-lojas">
-  <div class="painel-title">Painel de Chamados — Lojas</div>
-
-  <div class="cards-row">
-    <div class="kpi-card green">
-      <div class="kpi-label">Total</div>
-      <div class="kpi-val"><?= $total ?></div>
+  <!-- ════════════════════════════════════════════════════ -->
+  <!-- PAINEL 4: HORÁRIO                                   -->
+  <!-- ════════════════════════════════════════════════════ -->
+  <div class="painel" id="painel-horario">
+    <div class="painel-title"><i class="bi bi-clock"></i>Chamados por Horário</div>
+    <div class="chart-grid-2">
+      <div class="chart-card"><h3>Chamados por Hora do Dia</h3><div class="chart-wrap" id="chart-hora"></div></div>
+      <div class="chart-card"><h3>Chamados por Dia da Semana</h3><div class="chart-wrap" id="chart-dia"></div></div>
+    </div>
+    <div class="chart-card full-width">
+      <h3>🔥 Heatmap — Hora × Dia da Semana</h3>
+      <div class="chart-wrap" id="chart-heatmap"></div>
     </div>
   </div>
 
-  <div class="two-col">
-    <div class="chart-card">
-      <h3>Distribuição por Loja/Entidade</h3>
-      <div class="chart-wrap" style="height:340px">
-        <canvas id="chartLojas"></canvas>
+  <!-- ════════════════════════════════════════════════════ -->
+  <!-- PAINEL 5: EVOLUÇÃO                                  -->
+  <!-- ════════════════════════════════════════════════════ -->
+  <div class="painel" id="painel-evolucao">
+    <div class="painel-title"><i class="bi bi-graph-up-arrow"></i>Evolução — Últimos 12 Meses</div>
+    <div class="kpi-row">
+      <div class="kpi-card accent-gold"><div class="kpi-label">📊 Total Abertos (12m)</div><div class="kpi-val" id="kpi-evolucao-total">—</div></div>
+      <div class="kpi-card accent-green"><div class="kpi-label">✅ Total Fechados (12m)</div><div class="kpi-val" id="kpi-evolucao-fechados">—</div></div>
+      <div class="kpi-card accent-cyan"><div class="kpi-label">📈 Média Mensal</div><div class="kpi-val" id="kpi-evolucao-media">—</div></div>
+    </div>
+    <div class="chart-grid-2">
+      <div class="chart-card"><h3>📈 Abertos por Mês</h3><div class="chart-wrap" id="chart-evolucao"></div></div>
+      <div class="chart-card"><h3>✅ Fechados por Mês</h3><div class="chart-wrap" id="chart-evolucao-fechados"></div></div>
+    </div>
+    <div class="chart-card full-width" style="margin-top:.5rem">
+      <h3>📊 Abertos vs Fechados — Comparativo Mensal</h3>
+      <div class="chart-wrap" id="chart-evolucao-barras"></div>
+    </div>
+  </div>
+
+  <!-- ════════════════════════════════════════════════════ -->
+  <!-- PAINEL 6: SLA                                       -->
+  <!-- ════════════════════════════════════════════════════ -->
+  <div class="painel" id="painel-sla">
+    <div class="painel-title"><i class="bi bi-shield-exclamation"></i>Monitor SLA — Tempo Real</div>
+    <div class="kpi-row" id="kpi-sla">
+      <div class="kpi-card accent-green"><div class="kpi-label">🟢 No Prazo</div><div class="kpi-val sla-verde" id="kpi-sla-verde">—</div></div>
+      <div class="kpi-card accent-gold"><div class="kpi-label">🟡 Atenção</div><div class="kpi-val sla-amarelo" id="kpi-sla-amarelo">—</div></div>
+      <div class="kpi-card accent-red"><div class="kpi-label">🔴 Atrasado</div><div class="kpi-val sla-vermelho" id="kpi-sla-vermelho">—</div></div>
+      <div class="kpi-card accent-cyan"><div class="kpi-label">📋 Total Abertos</div><div class="kpi-val" id="kpi-sla-total">—</div></div>
+    </div>
+    <div class="chart-card full-width">
+      <h3>🚦 Distribuição SLA</h3>
+      <div class="chart-wrap" id="chart-sla-donut" style="height:220px;max-width:400px;margin:0 auto"></div>
+    </div>
+    <div class="chart-card full-width" style="margin-top:1rem">
+      <h3>📋 Chamados Abertos</h3>
+      <div style="overflow-x:auto" id="sla-tabela-wrap">
+        <div style="text-align:center;padding:2rem;color:var(--text-dim)"><i class="bi bi-check-circle-fill" style="font-size:2rem;color:var(--green);display:block;margin-bottom:.5rem"></i>Nenhum chamado aberto ativo.</div>
       </div>
     </div>
-
-    <div class="chart-card">
-      <h3>Chamados por Entidade</h3>
-      <table class="tabela-atendente">
-        <thead><tr><th>Entidade</th><th>Total</th><th>%</th></tr></thead>
-        <tbody>
-          <?php foreach ($por_entidade as $ent => $qtd): ?>
-          <tr>
-            <td><?= htmlspecialchars($ent) ?></td>
-            <td><strong style="color:#fff"><?= $qtd ?></strong></td>
-            <td style="color:#9ca3af"><?= $total > 0 ? round($qtd/$total*100,1) : 0 ?>%</td>
-          </tr>
-          <?php endforeach; ?>
-        </tbody>
-        <tfoot><tr><td>Total</td><td><?= $total ?></td><td>100%</td></tr></tfoot>
-      </table>
-    </div>
   </div>
-</div>
 
-<!-- ══════════════════════════════════════════════════════════════ -->
-<!-- PAINEL 3: CATEGORIAS                                          -->
-<!-- ══════════════════════════════════════════════════════════════ -->
-<div class="painel" id="painel-categorias">
-  <div class="painel-title">Painel de Chamados — Categorias</div>
-
-  <div class="chart-card">
-    <h3>Chamados por Categoria</h3>
-    <div class="chart-wrap" style="height:<?= max(300, count($por_categoria)*30) ?>px">
-      <canvas id="chartCategorias"></canvas>
+  <!-- ════════════════════════════════════════════════════ -->
+  <!-- PAINEL 7: ROTINAS (entidade raiz)                   -->
+  <!-- ════════════════════════════════════════════════════ -->
+  <div class="painel" id="painel-rotinas">
+    <div class="painel-title"><i class="bi bi-arrow-repeat"></i>Rotinas — Entidade Raiz</div>
+    <div class="kpi-row" id="kpi-rotinas">
+      <div class="kpi-card accent-cyan"><div class="kpi-label">📋 Total Rotinas</div><div class="kpi-val" id="kpi-rot-total">—</div><div class="kpi-sub">abertas no período</div></div>
+      <div class="kpi-card accent-green"><div class="kpi-label">✅ Concluídas</div><div class="kpi-val" id="kpi-rot-fechados">—</div><div class="kpi-sub">fechadas no período</div></div>
+      <div class="kpi-card accent-gold"><div class="kpi-label">⚡ Em andamento</div><div class="kpi-val" id="kpi-rot-andamento">—</div><div class="kpi-sub">carga atual</div></div>
+      <div class="kpi-card accent-purple"><div class="kpi-label">📊 % Cumprimento</div><div class="kpi-val" id="kpi-rot-prazo">—</div><div class="kpi-sub">concluídas em ≤24h</div></div>
     </div>
-  </div>
-</div>
-
-<!-- ══════════════════════════════════════════════════════════════ -->
-<!-- PAINEL 4: MONITOR HORA/DIA                                    -->
-<!-- ══════════════════════════════════════════════════════════════ -->
-<div class="painel" id="painel-monitor">
-  <div class="painel-title">Monitor de Chamados por Hora — Dia Semana</div>
-
-  <div class="chart-card">
-    <h3>Chamados por Hora do Dia</h3>
-    <div class="chart-wrap" style="height:260px">
-      <canvas id="chartHora"></canvas>
+    <div class="chart-grid-2">
+      <div class="chart-card"><h3>📋 Rotinas por Tipo</h3><div class="chart-wrap" id="chart-rot-nome"></div></div>
+      <div class="chart-card"><h3>✅ Concluídas por Atendente</h3><div class="chart-wrap" id="chart-rot-atendente"></div></div>
+    </div>
+    <div class="chart-card full-width" style="margin-top:.5rem">
+      <h3>📈 Evolução Mensal — Rotinas</h3>
+      <div class="chart-wrap" id="chart-rot-evolucao"></div>
     </div>
   </div>
 
-  <div class="chart-card">
-    <h3>Chamados por Dia da Semana</h3>
-    <div class="chart-wrap" style="height:260px">
-      <canvas id="chartDia"></canvas>
-    </div>
-  </div>
-</div>
-
-<!-- ══════════════════════════════════════════════════════════════ -->
-<!-- PAINEL 5: EVOLUÇÃO MENSAL                                     -->
-<!-- ══════════════════════════════════════════════════════════════ -->
-<div class="painel" id="painel-evolucao">
-  <div class="painel-title">Evolução Mensal de Chamados</div>
-
-  <div class="cards-row">
-    <div class="kpi-card gold">
-      <div class="kpi-label">Total Geral</div>
-      <div class="kpi-val"><?= $total_mes_todos ?></div>
+  <!-- ════════════════════════════════════════════════════ -->
+  <!-- PAINEL 8: PROJETOS                                  -->
+  <!-- ════════════════════════════════════════════════════ -->
+  <div class="painel" id="painel-projetos">
+    <div class="painel-title"><i class="bi bi-folder"></i>Projetos</div>
+    <div id="projetos-content" style="text-align:center;padding:2rem;color:var(--text-dim)">
+      <i class="bi bi-hourglass-split" style="font-size:2.5rem;display:block;margin-bottom:.75rem;color:var(--gold)"></i>
+      Carregando projetos…
     </div>
   </div>
 
-  <div class="chart-card">
-    <h3>Chamados por Mês</h3>
-    <div class="chart-wrap" style="height:360px">
-      <canvas id="chartMes"></canvas>
-    </div>
-  </div>
-</div>
-
-<!-- ══════════════════════════════════════════════════════════════ -->
-<!-- PAINEL 6: MONITOR SLA                                         -->
-<!-- ══════════════════════════════════════════════════════════════ -->
-<div class="painel" id="painel-sla">
-  <div class="painel-title" style="border-left-color:#e53935">🚦 Monitor SLA — Chamados Abertos em Tempo Real</div>
-
-  <!-- KPIs semáforo -->
-  <div class="cards-row">
-    <div class="kpi-card green" style="background:linear-gradient(135deg,#0d2b1a,#0d3321);border-color:#1e8e3e">
-      <div class="kpi-label">🟢 No Prazo</div>
-      <div class="kpi-val" style="color:#00ff88"><?= $sla_verde ?></div>
-    </div>
-    <div class="kpi-card" style="background:linear-gradient(135deg,#2b2200,#332b00);border-color:#f57c00">
-      <div class="kpi-label">🟡 Atenção</div>
-      <div class="kpi-val" style="color:#ffd700"><?= $sla_amarelo ?></div>
-    </div>
-    <div class="kpi-card" style="background:linear-gradient(135deg,#2b0000,#3d0a0a);border-color:#c62828">
-      <div class="kpi-label">🔴 Atrasado</div>
-      <div class="kpi-val" style="color:#ff4444"><?= $sla_vermelho ?></div>
-    </div>
-    <div class="kpi-card" style="border-color:#00bfff">
-      <div class="kpi-label">Total Abertos</div>
-      <div class="kpi-val"><?= count($sla_dados) ?></div>
-    </div>
-  </div>
-
-  <!-- Legenda thresholds -->
-  <div style="display:flex;gap:1rem;flex-wrap:wrap;margin-bottom:1rem;font-size:.75rem;color:#9ca3af">
-    <span>Thresholds por urgência:</span>
-    <span style="color:#00ff88">🟢 Verde = &lt; 50% do prazo</span>
-    <span style="color:#ffd700">🟡 Amarelo = 50–100% do prazo</span>
-    <span style="color:#ff4444">🔴 Vermelho = Prazo estourado</span>
-    <span style="color:#9ca3af">| Prazos: Alta=4h · Média=8h · Baixa=12h</span>
-  </div>
-
-  <!-- Tabela de chamados -->
-  <?php if (empty($sla_dados)): ?>
-    <div style="text-align:center;padding:3rem;color:#9ca3af">
-      <i class="bi bi-check-circle-fill" style="font-size:3rem;color:#00ff88;display:block;margin-bottom:.75rem"></i>
-      Nenhum chamado aberto ativo no momento.
-    </div>
-  <?php else: ?>
-  <div class="chart-card" style="padding:0;overflow:hidden">
-    <div style="overflow-x:auto">
-    <table style="width:100%;border-collapse:collapse;font-size:.82rem">
-      <thead>
-        <tr style="background:#0a1628;color:#9ca3af;font-size:.72rem;text-transform:uppercase;letter-spacing:.05em">
-          <th style="padding:.6rem 1rem;text-align:left">#</th>
-          <th style="padding:.6rem 1rem;text-align:left">Título</th>
-          <th style="padding:.6rem 1rem;text-align:left">Atendente</th>
-          <th style="padding:.6rem 1rem;text-align:left">Entidade</th>
-          <th style="padding:.6rem 1rem;text-align:left">Urgência</th>
-          <th style="padding:.6rem 1rem;text-align:left">Status</th>
-          <th style="padding:.6rem 1rem;text-align:left">Aberto em</th>
-          <th style="padding:.6rem 1rem;text-align:right">Tempo</th>
-          <th style="padding:.6rem 1rem;text-align:right">Prazo</th>
-        </tr>
-      </thead>
-      <tbody>
-      <?php foreach ($sla_dados as $s):
-        $bg_row = match($s['cor']) {
-            'vermelho' => 'background:rgba(220,38,38,.12)',
-            'amarelo'  => 'background:rgba(234,179,8,.08)',
-            default    => '',
-        };
-        $dot_col = match($s['cor']) {
-            'vermelho' => '#ff4444',
-            'amarelo'  => '#ffd700',
-            default    => '#00ff88',
-        };
-        $urg_col = match($s['urg_n']) {
-            5 => '#ff4444', 4 => '#ffa500', 3 => '#ffd700', default => '#9ca3af'
-        };
-      ?>
-      <tr style="border-bottom:1px solid #1a3a6a;<?= $bg_row ?>">
-        <td style="padding:.55rem 1rem;color:#9ca3af"><?= $s['id'] ?></td>
-        <td style="padding:.55rem 1rem;max-width:260px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="<?= htmlspecialchars($s['titulo']) ?>">
-          <span style="color:<?= $dot_col ?>;margin-right:.4rem">●</span>
-          <?= htmlspecialchars($s['titulo']) ?>
-        </td>
-        <td style="padding:.55rem 1rem;color:#c8d8f0"><?= htmlspecialchars($s['atendente']) ?></td>
-        <td style="padding:.55rem 1rem;color:#9ca3af;font-size:.75rem"><?= htmlspecialchars($s['entidade']) ?></td>
-        <td style="padding:.55rem 1rem;color:<?= $urg_col ?>;font-weight:600;font-size:.75rem"><?= $s['urgencia'] ?></td>
-        <td style="padding:.55rem 1rem;color:#9ca3af;font-size:.75rem"><?= $s['status'] ?></td>
-        <td style="padding:.55rem 1rem;color:#9ca3af;font-size:.72rem"><?= $s['abertura'] ?></td>
-        <td style="padding:.55rem 1rem;text-align:right;font-weight:700;color:<?= $dot_col ?>">
-          <?= $s['horas'] >= 1 ? round($s['horas']).'h' : round($s['horas']*60).'min' ?>
-        </td>
-        <td style="padding:.55rem 1rem;text-align:right;color:#9ca3af;font-size:.75rem"><?= $s['thresh'] ?>h</td>
-      </tr>
-      <?php endforeach; ?>
-      </tbody>
-    </table>
-    </div>
-  </div>
-  <?php endif; ?>
-
-  <div style="text-align:right;color:#9ca3af;font-size:.72rem;margin-top:.5rem">
-    <i class="bi bi-clock me-1"></i>Gerado em: <?= date('d/m/Y H:i:s') ?> —
-    <a href="relatorios.php?tab=sla" style="color:#00bfff;text-decoration:none">
-      <i class="bi bi-arrow-clockwise me-1"></i>Atualizar
-    </a>
-  </div>
 </div>
 
 <script>
-// ── Dados do PHP ─────────────────────────────────────────────────
-const dadosAtendente        = <?= $json_atendente ?>;
-const dadosAtendenteFechados= <?= $json_atendente_fechados ?>;
-const dadosEntidade         = <?= $json_entidade  ?>;
-const dadosCategoria = <?= $json_categoria ?>;
-const dadosHora      = <?= $json_hora      ?>;
-const dadosDia       = <?= $json_dia       ?>;
-const dadosMes       = <?= $json_mes       ?>;
+/* ══════════════════════════════════════════════════════════════
+   BI PAINEL — JavaScript
+   ══════════════════════════════════════════════════════════════ */
 
-// ── Cores pizza ──────────────────────────────────────────────────
-const coresPizza = ['#1e90ff','#ff6600','#9b59b6','#ff1493','#00ced1','#ffa500','#32cd32','#dc143c','#00bfff','#ff69b4'];
+const C = ['#06b6d4','#22c55e','#eab308','#ef4444','#8b5cf6','#f97316','#ec4899','#14b8a6','#f59e0b','#6366f1'];
 
-// ── Chart defaults dark ──────────────────────────────────────────
-Chart.defaults.color = '#c8d8f0';
-Chart.defaults.borderColor = '#1a3a6a';
+const APEX_DARK = {
+  chart: {
+    foreColor: '#7a8aaa',
+    toolbar: { show: true, tools: { download: true, zoom: true, pan: true, reset: true } },
+    background: 'transparent',
+  },
+  tooltip: { theme: 'dark', style: { fontSize: '12px' } },
+  grid: { borderColor: '#1e2d50', strokeDashArray: 3 },
+  xaxis: { labels: { style: { colors: '#7a8aaa', fontSize: '11px' } } },
+  yaxis: { labels: { style: { colors: '#7a8aaa', fontSize: '11px' } } },
+};
 
-// ── Tabs ─────────────────────────────────────────────────────────
-function showTab(id, btn) {
-  document.querySelectorAll('.painel').forEach(p => p.classList.remove('active'));
-  document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
-  document.getElementById('painel-' + id).classList.add('active');
-  (btn || event.target).classList.add('active');
-  history.replaceState(null, '', '?tab=' + id);
+let charts = {};
+let dadosCache = null;
+
+const DIAS = ['Dom','Seg','Ter','Qua','Qui','Sex','Sáb'];
+const DIAS_FULL = ['Domingo','Segunda','Terça','Quarta','Quinta','Sexta','Sábado'];
+
+// ── Animate KPI count-up ──────────────────────────────────────
+function animarKPI(el, target, suffix = '', duration = 1200) {
+  const start = performance.now();
+  function tick(now) {
+    const p = Math.min((now - start) / duration, 1);
+    const eased = 1 - Math.pow(1 - p, 3);
+    const val = Math.round(eased * target);
+    el.textContent = val + suffix;
+    if (p < 1) requestAnimationFrame(tick);
+  }
+  requestAnimationFrame(tick);
 }
 
-// Abre aba via URL (?tab=sla etc.)
-const tabParam = new URLSearchParams(location.search).get('tab');
-if (tabParam) {
-  const btnAlvo = [...document.querySelectorAll('.tab-btn')]
-    .find(b => b.getAttribute('onclick')?.includes("'" + tabParam + "'"));
-  if (btnAlvo) showTab(tabParam, btnAlvo);
+// ── Tab switching ─────────────────────────────────────────────
+document.querySelectorAll('.tab-btn').forEach(btn => {
+  btn.addEventListener('click', function() {
+    document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+    document.querySelectorAll('.painel').forEach(p => p.classList.remove('active'));
+    this.classList.add('active');
+    const tab = this.dataset.tab;
+    const painel = document.getElementById('painel-' + tab);
+    if (painel) painel.classList.add('active');
+    // Update URL without reload
+    const base = location.pathname + location.search.replace(/[?&]tab=[^&]*/g, '');
+    history.replaceState(null, '', base + (base.includes('?') ? '&' : '?') + 'tab=' + tab);
+  });
+});
+
+function abrirTab(nome) {
+  const btn = document.querySelector(`.tab-btn[data-tab="${nome}"]`);
+  if (btn) btn.click();
 }
 
-// ── Gráfico Atendente ────────────────────────────────────────────
-new Chart(document.getElementById('chartAtendente'), {
-  type: 'bar',
-  data: {
-    labels: dadosAtendente.map(d => d.nome),
-    datasets: [{
-      data: dadosAtendente.map(d => d.total),
-      backgroundColor: '#00cc66',
-      borderRadius: 6,
-    }]
-  },
-  options: {
-    responsive: true, maintainAspectRatio: false,
-    plugins: {
-      legend: { display: false },
-      datalabels: { display: false }
-    },
-    scales: {
-      x: { grid: { color: '#1a3a6a' }, ticks: { color: '#c8d8f0' } },
-      y: { grid: { color: '#1a3a6a' }, ticks: { color: '#c8d8f0' } }
-    }
-  }
-});
+function getParams() {
+  const fd = new FormData(document.getElementById('form-filtros'));
+  const p = new URLSearchParams();
+  for (const [k,v] of fd) if (v) p.set(k, v);
+  return p.toString();
+}
 
-// ── Gráfico Fechados por Atendente ──────────────────────────────
-new Chart(document.getElementById('chartAtendenteFechados'), {
-  type: 'bar',
-  data: {
-    labels: dadosAtendenteFechados.map(d => d.nome),
-    datasets: [{
-      data: dadosAtendenteFechados.map(d => d.total),
-      backgroundColor: '#00ff88',
-      borderRadius: 6,
-    }]
-  },
-  options: {
-    responsive: true, maintainAspectRatio: false,
-    plugins: { legend: { display: false } },
-    scales: {
-      x: { grid: { color: '#1a3a6a' }, ticks: { color: '#c8d8f0' } },
-      y: { grid: { color: '#1a3a6a' }, ticks: { color: '#c8d8f0' }, beginAtZero: true }
-    }
-  }
-});
+function escHtml(s) {
+  if (!s) return '—';
+  const d = document.createElement('div');
+  d.textContent = s;
+  return d.innerHTML;
+}
 
-// ── Gráfico Lojas (pizza) ────────────────────────────────────────
-new Chart(document.getElementById('chartLojas'), {
-  type: 'pie',
-  data: {
-    labels: dadosEntidade.map(d => d.nome + ' (' + d.total + ')'),
-    datasets: [{
-      data: dadosEntidade.map(d => d.total),
-      backgroundColor: coresPizza,
-      borderColor: '#050d1a',
-      borderWidth: 2,
-    }]
-  },
-  options: {
-    responsive: true, maintainAspectRatio: false,
-    plugins: {
-      legend: { position: 'bottom', labels: { color: '#c8d8f0', boxWidth: 14, font: { size: 11 } } },
-    }
-  }
-});
+function fmtHora(h) { return h.toString().padStart(2,'0') + ':00'; }
 
-// ── Gráfico Categorias (horizontal) ─────────────────────────────
-new Chart(document.getElementById('chartCategorias'), {
-  type: 'bar',
-  data: {
-    labels: dadosCategoria.map(d => d.nome.length > 30 ? d.nome.slice(0,28)+'…' : d.nome),
-    datasets: [{
-      data: dadosCategoria.map(d => d.total),
-      backgroundColor: '#1e90ff',
-      borderRadius: 4,
-    }]
-  },
-  options: {
-    indexAxis: 'y',
-    responsive: true, maintainAspectRatio: false,
-    plugins: { legend: { display: false } },
-    scales: {
-      x: { grid: { color: '#1a3a6a' }, ticks: { color: '#c8d8f0' } },
-      y: { grid: { color: '#1a3a6a' }, ticks: { color: '#c8d8f0', font: { size: 11 } } }
-    }
-  }
-});
+// ══════════════════════════════════════════════════════════════
+// RENDER: Atendimentos
+// ══════════════════════════════════════════════════════════════
+function renderAtendimentos(d) {
+  const k = d.kpis;
+  animarKPI(document.getElementById('kpi-abertos'), k.total_abertos);
+  animarKPI(document.getElementById('kpi-fechados'), k.total_fechados);
+  animarKPI(document.getElementById('kpi-andamento'), k.em_andamento);
+  document.getElementById('kpi-tempomedio').textContent = k.tempo_medio + 'h';
+  document.getElementById('badge-fechados').textContent = k.total_fechados;
 
-// ── Gráfico Hora ─────────────────────────────────────────────────
-const horas = Array.from({length:24}, (_,i) => i.toString().padStart(2,'0')+':00');
-new Chart(document.getElementById('chartHora'), {
-  type: 'bar',
-  data: {
-    labels: horas,
-    datasets: [{
-      label: 'Chamados',
-      data: dadosHora,
-      backgroundColor: '#00bfff',
-      borderRadius: 4,
-    }]
-  },
-  options: {
-    responsive: true, maintainAspectRatio: false,
-    plugins: { legend: { display: false } },
-    scales: {
-      x: { grid: { color: '#1a3a6a' }, ticks: { color: '#c8d8f0' } },
-      y: { grid: { color: '#1a3a6a' }, ticks: { color: '#c8d8f0' } }
-    }
-  }
-});
+  // Produtividade: barras agrupadas — Fechados vs Em Andamento por Atendente
+  const fa = d.por_atendente || [];
+  const ea = d.em_andamento_por_atendente || [];
+  const todosAtend = [...new Set([...fa.map(x => x.nome), ...ea.map(x => x.nome)])].sort();
+  const dataF = todosAtend.map(n => (fa.find(x => x.nome === n) || {}).total || 0);
+  const dataE = todosAtend.map(n => (ea.find(x => x.nome === n) || {}).total || 0);
 
-// ── Gráfico Dia da Semana ────────────────────────────────────────
-const dias = ['Domingo','Segunda','Terça','Quarta','Quinta','Sexta','Sábado'];
-new Chart(document.getElementById('chartDia'), {
-  type: 'bar',
-  data: {
-    labels: dias,
-    datasets: [{
-      label: 'Chamados',
-      data: dadosDia,
-      backgroundColor: '#00ff88',
-      borderRadius: 4,
-    }]
-  },
-  options: {
-    responsive: true, maintainAspectRatio: false,
-    plugins: { legend: { display: false } },
-    scales: {
-      x: { grid: { color: '#1a3a6a' }, ticks: { color: '#c8d8f0' } },
-      y: { grid: { color: '#1a3a6a' }, ticks: { color: '#c8d8f0' } }
-    }
-  }
-});
+  if (charts.produtividade) charts.produtividade.destroy();
+  charts.produtividade = new ApexCharts(document.getElementById('chart-produtividade'), {
+    ...APEX_DARK,
+    chart: { ...APEX_DARK.chart, type: 'bar', height: 220, animations: { enabled: true, speed: 600 }, stacked: false },
+    series: [
+      { name: 'Fechados', data: dataF },
+      { name: 'Em andamento', data: dataE },
+    ],
+    colors: ['#22c55e', '#eab308'],
+    xaxis: { categories: todosAtend },
+    yaxis: { labels: { formatter: v => Math.round(v) } },
+    plotOptions: { bar: { horizontal: false, columnWidth: '60%', borderRadius: 4 } },
+    dataLabels: { enabled: true, style: { colors: ['#fff'], fontSize: '10px', fontWeight: 700 }, offsetY: -4 },
+    stroke: { show: true, width: 1, colors: ['#0f1525'] },
+    tooltip: { ...APEX_DARK.tooltip, y: { formatter: v => v + ' chamados' } },
+    legend: { position: 'top', labels: { colors: '#7a8aaa' } },
+  });
+  charts.produtividade.render();
+}
 
-// ── Gráfico Evolução Mensal ──────────────────────────────────────
-new Chart(document.getElementById('chartMes'), {
-  type: 'bar',
-  data: {
-    labels: dadosMes.map(d => d.mes),
-    datasets: [{
-      label: 'Chamados',
-      data: dadosMes.map(d => d.total),
-      backgroundColor: '#1e90ff',
-      borderRadius: 6,
-    }]
-  },
-  options: {
-    responsive: true, maintainAspectRatio: false,
-    plugins: {
-      legend: { display: false },
-      tooltip: {
-        callbacks: {
-          label: ctx => ' ' + ctx.raw + ' chamados'
-        }
-      }
-    },
-    scales: {
-      x: { grid: { color: '#1a3a6a' }, ticks: { color: '#c8d8f0' } },
-      y: { grid: { color: '#1a3a6a' }, ticks: { color: '#c8d8f0' } }
-    }
+// ══════════════════════════════════════════════════════════════
+// RENDER: Lojas
+// ══════════════════════════════════════════════════════════════
+function renderLojas(d) {
+  const lojas = d.por_entidade;
+  const total = lojas.reduce((s,x) => s + x.total, 0);
+  const maxL = Math.max(...lojas.map(x => x.total), 1);
+
+  if (charts.lojasDonut) charts.lojasDonut.destroy();
+  charts.lojasDonut = new ApexCharts(document.getElementById('chart-lojas-donut'), {
+    ...APEX_DARK,
+    chart: { ...APEX_DARK.chart, type: 'donut', animations: { enabled: true, speed: 600 } },
+    series: lojas.map(x => x.total),
+    labels: lojas.map(x => x.nome),
+    colors: C,
+    plotOptions: { pie: { donut: { size: '55%', labels: { show: true, total: { show: true, label: 'Total', color: '#f0f4ff', formatter: () => total } } } } },
+    dataLabels: { enabled: true, style: { fontSize: '11px', colors: ['#fff'] }, dropShadow: { enabled: false } },
+    tooltip: { ...APEX_DARK.tooltip, y: { formatter: v => v + ' chamados' } },
+    legend: { position: 'bottom', labels: { colors: '#7a8aaa' }, itemMargin: { horizontal: 8 } },
+  });
+  charts.lojasDonut.render();
+
+  document.getElementById('tbody-lojas').innerHTML = lojas.map(x =>
+    `<tr><td>${x.nome}</td>
+    <td><div class="bar-bg"><div class="bar-fill" style="width:${(x.total/maxL*100).toFixed(0)}%;background:var(--cyan)"></div></div>${x.total}</td>
+    <td style="color:var(--text-dim)">${(x.total/total*100).toFixed(1)}%</td></tr>`
+  ).join('');
+}
+
+// ══════════════════════════════════════════════════════════════
+// RENDER: Categorias
+// ══════════════════════════════════════════════════════════════
+function renderCategorias(d) {
+  const cats = d.por_categoria;
+  const total = cats.reduce((s,x) => s + x.total, 0);
+  const maxC = Math.max(...cats.map(x => x.total), 1);
+
+  if (charts.categoriasBar) charts.categoriasBar.destroy();
+  charts.categoriasBar = new ApexCharts(document.getElementById('chart-categorias-bar'), {
+    ...APEX_DARK,
+    chart: { ...APEX_DARK.chart, type: 'bar', animations: { enabled: true, speed: 600 } },
+    series: [{ name: 'Chamados', data: cats.map(x => x.total).reverse() }],
+    colors: ['#06b6d4'],
+    xaxis: { categories: cats.map(x => x.nome.length > 35 ? x.nome.slice(0,33)+'…' : x.nome).reverse() },
+    plotOptions: { bar: { borderRadius: 4, horizontal: true, barHeight: '70%' } },
+    dataLabels: { enabled: true, style: { colors: ['#fff'], fontSize: '11px', fontWeight: 700 } },
+    tooltip: { ...APEX_DARK.tooltip, y: { formatter: v => v + ' chamados' } },
+  });
+  charts.categoriasBar.render();
+
+  document.getElementById('tbody-categorias').innerHTML = cats.map(x =>
+    `<tr><td>${x.nome}</td>
+    <td><div class="bar-bg" style="width:200px"><div class="bar-fill" style="width:${(x.total/maxC*100).toFixed(0)}%;background:var(--purple)"></div></div>${x.total}</td>
+    <td style="color:var(--text-dim)">${(x.total/total*100).toFixed(1)}%</td></tr>`
+  ).join('');
+}
+
+// ══════════════════════════════════════════════════════════════
+// RENDER: Horário
+// ══════════════════════════════════════════════════════════════
+function renderHorario(d) {
+  // Hora
+  if (charts.hora) charts.hora.destroy();
+  charts.hora = new ApexCharts(document.getElementById('chart-hora'), {
+    ...APEX_DARK,
+    chart: { ...APEX_DARK.chart, type: 'bar', animations: { enabled: true, speed: 500 } },
+    series: [{ name: 'Chamados', data: d.por_hora }],
+    colors: ['#06b6d4'],
+    xaxis: { categories: Array.from({length:24}, (_,i) => fmtHora(i)), tickAmount: 12 },
+    plotOptions: { bar: { borderRadius: 2, columnWidth: '70%' } },
+    tooltip: { ...APEX_DARK.tooltip, y: { formatter: v => v + ' chamados' } },
+  });
+  charts.hora.render();
+
+  // Dia da Semana
+  if (charts.dia) charts.dia.destroy();
+  charts.dia = new ApexCharts(document.getElementById('chart-dia'), {
+    ...APEX_DARK,
+    chart: { ...APEX_DARK.chart, type: 'bar', animations: { enabled: true, speed: 500 } },
+    series: [{ name: 'Chamados', data: d.por_dia }],
+    colors: ['#22c55e'],
+    xaxis: { categories: DIAS_FULL },
+    plotOptions: { bar: { borderRadius: 4, columnWidth: '60%' } },
+    tooltip: { ...APEX_DARK.tooltip, y: { formatter: v => v + ' chamados' } },
+  });
+  charts.dia.render();
+
+  // Heatmap
+  if (charts.heatmap) charts.heatmap.destroy();
+  const hmData = d.heatmap || [];
+  const hmSeries = DIAS.map((dia, di) => ({
+    name: dia,
+    data: Array.from({length: 24}, (_, hi) => {
+      const item = hmData.find(x => x.hora === hi && x.dia === di);
+      return { x: fmtHora(hi), y: item ? item.total : 0 };
+    }),
+  }));
+  charts.heatmap = new ApexCharts(document.getElementById('chart-heatmap'), {
+    ...APEX_DARK,
+    chart: { ...APEX_DARK.chart, type: 'heatmap', animations: { enabled: true, speed: 600 } },
+    series: hmSeries,
+    colors: ['#0f1525','#0a3d5c','#06b6d4','#22c55e','#eab308','#f97316','#ef4444'],
+    plotOptions: { heatmap: { shadeIntensity: .5, radius: 2, useFillColorAsStroke: true,
+      colorScale: { ranges: [
+        { from: 0, to: 0, color: '#0f1525', name: '0' },
+        { from: 1, to: 3, color: '#0a3d5c', name: '1-3' },
+        { from: 4, to: 8, color: '#06b6d4', name: '4-8' },
+        { from: 9, to: 15, color: '#22c55e', name: '9-15' },
+        { from: 16, to: 25, color: '#eab308', name: '16-25' },
+        { from: 26, to: 50, color: '#f97316', name: '26-50' },
+        { from: 51, to: 999, color: '#ef4444', name: '51+' },
+      ]} } },
+    dataLabels: { enabled: false },
+    xaxis: { tickAmount: 12, labels: { rotate: -45 } },
+    tooltip: { ...APEX_DARK.tooltip, y: { formatter: v => v + ' chamados' } },
+  });
+  charts.heatmap.render();
+}
+
+// ══════════════════════════════════════════════════════════════
+// RENDER: Evolução
+// ══════════════════════════════════════════════════════════════
+function renderEvolucao(d) {
+  const abertos = d.evolucao_mensal || [];
+  const fechados = d.evolucao_fechados || [];
+  const totalAbertos = abertos.reduce((s,x) => s + x.total, 0);
+  const totalFechados = fechados.reduce((s,x) => s + x.total, 0);
+  const media = abertos.length > 0 ? Math.round(totalAbertos / abertos.length) : 0;
+
+  animarKPI(document.getElementById('kpi-evolucao-total'), totalAbertos);
+  animarKPI(document.getElementById('kpi-evolucao-fechados'), totalFechados);
+  animarKPI(document.getElementById('kpi-evolucao-media'), media);
+
+  // Gráfico 1: Abertos por mês
+  if (charts.evolucao) charts.evolucao.destroy();
+  charts.evolucao = new ApexCharts(document.getElementById('chart-evolucao'), {
+    ...APEX_DARK,
+    chart: { ...APEX_DARK.chart, type: 'area', height: 260, animations: { enabled: true, speed: 600 }, zoom: { enabled: true, type: 'x' } },
+    series: [{ name: 'Abertos', data: abertos.map(x => x.total) }],
+    colors: ['#06b6d4'],
+    fill: { type: 'gradient', gradient: { shadeIntensity: 1, opacityFrom: .6, opacityTo: .1,
+      colorStops: [{ offset: 0, color: '#06b6d4', opacity: .6 }, { offset: 100, color: '#06b6d4', opacity: .1 }] } },
+    xaxis: { categories: abertos.map(x => x.mes), tickAmount: 12, labels: { rotate: -45 } },
+    yaxis: { labels: { formatter: v => Math.round(v) } },
+    dataLabels: { enabled: false },
+    stroke: { curve: 'smooth', width: 2 },
+    markers: { size: 3, colors: ['#06b6d4'], strokeColors: '#fff', strokeWidth: 1 },
+    tooltip: { ...APEX_DARK.tooltip, x: { format: 'yyyy-MM' }, y: { formatter: v => v + ' chamados' } },
+  });
+  charts.evolucao.render();
+
+  // Gráfico 2: Fechados por mês
+  if (charts.evolucaoFechados) charts.evolucaoFechados.destroy();
+  charts.evolucaoFechados = new ApexCharts(document.getElementById('chart-evolucao-fechados'), {
+    ...APEX_DARK,
+    chart: { ...APEX_DARK.chart, type: 'area', height: 260, animations: { enabled: true, speed: 600 }, zoom: { enabled: true, type: 'x' } },
+    series: [{ name: 'Fechados', data: fechados.map(x => x.total) }],
+    colors: ['#22c55e'],
+    fill: { type: 'gradient', gradient: { shadeIntensity: 1, opacityFrom: .6, opacityTo: .1,
+      colorStops: [{ offset: 0, color: '#22c55e', opacity: .6 }, { offset: 100, color: '#22c55e', opacity: .1 }] } },
+    xaxis: { categories: fechados.map(x => x.mes), tickAmount: 12, labels: { rotate: -45 } },
+    yaxis: { labels: { formatter: v => Math.round(v) } },
+    dataLabels: { enabled: false },
+    stroke: { curve: 'smooth', width: 2 },
+    markers: { size: 3, colors: ['#22c55e'], strokeColors: '#fff', strokeWidth: 1 },
+    tooltip: { ...APEX_DARK.tooltip, x: { format: 'yyyy-MM' }, y: { formatter: v => v + ' chamados' } },
+  });
+  charts.evolucaoFechados.render();
+
+  // Gráfico 3: Barras agrupadas — Abertos vs Fechados
+  const allMeses = [...new Set([...abertos.map(x => x.mes), ...fechados.map(x => x.mes)])].sort();
+  const barAbertos = allMeses.map(m => (abertos.find(x => x.mes === m) || {}).total || 0);
+  const barFechados = allMeses.map(m => (fechados.find(x => x.mes === m) || {}).total || 0);
+
+  if (charts.evolucaoBarras) charts.evolucaoBarras.destroy();
+  charts.evolucaoBarras = new ApexCharts(document.getElementById('chart-evolucao-barras'), {
+    ...APEX_DARK,
+    chart: { ...APEX_DARK.chart, type: 'bar', height: 300, animations: { enabled: true, speed: 600 }, stacked: false },
+    series: [
+      { name: 'Abertos', data: barAbertos },
+      { name: 'Fechados', data: barFechados },
+    ],
+    colors: ['#06b6d4', '#22c55e'],
+    xaxis: { categories: allMeses, tickAmount: 12, labels: { rotate: -45 } },
+    yaxis: { labels: { formatter: v => Math.round(v) } },
+    plotOptions: { bar: { horizontal: false, columnWidth: '60%', borderRadius: 4, dataLabels: { total: { enabled: true, offsetX: 0, style: { fontSize: '10px', colors: ['#fff'] } } } } },
+    dataLabels: { enabled: true, style: { colors: ['#fff'], fontSize: '10px', fontWeight: 700 }, offsetY: -4 },
+    stroke: { show: true, width: 1, colors: ['#0f1525'] },
+    tooltip: { ...APEX_DARK.tooltip, x: { format: 'yyyy-MM' }, y: { formatter: v => v + ' chamados' } },
+    legend: { position: 'top', labels: { colors: '#7a8aaa' } },
+  });
+  charts.evolucaoBarras.render();
+}
+
+// ══════════════════════════════════════════════════════════════
+// RENDER: SLA
+// ══════════════════════════════════════════════════════════════
+function renderSLA(d) {
+  const sla = d.sla;
+  if (!sla) return;
+  const total = (sla.verde||0) + (sla.amarelo||0) + (sla.vermelho||0);
+
+  animarKPI(document.getElementById('kpi-sla-verde'), sla.verde, '', 800);
+  animarKPI(document.getElementById('kpi-sla-amarelo'), sla.amarelo, '', 800);
+  animarKPI(document.getElementById('kpi-sla-vermelho'), sla.vermelho, '', 800);
+  animarKPI(document.getElementById('kpi-sla-total'), total, '', 800);
+
+  // Donut
+  if (charts.slaDonut) charts.slaDonut.destroy();
+  charts.slaDonut = new ApexCharts(document.getElementById('chart-sla-donut'), {
+    ...APEX_DARK,
+    chart: { ...APEX_DARK.chart, type: 'donut', animations: { enabled: true, speed: 600 } },
+    series: [sla.verde, sla.amarelo, sla.vermelho],
+    labels: ['No Prazo', 'Atenção', 'Atrasado'],
+    colors: ['#22c55e','#eab308','#ef4444'],
+    plotOptions: { pie: { donut: { size: '65%', labels: { show: true, total: { show: true, label: 'Total', color: '#f0f4ff', formatter: () => total } } } } },
+    dataLabels: { enabled: true, style: { fontSize: '12px', colors: ['#fff'] }, dropShadow: { enabled: false } },
+    tooltip: { ...APEX_DARK.tooltip, y: { formatter: v => v + ' chamados' } },
+    legend: { position: 'bottom', labels: { colors: '#7a8aaa' } },
+  });
+  charts.slaDonut.render();
+
+  // Tabela
+  const wrap = document.getElementById('sla-tabela-wrap');
+  const dados = sla.dados || [];
+  if (dados.length === 0) {
+    wrap.innerHTML = '<div style="text-align:center;padding:2rem;color:var(--text-dim)"><i class="bi bi-check-circle-fill" style="font-size:2rem;color:var(--green);display:block;margin-bottom:.5rem"></i>Nenhum chamado aberto ativo.</div>';
+    return;
   }
+  let html = '<table class="tabela-bi"><thead><tr><th>#</th><th>Título</th><th>Atendente</th><th>Entidade</th><th>Urgência</th><th>Status</th><th>Aberto em</th><th style="text-align:right">Tempo</th><th style="text-align:right">Prazo</th></tr></thead><tbody>';
+  dados.forEach(s => {
+    const dot = s.cor === 'verde' ? '#22c55e' : s.cor === 'amarelo' ? '#eab308' : '#ef4444';
+    const urgC = s.urg_n >= 5 ? '#ef4444' : s.urg_n >= 4 ? '#f97316' : s.urg_n >= 3 ? '#eab308' : '#7a8aaa';
+    html += `<tr style="border-bottom:1px solid #1e2d50">
+      <td style="color:var(--text-dim)">${s.id}</td>
+      <td style="max-width:220px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap"><span style="color:${dot};margin-right:.3rem">●</span>${escHtml(s.titulo)}</td>
+      <td>${escHtml(s.atendente)}</td>
+      <td style="color:var(--text-dim);font-size:.75rem">${escHtml(s.entidade)}</td>
+      <td style="color:${urgC};font-weight:600">${escHtml(s.urgencia)}</td>
+      <td style="color:var(--text-dim)">${escHtml(s.status)}</td>
+      <td style="color:var(--text-dim);font-size:.75rem">${escHtml(s.abertura)}</td>
+      <td style="text-align:right;font-weight:700;color:${dot}">${s.horas >= 1 ? Math.round(s.horas)+'h' : Math.round(s.horas*60)+'min'}</td>
+      <td style="text-align:right;color:var(--text-dim)">${s.thresh}h</td>
+    </tr>`;
+  });
+  html += '</tbody></table>';
+  wrap.innerHTML = html;
+}
+
+// ══════════════════════════════════════════════════════════════
+// RENDER: Rotinas (entidade raiz)
+// ══════════════════════════════════════════════════════════════
+function renderRotinas(d) {
+  const rot = d.rotinas;
+  if (!rot) return;
+  const k = rot.kpis || {};
+
+  animarKPI(document.getElementById('kpi-rot-total'), k.total || 0);
+  animarKPI(document.getElementById('kpi-rot-fechados'), k.fechados || 0);
+  animarKPI(document.getElementById('kpi-rot-andamento'), k.andamento || 0);
+  document.getElementById('kpi-rot-prazo').textContent = (k.pct_prazo || 0) + '%';
+
+  // Rotinas por nome
+  const nomes = rot.por_nome || [];
+  if (charts.rotNome) charts.rotNome.destroy();
+  charts.rotNome = new ApexCharts(document.getElementById('chart-rot-nome'), {
+    ...APEX_DARK,
+    chart: { ...APEX_DARK.chart, type: 'bar', animations: { enabled: true, speed: 600 } },
+    series: [{ name: 'Rotinas', data: nomes.map(x => x.total).reverse() }],
+    colors: ['#06b6d4'],
+    xaxis: { categories: nomes.map(x => x.nome.length > 30 ? x.nome.slice(0,28)+'…' : x.nome).reverse() },
+    plotOptions: { bar: { borderRadius: 4, horizontal: true, barHeight: '65%' } },
+    dataLabels: { enabled: true, style: { colors: ['#fff'], fontSize: '10px', fontWeight: 700 } },
+    tooltip: { ...APEX_DARK.tooltip, y: { formatter: v => v + ' chamados' } },
+  });
+  charts.rotNome.render();
+
+  // Por atendente
+  const atend = rot.por_atendente || [];
+  if (charts.rotAtendente) charts.rotAtendente.destroy();
+  charts.rotAtendente = new ApexCharts(document.getElementById('chart-rot-atendente'), {
+    ...APEX_DARK,
+    chart: { ...APEX_DARK.chart, type: 'bar', animations: { enabled: true, speed: 600 } },
+    series: [{ name: 'Concluídas', data: atend.map(x => x.total) }],
+    colors: ['#22c55e'],
+    xaxis: { categories: atend.map(x => x.nome) },
+    plotOptions: { bar: { borderRadius: 4, columnWidth: '60%' } },
+    dataLabels: { enabled: true, style: { colors: ['#fff'], fontSize: '11px', fontWeight: 700 } },
+    tooltip: { ...APEX_DARK.tooltip, y: { formatter: v => v + ' rotinas' } },
+  });
+  charts.rotAtendente.render();
+
+  // Evolução mensal
+  const evol = rot.evolucao || [];
+  if (charts.rotEvolucao) charts.rotEvolucao.destroy();
+  charts.rotEvolucao = new ApexCharts(document.getElementById('chart-rot-evolucao'), {
+    ...APEX_DARK,
+    chart: { ...APEX_DARK.chart, type: 'area', animations: { enabled: true, speed: 600 }, zoom: { enabled: true, type: 'x' } },
+    series: [{ name: 'Rotinas', data: evol.map(x => x.total) }],
+    colors: ['#8b5cf6'],
+    fill: { type: 'gradient', gradient: { shadeIntensity: 1, opacityFrom: .6, opacityTo: .1,
+      colorStops: [{ offset: 0, color: '#8b5cf6', opacity: .6 }, { offset: 100, color: '#8b5cf6', opacity: .1 }] } },
+    xaxis: { categories: evol.map(x => x.mes), tickAmount: 12, labels: { rotate: -45 } },
+    yaxis: { labels: { formatter: v => Math.round(v) } },
+    dataLabels: { enabled: false },
+    stroke: { curve: 'smooth', width: 2 },
+    markers: { size: 3, colors: ['#8b5cf6'], strokeColors: '#fff', strokeWidth: 1 },
+    tooltip: { ...APEX_DARK.tooltip, x: { format: 'yyyy-MM' }, y: { formatter: v => v + ' rotinas' } },
+  });
+  charts.rotEvolucao.render();
+}
+
+// ══════════════════════════════════════════════════════════════
+// MAIN: carregar dados e renderizar
+// ══════════════════════════════════════════════════════════════
+
+async function carregarDados() {
+  document.getElementById('painel-erro').classList.remove('active');
+  document.getElementById('loading-state').style.display = 'flex';
+  document.getElementById('status-badge').style.display = 'none';
+
+  const url = 'relatorios_dados.php?' + getParams();
+  try {
+    const res = await fetch(url);
+    if (!res.ok) throw new Error('HTTP ' + res.status);
+    const data = await res.json();
+    if (data.error) throw new Error(data.error);
+    dadosCache = data;
+
+    document.getElementById('loading-state').style.display = 'none';
+    document.getElementById('status-badge').style.display = 'inline';
+
+    renderAtendimentos(data);
+    renderLojas(data);
+    renderCategorias(data);
+    renderHorario(data);
+    renderEvolucao(data);
+    renderSLA(data);
+    renderRotinas(data);
+    carregarProjetos();
+  } catch (err) {
+    document.getElementById('loading-state').style.display = 'none';
+    document.getElementById('painel-erro').classList.add('active');
+    document.getElementById('error-msg').textContent = 'Erro: ' + err.message;
+    document.getElementById('status-badge').style.display = 'none';
+  }
+}
+
+// ══════════════════════════════════════════════════════════════
+// PROJETOS
+// ══════════════════════════════════════════════════════════════
+
+async function carregarProjetos() {
+  const container = document.getElementById('projetos-content');
+  try {
+    const res = await fetch('relatorios_projetos.php');
+    if (!res.ok) throw new Error('HTTP ' + res.status);
+    const projetos = await res.json();
+    if (!projetos || projetos.length === 0) {
+      container.innerHTML = '<i class="bi bi-folder-open" style="font-size:2.5rem;display:block;margin-bottom:.75rem;color:var(--text-dim)"></i><p style="color:var(--text-dim)">Nenhum projeto encontrado.</p>';
+      return;
+    }
+    let html = '<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:1rem">';
+    projetos.forEach(p => {
+      const pct = p.progresso || 0;
+      const cor = pct >= 80 ? 'var(--green)' : pct >= 50 ? 'var(--gold)' : 'var(--red)';
+      const badgeCor = p.status === 'Adiantado' ? 'var(--cyan)' : p.status === 'No prazo' ? 'var(--green)' : p.status === 'Atenção' ? 'var(--gold)' : 'var(--red)';
+      html += `<div class="chart-card" style="display:flex;flex-direction:column;gap:.5rem">
+        <div style="display:flex;justify-content:space-between;align-items:center">
+          <strong style="color:var(--text-bright);font-size:.9rem">${escHtml(p.nome)}</strong>
+          <span style="background:${badgeCor};color:#000;border-radius:20px;padding:1px 8px;font-size:.68rem;font-weight:700">${escHtml(p.status)}</span>
+        </div>
+        <div style="display:flex;align-items:center;gap:.5rem">
+          <div class="bar-bg" style="flex:1;height:10px;width:auto"><div class="bar-fill" style="width:${pct}%;background:${cor}"></div></div>
+          <span style="font-weight:700;color:${cor};font-size:.85rem">${pct}%</span>
+        </div>
+        <div style="font-size:.72rem;color:var(--text-dim);display:flex;gap:1rem;flex-wrap:wrap">
+          <span>📅 ${escHtml(p.prazo || '—')}</span>
+          <span>📦 ${p.modulos || 0} módulos</span>
+          <span>👤 ${escHtml(p.equipe || '—')}</span>
+        </div>
+      </div>`;
+    });
+    html += '</div>';
+    container.innerHTML = html;
+  } catch (err) {
+    container.innerHTML = '<i class="bi bi-exclamation-triangle" style="font-size:2rem;display:block;margin-bottom:.75rem;color:var(--red)"></i><p style="color:var(--text-dim)">Erro: ' + err.message + '</p>';
+  }
+}
+
+// ══════════════════════════════════════════════════════════════
+// INIT
+// ══════════════════════════════════════════════════════════════
+
+document.addEventListener('DOMContentLoaded', () => {
+  const tabParam = new URLSearchParams(location.search).get('tab');
+  if (tabParam) abrirTab(tabParam);
+  carregarDados();
+
+  document.getElementById('form-filtros').addEventListener('submit', (e) => {
+    e.preventDefault();
+    const p = new URLSearchParams(new FormData(e.target));
+    history.replaceState(null, '', location.pathname + '?' + p.toString());
+    carregarDados();
+  });
 });
 </script>
 
