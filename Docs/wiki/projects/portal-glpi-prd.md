@@ -26,6 +26,7 @@
 | 📄 Contratos | 🟡 Em andamento | ~50% |
 | 🔑 Licenças de Software | 🟡 Em andamento | ~50% |
 | 🔒 Cofre TI | 🟡 Em andamento | ~70% |
+| 📱 Acesso Mobile | 🔴 Pendente | 0% |
 
 ---
 
@@ -301,6 +302,35 @@
 - [ ] Busca por tag e categoria
 - [ ] Compartilhamento seguro de senha (link com expiração)
 - [ ] Senha mestra para acesso ao cofre
+
+---
+
+## 📱 Módulo 15 — Acesso Mobile
+> Portal acessível em celulares e tablets Android/iOS via navegador, sem instalação.
+> **Prazo:** 03/07/2026
+
+### Acesso na Rede
+- [ ] Documentar IP do servidor para acesso via Wi-Fi interno
+- [ ] Testar acesso em Android (Chrome) e iOS (Safari) na rede local
+- [ ] Avaliar solução de acesso externo (VPN ou Cloudflare Tunnel)
+
+### Responsividade CSS
+- [ ] Menu hambúrguer no mobile (topbar colapsável)
+- [ ] Ajustes de padding/fonte em telas pequenas (< 768px)
+- [ ] Modais de chamado adaptados para tela pequena
+- [ ] Cards do dashboard empilhados corretamente no mobile
+- [ ] Tabelas com scroll horizontal em telas pequenas
+
+### Agenda no Mobile
+- [ ] Visualização mensal funcional no touch
+- [ ] Botão "Novo Chamado" acessível no mobile
+- [ ] Drag & drop desativado no touch (substituir por tap para mover)
+
+### PWA (Portal como App)
+- [ ] Criar `manifest.json` (nome, ícone, cor, modo standalone)
+- [ ] Ícone do portal para tela inicial do celular
+- [ ] Service worker básico (cache offline das páginas principais)
+- [ ] Botão "Instalar app" no banner do portal
 
 ---
 

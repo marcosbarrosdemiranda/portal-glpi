@@ -112,7 +112,7 @@ $docs = $docs_por_fu; // todos os docs dos followups, lista plana
 
 echo json_encode([
     'descricao'    => $descricao,
-    'entidade'     => $t['entities_id']        ?? '',
+    'entidade'     => html_entity_decode($t['entities_id'] ?? '', ENT_QUOTES | ENT_HTML5, 'UTF-8'),
     'entidade_id'  => (int)($t_raw['entities_id'] ?? 0),
     'categoria'    => $t['itilcategories_id']   ?? '',
     'categoria_id' => (int)($t_raw['itilcategories_id'] ?? 0),

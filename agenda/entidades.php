@@ -25,6 +25,7 @@ foreach ($entidades as $e) {
     if (!isset($e['id'])) continue;
     if ((int)$e['id'] === 0) continue; // Exclui entidade raiz
     $nome = $e['completename'] ?? $e['name'] ?? '';
+    $nome = html_entity_decode($nome, ENT_QUOTES | ENT_HTML5, 'UTF-8');
     if (strtolower($nome) === 'entidade raiz' || !$nome) continue;
     $result[] = ['id' => $e['id'], 'nome' => $nome];
 }

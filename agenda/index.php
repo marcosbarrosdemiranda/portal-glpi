@@ -821,6 +821,10 @@ document.addEventListener('DOMContentLoaded', function() {
     nowIndicator: true,
     slotMinTime: '06:00:00',
     slotMaxTime: '23:00:00',
+    slotDuration: '00:15:00',
+    slotLabelInterval: '00:30:00',
+    slotLabelFormat: { hour: '2-digit', minute: '2-digit', hour12: false },
+    snapDuration: '00:15:00',
     allDaySlot: true,
     editable: true,
     droppable: true,
@@ -997,7 +1001,7 @@ document.addEventListener('DOMContentLoaded', function() {
   // ── Destaque visual: horários de plantão (fundo cinza claro na grade) ──
   // As células dos horários 06-07h, 11-13h e 17-22h recebem fundo cinza
   // para indicar períodos cobertos por plantonistas.
-  // Gera via JS para acompanhar a granularidade dos slots (30 min).
+  // Gera via JS para acompanhar a granularidade dos slots (15 min).
   (function() {
     const RANGES = [[6,7],[11,13],[17,22]];
     const pad = n => String(n).padStart(2,'0');
@@ -1006,7 +1010,7 @@ document.addEventListener('DOMContentLoaded', function() {
     let css = '/* Plantonista hours */\n';
     for (const [s,e] of RANGES) {
       for (let h = s; h < e; h++) {
-        css += `.fc-timegrid-slot[data-time="${pad(h)}:00:00"],.fc-timegrid-slot[data-time="${pad(h)}:30:00"],`;
+        css += `.fc-timegrid-slot[data-time="${pad(h)}:00:00"],.fc-timegrid-slot[data-time="${pad(h)}:15:00"],.fc-timegrid-slot[data-time="${pad(h)}:30:00"],.fc-timegrid-slot[data-time="${pad(h)}:45:00"],`;
       }
     }
     css = css.replace(/,$/,'') + '{background:#f5f3f1!important}';
@@ -1475,15 +1479,17 @@ function preencherModal(dados) {
       .then(d => {
         if (d.descricao) document.getElementById('ev-descricao').value = d.descricao;
 
-        // Entidade: options têm value=nome → usa d.entidade (nome expandido do GLPI)
+        // Entidade: options têm data-id → busca por ID numérico (evita mismatch de HTML entities)
         // Se a entidade não estiver na lista (ex: Entidade raiz excluída), insere dinamicamente
-        if (d.entidade) {
-          const selEnt = document.getElementById('ev-entidade');
-          if (selEnt) {
-            if (!Array.from(selEnt.options).some(o => o.value === d.entidade)) {
-              const opt = new Option(apelidoEntidade(d.entidade), d.entidade);
-              selEnt.insertBefore(opt, selEnt.options[1]);
-            }
+        const selEnt = document.getElementById('ev-entidade');
+        if (selEnt && d.entidade_id) {
+          const opt = selEnt.querySelector(`option[data-id="${d.entidade_id}"]`);
+          if (opt) {
+            selEnt.value = opt.value;
+          } else if (d.entidade) {
+            const novaOpt = new Option(apelidoEntidade(d.entidade), d.entidade);
+            novaOpt.dataset.id = d.entidade_id;
+            selEnt.insertBefore(novaOpt, selEnt.options[1]);
             selEnt.value = d.entidade;
           }
         }
@@ -1935,6 +1941,7 @@ function novoPeriodo() {
     document.getElementById('ev-setor').value       = setor;
     document.getElementById('ev-start').value       = '';
     document.getElementById('ev-end').value         = '';
+    document.getElementById('ev-orig-start').value  = '';
     document.getElementById('ev-concluido').checked  = false;
     document.getElementById('ev-fechar-glpi').checked = false;
     document.getElementById('campo-fechar-glpi').style.display = 'none';
@@ -2322,7 +2329,7 @@ function salvarEventoObj(dados, cb) {
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             ticket_id:     dados.ticket_id,
-            titulo:        dados.titulo        || null,
+            titulo:        dados.titulo?.replace(/#\d+\s*[–-]\s*/g, '').trim() || null,
             descricao:     dados.descricao     || null,
             tipo:          dados.tipo          || null,
             prioridade:    dados.prioridade    || null,

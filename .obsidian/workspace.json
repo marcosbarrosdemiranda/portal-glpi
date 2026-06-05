@@ -17,12 +17,12 @@
                 "state": {
                   "type": "markdown",
                   "state": {
-                    "file": "Docs/wiki/projects/portal-glpi-prd.md",
+                    "file": "DOCUMENTACAO.md",
                     "mode": "preview",
                     "source": false
                   },
                   "icon": "lucide-file",
-                  "title": "portal-glpi-prd"
+                  "title": "DOCUMENTACAO"
                 }
               }
             ]
@@ -101,13 +101,13 @@
             "state": {
               "type": "outline",
               "state": {
-                "file": "Docs/wiki/projects/portal-glpi-prd.md",
+                "file": "DOCUMENTACAO.md",
                 "followCursor": false,
                 "showSearch": false,
                 "searchQuery": ""
               },
               "icon": "lucide-list",
-              "title": "Sumário de portal-glpi-prd"
+              "title": "Sumário de DOCUMENTACAO"
             }
           },
           {
@@ -194,25 +194,34 @@
   },
   "active": "start",
   "lastOpenFiles": [
+    "Docs/wiki/logs/2026-06-04-sessao-portal.md.tmp.23348.d013e3d310c6",
+    "agenda/index.php.tmp.23348.518887e6302f",
+    "Docs/wiki/logs/2026-06-04-sessao-portal.md",
+    "agenda/index.php.tmp.25944.2ecb35d3ef92",
+    "agenda/index.php.tmp.5092.223523e56fbc",
+    "agenda/index.php.tmp.5092.11eaf134781d",
+    "agenda/index.php.tmp.5092.c91c8830dd86",
+    "agenda/index.php.tmp.5092.ccd905d80191",
+    "agenda/index.php.tmp.5092.45b227a38398",
+    "agenda/index.php.tmp.5092.a94f1044cc75",
+    "agenda/index.php.tmp.5092.b47a2957e632",
+    "chamado.php.tmp.5092.38d5951acd90",
+    "CONTRIBUTING.md",
+    "CLAUDE.md",
+    "ARCHITECTURE.md",
+    "Docs/wiki/projects/portal-glpi-prd.md",
     "Docs/wiki/decisions/ADR-003-atualizacao-prd-automatica.md",
-    "Docs/wiki/projects/portal-glpi-prd.md.tmp.11976.6f142109ad2c",
-    "projetos.php.tmp.11976.f15397a875ac",
     "Docs/wiki/logs/2026-06-03-sessao-agenda.md",
     "Docs/wiki/tasks/backlog.md",
-    "Docs/wiki/projects/portal-glpi-prd.md",
     "Docs/templates/daily-note.md",
-    "Docs/templates/daily-note.md.tmp.11976.0e3eb6dd8142",
     "Docs/wiki/logs/2026-06-02-sessao-agenda.md",
     "Docs/log.md",
     "Docs/index.md",
     "Docs/CRITICAL_FACTS.md",
     "Sem título.canvas",
     "MIGRACAO_PRODUCAO.md",
-    "CONTRIBUTING.md",
     "DOCUMENTACAO.md",
-    "CLAUDE.md",
     "Documentação e Backup do Projeto Data 01-06-26/DOCUMENTACAO.md",
-    "ARCHITECTURE.md",
     "Docs/wiki/decisions/ADR-001-regras-protegidas-agenda.md"
   ]
 }

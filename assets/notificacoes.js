@@ -129,6 +129,9 @@
   function tocarSom() {
     try {
       if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+      // Retoma se estiver suspenso (autoplay policy do navegador)
+      if (audioCtx.state === 'suspended') audioCtx.resume();
+
       const osc  = audioCtx.createOscillator();
       const gain = audioCtx.createGain();
       osc.connect(gain);
@@ -147,16 +150,18 @@
 
       // Segundo bip
       setTimeout(() => {
-        const o2 = audioCtx.createOscillator();
-        const g2 = audioCtx.createGain();
-        o2.connect(g2); g2.connect(audioCtx.destination);
-        o2.type = 'sine';
-        g2.gain.setValueAtTime(0, audioCtx.currentTime);
-        g2.gain.linearRampToValueAtTime(0.35, audioCtx.currentTime + 0.05);
-        g2.gain.linearRampToValueAtTime(0,    audioCtx.currentTime + 0.35);
-        o2.frequency.setValueAtTime(1100, audioCtx.currentTime);
-        o2.start(audioCtx.currentTime);
-        o2.stop(audioCtx.currentTime + 0.35);
+        try {
+          const o2 = audioCtx.createOscillator();
+          const g2 = audioCtx.createGain();
+          o2.connect(g2); g2.connect(audioCtx.destination);
+          o2.type = 'sine';
+          g2.gain.setValueAtTime(0, audioCtx.currentTime);
+          g2.gain.linearRampToValueAtTime(0.35, audioCtx.currentTime + 0.05);
+          g2.gain.linearRampToValueAtTime(0,    audioCtx.currentTime + 0.35);
+          o2.frequency.setValueAtTime(1100, audioCtx.currentTime);
+          o2.start(audioCtx.currentTime);
+          o2.stop(audioCtx.currentTime + 0.35);
+        } catch(e2) { /* bip ignorado */ }
       }, 250);
 
     } catch(e) { /* sem suporte a audio */ }

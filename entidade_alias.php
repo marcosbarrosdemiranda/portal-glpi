@@ -4,7 +4,8 @@
  * Converte o nome completo retornado pelo GLPI no apelido visual (Lj 001, Lj 003…).
  * Decodifica automaticamente entidades HTML (&#62; → >) que o GLPI retorna.
  */
-function apelido_entidade(string $nome): string {
+function apelido_entidade($nome): string {
+    if (is_array($nome)) $nome = $nome['name'] ?? $nome['completename'] ?? '';
     $nome = html_entity_decode($nome, ENT_QUOTES | ENT_HTML5, 'UTF-8');
     static $mapa = [
         'Entidade raiz > Grupo Gmais'                                   => 'Grupo Gmais',

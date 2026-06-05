@@ -192,6 +192,14 @@ try {
             ]);
         }
 
+        // Se o evento foi marcado como concluído, conclui TODOS os períodos do mesmo ticket
+        if ($concluido && $ticket_id) {
+            $pdo->prepare(
+                "UPDATE glpi_plugin_agenda_events SET concluido = 1
+                 WHERE ticket_id = ? AND id != ? AND concluido = 0"
+            )->execute([$ticket_id, $id]);
+        }
+
         echo json_encode(['ok' => true, 'id' => $id]);
         exit;
     }
