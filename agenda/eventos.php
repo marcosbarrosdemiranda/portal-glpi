@@ -19,19 +19,12 @@ try {
 
     // ── LIST ──────────────────────────────────────────────────────────────
     if ($action === 'list') {
-        // Remove eventos cujo ticket foi purgado (excluído permanentemente) do GLPI
+        // Remove eventos cujo ticket foi purgado ou está na lixeira do GLPI
+        // (t.id IS NULL = purgado, t.is_deleted = 1 = lixeira/recycle bin)
         $pdo->exec(
             "DELETE e FROM glpi_plugin_agenda_events e
-             LEFT JOIN glpi_tickets t ON e.ticket_id = t.id
+             LEFT JOIN glpi_tickets t ON e.ticket_id = t.id AND t.is_deleted = 0
              WHERE e.ticket_id IS NOT NULL AND e.ticket_id != '' AND t.id IS NULL"
-        );
-        // Marca como concluído eventos cujo ticket foi para a lixeira (is_deleted=1) no GLPI
-        // Fica verde e somente-leitura — se restaurar o ticket no GLPI, volta a funcionar
-        $pdo->exec(
-            "UPDATE glpi_plugin_agenda_events e
-             INNER JOIN glpi_tickets t ON e.ticket_id = t.id AND t.is_deleted = 1
-             SET e.concluido = 1
-             WHERE e.concluido = 0"
         );
         // Sincroniza status do GLPI: se o chamado foi resolvido (5) ou fechado (6) no GLPI,
         // marca automaticamente o evento como concluído na agenda — e não permite mais edição.
