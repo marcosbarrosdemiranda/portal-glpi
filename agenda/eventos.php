@@ -25,6 +25,15 @@ try {
              LEFT JOIN glpi_tickets t ON e.ticket_id = t.id
              WHERE e.ticket_id IS NOT NULL AND e.ticket_id != '' AND t.id IS NULL"
         );
+        // Sincroniza status do GLPI: se o chamado foi resolvido (5) ou fechado (6) no GLPI,
+        // marca automaticamente o evento como concluído na agenda — e não permite mais edição.
+        // ⚠️ REGRA PROTEGIDA — NÃO ALTERAR SEM PERMISSÃO DO RESPONSÁVEL ⚠️
+        $pdo->exec(
+            "UPDATE glpi_plugin_agenda_events e
+             INNER JOIN glpi_tickets t ON e.ticket_id = t.id AND t.status IN (5,6)
+             SET e.concluido = 1
+             WHERE e.concluido = 0"
+        );
         // Corrige retroativamente chamados salvos com tipo='evento' por engano:
         // qualquer evento vinculado a um ticket GLPI deve ser 'chamado', não 'evento'
         $pdo->exec(
@@ -119,6 +128,19 @@ try {
     if ($action === 'save') {
         $body = json_decode(file_get_contents('php://input'), true) ?? [];
 
+        // ⚠️ REGRA PROTEGIDA — VALIDAÇÃO GLPI ⚠️
+        // Se o chamado já está resolvido/fechado no GLPI, não permite salvar como não-concluído
+        $ticket_id = isset($body['ticket_id']) && $body['ticket_id'] !== '' ? (int)$body['ticket_id'] : null;
+        if ($ticket_id && empty($body['concluido'])) {
+            $check = $pdo->prepare("SELECT status FROM glpi_tickets WHERE id = ?");
+            $check->execute([$ticket_id]);
+            $status = (int)$check->fetchColumn();
+            if (in_array($status, [5,6], true)) {
+                echo json_encode(['ok' => false, 'error' => 'Chamado já está resolvido/fechado no GLPI. Recorra ao GLPI para reabri-lo.']);
+                exit;
+            }
+        }
+
         // Detecta se é edição (id fornecido) ou novo evento
         $is_edit = isset($body['id']) && $body['id'] !== null && $body['id'] !== '';
         $id = $is_edit ? (string)$body['id'] : uniqid('ev_', true);
@@ -133,7 +155,6 @@ try {
         $prioridade   = in_array($body['prioridade'] ?? '', ['baixa','media','alta','critica'])
                         ? $body['prioridade'] : 'media';
         $setor        = $body['setor']        ?? null;
-        $ticket_id    = isset($body['ticket_id']) && $body['ticket_id'] !== '' ? (int)$body['ticket_id'] : null;
         $tipo         = in_array($body['tipo'] ?? '', ['evento','chamado','requisicao','reuniao'])
                         ? $body['tipo'] : 'evento';
         // ⚠️ Mapeia 'requisicao' → 'chamado' porque o ENUM do MySQL não tem 'requisicao'
