@@ -52,14 +52,30 @@ function parse_ical(string $ical): array {
             // Extrai parâmetros (ex: DTSTART;TZID=America/Sao_Paulo)
             $keyParts = explode(';', $key);
             $key = $keyParts[0];
-            // Salva TZID se presente (ex: DTSTART;TZID=America/Sao_Paulo → TZID=America/Sao_Paulo)
+            // Salva TZID se presente
             foreach ($keyParts as $kp) {
                 if (str_starts_with($kp, 'TZID=')) {
                     $current[$key . '_TZID'] = substr($kp, 5);
                     break;
                 }
             }
-            $current[$key] = $val;
+            // ATTENDEE: suporta múltiplos, extrai CN (nome) e email
+            if ($key === 'ATTENDEE') {
+                if (!isset($current['ATTENDEES'])) $current['ATTENDEES'] = [];
+                $cn = '';
+                foreach ($keyParts as $kp) {
+                    if (str_starts_with($kp, 'CN=')) {
+                        $cn = substr($kp, 3);
+                        // Remove aspas ao redor do nome
+                        $cn = trim($cn, '"');
+                        break;
+                    }
+                }
+                $email = str_replace('mailto:', '', $val);
+                $current['ATTENDEES'][] = ['cn' => $cn, 'email' => $email];
+            } else {
+                $current[$key] = $val;
+            }
         }
     }
     return $events;
@@ -98,14 +114,31 @@ foreach ($raw_events as $ev) {
     $end       = $ev['DTEND']   ?? $start;
     $start_tz  = $ev['DTSTART_TZID'] ?? null;
     $end_tz    = $ev['DTEND_TZID']   ?? null;
+    $local     = decode_ical_text($ev['LOCATION'] ?? '');
+    $descricao = decode_ical_text($ev['DESCRIPTION'] ?? '');
+    $attendees = $ev['ATTENDEES'] ?? [];
+    $meet_url  = $ev['X-GOOGLE-CONFERENCE'] ?? '';
+
+    // Se LOCATION é uma URL, usa como meet_url (fallback)
+    if (!$meet_url && $local && preg_match('/^https?:\/\//', $local)) {
+        $meet_url = $local;
+        $local = '';
+    }
+    // Busca link de reunião na descrição se não achou antes
+    if (!$meet_url && preg_match('/https?:\/\/[^\s<>"]+/', $descricao, $m)) {
+        // Só usa se for um link de reunião conhecido
+        $known = ['meet.google.com','zoom.us','teams.microsoft.com','webex.com','gotomeeting.com','whereby.com','jitsi.org'];
+        foreach ($known as $d) {
+            if (str_contains($m[0], $d)) { $meet_url = $m[0]; break; }
+        }
+    }
 
     if (!$start) continue;
 
     $start_fmt = ical_to_datetime($start);
     $end_fmt   = ical_to_datetime($end);
 
-    // Converte datas com TZID para o timezone local (FullCalendar interpreta sem Z como local)
-    // Se veio com TZID mas sem Z, o horário está no fuso do TZID — converte para string ISO com offset
+    // Converte datas com TZID para string ISO com offset
     if ($start_tz && !str_ends_with($start_fmt, 'Z')) {
         $start_fmt = (new DateTime($start_fmt, new DateTimeZone($start_tz)))->format('Y-m-d\TH:i:sP');
     }
@@ -124,14 +157,16 @@ foreach ($raw_events as $ev) {
         'title'        => $summary,
         'start'        => $start_fmt,
         'end'          => $end_fmt,
-        'backgroundColor' => '#0b8043', // verde Google Calendar
-        'borderColor'     => '#0b8043',
+        'backgroundColor' => '#7b2d8e', // roxo — diferenciar dos eventos da agenda
+        'borderColor'     => '#7b2d8e',
         'textColor'       => '#ffffff',
         'extendedProps'   => [
             'tipo'      => 'google',
-            'descricao' => decode_ical_text($ev['DESCRIPTION'] ?? ''),
-            'local'     => decode_ical_text($ev['LOCATION'] ?? ''),
+            'descricao' => $descricao,
             'google'    => true,
+            'local'     => $local,
+            'participantes' => $attendees,
+            'meet_url'  => $meet_url,
         ]
     ];
 }

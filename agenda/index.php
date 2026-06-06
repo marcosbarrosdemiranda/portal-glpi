@@ -340,6 +340,17 @@ $user_id_sessao = (int)($_SESSION['user_id'] ?? 0);
       .sidebar { width: 100%; height: 260px; }
       .layout { flex-direction: column; }
     }
+    /* ── Google Calendar modal ──────────────── */
+    #google-info { margin-top: 12px; padding-top: 12px; border-top: 1px solid #e0e0e0; }
+    .gcal-header { font-size: .8rem; color: #7b2d8e; font-weight: 700; margin-bottom: 8px; display: flex; align-items: center; gap: 6px; }
+    .gcal-field { font-size: .9rem; margin-bottom: 6px; display: flex; align-items: center; gap: 6px; }
+    .gcal-field a { color: #1a73e8; }
+    .gcal-descricao { max-height: 300px; overflow-y: auto; white-space: pre-wrap; font-size: .85rem; line-height: 1.5; background: #f8f9fa; border-radius: 6px; padding: 10px 12px; margin-top: 4px; border: 1px solid #e9ecef; }
+    .gcal-subtitle { font-size: .85rem; font-weight: 600; color: #495057; margin: 8px 0 4px; display: flex; align-items: center; gap: 5px; }
+    .gcal-participante { display: flex; align-items: center; gap: 6px; padding: 2px 0; font-size: .85rem; }
+    .gcal-participante .avatar { width: 24px; height: 24px; border-radius: 50%; background: #7b2d8e; color: #fff; display: flex; align-items: center; justify-content: center; font-size: .7rem; font-weight: 700; flex-shrink: 0; }
+    .gcal-participante .email { color: #6c757d; font-size: .8rem; }
+
   </style>
 </head>
 <body>
@@ -590,6 +601,35 @@ $user_id_sessao = (int)($_SESSION['user_id'] ?? 0);
                 </label>
               </div>
             </div>
+          </div>
+        </div>
+
+        <!-- Painel de informações do Google Calendar (eventos somente-leitura) -->
+        <div id="google-info" class="row g-2" style="display:none">
+          <div class="col-12">
+            <div class="gcal-header">
+              <img src="https://www.google.com/favicon.ico" style="width:14px;height:14px"/>
+              <span>Google Calendar</span>
+            </div>
+          </div>
+          <div class="col-12">
+            <div id="gcal-local" class="gcal-field"><i class="bi bi-geo-alt"></i> <span id="gcal-local-text"></span></div>
+          </div>
+          <div class="col-12">
+            <div id="gcal-meet" class="gcal-field" style="display:none">
+              <i class="bi bi-camera-video"></i>
+              <a id="gcal-meet-link" href="#" target="_blank" rel="noopener">Abrir reunião</a>
+            </div>
+          </div>
+          <div class="col-12">
+            <div id="gcal-participantes" style="display:none">
+              <div class="gcal-subtitle"><i class="bi bi-people"></i> Participantes</div>
+              <div id="gcal-participantes-lista"></div>
+            </div>
+          </div>
+          <div class="col-12">
+            <div class="gcal-subtitle"><i class="bi bi-card-text"></i> Descrição</div>
+            <div id="gcal-descricao" class="gcal-descricao"></div>
           </div>
         </div>
       </div>
@@ -2075,16 +2115,78 @@ function editarEvento(ev) {
     concluido: ev.extendedProps.concluido,
   });
   const concluido = ev.extendedProps.concluido;
-  // Concluído → sem excluir, sem responder, sem editar
-  document.getElementById('btnDeletar').style.display     = concluido ? 'none' : 'inline-block';
-  document.getElementById('btnResponder').style.display   = (ev.extendedProps.ticket_id && !concluido) ? 'inline-block' : 'none';
-  document.getElementById('btnNovoPeriodo').style.display = (ev.extendedProps.ticket_id && !concluido) ? 'inline-block' : 'none';
-  document.getElementById('modalTitulo').innerHTML = '<i class="bi bi-eye me-2"></i>Detalhes do Evento';
+  const isGoogle = ev.extendedProps.google === true;
 
   // Abre em modo LEITURA; se concluído esconde o botão Editar
   setModoLeitura(true);
   document.getElementById('banner-readonly').querySelector('button').style.display =
     concluido ? 'none' : '';
+
+  // ── Google Calendar: modo somente-leitura especial ──
+  const googleInfo = document.getElementById('google-info');
+  if (isGoogle) {
+    // Popula descrição
+    const desc = ev.extendedProps.descricao || '';
+    document.getElementById('gcal-descricao').textContent = desc || '(sem descrição)';
+
+    // Local
+    const local = ev.extendedProps.local || '';
+    document.getElementById('gcal-local-text').textContent = local;
+    document.getElementById('gcal-local').style.display = local ? '' : 'none';
+
+    // Link da reunião
+    const meetUrl = ev.extendedProps.meet_url || '';
+    const gcalMeet = document.getElementById('gcal-meet');
+    if (meetUrl) {
+      document.getElementById('gcal-meet-link').href = meetUrl;
+      gcalMeet.style.display = '';
+    } else {
+      gcalMeet.style.display = 'none';
+    }
+
+    // Participantes
+    const participantes = ev.extendedProps.participantes || [];
+    const lista = document.getElementById('gcal-participantes-lista');
+    const gcalPart = document.getElementById('gcal-participantes');
+    if (participantes.length) {
+      lista.innerHTML = participantes.map(p => {
+        const initial = (p.cn || p.email || '?')[0].toUpperCase();
+        return `<div class="gcal-participante">
+          <span class="avatar">${initial}</span>
+          <span><strong>${escHtml(p.cn || '')}</strong>${p.email ? ' <span class="email">' + escHtml(p.email) + '</span>' : ''}</span>
+        </div>`;
+      }).join('');
+      gcalPart.style.display = '';
+    } else {
+      gcalPart.style.display = 'none';
+    }
+
+    // Exibe painel Google, esconde formulário principal e banner
+    googleInfo.style.display = '';
+    document.getElementById('campos-evento').style.display = 'none';
+    document.getElementById('banner-readonly').style.display = 'none';
+
+    // Esconde todos os botões de ação do footer
+    document.getElementById('btnDeletar').style.display = 'none';
+    document.getElementById('btnResponder').style.display = 'none';
+    document.getElementById('btnNovoPeriodo').style.display = 'none';
+    document.querySelector('#modalEvento .btn-secondary')?.style.setProperty('display', 'none');
+    document.querySelector('#modalEvento .btn-primary')?.style.setProperty('display', 'none');
+
+    document.getElementById('modalTitulo').innerHTML = '<i class="bi bi-google me-2" style="color:#7b2d8e;"></i>Google Calendar';
+  } else {
+    // Restaura visibilidade para eventos normais
+    googleInfo.style.display = 'none';
+    document.getElementById('campos-evento').style.display = '';
+    document.querySelector('#modalEvento .btn-secondary')?.style.removeProperty('display');
+
+    // Botões normais (concluído controla visibilidade)
+    document.getElementById('btnDeletar').style.display     = concluido ? 'none' : 'inline-block';
+    document.getElementById('btnResponder').style.display   = (ev.extendedProps.ticket_id && !concluido) ? 'inline-block' : 'none';
+    document.getElementById('btnNovoPeriodo').style.display = (ev.extendedProps.ticket_id && !concluido) ? 'inline-block' : 'none';
+    document.getElementById('modalTitulo').innerHTML = '<i class="bi bi-eye me-2"></i>Detalhes do Evento';
+  }
+
   modalEvento.show();
 }
 

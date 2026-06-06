@@ -19,6 +19,12 @@ try {
 
     // ── LIST ──────────────────────────────────────────────────────────────
     if ($action === 'list') {
+        // Remove eventos cujo ticket foi purgado (excluído permanentemente) do GLPI
+        $pdo->exec(
+            "DELETE e FROM glpi_plugin_agenda_events e
+             LEFT JOIN glpi_tickets t ON e.ticket_id = t.id
+             WHERE e.ticket_id IS NOT NULL AND e.ticket_id != '' AND t.id IS NULL"
+        );
         // Corrige retroativamente chamados salvos com tipo='evento' por engano:
         // qualquer evento vinculado a um ticket GLPI deve ser 'chamado', não 'evento'
         $pdo->exec(
