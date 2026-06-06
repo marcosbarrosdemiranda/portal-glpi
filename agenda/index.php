@@ -1159,6 +1159,36 @@ function eventosFiltrados() {
   //   - Concluídos sem atendente (histórico) aparecem apenas para o usuário logado.
   //   - NUNCA mostrar eventos de um atendente na agenda de outro.
   //   - Eventos tipo "evento" são pessoais — só aparecem na agenda de quem criou
+
+  // ── Mapa multi-atendente (aplicado a TODOS os eventos antes do filtro) ──
+  // Mesmo quando filtrado por um técnico, o indicador "multi" deve aparecer
+  // se o chamado tiver 2+ técnicos no total (não apenas nos eventos filtrados).
+  const multiMap = {}; // "ticket_id|start" → [atendente1, atendente2, ...]
+  todosEventos.forEach(ev => {
+    const tid = ev.extendedProps.ticket_id;
+    if (!tid) return;
+    const key = tid + '|' + (ev.start || '');
+    if (!multiMap[key]) multiMap[key] = [];
+    if (ev.extendedProps.atendente) {
+      multiMap[key].push(ev.extendedProps.atendente);
+    }
+  });
+
+  // Aplica info multi a cada evento em todosEventos
+  todosEventos.forEach(ev => {
+    const tid = ev.extendedProps.ticket_id;
+    if (!tid) return;
+    const key = tid + '|' + (ev.start || '');
+    const lista = multiMap[key];
+    if (lista && lista.length >= 2) {
+      ev.extendedProps.multi      = true;
+      ev.extendedProps.atendentes = lista;
+    } else {
+      ev.extendedProps.multi = false;
+    }
+  });
+
+  // ── Filtro por atendente ──
   if (filtroAtendente) {
     const filtrados = todosEventos.filter(e => {
       if (e.extendedProps.atendente === filtroAtendente) return true;
@@ -1216,19 +1246,13 @@ function eventosFiltrados() {
     const key = tid + '|' + (ev.start || '');
 
     if (vistos[key] !== undefined) {
-      // Mesmo período — marca como multi-atendente e acumula nomes
-      const base = resultado[vistos[key]];
-      if (!base.extendedProps.multi) {
-        base.extendedProps.multi      = true;
-        base.extendedProps.atendentes = [base.extendedProps.atendente].filter(Boolean);
-      }
-      if (ev.extendedProps.atendente) {
-        base.extendedProps.atendentes.push(ev.extendedProps.atendente);
-      }
+      // Mesmo período — funde no primeiro (que já está em resultado)
+      // O multiMap já foi aplicado acima, então o primeiro evento já tem multi info
     } else {
-      // Primeiro evento deste ticket NESTE horário
+      // Primeiro evento deste ticket NESTE horário — clona para não mutar o original
       const clone = JSON.parse(JSON.stringify(ev));
-      clone.extendedProps.multi = false;
+      clone.extendedProps.multi      = ev.extendedProps.multi;
+      clone.extendedProps.atendentes = ev.extendedProps.atendentes;
       vistos[key] = resultado.length;
       resultado.push(clone);
     }
