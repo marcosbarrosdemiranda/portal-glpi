@@ -100,11 +100,11 @@
 - [x] Preview de imagens anexadas
 - [x] Download de anexos não-imagem
 - [x] Status visual (aberto, em andamento, concluído)
+- [x] Filtros por status, tipo e busca textual
+- [x] Paginação (200 por página)
 
 ### Pendente
-- [ ] Filtros avançados (por data, status, técnico, loja)
-- [ ] Busca por texto no histórico
-- [ ] Paginação de chamados
+- [ ] Filtros por data e loja/entidade
 - [ ] Exportação do histórico (PDF/Excel)
 - [ ] Histórico de chamados do requerente
 

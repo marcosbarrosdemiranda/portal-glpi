@@ -7,6 +7,7 @@ Antes de propor ou redigir codigo, o agente DEVE executar silenciosamente:
 3. Localizar o log mais recente em ./Docs/wiki/logs/ para continuar o contexto exato da sessao anterior.
 4. Validar o plano arquitetural antes de reescrever arquivos core do sistema.
 5. Ler ./Docs/wiki/decisions/ para identificar regras protegidas antes de qualquer alteracao.
+6. Ler ./Docs/wiki/projects/ para verificar o PRD atual, status dos modulos e pendencias registradas.
 
 ## REGRA #1 — Regras Protegidas (IMUTAVEIS sem aprovacao explicita)
 O arquivo Docs/wiki/decisions/ADR-001-regras-protegidas-agenda.md define comportamentos
