@@ -49,8 +49,16 @@ function parse_ical(string $ical): array {
             $current  = null;
         } elseif ($current !== null && str_contains($line, ':')) {
             [$key, $val] = explode(':', $line, 2);
-            // Remove parâmetros (ex: DTSTART;TZID=America/Sao_Paulo)
-            $key = explode(';', $key)[0];
+            // Extrai parâmetros (ex: DTSTART;TZID=America/Sao_Paulo)
+            $keyParts = explode(';', $key);
+            $key = $keyParts[0];
+            // Salva TZID se presente (ex: DTSTART;TZID=America/Sao_Paulo → TZID=America/Sao_Paulo)
+            foreach ($keyParts as $kp) {
+                if (str_starts_with($kp, 'TZID=')) {
+                    $current[$key . '_TZID'] = substr($kp, 5);
+                    break;
+                }
+            }
             $current[$key] = $val;
         }
     }
@@ -58,8 +66,9 @@ function parse_ical(string $ical): array {
 }
 
 function ical_to_datetime(string $dt): string {
-    // Formato: 20260601T090000Z ou 20260601T090000 ou 20260601
-    $dt = str_replace('Z', '', $dt);
+    // Formato: 20260601T090000Z (UTC) ou 20260601T090000 (floating) ou 20260601 (dia inteiro)
+    $is_utc = str_ends_with($dt, 'Z');
+    $dt     = rtrim($dt, 'Z');
     if (strlen($dt) === 8) {
         // All-day: 20260601
         return substr($dt,0,4).'-'.substr($dt,4,2).'-'.substr($dt,6,2);
@@ -67,8 +76,11 @@ function ical_to_datetime(string $dt): string {
     // Com hora: 20260601T090000
     $date = substr($dt,0,8);
     $time = substr($dt,9,6);
-    return substr($date,0,4).'-'.substr($date,4,2).'-'.substr($date,6,2).'T'
+    $fmt  = substr($date,0,4).'-'.substr($date,4,2).'-'.substr($date,6,2).'T'
           .substr($time,0,2).':'.substr($time,2,2).':'.substr($time,4,2);
+    // Se é UTC, mantém Z no final para o JS/FullCalendar converter para o timezone local do browser
+    if ($is_utc) $fmt .= 'Z';
+    return $fmt;
 }
 
 function decode_ical_text(string $text): string {
@@ -82,13 +94,24 @@ $limite     = (clone $hoje)->modify('+60 days');
 
 foreach ($raw_events as $ev) {
     $summary = decode_ical_text($ev['SUMMARY'] ?? 'Evento Google');
-    $start   = $ev['DTSTART'] ?? '';
-    $end     = $ev['DTEND']   ?? $start;
+    $start     = $ev['DTSTART'] ?? '';
+    $end       = $ev['DTEND']   ?? $start;
+    $start_tz  = $ev['DTSTART_TZID'] ?? null;
+    $end_tz    = $ev['DTEND_TZID']   ?? null;
 
     if (!$start) continue;
 
     $start_fmt = ical_to_datetime($start);
     $end_fmt   = ical_to_datetime($end);
+
+    // Converte datas com TZID para o timezone local (FullCalendar interpreta sem Z como local)
+    // Se veio com TZID mas sem Z, o horário está no fuso do TZID — converte para string ISO com offset
+    if ($start_tz && !str_ends_with($start_fmt, 'Z')) {
+        $start_fmt = (new DateTime($start_fmt, new DateTimeZone($start_tz)))->format('Y-m-d\TH:i:sP');
+    }
+    if ($end_tz && !str_ends_with($end_fmt, 'Z')) {
+        $end_fmt = (new DateTime($end_fmt, new DateTimeZone($end_tz)))->format('Y-m-d\TH:i:sP');
+    }
 
     // Só mostra eventos futuros e dos próximos 60 dias
     try {
