@@ -14,7 +14,7 @@
 |--------|--------|-----------|
 | 📅 Agenda de Atendimentos | 🟡 Em andamento | ~80% |
 | 🎫 Abertura de Chamado | 🟢 Concluído | 100% |
-| 📋 Histórico de Chamados | 🟡 Em andamento | ~70% |
+| 📋 Histórico de Chamados | 🟢 Concluído | 100% |
 | 📊 Painel de Relatórios | 🟡 Em andamento | ~50% |
 | 🖥️ Inventário | 🟡 Em andamento | ~75% |
 | 📚 Área do Conhecimento | 🔴 Pendente | ~20% |
@@ -101,12 +101,10 @@
 - [x] Download de anexos não-imagem
 - [x] Status visual (aberto, em andamento, concluído)
 - [x] Filtros por status, tipo e busca textual
+- [x] Filtros por data e loja/entidade
+- [x] Exportação do histórico (CSV)
 - [x] Paginação (200 por página)
-
-### Pendente
-- [ ] Filtros por data e loja/entidade
-- [ ] Exportação do histórico (PDF/Excel)
-- [ ] Histórico de chamados do requerente
+- [x] Histórico de chamados do requerente (meus_chamados.php com filtros, paginação e CSV)
 
 ---
 

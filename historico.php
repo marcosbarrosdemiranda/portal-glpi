@@ -11,7 +11,8 @@ require_once __DIR__ . '/entidade_alias.php';
 
 define('POR_PAGINA', 200);
 
-function glpi_tickets(array $filtros = [], int $pagina = 1): array {
+function glpi_tickets(array $filtros = [], int $pagina = 1, int $por_pagina = 0): array {
+    $limit  = $por_pagina > 0 ? $por_pagina : POR_PAGINA;
     $auth = base64_encode(GLPI_USER . ':' . GLPI_PASS);
     $ch = curl_init(GLPI_URL . '/apirest.php/initSession');
     curl_setopt_array($ch, [CURLOPT_RETURNTRANSFER=>true, CURLOPT_HTTPHEADER=>['Authorization: Basic '.$auth,'App-Token: '.GLPI_APP_TOKEN]]);
@@ -21,14 +22,27 @@ function glpi_tickets(array $filtros = [], int $pagina = 1): array {
 
     $h = ['Session-Token: '.$token, 'App-Token: '.GLPI_APP_TOKEN];
 
-    $limit  = POR_PAGINA;
     $offset = ($pagina - 1) * $limit;
     $range  = $offset . '-' . ($offset + $limit - 1);
 
     $params = 'range='.$range.'&order=DESC&expand_dropdowns=true';
+
+    // Filtros usando searchText (GLPI API)
     if (!empty($filtros['status'])) $params .= '&searchText[status]='.$filtros['status'];
     if (!empty($filtros['tipo']))   $params .= '&searchText[type]='.$filtros['tipo'];
     if (!empty($filtros['busca']))  $params .= '&searchText[name]='.urlencode($filtros['busca']);
+    if (!empty($filtros['entidade_id'])) $params .= '&entities_id='.(int)$filtros['entidade_id'];
+
+    // Filtro por data (criteria GLPI)
+    $criteria_idx = 0;
+    if (!empty($filtros['dt_ini'])) {
+        $params .= '&criteria['.$criteria_idx.'][field]=15&criteria['.$criteria_idx.'][searchtype]=morethan&criteria['.$criteria_idx.'][value]='.$filtros['dt_ini'].' 00:00:00';
+        $criteria_idx++;
+    }
+    if (!empty($filtros['dt_fim'])) {
+        $params .= '&criteria['.$criteria_idx.'][field]=15&criteria['.$criteria_idx.'][searchtype]=lessthan&criteria['.$criteria_idx.'][value]='.$filtros['dt_fim'].' 23:59:59';
+        $criteria_idx++;
+    }
 
     $ch2 = curl_init(GLPI_URL . '/apirest.php/Ticket?'.$params);
     curl_setopt_array($ch2, [CURLOPT_RETURNTRANSFER=>true, CURLOPT_HTTPHEADER=>$h]);
@@ -78,22 +92,85 @@ function glpi_tickets(array $filtros = [], int $pagina = 1): array {
         'urgencia'  => $urg_map[$t['urgency'] ?? 3] ?? 'Média',
         'urg_cor'   => $urg_cor[$t['urgency'] ?? 3] ?? 'warning',
         'entidade'  => apelido_entidade($t['entities_id'] ?? ''),
+        'entidade_id'=> (int)($t['entities_id'] ?? 0),
         'data'      => substr($t['date'] ?? '', 0, 16),
         'atualizado'=> substr($t['date_mod'] ?? '', 0, 16),
+        'requerente'=> $t['_users_id_requester']['name'] ?? $t['users_id'] ?? '',
     ], $tickets)));
 
     return ['tickets' => $result, 'total' => $total ?: count($result)];
 }
 
+// ── Carrega entidades para o filtro ──
+function carregarEntidades(): array {
+    $auth = base64_encode(GLPI_USER . ':' . GLPI_PASS);
+    $ch = curl_init(GLPI_URL . '/apirest.php/initSession');
+    curl_setopt_array($ch, [CURLOPT_RETURNTRANSFER=>true, CURLOPT_HTTPHEADER=>['Authorization: Basic '.$auth,'App-Token: '.GLPI_APP_TOKEN]]);
+    $r = json_decode(curl_exec($ch), true); curl_close($ch);
+    $token = $r['session_token'] ?? '';
+    if (!$token) return [];
+
+    $h = ['Session-Token: '.$token, 'App-Token: '.GLPI_APP_TOKEN];
+    $ch2 = curl_init(GLPI_URL . '/apirest.php/Entity?range=0-500&order=ASC&expand_dropdowns=true&is_deleted=0');
+    curl_setopt_array($ch2, [CURLOPT_RETURNTRANSFER=>true, CURLOPT_HTTPHEADER=>$h]);
+    $res = json_decode(curl_exec($ch2), true) ?? [];
+    curl_close($ch2);
+
+    $ch3 = curl_init(GLPI_URL . '/apirest.php/killSession');
+    curl_setopt_array($ch3, [CURLOPT_RETURNTRANSFER=>true, CURLOPT_HTTPHEADER=>$h]);
+    curl_exec($ch3); curl_close($ch3);
+
+    return is_array($res) ? array_filter($res, fn($e) => !empty($e['id'])) : [];
+}
+
 $f_status = $_GET['status'] ?? '';
 $f_tipo   = $_GET['tipo']   ?? '';
 $f_busca  = trim($_GET['busca'] ?? '');
+$f_dt_ini = $_GET['dt_ini'] ?? '';
+$f_dt_fim = $_GET['dt_fim'] ?? '';
+$f_entidade_id = $_GET['entidade_id'] ?? '';
 $pagina   = max(1, (int)($_GET['pagina'] ?? 1));
 
-$resultado = glpi_tickets(['status'=>$f_status,'tipo'=>$f_tipo,'busca'=>$f_busca], $pagina);
+$export   = $_GET['export'] ?? ''; // 'csv' para exportação
+
+$resultado = glpi_tickets([
+    'status'=>$f_status,
+    'tipo'=>$f_tipo,
+    'busca'=>$f_busca,
+    'dt_ini'=>$f_dt_ini,
+    'dt_fim'=>$f_dt_fim,
+    'entidade_id'=>$f_entidade_id,
+], $pagina);
 $chamados  = $resultado['tickets'];
 $total_api = $resultado['total'];
 $total_pags = max(1, (int)ceil($total_api / POR_PAGINA));
+
+// ── Exportação CSV ──
+if ($export === 'csv') {
+    // Busca TODOS os registros (sem paginação)
+    $todos = glpi_tickets([
+        'status'=>$f_status,
+        'tipo'=>$f_tipo,
+        'busca'=>$f_busca,
+        'dt_ini'=>$f_dt_ini,
+        'dt_fim'=>$f_dt_fim,
+        'entidade_id'=>$f_entidade_id,
+    ], 1, 100000);
+    $export_dados = $todos['tickets'] ?? [];
+    header('Content-Type: text/csv; charset=utf-8');
+    header('Content-Disposition: attachment; filename="historico_chamados_'.date('Y-m-d').'.csv"');
+    $out = fopen('php://output', 'w');
+    fprintf($out, chr(0xEF).chr(0xBB).chr(0xBF)); // BOM UTF-8
+    fputcsv($out, ['#','Título','Tipo','Status','Urgência','Entidade','Abertura','Atualização','Requerente'], ';');
+    foreach ($export_dados as $c) {
+        fputcsv($out, [$c['id'],$c['titulo'],$c['tipo'],$c['status'],$c['urgencia'],$c['entidade'],$c['data'],$c['atualizado'],$c['requerente']], ';');
+    }
+    fclose($out);
+    exit;
+}
+
+// ── Carrega entidades pro select ──
+$entidades = carregarEntidades();
 ?>
 <!DOCTYPE html>
 <html lang="pt-BR">
@@ -201,12 +278,12 @@ $total_pags = max(1, (int)ceil($total_api / POR_PAGINA));
     <div class="filtros-card">
       <div>
         <div class="form-label">Buscar</div>
-        <input type="text" name="busca" class="form-control form-control-sm" style="width:220px"
+        <input type="text" name="busca" class="form-control form-control-sm" style="width:200px"
                placeholder="Título ou #ID..." value="<?= htmlspecialchars($f_busca) ?>"/>
       </div>
       <div>
         <div class="form-label">Status</div>
-        <select name="status" class="form-select form-select-sm" style="width:160px">
+        <select name="status" class="form-select form-select-sm" style="width:140px">
           <option value="">Todos</option>
           <option value="1" <?= $f_status=='1'?'selected':'' ?>>Novo</option>
           <option value="2" <?= $f_status=='2'?'selected':'' ?>>Atribuído</option>
@@ -218,15 +295,43 @@ $total_pags = max(1, (int)ceil($total_api / POR_PAGINA));
       </div>
       <div>
         <div class="form-label">Tipo</div>
-        <select name="tipo" class="form-select form-select-sm" style="width:140px">
+        <select name="tipo" class="form-select form-select-sm" style="width:125px">
           <option value="">Todos</option>
           <option value="1" <?= $f_tipo=='1'?'selected':'' ?>>Incidente</option>
           <option value="2" <?= $f_tipo=='2'?'selected':'' ?>>Requisição</option>
         </select>
       </div>
       <div>
+        <div class="form-label">Entidade</div>
+        <select name="entidade_id" class="form-select form-select-sm" style="width:160px">
+          <option value="">Todas</option>
+          <?php foreach ($entidades as $e):
+            $eid = $e['id'] ?? 0;
+            $enome = htmlspecialchars(apelido_entidade($e['name'] ?? $e['completename'] ?? ''));
+            if (!$eid) continue;
+          ?>
+          <option value="<?= $eid ?>" <?= $f_entidade_id == $eid ? 'selected' : '' ?>><?= $enome ?></option>
+          <?php endforeach; ?>
+        </select>
+      </div>
+      <div>
+        <div class="form-label">De</div>
+        <input type="date" name="dt_ini" class="form-control form-control-sm" style="width:145px"
+               value="<?= htmlspecialchars($f_dt_ini) ?>"/>
+      </div>
+      <div>
+        <div class="form-label">Até</div>
+        <input type="date" name="dt_fim" class="form-control form-control-sm" style="width:145px"
+               value="<?= htmlspecialchars($f_dt_fim) ?>"/>
+      </div>
+      <div>
         <button type="submit" class="btn-filtrar"><i class="bi bi-search me-1"></i>Filtrar</button>
         <a href="historico.php" class="btn btn-sm btn-outline-secondary ms-1">Limpar</a>
+        <?php if (!empty($chamados)): ?>
+        <a href="historico.php?export=csv&<?= http_build_query(array_filter(['busca'=>$f_busca,'status'=>$f_status,'tipo'=>$f_tipo,'entidade_id'=>$f_entidade_id,'dt_ini'=>$f_dt_ini,'dt_fim'=>$f_dt_fim])) ?>" class="btn btn-sm btn-success ms-2">
+          <i class="bi bi-download me-1"></i>Exportar CSV
+        </a>
+        <?php endif; ?>
       </div>
     </div>
   </form>
@@ -289,8 +394,8 @@ $total_pags = max(1, (int)ceil($total_api / POR_PAGINA));
   <!-- Paginação -->
   <?php if ($total_pags > 1): ?>
   <?php
-  // Monta URL base sem pagina
-  $qs = array_filter(['busca'=>$f_busca,'status'=>$f_status,'tipo'=>$f_tipo]);
+  // Monta URL base sem pagina (inclui todos os filtros)
+  $qs = array_filter(['busca'=>$f_busca,'status'=>$f_status,'tipo'=>$f_tipo,'entidade_id'=>$f_entidade_id,'dt_ini'=>$f_dt_ini,'dt_fim'=>$f_dt_fim]);
   $url_base = 'historico.php?' . http_build_query($qs) . '&pagina=';
   ?>
   <div class="d-flex justify-content-center align-items-center gap-2 mt-3 flex-wrap">

@@ -15,14 +15,10 @@
                 "id": "start",
                 "type": "leaf",
                 "state": {
-                  "type": "markdown",
-                  "state": {
-                    "file": "DOCUMENTACAO.md",
-                    "mode": "preview",
-                    "source": false
-                  },
+                  "type": "empty",
+                  "state": {},
                   "icon": "lucide-file",
-                  "title": "DOCUMENTACAO"
+                  "title": "Nova aba"
                 }
               }
             ]
@@ -101,13 +97,12 @@
             "state": {
               "type": "outline",
               "state": {
-                "file": "DOCUMENTACAO.md",
                 "followCursor": false,
                 "showSearch": false,
                 "searchQuery": ""
               },
               "icon": "lucide-list",
-              "title": "Sumário de DOCUMENTACAO"
+              "title": "Sumário"
             }
           },
           {
@@ -194,35 +189,43 @@
   },
   "active": "start",
   "lastOpenFiles": [
-    "Docs/wiki/logs/2026-06-05-sessao-rotinas-grid.md",
-    "Docs/wiki/logs/2026-06-05-sessao-rotinas-grid.md.tmp.4896.1698657a056d",
-    "agenda/index.php.tmp.4896.b40ec4c1158f",
-    "agenda/atualizar_ticket.php.tmp.4896.037463e9d545",
-    "agenda/sync_rotinas.php.tmp.4896.0b1500b1b717",
-    "agenda/sync_rotinas_ajax.php.tmp.4896.69c442bef22e",
-    "agenda/index.php.tmp.4896.e6ecefe7afaf",
-    "agenda/index.php.tmp.4896.90d6673306a4",
-    "agenda/index.php.tmp.4896.fad8875c21c1",
-    "agenda/debug_rotinas.php",
-    "agenda/debug_rotinas.php.tmp.4896.8ab383c337f9",
-    "Docs/wiki/logs/2026-06-05-sessao-relatorios-bi.md",
-    "Docs/wiki/logs/2026-06-04-sessao-portal.md",
-    "CONTRIBUTING.md",
-    "CLAUDE.md",
-    "ARCHITECTURE.md",
-    "Docs/wiki/projects/portal-glpi-prd.md",
-    "Docs/wiki/decisions/ADR-003-atualizacao-prd-automatica.md",
-    "Docs/wiki/logs/2026-06-03-sessao-agenda.md",
+    "Docs/wiki/logs/2026-06-06-sessao-historico-filtros-export-selfservice.md",
+    "Docs/wiki/logs/2026-06-06-sessao-historico-filtros-export-selfservice.md.tmp.50104.72d6bafdd306",
+    "Docs/wiki/projects/portal-glpi-prd.md.tmp.50104.67c0ca2290fd",
+    "Docs/wiki/projects/portal-glpi-prd.md.tmp.50104.62c3e546c0df",
+    "meus_chamados.php.tmp.50104.dc01bbaefc7c",
+    "historico.php.tmp.50104.59244838fa04",
+    "historico.php.tmp.50104.e19f79324472",
+    "historico.php.tmp.50104.a9257aa6552f",
+    "historico.php.tmp.50104.d4b193b24e8f",
+    "historico.php.tmp.50104.366bd875fb4e",
+    "historico.php.tmp.50104.2da6d2b59601",
+    "Docs/wiki/logs/2026-06-06-sessao-anexos-criacao-chamado.md",
+    "DOCUMENTACAO.md",
+    "assets/Logo GMAIS b.jpg",
+    "Documentação e Backup do Projeto Data 01-06-26/DOCUMENTACAO.md",
     "Docs/wiki/tasks/backlog.md",
-    "Docs/templates/daily-note.md",
+    "Docs/wiki/projects/portal-glpi-prd.md",
+    "Docs/wiki/logs/2026-06-06-sessao-inventario-gateway.md",
+    "Docs/wiki/logs/2026-06-05-sessao-rotinas-grid.md",
+    "Docs/wiki/logs/2026-06-05-sessao-relatorios-bi.md",
+    "Docs/wiki/logs/2026-06-05-sessao-modal-gcal-sync-glpi.md",
+    "Docs/wiki/logs/2026-06-05-sessao-fix-multi-tech-diagnostico.md",
+    "Docs/wiki/logs/2026-06-05-sessao-fix-duplicata-concluir.md",
+    "Docs/wiki/logs/2026-06-04-sessao-portal.md",
+    "Docs/wiki/logs/2026-06-03-sessao-agenda.md",
     "Docs/wiki/logs/2026-06-02-sessao-agenda.md",
+    "Docs/wiki/decisions/ADR-003-atualizacao-prd-automatica.md",
+    "Docs/wiki/decisions/ADR-002-integracao-glpi-obrigatoria.md",
+    "Docs/wiki/decisions/ADR-001-regras-protegidas-agenda.md",
+    "Docs/templates/session-log.md",
+    "Docs/templates/daily-note.md",
+    "Docs/SOUL.md",
     "Docs/log.md",
     "Docs/index.md",
     "Docs/CRITICAL_FACTS.md",
-    "Sem título.canvas",
+    "Portal-Glpi/Bem-vindo.md",
     "MIGRACAO_PRODUCAO.md",
-    "DOCUMENTACAO.md",
-    "Documentação e Backup do Projeto Data 01-06-26/DOCUMENTACAO.md",
-    "Docs/wiki/decisions/ADR-001-regras-protegidas-agenda.md"
+    "Sem título.canvas"
   ]
 }
