@@ -2352,7 +2352,20 @@ function salvarEvento() {
       return;
     }
 
-    // Evento/reunião (sem ticket) ou chamado já existente
+    // Chamado já existente → deleta eventos antigos antes de recriar
+    if (isChamadoOuReq && dadosBase.ticket_id) {
+      fetch('eventos.php?action=deleteByTicket&ticket_id=' + dadosBase.ticket_id)
+        .then(r => r.json())
+        .then(() => {
+          finalizarMulti(null);
+        })
+        .catch(() => {
+          finalizarMulti(null); // Tenta salvar mesmo se delete falhar
+        });
+      return;
+    }
+
+    // Evento/reunião (sem ticket)
     finalizarMulti(null);
     return;
   }
