@@ -9,9 +9,9 @@ require_once __DIR__ . '/entidade_alias.php';
 
 define('POR_PAGINA', 200);
 
-function get_meus_chamados(array $filtros = [], int $pagina = 1, int $user_id = 0): array {
+function get_meus_chamados(array $filtros = [], int $pagina = 1, int $user_id = 0, int $por_pagina = 0): array {
     if (!$user_id) return ['tickets'=>[], 'total'=>0];
-    $limit = POR_PAGINA;
+    $limit = $por_pagina > 0 ? $por_pagina : POR_PAGINA;
 
     $auth  = base64_encode(GLPI_USER . ':' . GLPI_PASS);
     $ch    = curl_init(GLPI_URL . '/apirest.php/initSession');
@@ -34,15 +34,15 @@ function get_meus_chamados(array $filtros = [], int $pagina = 1, int $user_id = 
         $criteria_idx++;
     }
     if (!empty($filtros['tipo'])) {
-        $params .= '&criteria['.$criteria_idx.'][link]=AND&criteria['.$criteria_idx.'][field]=1&criteria['.$criteria_idx.'][searchtype]=equals&criteria['.$criteria_idx.'][value]='.$filtros['tipo'];
+        $params .= '&criteria['.$criteria_idx.'][link]=AND&criteria['.$criteria_idx.'][field]=14&criteria['.$criteria_idx.'][searchtype]=equals&criteria['.$criteria_idx.'][value]='.$filtros['tipo'];
         $criteria_idx++;
     }
     if (!empty($filtros['dt_ini'])) {
-        $params .= '&criteria['.$criteria_idx.'][link]=AND&criteria['.$criteria_idx.'][field]=15&criteria['.$criteria_idx.'][searchtype]=morethan&criteria['.$criteria_idx.'][value]='.$filtros['dt_ini'].' 00:00:00';
+        $params .= '&criteria['.$criteria_idx.'][link]=AND&criteria['.$criteria_idx.'][field]=15&criteria['.$criteria_idx.'][searchtype]=morethan&criteria['.$criteria_idx.'][value]='.urlencode($filtros['dt_ini'].' 00:00:00');
         $criteria_idx++;
     }
     if (!empty($filtros['dt_fim'])) {
-        $params .= '&criteria['.$criteria_idx.'][link]=AND&criteria['.$criteria_idx.'][field]=15&criteria['.$criteria_idx.'][searchtype]=lessthan&criteria['.$criteria_idx.'][value]='.$filtros['dt_fim'].' 23:59:59';
+        $params .= '&criteria['.$criteria_idx.'][link]=AND&criteria['.$criteria_idx.'][field]=15&criteria['.$criteria_idx.'][searchtype]=lessthan&criteria['.$criteria_idx.'][value]='.urlencode($filtros['dt_fim'].' 23:59:59');
         $criteria_idx++;
     }
 
@@ -121,8 +121,7 @@ if ($export === 'csv') {
         'tipo'=>$f_tipo,
         'dt_ini'=>$f_dt_ini,
         'dt_fim'=>$f_dt_fim,
-    ], 1, $user_id);
-    // Força busca completa sem paginação
+    ], 1, $user_id, 100000);
     $export_dados = $todos['tickets'] ?? [];
 
     header('Content-Type: text/csv; charset=utf-8');

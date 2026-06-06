@@ -27,21 +27,42 @@ function glpi_tickets(array $filtros = [], int $pagina = 1, int $por_pagina = 0)
 
     $params = 'range='.$range.'&order=DESC&expand_dropdowns=true';
 
-    // Filtros usando searchText (GLPI API)
-    if (!empty($filtros['status'])) $params .= '&searchText[status]='.$filtros['status'];
-    if (!empty($filtros['tipo']))   $params .= '&searchText[type]='.$filtros['tipo'];
-    if (!empty($filtros['busca']))  $params .= '&searchText[name]='.urlencode($filtros['busca']);
-    if (!empty($filtros['entidade_id'])) $params .= '&entities_id='.(int)$filtros['entidade_id'];
+    // Todos os filtros via criteria (GLPI API) — NÃO misturar searchText com criteria
+    $c = 0;
 
-    // Filtro por data (criteria GLPI)
-    $criteria_idx = 0;
-    if (!empty($filtros['dt_ini'])) {
-        $params .= '&criteria['.$criteria_idx.'][field]=15&criteria['.$criteria_idx.'][searchtype]=morethan&criteria['.$criteria_idx.'][value]='.$filtros['dt_ini'].' 00:00:00';
-        $criteria_idx++;
+    // Texto — field=1 = name/title
+    if (!empty($filtros['busca'])) {
+        $params .= ($c > 0 ? '&criteria['.$c.'][link]=AND' : '').'&criteria['.$c.'][field]=1&criteria['.$c.'][searchtype]=contains&criteria['.$c.'][value]='.urlencode($filtros['busca']);
+        $c++;
     }
+
+    // Tipo — field=14 = type (1=Incidente, 2=Requisição)
+    if (!empty($filtros['tipo'])) {
+        $params .= ($c > 0 ? '&criteria['.$c.'][link]=AND' : '').'&criteria['.$c.'][field]=14&criteria['.$c.'][searchtype]=equals&criteria['.$c.'][value]='.$filtros['tipo'];
+        $c++;
+    }
+
+    // Status — field=12
+    if (!empty($filtros['status'])) {
+        $params .= ($c > 0 ? '&criteria['.$c.'][link]=AND' : '').'&criteria['.$c.'][field]=12&criteria['.$c.'][searchtype]=equals&criteria['.$c.'][value]='.$filtros['status'];
+        $c++;
+    }
+
+    // Entidade — parâmetro top-level entities_id (NÃO é criteria field, é escopo da requisição)
+    if (!empty($filtros['entidade_id'])) {
+        $params .= '&entities_id='.(int)$filtros['entidade_id'];
+    }
+
+    // Data início — field=15 = date
+    if (!empty($filtros['dt_ini'])) {
+        $params .= ($c > 0 ? '&criteria['.$c.'][link]=AND' : '').'&criteria['.$c.'][field]=15&criteria['.$c.'][searchtype]=morethan&criteria['.$c.'][value]='.urlencode($filtros['dt_ini'].' 00:00:00');
+        $c++;
+    }
+
+    // Data fim — field=15 = date
     if (!empty($filtros['dt_fim'])) {
-        $params .= '&criteria['.$criteria_idx.'][field]=15&criteria['.$criteria_idx.'][searchtype]=lessthan&criteria['.$criteria_idx.'][value]='.$filtros['dt_fim'].' 23:59:59';
-        $criteria_idx++;
+        $params .= ($c > 0 ? '&criteria['.$c.'][link]=AND' : '').'&criteria['.$c.'][field]=15&criteria['.$c.'][searchtype]=lessthan&criteria['.$c.'][value]='.urlencode($filtros['dt_fim'].' 23:59:59');
+        $c++;
     }
 
     $ch2 = curl_init(GLPI_URL . '/apirest.php/Ticket?'.$params);
