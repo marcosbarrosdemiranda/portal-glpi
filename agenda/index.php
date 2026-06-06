@@ -1018,6 +1018,34 @@ document.addEventListener('DOMContentLoaded', function() {
     document.head.appendChild(style);
   })();
 
+  // ── Almoço: células compactas (11h-13h) ──
+  // Reduz a altura dos slots no horário de almoço pela metade. Apenas
+  // emergências são esperadas nesse período, então as células ficam mais
+  // compactas para aproveitar melhor o espaço vertical da agenda.
+  // Abordagem: anula a altura fixa que o FullCalendar define na tabela
+  // (table-layout:fixed distribui altura uniformemente entre as linhas) e
+  // define altura explícita nos slots: normal = 1.5em, almoço = 0.75em.
+  (function() {
+    const style = document.createElement('style');
+    style.id = 'almoco-compact-slots';
+    style.textContent = `
+      /* Anula altura fixa que FC define via JS inline — linhas determinam altura */
+      .fc-timegrid-slots table {
+        height: auto !important;
+      }
+      /* Garante altura normal nos slots fora do almoço */
+      .fc-timegrid-slot {
+        height: 1.5em !important;
+      }
+      /* Almoço: metade da altura (0.75em = 1.5em / 2) */
+      .fc-timegrid-slot[data-time^="11:"],
+      .fc-timegrid-slot[data-time^="12:"] {
+        height: 0.75em !important;
+      }
+    `;
+    document.head.appendChild(style);
+  })();
+
   carregarAtendentes();
   // verificarAtrasados → syncRotinas → refetchEvents + carregarTickets (sequencial)
   // evita race condition onde refetchEvents do verificar removeria rotinas recém-inseridas
@@ -1403,11 +1431,16 @@ function salvarEventoObjAsync(dados) {
   })
   .then(r => r.json())
   .then(() => {
+    if (dados._skipGlpi) return;
     if (dados.ticket_id && dados.atendente_id) {
       return fetch('atribuir_ticket.php', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ ticket_id: dados.ticket_id, atendente_id: dados.atendente_id }),
+        body: JSON.stringify({
+          ticket_id:      dados.ticket_id,
+          atendente_id:   dados.atendente_id,
+          atendentes_ids: dados.atendentes_ids || null,
+        }),
       });
     }
   });
@@ -1868,8 +1901,9 @@ async function enviarResposta() {
           }),
         }).then(r => r.json()).catch(() => ({ updated: 0 }));
 
+        // Se updated=0, o evento foi deletado do DB (verificarAtrasados) → recria com concluido=1
+        // Usa parseInt(ticketId) em vez de snap.ticket_id por consistência com o request anterior
         if (!concluirRes.updated && snap && snap.id) {
-          // Evento foi deletado do DB → recria com concluido=1
           await salvarEventoObjAsync({
             id:           snap.id,
             titulo:       snap.titulo,
@@ -1882,7 +1916,7 @@ async function enviarResposta() {
             atendente:    snap.atendente,
             atendente_id: snap.atendente_id,
             atendente_cor:snap.atendente_cor,
-            ticket_id:    snap.ticket_id,
+            ticket_id:    parseInt(ticketId),
             concluido:    1,
           });
         }
@@ -2150,12 +2184,14 @@ function salvarEvento() {
 
   const concluido = document.getElementById('ev-concluido').checked ? 1 : 0;
 
-  // isMulti só se aplica a reunião/evento — tipos que NÃO têm ticket no GLPI.
-  // Chamado/requisição SEMPRE usa o caminho único, que chama criar_ticket.php e fechar_ticket.php.
-  const isMulti = !isChamadoOuReq && multiSel.length > 0;
+  // Chamado/requisição com 2+ técnicos: fluxo multi-atendente (cria ticket + um evento por técnico).
+  // Reunião/evento com 1+ técnico: fluxo multi-atendente (um evento por técnico, sem ticket GLPI).
+  // Chamado/requisição com 1 técnico: caminho único clássico.
+  const qtdTecs = multiSel.length;
+  const isMulti = qtdTecs > 1 || (!isChamadoOuReq && qtdTecs > 0);
 
-  // Para chamado/requisição: pega atendente do primeiro chip selecionado (só 1 atendente por chamado)
-  const primeiroChip = isChamadoOuReq && multiSel.length > 0 ? multiSel[0] : null;
+  // Para chamado/requisição com 1 técnico: compatibilidade retroativa
+  const primeiroChip = isChamadoOuReq && qtdTecs > 0 && !isMulti ? multiSel[0] : null;
 
   // Categoria: options têm value=id (direto)
   const categoriaId = parseInt(document.getElementById('ev-categoria').value) || null;
@@ -2207,29 +2243,77 @@ function salvarEvento() {
 
   const dados = dadosBase;
 
-  // Reunião/evento com múltiplos atendentes → cria um evento por atendente (sem ticket GLPI)
+  // ── Fluxo multi-atendente: 2+ técnicos (chamado) ou 1+ técnico (evento/reunião) ──
   if (isMulti) {
     const btnSalvar2 = document.querySelector('#modalEvento .btn-primary');
     btnSalvar2.disabled = true;
     btnSalvar2.innerHTML = '<span class="spinner-border spinner-border-sm me-2"></span>Salvando...';
     const reativar = () => { btnSalvar2.disabled = false; btnSalvar2.innerHTML = '<i class="bi bi-check-lg me-1"></i>Salvar'; };
-
-    // Se edição (tem evId) → deleta o evento antigo e recria
-    const promises = multiSel.map((a, i) =>
-      salvarEventoObjAsync(Object.assign({}, dadosBase, {
-        id:            i === 0 && evId ? evId : uniqEvId(),
+    const finalizarMulti = (ticket_id) => {
+      // Se edição (tem evId) → deleta o evento antigo e recria (só para evento, chamado edita in-line)
+      const mapTech = (a, i) => Object.assign({}, dadosBase, {
+        id:       (!isChamadoOuReq && i === 0 && evId) ? evId : uniqEvId(),
         atendente:     a.nome,
         atendente_id:  a.id,
         atendente_cor: a.cor,
-      }))
-    );
-    Promise.all(promises).then(() => {
-      modalEvento.hide();
-      calendar.refetchEvents();
-      carregarTickets();
-      reativar();
-      toast(`✅ Evento salvo para ${multiSel.length} atendente(s).`);
-    });
+        ticket_id:     ticket_id || dadosBase.ticket_id,
+        // Chamado criado no GLPI já tem todos os técnicos — pula atribuição extra
+        _skipGlpi:     isChamadoOuReq,
+      });
+      const promises = multiSel.map(mapTech).map(d => salvarEventoObj(d));
+      Promise.all(promises).then(() => {
+        modalEvento.hide();
+        calendar.refetchEvents();
+        carregarTickets();
+        reativar();
+        const verb = isChamadoOuReq ? 'Chamado' : 'Evento';
+        toast(`✅ ${verb} salvo para ${multiSel.length} atendente(s).`);
+      });
+    };
+
+    if (isChamadoOuReq && !dadosBase.ticket_id) {
+      // Novo chamado com 2+ técnicos → cria ticket no GLPI com todos
+      const catId  = parseInt(document.getElementById('ev-categoria').value) || null;
+      const entEl  = document.getElementById('ev-entidade');
+      const entId  = entEl.selectedOptions[0]?.dataset?.id ? parseInt(entEl.selectedOptions[0].dataset.id) : null;
+      const reqEl  = document.getElementById('ev-requerente');
+      const reqId  = reqEl.selectedOptions[0]?.dataset?.id ? parseInt(reqEl.selectedOptions[0].dataset.id) : null;
+      const orgId  = parseInt(document.getElementById('ev-origem').value) || null;
+
+      fetch('criar_ticket.php', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          titulo:         dadosBase.titulo,
+          descricao:      dadosBase.descricao,
+          tipo:           dadosBase.tipo,
+          prioridade:     dadosBase.prioridade,
+          atendentes_ids: multiSel.map(a => a.id),
+          categoria_id:   catId,
+          entidade_id:    entId,
+          requerente_id:  reqId,
+          origem_id:      orgId,
+        }),
+      })
+      .then(r => r.json())
+      .then(res => {
+        if (res.ok) {
+          toast(`🎫 Chamado #${res.ticket_id} criado no GLPI!`);
+          finalizarMulti(res.ticket_id);
+        } else {
+          alert('Erro ao criar chamado no GLPI: ' + (res.msg || 'Falha desconhecida'));
+          reativar();
+        }
+      })
+      .catch(() => {
+        alert('Erro de conexão ao criar chamado.');
+        reativar();
+      });
+      return;
+    }
+
+    // Evento/reunião (sem ticket) ou chamado já existente
+    finalizarMulti(null);
     return;
   }
 
@@ -2292,16 +2376,17 @@ function salvarEvento() {
 }
 
 function salvarEventoObj(dados, cb) {
-  fetch('eventos.php?action=save', {
+  return fetch('eventos.php?action=save', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(dados),
   })
   .then(r => r.json())
   .then(() => {
-    if (dados.ticket_id) {
+    if (!dados.ticket_id) { if (cb) cb(); return; }
+    if (dados._skipGlpi)  { if (cb) cb(); return; }
 
-      if (dados.concluido && !dados._only_reposition) {
+    if (dados.concluido && !dados._only_reposition) {
         // Registra o período como acompanhamento no GLPI (apenas no save do modal, não no drag)
         const fmtDt = s => {
           const d = new Date(String(s).replace(' ', 'T'));
@@ -2397,7 +2482,6 @@ function salvarEventoObj(dados, cb) {
           if (res.ok) toast(`✅ Chamado #${dados.ticket_id} atribuído a ${dados.atendente} no GLPI.`);
         });
       }
-    }
     if (cb) cb();
   });
 }

@@ -1,21 +1,35 @@
 <?php
 /**
  * Cria um chamado no GLPI a partir da agenda
- * POST JSON: { titulo, descricao, tipo, prioridade, atendente_id, setor }
+ * POST JSON: { titulo, descricao, tipo, prioridade, atendente_id, atendentes_ids, ... }
+ *
+ * Pode receber um array `atendentes_ids` para atribuir múltiplos técnicos ao chamado.
+ * `atendente_id` (int único) é mantido para compatibilidade.
  */
 header('Content-Type: application/json');
 require_once 'config.php';
 
-$body         = json_decode(file_get_contents('php://input'), true) ?? [];
-$titulo       = trim($body['titulo']       ?? '');
-$descricao    = trim($body['descricao']    ?? '');
-$tipo         = $body['tipo']              ?? 'chamado'; // 'chamado'=1, 'requisicao'=2
-$prioridade   = (int)($body['prioridade']  ?? 3);
-$atendente_id = (int)($body['atendente_id']  ?? 0);
-$categoria_id = (int)($body['categoria_id']  ?? 0);
-$entidade_id  = (int)($body['entidade_id']   ?? 0);
-$requerente_id= (int)($body['requerente_id'] ?? 0);
-$origem_id    = (int)($body['origem_id']     ?? 0);
+$body          = json_decode(file_get_contents('php://input'), true) ?? [];
+$titulo        = trim($body['titulo']        ?? '');
+$descricao     = trim($body['descricao']     ?? '');
+$tipo          = $body['tipo']               ?? 'chamado'; // 'chamado'=1, 'requisicao'=2
+$prioridade    = (int)($body['prioridade']   ?? 3);
+$atendente_id  = (int)($body['atendente_id']  ?? 0);
+$categoria_id  = (int)($body['categoria_id']  ?? 0);
+$entidade_id   = (int)($body['entidade_id']   ?? 0);
+$requerente_id = (int)($body['requerente_id'] ?? 0);
+$origem_id     = (int)($body['origem_id']     ?? 0);
+
+// Suporte a múltiplos atendentes: array de IDs
+$atendentes_ids = $body['atendentes_ids'] ?? [];
+if (!is_array($atendentes_ids)) $atendentes_ids = [];
+// Garante que atendente_id também esteja incluso (para compatibilidade)
+if ($atendente_id && !in_array($atendente_id, $atendentes_ids)) {
+    $atendentes_ids[] = $atendente_id;
+}
+// Filtra apenas inteiros válidos
+$atendentes_ids = array_map('intval', array_filter($atendentes_ids, fn($v) => is_numeric($v)));
+$atendentes_ids = array_values(array_unique($atendentes_ids));
 
 if (!$titulo) {
     http_response_code(400);
@@ -62,15 +76,15 @@ $input = [
     'type'     => $tipo_glpi,
     'urgency'  => $urgencia,
     'priority' => $urgencia,
-    'status'   => $atendente_id ? 2 : 1, // Atribuído se tiver técnico, senão Novo
+    'status'   => !empty($atendentes_ids) ? 2 : 1, // Atribuído se tiver técnico(s), senão Novo
 ];
 
 // Campos opcionais preenchidos pelo modal da agenda
-if ($atendente_id)  $input['_users_id_assign']   = $atendente_id;
-if ($requerente_id) $input['_users_id_requester'] = $requerente_id;
-if ($categoria_id)  $input['itilcategories_id']   = $categoria_id;
-if ($entidade_id)   $input['entities_id']          = $entidade_id;
-if ($origem_id)     $input['requesttypes_id']      = $origem_id;
+if (!empty($atendentes_ids)) $input['_users_id_assign']   = $atendentes_ids; // array → GLPI atribui todos
+if ($requerente_id)          $input['_users_id_requester'] = $requerente_id;
+if ($categoria_id)           $input['itilcategories_id']   = $categoria_id;
+if ($entidade_id)            $input['entities_id']          = $entidade_id;
+if ($origem_id)              $input['requesttypes_id']      = $origem_id;
 
 $ch = curl_init(GLPI_URL . '/apirest.php/Ticket');
 curl_setopt_array($ch, [

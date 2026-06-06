@@ -1,17 +1,34 @@
 <?php
 /**
- * Atribui um chamado GLPI a um técnico e muda o status para "Atribuído" (2)
- * Chamado via POST com JSON: { ticket_id, atendente_id }
+ * Atribui um chamado GLPI a um ou mais técnicos e muda o status para "Atribuído" (2)
+ * Chamado via POST com JSON: { ticket_id, atendente_id } ou { ticket_id, atendentes_ids }
+ *
+ * `atendentes_ids` (array) permite atribuir múltiplos técnicos de uma vez.
+ * Se omitido, usa `atendente_id` (int único) para compatibilidade.
  */
 header('Content-Type: application/json');
 require_once 'config.php';
 
-$body        = json_decode(file_get_contents('php://input'), true) ?? [];
-$ticket_id   = (int)($body['ticket_id']   ?? 0);
-$atendente_id= (int)($body['atendente_id'] ?? 0);
+$body         = json_decode(file_get_contents('php://input'), true) ?? [];
+$ticket_id    = (int)($body['ticket_id']   ?? 0);
 
-if (!$ticket_id || !$atendente_id) {
-    echo json_encode(['ok' => false, 'msg' => 'ticket_id e atendente_id são obrigatórios']);
+// Suporte a múltiplos atendentes
+$atendentes_ids = $body['atendentes_ids'] ?? [];
+if (!is_array($atendentes_ids)) $atendentes_ids = [];
+
+$atendente_id = (int)($body['atendente_id'] ?? 0);
+
+// Se só tem atendente_id (array vazio), adiciona como único
+if ($atendente_id && empty($atendentes_ids)) {
+    $atendentes_ids[] = $atendente_id;
+}
+
+// Filtra inteiros válidos
+$atendentes_ids = array_map('intval', array_filter($atendentes_ids, fn($v) => is_numeric($v)));
+$atendentes_ids = array_values(array_unique($atendentes_ids));
+
+if (!$ticket_id || empty($atendentes_ids)) {
+    echo json_encode(['ok' => false, 'msg' => 'ticket_id e atendente_id/atendentes_ids são obrigatórios']);
     exit;
 }
 
@@ -74,20 +91,25 @@ foreach ($tecnicosAtuais as $tu) {
     curl_close($ch);
 }
 
-// Atribui novo técnico (type=2 → técnico)
-$ch = curl_init(GLPI_URL . '/apirest.php/Ticket_User');
-curl_setopt_array($ch, [
-    CURLOPT_RETURNTRANSFER => true,
-    CURLOPT_POST           => true,
-    CURLOPT_POSTFIELDS     => json_encode(['input' => [
-        'tickets_id' => $ticket_id,
-        'users_id'   => $atendente_id,
-        'type'       => 2, // 1=Solicitante, 2=Técnico, 3=Observador
-    ]]),
-    CURLOPT_HTTPHEADER => $headers,
-]);
-$resTecnico = json_decode(curl_exec($ch), true);
-curl_close($ch);
+// Atribui novo(s) técnico(s) (type=2 → técnico)
+$erros = [];
+$ultimoRes = null;
+foreach ($atendentes_ids as $aid) {
+    $ch = curl_init(GLPI_URL . '/apirest.php/Ticket_User');
+    curl_setopt_array($ch, [
+        CURLOPT_RETURNTRANSFER => true,
+        CURLOPT_POST           => true,
+        CURLOPT_POSTFIELDS     => json_encode(['input' => [
+            'tickets_id' => $ticket_id,
+            'users_id'   => $aid,
+            'type'       => 2, // 1=Solicitante, 2=Técnico, 3=Observador
+        ]]),
+        CURLOPT_HTTPHEADER => $headers,
+    ]);
+    $ultimoRes = json_decode(curl_exec($ch), true);
+    curl_close($ch);
+    if (!isset($ultimoRes['id'])) $erros[] = "Falha ao atribuir técnico ID $aid";
+}
 
 // ── Encerra sessão ─────────────────────────────────────────────
 $ch = curl_init(GLPI_URL . '/apirest.php/killSession');
@@ -98,12 +120,13 @@ curl_setopt_array($ch, [
 curl_exec($ch);
 curl_close($ch);
 
-$sucesso = isset($resTecnico['id']);
+$numAtrib = count($atendentes_ids);
+$sucesso  = empty($erros);
 echo json_encode([
     'ok'  => $sucesso,
     'msg' => $sucesso
-        ? "Ticket #{$ticket_id} atribuído ao técnico ID {$atendente_id} com sucesso."
-        : 'Erro ao atribuir técnico.',
+        ? "Ticket #{$ticket_id} atribuído a {$numAtrib} técnico(s) com sucesso."
+        : implode('; ', $erros),
     'ticket_update' => $resTicket,
-    'tecnico'       => $resTecnico,
+    'tecnico'       => $ultimoRes,
 ]);

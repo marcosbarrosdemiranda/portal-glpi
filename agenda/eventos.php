@@ -59,9 +59,15 @@ try {
         exit;
     }
 
-    // ── CONCLUIR por ticket_id (UPDATE cirúrgico — só toca concluido) ────
-    // Não altera atendente, start, end nem nenhum outro campo.
-    // Retorna { ok, updated } onde updated = linhas afetadas (0 = evento foi deletado).
+    // ── CONCLUIR por ticket_id ─────────────────────────────────────────
+    // Marca TODOS os eventos do chamado como concluídos (sem filtro concluido=0).
+    // Retorna { ok, updated } onde updated = 0 se NENHUM evento existe no DB
+    // para este ticket (foi deletado por verificarAtrasados), e >0 se ao menos
+    // um evento foi atualizado ou já estava concluído.
+    // ⚠️ REGRA PROTEGIDA — NÃO ALTERAR SEM PERMISSÃO DO RESPONSÁVEL ⚠️
+    // A remoção do filtro `AND concluido = 0` é INTENCIONAL: evita race
+    // condition onde o UPDATE não encontra o evento e o fallback no JS cria
+    // duplicata (red + green lado a lado no mesmo horário).
     if ($action === 'concluir_ticket') {
         $body         = json_decode(file_get_contents('php://input'), true) ?? [];
         $ticket_id    = (int)($body['ticket_id'] ?? 0);
@@ -80,7 +86,7 @@ try {
                      atendente     = CASE WHEN (atendente IS NULL OR atendente = '') THEN :atendente     ELSE atendente     END,
                      atendente_id  = CASE WHEN (atendente IS NULL OR atendente = '') THEN :atendente_id  ELSE atendente_id  END,
                      atendente_cor = CASE WHEN (atendente IS NULL OR atendente = '') THEN :atendente_cor ELSE atendente_cor END
-                 WHERE ticket_id = :ticket_id AND concluido = 0"
+                 WHERE ticket_id = :ticket_id"
             );
             $stmt->execute([
                 ':ticket_id'    => $ticket_id,
@@ -91,11 +97,15 @@ try {
         } else {
             $stmt = $pdo->prepare(
                 "UPDATE glpi_plugin_agenda_events SET concluido = 1
-                 WHERE ticket_id = ? AND concluido = 0"
+                 WHERE ticket_id = ?"
             );
             $stmt->execute([$ticket_id]);
         }
-        echo json_encode(['ok' => true, 'updated' => $stmt->rowCount()]);
+        // Verifica se algum evento existe no DB (se não existe, foi deletado por verificarAtrasados)
+        $check = $pdo->prepare("SELECT COUNT(*) FROM glpi_plugin_agenda_events WHERE ticket_id = ?");
+        $check->execute([$ticket_id]);
+        $exists = (int)$check->fetchColumn();
+        echo json_encode(['ok' => true, 'updated' => $exists ? 1 : 0]);
         exit;
     }
 
