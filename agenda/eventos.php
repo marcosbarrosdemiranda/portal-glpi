@@ -130,6 +130,8 @@ try {
         $ticket_id    = isset($body['ticket_id']) && $body['ticket_id'] !== '' ? (int)$body['ticket_id'] : null;
         $tipo         = in_array($body['tipo'] ?? '', ['evento','chamado','requisicao','reuniao'])
                         ? $body['tipo'] : 'evento';
+        // ⚠️ Mapeia 'requisicao' → 'chamado' porque o ENUM do MySQL não tem 'requisicao'
+        if ($tipo === 'requisicao') $tipo = 'chamado';
         $concluido    = isset($body['concluido']) ? (int)$body['concluido'] : 0;
         $orig_start   = $body['orig_start'] ?? '';
 

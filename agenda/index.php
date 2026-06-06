@@ -1097,6 +1097,16 @@ function carregarEventos(info, success) {
           }
         };
       });
+      // Log para depuração multi-atendente
+      if (todosEventos.some(e => e.extendedProps.ticket_id)) {
+        const porAtendente = {};
+        todosEventos.forEach(e => {
+          const a = e.extendedProps.atendente || '(sem atendente)';
+          porAtendente[a] = (porAtendente[a] || 0) + 1;
+        });
+        console.log('📊 carregarEventos: total=', todosEventos.length, 'porAtendente=', porAtendente);
+      }
+
       // Aplica filtro de atendente se houver
       success(eventosFiltrados());
     });
@@ -1110,13 +1120,23 @@ function eventosFiltrados() {
   //   - NUNCA mostrar eventos de um atendente na agenda de outro.
   //   - Eventos tipo "evento" são pessoais — só aparecem na agenda de quem criou
   if (filtroAtendente) {
-    return todosEventos.filter(e => {
+    const filtrados = todosEventos.filter(e => {
       if (e.extendedProps.atendente === filtroAtendente) return true;
       if (e.extendedProps.concluido && !e.extendedProps.atendente) {
         return filtroAtendente === USUARIO_LOGADO_NOME;
       }
       return false;
     });
+    console.log(`📊 eventosFiltrados: filtro="${filtroAtendente}", total=${todosEventos.length}, filtrados=${filtrados.length}`);
+    // Se filtrou menos que o total, loga os excluídos
+    if (filtrados.length < todosEventos.length) {
+      todosEventos.forEach(e => {
+        if (!filtrados.includes(e)) {
+          console.log(`   ❌ excluído: atendente="${e.extendedProps.atendente}", ticket=${e.extendedProps.ticket_id}, tipo=${e.extendedProps.tipo}`);
+        }
+      });
+    }
+    return filtrados;
   }
 
   // Visão "Todos"
@@ -1197,11 +1217,13 @@ function carregarAtendentes() {
         data.map(a => `<option value="${escHtml(a.nome)}" data-cor="${a.cor}" data-id="${a.id}">${escHtml(apelidoAtendente(a.nome))}</option>`).join('');
       renderAtendentesMulti([]);
 
-      // Popula filtro do navbar
+      // Popula filtro do navbar — usa a.nome cru (sem escHtml no value) para
+      // comparação exata com e.extendedProps.atendente em eventosFiltrados.
+      // Escapamos apenas & para não quebrar a sintaxe HTML quando o nome contém &.
       const filtro = document.getElementById('filtro-atendente');
       filtro.innerHTML =
         '<option value="">👥 Todos os atendentes</option>' +
-        data.map(a => `<option value="${escHtml(a.nome)}">${escHtml(apelidoAtendente(a.nome))}</option>`).join('');
+        data.map(a => `<option value="${String(a.nome).replace(/&/g, '&amp;').replace(/"/g, '&quot;')}">${escHtml(apelidoAtendente(a.nome))}</option>`).join('');
 
       // Pré-seleciona o atendente logado (por ID ou por nome)
       const atendenteLogado = data.find(a => a.id === USUARIO_LOGADO_ID || a.nome === USUARIO_LOGADO_NOME);
@@ -1435,7 +1457,11 @@ function salvarEventoObjAsync(dados) {
     body: JSON.stringify(dados),
   })
   .then(r => r.json())
-  .then(() => {
+  .then(res => {
+    if (!res.ok) {
+      console.error('❌ eventosAsync save falhou:', res.error || res, 'dados:', JSON.stringify(dados));
+      return;
+    }
     if (dados._skipGlpi) return;
     if (dados.ticket_id && dados.atendente_id) {
       return fetch('atribuir_ticket.php', {
@@ -1710,7 +1736,7 @@ function getAtendentesMultiSelecionados() {
     nome: el.dataset.nome,
     id:   parseInt(el.dataset.id),
     cor:  el.dataset.cor,
-  }));
+  })).filter(a => a.id && !isNaN(a.id)); // descarta chips sem ID válido
 }
 
 // ──────────────────────────────────────────
@@ -2265,7 +2291,9 @@ function salvarEvento() {
         // Chamado criado no GLPI já tem todos os técnicos — pula atribuição extra
         _skipGlpi:     isChamadoOuReq,
       });
-      const promises = multiSel.map(mapTech).map(d => salvarEventoObj(d));
+      const dadosSalvos = multiSel.map(mapTech);
+      console.log('📊 Multi-tech save:', dadosSalvos.map(d => ({atendente: d.atendente, atendente_id: d.atendente_id, ticket_id: d.ticket_id, id: d.id})));
+      const promises = dadosSalvos.map(d => salvarEventoObj(d));
       Promise.all(promises).then(() => {
         modalEvento.hide();
         calendar.refetchEvents();
@@ -2273,6 +2301,13 @@ function salvarEvento() {
         reativar();
         const verb = isChamadoOuReq ? 'Chamado' : 'Evento';
         toast(`✅ ${verb} salvo para ${multiSel.length} atendente(s).`);
+      }).catch(err => {
+        console.error('❌ Multi-tech save falhou:', err);
+        // Mesmo com erro, tenta recarregar o que foi salvo
+        calendar.refetchEvents();
+        carregarTickets();
+        reativar();
+        alert('Erro ao salvar para um ou mais atendentes. Verifique o console (F12).');
       });
     };
 
@@ -2387,7 +2422,13 @@ function salvarEventoObj(dados, cb) {
     body: JSON.stringify(dados),
   })
   .then(r => r.json())
-  .then(() => {
+  .then(res => {
+    // Verifica se o PHP retornou erro
+    if (!res.ok) {
+      console.error('❌ eventos.php save falhou:', res.error || res, 'dados:', JSON.stringify(dados));
+      if (cb) cb();
+      return;
+    }
     if (!dados.ticket_id) { if (cb) cb(); return; }
     if (dados._skipGlpi)  { if (cb) cb(); return; }
 
@@ -2487,6 +2528,10 @@ function salvarEventoObj(dados, cb) {
           if (res.ok) toast(`✅ Chamado #${dados.ticket_id} atribuído a ${dados.atendente} no GLPI.`);
         });
       }
+    if (cb) cb();
+  })
+  .catch(err => {
+    console.error('❌ salvarEventoObj erro:', err, 'dados:', JSON.stringify(dados));
     if (cb) cb();
   });
 }
