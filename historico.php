@@ -25,18 +25,25 @@ function glpi_tickets(array $filtros = [], int $pagina = 1, int $por_pagina = 0)
     $offset = ($pagina - 1) * $limit;
     $range  = $offset . '-' . ($offset + $limit - 1);
 
-    $params = 'range='.$range.'&order=DESC&expand_dropdowns=true';
+    // ── Maps ──
+    $status_map = [1=>'Novo',2=>'Atribuído',3=>'Planejado',4=>'Pendente',5=>'Solucionado',6=>'Fechado'];
+    $status_cor = [1=>'primary',2=>'info',3=>'warning',4=>'secondary',5=>'success',6=>'dark'];
+    $status_rev = array_flip($status_map); // ['Novo'=>1, 'Atribuído'=>2, …]
+    $urg_map    = [1=>'Muito baixa',2=>'Baixa',3=>'Média',4=>'Alta',5=>'Muito alta'];
+    $urg_cor    = [1=>'success',2=>'info',3=>'warning',4=>'danger',5=>'purple'];
+    $type_rev   = ['Incidente'=>1, 'Requisição'=>2];
 
-    // Todos os filtros via criteria (GLPI API) — NÃO misturar searchText com criteria
+    // ── Monta criteria para /search/Ticket ──
     $c = 0;
+    $params = 'range='.$range.'&order_col=2&order_order=DESC&expand_dropdowns=true';
 
-    // Texto — field=1 = name/title
+    // Texto — field=1 = name
     if (!empty($filtros['busca'])) {
         $params .= ($c > 0 ? '&criteria['.$c.'][link]=AND' : '').'&criteria['.$c.'][field]=1&criteria['.$c.'][searchtype]=contains&criteria['.$c.'][value]='.urlencode($filtros['busca']);
         $c++;
     }
 
-    // Tipo — field=14 = type (1=Incidente, 2=Requisição)
+    // Tipo — field=14 = type
     if (!empty($filtros['tipo'])) {
         $params .= ($c > 0 ? '&criteria['.$c.'][link]=AND' : '').'&criteria['.$c.'][field]=14&criteria['.$c.'][searchtype]=equals&criteria['.$c.'][value]='.$filtros['tipo'];
         $c++;
@@ -48,31 +55,32 @@ function glpi_tickets(array $filtros = [], int $pagina = 1, int $por_pagina = 0)
         $c++;
     }
 
-    // Entidade — parâmetro top-level entities_id (NÃO é criteria field, é escopo da requisição)
+    // Entidade — field=80 (completename via expand_dropdowns)
     if (!empty($filtros['entidade_id'])) {
-        $params .= '&entities_id='.(int)$filtros['entidade_id'];
+        $params .= ($c > 0 ? '&criteria['.$c.'][link]=AND' : '').'&criteria['.$c.'][field]=80&criteria['.$c.'][searchtype]=equals&criteria['.$c.'][value]='.(int)$filtros['entidade_id'];
+        $c++;
     }
 
-    // Data início — field=15 = date
+    // Data início — field=15
     if (!empty($filtros['dt_ini'])) {
         $params .= ($c > 0 ? '&criteria['.$c.'][link]=AND' : '').'&criteria['.$c.'][field]=15&criteria['.$c.'][searchtype]=morethan&criteria['.$c.'][value]='.urlencode($filtros['dt_ini'].' 00:00:00');
         $c++;
     }
 
-    // Data fim — field=15 = date
+    // Data fim — field=15
     if (!empty($filtros['dt_fim'])) {
         $params .= ($c > 0 ? '&criteria['.$c.'][link]=AND' : '').'&criteria['.$c.'][field]=15&criteria['.$c.'][searchtype]=lessthan&criteria['.$c.'][value]='.urlencode($filtros['dt_fim'].' 23:59:59');
         $c++;
     }
 
-    $ch2 = curl_init(GLPI_URL . '/apirest.php/Ticket?'.$params);
-    curl_setopt_array($ch2, [CURLOPT_RETURNTRANSFER=>true, CURLOPT_HTTPHEADER=>$h]);
-    curl_exec($ch2);
-    // Pega o total pelo header Content-Range
-    $total = 0;
-    curl_setopt($ch2, CURLOPT_HEADER, true);
-    curl_setopt($ch2, CURLOPT_RETURNTRANSFER, true);
-    $ch2 = curl_init(GLPI_URL . '/apirest.php/Ticket?'.$params);
+    // Campos solicitados explicitamente
+    // 2=id, 1=name, 12=status, 14=type, 15=date, 19=date_mod, 80=entity, 4=requester, 3=urgency
+    $forcedisplay = [2,1,12,14,15,19,80,4,3];
+    foreach ($forcedisplay as $i => $fd) {
+        $params .= '&forcedisplay['.$i.']='.$fd;
+    }
+
+    $ch2 = curl_init(GLPI_URL . '/apirest.php/search/Ticket?'.$params);
     curl_setopt_array($ch2, [
         CURLOPT_RETURNTRANSFER=>true,
         CURLOPT_HEADER=>true,
@@ -84,42 +92,57 @@ function glpi_tickets(array $filtros = [], int $pagina = 1, int $por_pagina = 0)
     $body   = substr($resp, $header_size);
     curl_close($ch2);
 
-    // Extrai total do header Content-Range: 0-199/8972
+    $total = 0;
     if (preg_match('/Content-Range:\s*\d+-\d+\/(\d+)/i', $header, $m)) {
         $total = (int)$m[1];
     }
 
-    $tickets = json_decode($body, true) ?? [];
+    $search = json_decode($body, true);
+    if (!$search || isset($search['ERROR'])) return ['tickets'=>[], 'total'=>0];
+
+    $raw  = $search['data'] ?? [];
+    $total = (int)($search['totalcount'] ?? $total);
+
+    // fallback: se forcedisplay não retornou campos, usa o que veio (default search)
+    $first = reset($raw);
+    $has_fields = $first && (isset($first[2]) || isset($first[1]));
+
+    $result = [];
+    foreach ($raw as $row) {
+        if (!$has_fields) continue;
+        $tid = (int)($row[2] ?? 0);
+        if (!$tid) continue;
+
+        $s_display = $row[12] ?? 'Novo';
+        $s_num     = $status_rev[$s_display] ?? 1;
+        $t_display = $row[14] ?? '';
+        $t_num     = $type_rev[$t_display] ?? ($t_display == '2' ? 2 : 1);
+        $u_raw     = $row[3] ?? 3;
+        $u_num     = is_numeric($u_raw) ? (int)$u_raw : (array_flip($urg_map)[$u_raw] ?? 3);
+
+        $result[] = [
+            'id'         => $tid,
+            'titulo'     => $row[1] ?? 'Sem título',
+            'status'     => $s_display,
+            'status_n'   => $s_num,
+            'status_cor' => $status_cor[$s_num] ?? 'secondary',
+            'tipo'       => $t_display ?: ($t_num == 1 ? 'Incidente' : 'Requisição'),
+            'tipo_n'     => $t_num,
+            'urgencia'   => $urg_map[$u_num] ?? 'Média',
+            'urg_cor'    => $urg_cor[$u_num] ?? 'warning',
+            'entidade'   => apelido_entidade($row[80] ?? ''),
+            'entidade_id'=> (int)($row[80] ?? 0),
+            'data'       => substr($row[15] ?? '', 0, 16),
+            'atualizado' => substr($row[19] ?? '', 0, 16),
+            'requerente' => $row[4] ?? '',
+        ];
+    }
 
     $ch3 = curl_init(GLPI_URL . '/apirest.php/killSession');
     curl_setopt_array($ch3, [CURLOPT_RETURNTRANSFER=>true, CURLOPT_HTTPHEADER=>$h]);
     curl_exec($ch3); curl_close($ch3);
 
-    if (!is_array($tickets) || isset($tickets['ERROR'])) return ['tickets'=>[], 'total'=>0];
-
-    $status_map = [1=>'Novo',2=>'Atribuído',3=>'Planejado',4=>'Pendente',5=>'Solucionado',6=>'Fechado'];
-    $status_cor = [1=>'primary',2=>'info',3=>'warning',4=>'secondary',5=>'success',6=>'dark'];
-    $urg_map    = [1=>'Muito baixa',2=>'Baixa',3=>'Média',4=>'Alta',5=>'Muito alta'];
-    $urg_cor    = [1=>'success',2=>'info',3=>'warning',4=>'danger',5=>'purple'];
-
-    $result = array_values(array_filter(array_map(fn($t) => !isset($t['id']) ? null : [
-        'id'        => $t['id'],
-        'titulo'    => $t['name'] ?? 'Sem título',
-        'status'    => $status_map[$t['status'] ?? 1] ?? '?',
-        'status_n'  => (int)($t['status'] ?? 1),
-        'status_cor'=> $status_cor[$t['status'] ?? 1] ?? 'secondary',
-        'tipo'      => ($t['type'] ?? 1) == 1 ? 'Incidente' : 'Requisição',
-        'tipo_n'    => (int)($t['type'] ?? 1),
-        'urgencia'  => $urg_map[$t['urgency'] ?? 3] ?? 'Média',
-        'urg_cor'   => $urg_cor[$t['urgency'] ?? 3] ?? 'warning',
-        'entidade'  => apelido_entidade($t['entities_id'] ?? ''),
-        'entidade_id'=> (int)($t['entities_id'] ?? 0),
-        'data'      => substr($t['date'] ?? '', 0, 16),
-        'atualizado'=> substr($t['date_mod'] ?? '', 0, 16),
-        'requerente'=> $t['_users_id_requester']['name'] ?? $t['users_id'] ?? '',
-    ], $tickets)));
-
-    return ['tickets' => $result, 'total' => $total ?: count($result)];
+    return ['tickets' => $result, 'total' => $total];
 }
 
 // ── Carrega entidades para o filtro ──
