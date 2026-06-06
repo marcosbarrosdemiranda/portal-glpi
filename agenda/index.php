@@ -1019,38 +1019,43 @@ document.addEventListener('DOMContentLoaded', function() {
   })();
 
   // ── Almoço: células compactas (11h-13h) ──
-  // Reduz a altura dos slots no horário de almoço pela metade. Apenas
-  // emergências são esperadas nesse período, então as células ficam mais
-  // compactas para aproveitar melhor o espaço vertical da agenda.
-  // Abordagem: anula a altura fixa que o FullCalendar define na tabela
-  // (table-layout:fixed distribui altura uniformemente entre as linhas) e
-  // define altura explícita nos slots: normal = 1.5em, almoço = 0.75em.
-  (function() {
-    const style = document.createElement('style');
-    style.id = 'almoco-compact-slots';
-    style.textContent = `
-      /* Anula altura fixa que FC define via JS inline — linhas determinam altura */
-      .fc-timegrid-slots table {
-        height: auto !important;
-      }
-      /* Garante altura normal nos slots fora do almoço */
-      .fc-timegrid-slot {
-        height: 1.5em !important;
-      }
-      /* Almoço: metade da altura (0.75em = 1.5em / 2) */
-      .fc-timegrid-slot[data-time^="11:"],
-      .fc-timegrid-slot[data-time^="12:"] {
-        height: 0.75em !important;
-      }
-    `;
-    document.head.appendChild(style);
-  })();
+  aplicarCompactacaoAlmoco();
 
   carregarAtendentes();
   // verificarAtrasados → syncRotinas → refetchEvents + carregarTickets (sequencial)
   // evita race condition onde refetchEvents do verificar removeria rotinas recém-inseridas
   verificarAtrasados();
 });
+
+// ── Almoço: células compactas (11h-13h) ───────────────────────
+// Reduz altura dos slots 11h-13h pela metade via JS inline !important.
+// style.setProperty('height', '...', 'important') → inline important
+// que nada sobrescreve — resistente a re-renders do FullCalendar.
+function aplicarCompactacaoAlmoco() {
+  const SEL_TBODY = '.fc-timegrid-slots table tbody';
+  function comprimir() {
+    const tbody = document.querySelector(SEL_TBODY);
+    if (!tbody) return;
+    for (const el of tbody.querySelectorAll('.fc-timegrid-slot')) {
+      const t = el.getAttribute('data-time') || '';
+      if (t.startsWith('11:') || t.startsWith('12:')) {
+        el.style.setProperty('height', '0.75em', 'important');
+      } else if (t) {
+        el.style.setProperty('height', '1.5em', 'important');
+      }
+    }
+  }
+  setTimeout(comprimir, 50);
+  // Reaplica em re-renders (troca de view, navegação, redim)
+  const obs = new MutationObserver(comprimir);
+  const alvo = document.querySelector('.fc-timegrid-slots');
+  if (alvo) obs.observe(alvo, { childList: true, subtree: true });
+  document.addEventListener('click', function(e) {
+    if (e.target.closest('.fc-prev-button, .fc-next-button, .fc-today-button')) {
+      setTimeout(comprimir, 200);
+    }
+  });
+}
 
 // ──────────────────────────────────────────
 // Carregar eventos da agenda (PHP)
