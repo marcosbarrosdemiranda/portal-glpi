@@ -18,7 +18,8 @@ portal-glpi/
 ├── historico.php               # Listagem paginada de chamados (técnicos)
 ├── meus_chamados.php           # Chamados do usuário logado (self-service)
 ├── relatorios.php              # Painéis dark + aba Monitor SLA
-├── inventario.php              # Inventário de máquinas por entidade
+├── inventario.php              # Gateway de inventário (cards por categoria)
+├── inventario_pcs.php          # Inventário de Máquinas / PCs por entidade
 ├── inventario_detalhes.php     # Hardware + SO + programas instalados (cURL multi)
 ├── ping.php                    # Ping via TCP 445 + ICMP (online/offline)
 ├── notificacoes.php            # Polling de chamados novos
@@ -128,8 +129,9 @@ portal-glpi/
 - Google Calendar: integração via iCal
 - **Fix 02/06:** flag `_inEventReceive` + `_dropCache` para preservar tipo/atendente no resize
 
-### 3. Inventário (`inventario.php` + `inventario_detalhes.php`)
-- Grid de máquinas por entidade (4 colunas)
+### 3. Inventário (`inventario.php` → gateway + `inventario_pcs.php` + `inventario_detalhes.php`)
+- Gateway com cards por categoria: Máquinas/PCs (ativo), Impressoras, Servidores, Redes, Dispositivos Móveis, Monitores (Em breve)
+- `inventario_pcs.php`: Grid de máquinas por entidade (4 colunas)
 - IPs buscados via cadeia `NetworkPort → NetworkName → IPAddress` (3 chamadas bulk)
 - `ping.php`: verifica online/offline via TCP porta 445 + ICMP fallback
 - Modal de detalhes: SO, CPU, RAM, disco, MAC, programas instalados
