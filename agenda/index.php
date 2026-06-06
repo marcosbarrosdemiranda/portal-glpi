@@ -586,6 +586,17 @@ $user_id_sessao = (int)($_SESSION['user_id'] ?? 0);
             </label>
             <div id="ev-anexos" class="anexo-grid"></div>
           </div>
+          <!-- Anexos na criação/edição -->
+          <div class="col-12" id="campo-anexos-criar">
+            <label class="form-label fw-semibold">Anexar arquivos (imagens, docs, prints)</label>
+            <div class="drop-zone" id="dropZoneCriar" onclick="document.getElementById('ev-arquivos').click()">
+              <i class="bi bi-cloud-upload fs-3 text-muted"></i>
+              <p class="mb-0 text-muted small">Clique ou arraste arquivos aqui</p>
+              <p class="mb-0 text-muted" style="font-size:.75rem"><kbd>Ctrl+V</kbd> para colar imagem da área de transferência</p>
+              <input type="file" id="ev-arquivos" multiple accept="image/*,.pdf,.doc,.docx,.txt,.zip,.xls,.xlsx" class="d-none" onchange="listarArquivosCriar()"/>
+            </div>
+            <div id="lista-arquivos-criar" class="mt-2 d-flex flex-wrap gap-2"></div>
+          </div>
           <div class="col-12 col-concluido">
             <div class="form-check form-switch">
               <input class="form-check-input" type="checkbox" id="ev-concluido" onchange="atualizarPreviewCor(); mostrarSalvarSeConcluido(); toggleFecharGlpi()"/>
@@ -845,6 +856,22 @@ document.addEventListener('DOMContentLoaded', function() {
     if (colarImagemClipboard(e)) { e.preventDefault(); e.stopPropagation(); }
   });
 
+  // Drag & drop na drop zone de anexos da criação
+  const dzCriar = document.getElementById('dropZoneCriar');
+  dzCriar.addEventListener('dragover',  e => { e.preventDefault(); dzCriar.classList.add('dragover'); });
+  dzCriar.addEventListener('dragleave', () => dzCriar.classList.remove('dragover'));
+  dzCriar.addEventListener('drop', e => {
+    e.preventDefault(); dzCriar.classList.remove('dragover');
+    adicionarArquivosCriar(e.dataTransfer.files);
+  });
+
+  // Colar imagem da área de transferência (Ctrl+V no modal do evento)
+  document.getElementById('modalEvento').addEventListener('paste', e => {
+    if (e.target.closest('#dropZoneCriar') || e.target.closest('#lista-arquivos-criar') || e.target.closest('#ev-descricao')) {
+      colarImagemClipboardCriar(e);
+    }
+  });
+
   calendar = new FullCalendar.Calendar(document.getElementById('calendar'), {
     locale: 'pt-br',
     initialView: 'timeGridWeek',
@@ -859,7 +886,7 @@ document.addEventListener('DOMContentLoaded', function() {
     },
     height: '100%',
     nowIndicator: true,
-    slotMinTime: '05:00:00',
+    slotMinTime: '06:00:00',
     slotMaxTime: '23:00:00',
     slotDuration: '00:15:00',
     slotLabelInterval: '00:30:00',
@@ -1436,7 +1463,8 @@ function verificarAtrasados() {
     .then(r => r.json())
     .then(res => {
       if (res.removidos > 0) {
-        toast(`↩️ ${res.removidos} chamado(s) atrasado(s) retornaram para a fila.`);
+        const extra = res.periodos_antigos > 0 ? ` (${res.periodos_antigos} período(s) antigo(s) removido(s), ticket continua ativo)` : '';
+        toast(`↩️ ${res.removidos} chamado(s) com +24h de atraso retornaram para a fila${extra}.`);
       }
       // Após verificar atrasados, sincroniza rotinas e só depois carrega tudo
       // (evita race condition onde refetchEvents do verificar apaga rotinas recém-inseridas)
@@ -1514,6 +1542,19 @@ async function confirmarAtribuicao() {
   toast(`✅ Chamado atribuído a ${selecionados.length} atendente(s).`);
 }
 
+async function uploadAnexosCriar(ticketId) {
+  if (!arquivosAnexosCriar.length) return { ok: true, anexos: 0 };
+  const form = new FormData();
+  form.append('ticket_id', ticketId);
+  arquivosAnexosCriar.forEach(f => form.append('arquivos[]', f));
+  const res = await fetch('anexar_ticket.php', { method: 'POST', body: form });
+  const data = await res.json();
+  if (data.ok && data.anexos > 0) {
+    toast(`📎 ${data.anexos} anexo(s) enviado(s) ao chamado #${ticketId}.`);
+  }
+  return data;
+}
+
 function salvarEventoObjAsync(dados) {
   return fetch('eventos.php?action=save', {
     method: 'POST',
@@ -1569,11 +1610,16 @@ function abrirModalEvento(dataStr) {
   document.getElementById('ev-requerente').value = '';
   document.getElementById('ev-categoria').value  = '';
   document.getElementById('ev-origem').value     = '';
+  document.getElementById('ev-concluido').checked  = false;
+  document.getElementById('ev-fechar-glpi').checked = false;
+  document.getElementById('campo-fechar-glpi').style.display = 'none';
   renderAtendentesMulti([]); // limpa chips de atendente da sessão anterior
   document.getElementById('ev-followups').innerHTML = '';
   document.getElementById('campo-followups').style.display = 'none';
   document.getElementById('ev-anexos').innerHTML = '';
   document.getElementById('campo-anexos').style.display = 'none';
+  document.getElementById('lista-arquivos-criar').innerHTML = '';
+  arquivosAnexosCriar = [];
   document.getElementById('btnDeletar').style.display     = 'none';
   document.getElementById('btnResponder').style.display   = 'none';
   document.getElementById('btnNovoPeriodo').style.display = 'none';
@@ -1592,6 +1638,8 @@ function abrirModalEvento(dataStr) {
 
 function preencherModal(dados) {
   _dadosModal = dados;
+  document.getElementById('lista-arquivos-criar').innerHTML = '';
+  arquivosAnexosCriar = [];
   document.getElementById('ev-id').value        = dados.id || '';
   document.getElementById('ev-ticket-id').value = dados.ticket_id || '';
   document.getElementById('ev-titulo').value    = dados.titulo || '';
@@ -1808,6 +1856,7 @@ function getAtendentesMultiSelecionados() {
 // ──────────────────────────────────────────
 let modalResposta;
 let arquivosAnexos = [];
+let arquivosAnexosCriar = [];
 // Snapshot do evento capturado no momento de abrir o modal de resposta.
 // Evita race condition com verificarAtrasados() que pode remover o evento
 // do store do FullCalendar enquanto o usuário está preenchendo a resposta.
@@ -1831,6 +1880,26 @@ function colarImagemClipboard(e) {
   adicionarArquivos(imagens);
   // Flash visual na drop zone para feedback
   const dz = document.getElementById('dropZone');
+  dz.classList.add('dragover');
+  setTimeout(() => dz.classList.remove('dragover'), 600);
+  return true;
+}
+
+function colarImagemClipboardCriar(e) {
+  const items = (e.clipboardData || e.originalEvent?.clipboardData)?.items;
+  if (!items) return false;
+  const imagens = [];
+  for (const item of items) {
+    if (!item.type.startsWith('image/')) continue;
+    const blob = item.getAsFile();
+    if (!blob) continue;
+    const ext  = item.type.split('/')[1] || 'png';
+    const nome = `print_${Date.now()}.${ext}`;
+    imagens.push(new File([blob], nome, { type: item.type }));
+  }
+  if (!imagens.length) return false;
+  adicionarArquivosCriar(imagens);
+  const dz = document.getElementById('dropZoneCriar');
   dz.classList.add('dragover');
   setTimeout(() => dz.classList.remove('dragover'), 600);
   return true;
@@ -1946,6 +2015,70 @@ function fecharLightbox() {
 function removerArquivo(i) {
   arquivosAnexos.splice(i, 1);
   renderizarArquivos();
+}
+
+// ── Upload de arquivos na criação do chamado ──
+
+function listarArquivosCriar() {
+  adicionarArquivosCriar(document.getElementById('ev-arquivos').files);
+}
+
+function adicionarArquivosCriar(files) {
+  for (const f of files) {
+    if (arquivosAnexosCriar.find(a => a.name === f.name)) continue;
+    arquivosAnexosCriar.push(f);
+  }
+  renderizarArquivosCriar();
+}
+
+function renderizarArquivosCriar() {
+  const lista = document.getElementById('lista-arquivos-criar');
+  lista.innerHTML = '';
+  arquivosAnexosCriar.forEach((f, i) => {
+    const isImg = f.type.startsWith('image/');
+    const chip  = document.createElement('div');
+    const nome  = f.name.length > 18 ? f.name.slice(0,16) + '…' : f.name;
+
+    if (isImg) {
+      chip.className = 'arquivo-chip chip-img';
+      const thumb = document.createElement('img');
+      thumb.className = 'chip-thumb';
+      thumb.title = f.name;
+      const reader = new FileReader();
+      reader.onload = ev => {
+        thumb.src = ev.target.result;
+        thumb.onclick = () => abrirLightbox(ev.target.result);
+      };
+      reader.readAsDataURL(f);
+
+      const footer = document.createElement('div');
+      footer.className = 'chip-footer';
+      const span = document.createElement('span');
+      span.title = f.name;
+      span.style.cssText = 'flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap';
+      span.textContent = nome;
+      const rm = document.createElement('i');
+      rm.className = 'bi bi-x rm';
+      rm.onclick = () => removerArquivoCriar(i);
+      footer.appendChild(span);
+      footer.appendChild(rm);
+
+      chip.appendChild(thumb);
+      chip.appendChild(footer);
+    } else {
+      chip.className = 'arquivo-chip';
+      chip.innerHTML = `
+        <i class="bi bi-file-earmark text-secondary"></i>
+        <span title="${escHtml(f.name)}">${escHtml(nome)}</span>
+        <i class="bi bi-x rm" onclick="removerArquivoCriar(${i})"></i>`;
+    }
+    lista.appendChild(chip);
+  });
+}
+
+function removerArquivoCriar(i) {
+  arquivosAnexosCriar.splice(i, 1);
+  renderizarArquivosCriar();
 }
 
 async function enviarResposta() {
@@ -2097,6 +2230,8 @@ function novoPeriodo() {
     document.getElementById('ev-concluido').checked  = false;
     document.getElementById('ev-fechar-glpi').checked = false;
     document.getElementById('campo-fechar-glpi').style.display = 'none';
+    document.getElementById('lista-arquivos-criar').innerHTML = '';
+    arquivosAnexosCriar = [];
     ajustarCamposPorTipo();
     ajustarDuracaoPorTipo();
 
@@ -2118,6 +2253,8 @@ function abrirModalSemLimpar() {
   document.getElementById('btnResponder').style.display   = 'none';
   document.getElementById('btnNovoPeriodo').style.display = 'none';
   document.getElementById('modalTitulo').innerHTML = '<i class="bi bi-calendar-plus me-2"></i>Agendar Chamado';
+  document.getElementById('lista-arquivos-criar').innerHTML = '';
+  arquivosAnexosCriar = [];
   setModoLeitura(false);
   modalEvento.show();
 }
@@ -2223,10 +2360,12 @@ function setModoLeitura(ativo) {
     campos.classList.add('modo-leitura');
     banner.style.removeProperty('display'); // mostra banner
     btnSalvar.style.display = 'none';
+    document.getElementById('campo-anexos-criar').style.display = 'none';
   } else {
     campos.classList.remove('modo-leitura');
     banner.style.display = 'none';
     btnSalvar.style.display = '';
+    document.getElementById('campo-anexos-criar').style.display = '';
     const tipoAtual = document.getElementById('ev-tipo').value;
     document.getElementById('modalTitulo').innerHTML = tipoAtual === 'reuniao'
       ? '<i class="bi bi-pencil me-2"></i>Editar Reunião'
@@ -2385,8 +2524,8 @@ function salvarEvento() {
     requerente_id: requerenteId,
     origem_id:     origemId,
   };
-  // Para tipo 'evento': campo de atendente fica oculto → atribui automaticamente ao criador
-  if (tipo === 'evento' && !dadosBase.atendente) {
+  // Para tipo 'evento' ou 'reuniao': se nenhum atendente foi selecionado, atribui automaticamente ao criador
+  if ((tipo === 'evento' || tipo === 'reuniao') && !dadosBase.atendente) {
     const me = atendentes.find(a => a.id === USUARIO_LOGADO_ID) || atendentes.find(a => a.nome === USUARIO_LOGADO_NOME);
     if (me) {
       dadosBase.atendente     = me.nome;
@@ -2465,7 +2604,9 @@ function salvarEvento() {
       .then(res => {
         if (res.ok) {
           toast(`🎫 Chamado #${res.ticket_id} criado no GLPI!`);
-          finalizarMulti(res.ticket_id);
+          uploadAnexosCriar(res.ticket_id).then(() => {
+            finalizarMulti(res.ticket_id);
+          });
         } else {
           alert('Erro ao criar chamado no GLPI: ' + (res.msg || 'Falha desconhecida'));
           reativar();
@@ -2538,7 +2679,9 @@ function salvarEvento() {
       if (res.ok) {
         dados.ticket_id = res.ticket_id;
         toast(`🎫 Chamado #${res.ticket_id} criado no GLPI!`);
-        salvarEventoObj(dados, finalizarSalvar);
+        uploadAnexosCriar(res.ticket_id).then(() => {
+          salvarEventoObj(dados, finalizarSalvar);
+        });
       } else {
         alert('Erro ao criar chamado no GLPI: ' + (res.msg || 'Falha desconhecida'));
         reativarBtn();

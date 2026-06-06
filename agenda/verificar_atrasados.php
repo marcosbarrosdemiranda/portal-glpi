@@ -1,10 +1,21 @@
 <?php
 /**
- * Verifica eventos/chamados atrasados (não concluídos com data passada)
- * - Chamados com ticket_id: remove da agenda e reseta no GLPI (volta para sidebar)
- * - Outros (evento, reuniao, requisicao): apenas retorna a lista para aviso visual
+ * Verifica chamados na agenda com mais de 1 dia de atraso.
  *
- * Chamado automaticamente ao carregar a agenda
+ * Regra:
+ *   - Chamados concluídos → ignorados
+ *   - Chamados com end < (agora - 24h) E ainda não concluídos:
+ *       → remove o evento da agenda
+ *       → se NENHUM outro período do mesmo ticket estiver dentro do prazo,
+ *         reseta o ticket no GLPI (status=1, remove técnico, volta pro sidebar)
+ *   - Eventos/reuniões sem ticket → ignorados (não removem)
+ *
+ * Ex:
+ *   Hoje = Sábado
+ *     - Chamados de SEXTA   → ficam (< 24h)
+ *     - Chamados de QUINTA  → removidos (> 24h)
+ *   Se ticket de QUINTA tiver um novo período cadastrado em SEXTA:
+ *     → só remove o período de QUINTA, ticket continua ativo
  */
 header('Content-Type: application/json');
 ob_start();
@@ -12,53 +23,57 @@ error_reporting(0);
 require_once 'config.php';
 require_once 'db.php';
 
-$agora = date('Y-m-d H:i:s');
+$agora     = date('Y-m-d H:i:s');
+$limite_1d = date('Y-m-d H:i:s', strtotime('-24 hours'));
 
-// Regra:
-// - Se hoje é DOMINGO: remove todos os chamados não concluídos com end < agora
-//   (encerramento semanal — tudo que não foi concluído até domingo volta para sidebar)
-// - Outros dias: remove apenas chamados de semanas anteriores (end < último domingo 00:00)
-//   (limpeza de chamados muito antigos que ficaram esquecidos)
-
-$hoje      = new DateTime();
-$dia_semana = (int)$hoje->format('N'); // 1=Seg ... 7=Dom
-
-if ($dia_semana === 7) {
-    // É domingo → corte = agora (todos não concluídos até este momento)
-    $corte = $agora;
-} else {
-    // Outro dia → corte = último domingo às 00:00
-    $ultimo_domingo = clone $hoje;
-    $ultimo_domingo->modify('-' . $dia_semana . ' days'); // volta para o domingo anterior
-    $ultimo_domingo->setTime(0, 0, 0);
-    $corte = $ultimo_domingo->format('Y-m-d H:i:s');
-}
-
+// ── Busca eventos com +24h de atraso (não concluídos, com ticket) ──
 $stmt = $pdo->prepare("
     SELECT * FROM glpi_plugin_agenda_events
     WHERE concluido = 0 AND ticket_id IS NOT NULL AND end < ?
     ORDER BY end ASC
 ");
-$stmt->execute([$corte]);
-$chamados_semana_passada = $stmt->fetchAll();
+$stmt->execute([$limite_1d]);
+$atrasados = $stmt->fetchAll();
 
-// Eventos/reuniões/requisições atrasados: só para aviso visual (qualquer data passada)
-$stmt2 = $pdo->prepare("
-    SELECT id FROM glpi_plugin_agenda_events
-    WHERE concluido = 0 AND ticket_id IS NULL AND end < ?
-");
-$stmt2->execute([$agora]);
-$para_avisar = array_column($stmt2->fetchAll(), 'id');
+$para_avisar = []; // eventos sem ticket atrasados (só aviso, não remove)
+$para_remover = [];
 
-$removidos = $chamados_semana_passada;
+foreach ($atrasados as $ev) {
+    $tid = $ev['ticket_id'];
+    if (!$tid) {
+        $para_avisar[] = $ev['id'];
+        continue;
+    }
 
-// Remove chamados atrasados da agenda
-if (!empty($removidos)) {
-    $ids = array_map(fn($e) => $e['id'], $removidos);
-    $placeholders = implode(',', array_fill(0, count($ids), '?'));
-    $pdo->prepare("DELETE FROM glpi_plugin_agenda_events WHERE id IN ($placeholders)")->execute($ids);
+    // Verifica se o mesmo ticket tem OUTRO período ainda dentro do prazo (< 24h de atraso)
+    $check = $pdo->prepare("
+        SELECT COUNT(*) FROM glpi_plugin_agenda_events
+        WHERE ticket_id = ? AND id != ? AND end >= ? AND concluido = 0
+    ");
+    $check->execute([$tid, $ev['id'], $limite_1d]);
+    $tem_periodo_recente = (int)$check->fetchColumn() > 0;
 
-    // Reseta cada ticket no GLPI
+    $para_remover[] = [
+        'id'            => $ev['id'],
+        'ticket_id'     => (int)$tid,
+        'reset_ticket'  => !$tem_periodo_recente, // só reseta se não houver período recente
+    ];
+}
+
+$ids_remover          = array_column(array_filter($para_remover, fn($r) => $r['id']), 'id');
+$tickets_para_resetar = array_unique(array_column(
+    array_filter($para_remover, fn($r) => $r['reset_ticket']),
+    'ticket_id'
+));
+
+// ── Remove da agenda ──
+if (!empty($ids_remover)) {
+    $placeholders = implode(',', array_fill(0, count($ids_remover), '?'));
+    $pdo->prepare("DELETE FROM glpi_plugin_agenda_events WHERE id IN ($placeholders)")->execute($ids_remover);
+}
+
+// ── Reseta tickets no GLPI ──
+if (!empty($tickets_para_resetar)) {
     $auth = base64_encode(GLPI_USER . ':' . GLPI_PASS);
     $ch   = curl_init(GLPI_URL . '/apirest.php/initSession');
     curl_setopt_array($ch, [
@@ -79,39 +94,32 @@ if (!empty($removidos)) {
             'App-Token: ' . GLPI_APP_TOKEN,
         ];
 
-        // IDs de tickets únicos (pode haver múltiplos eventos do mesmo ticket)
-        $tickets_resetados = [];
-        foreach ($removidos as $ev) {
-            $tid = (int)$ev['ticket_id'];
-            if ($tid && !in_array($tid, $tickets_resetados)) {
-                // Status → Novo (1), remove técnicos
-                $ch = curl_init(GLPI_URL . '/apirest.php/Ticket/' . $tid);
-                curl_setopt_array($ch, [
-                    CURLOPT_RETURNTRANSFER => true,
-                    CURLOPT_CUSTOMREQUEST  => 'PUT',
-                    CURLOPT_POSTFIELDS     => json_encode(['input' => ['status' => 1]]),
-                    CURLOPT_HTTPHEADER     => $headers,
-                ]);
+        foreach ($tickets_para_resetar as $tid) {
+            // Status → Novo (1)
+            $ch = curl_init(GLPI_URL . '/apirest.php/Ticket/' . $tid);
+            curl_setopt_array($ch, [
+                CURLOPT_RETURNTRANSFER => true,
+                CURLOPT_CUSTOMREQUEST  => 'PUT',
+                CURLOPT_POSTFIELDS     => json_encode(['input' => ['status' => 1]]),
+                CURLOPT_HTTPHEADER     => $headers,
+            ]);
+            curl_exec($ch);
+            curl_close($ch);
+
+            // Remove técnicos (type=2)
+            $ch = curl_init(GLPI_URL . '/apirest.php/Ticket/' . $tid . '/Ticket_User');
+            curl_setopt_array($ch, [CURLOPT_RETURNTRANSFER => true, CURLOPT_HTTPHEADER => $headers]);
+            $users = json_decode(curl_exec($ch), true) ?? [];
+            curl_close($ch);
+            foreach ($users as $u) {
+                if (!isset($u['id']) || (int)($u['type'] ?? 0) !== 2) continue;
+                $ch = curl_init(GLPI_URL . '/apirest.php/Ticket_User/' . $u['id']);
+                curl_setopt_array($ch, [CURLOPT_RETURNTRANSFER => true, CURLOPT_CUSTOMREQUEST => 'DELETE', CURLOPT_HTTPHEADER => $headers]);
                 curl_exec($ch);
                 curl_close($ch);
-
-                // Remove técnicos (type=2)
-                $ch = curl_init(GLPI_URL . '/apirest.php/Ticket/' . $tid . '/Ticket_User');
-                curl_setopt_array($ch, [CURLOPT_RETURNTRANSFER => true, CURLOPT_HTTPHEADER => $headers]);
-                $users = json_decode(curl_exec($ch), true) ?? [];
-                curl_close($ch);
-                foreach ($users as $u) {
-                    if (!isset($u['id']) || (int)($u['type'] ?? 0) !== 2) continue;
-                    $ch = curl_init(GLPI_URL . '/apirest.php/Ticket_User/' . $u['id']);
-                    curl_setopt_array($ch, [CURLOPT_RETURNTRANSFER => true, CURLOPT_CUSTOMREQUEST => 'DELETE', CURLOPT_HTTPHEADER => $headers]);
-                    curl_exec($ch);
-                    curl_close($ch);
-                }
-                $tickets_resetados[] = $tid;
             }
         }
 
-        // Encerra sessão
         $ch = curl_init(GLPI_URL . '/apirest.php/killSession');
         curl_setopt_array($ch, [CURLOPT_RETURNTRANSFER => true, CURLOPT_HTTPHEADER => $headers]);
         curl_exec($ch);
@@ -121,8 +129,9 @@ if (!empty($removidos)) {
 
 ob_end_clean();
 echo json_encode([
-    'ok'           => true,
-    'removidos'    => count($removidos),
-    'tickets'      => array_unique(array_column($removidos, 'ticket_id')),
-    'para_avisar'  => $para_avisar, // IDs de eventos não-chamado atrasados (aviso visual)
+    'ok'              => true,
+    'removidos'       => count($ids_remover),
+    'periodos_antigos'=> count($ids_remover) - count($tickets_para_resetar), // períodos removidos mas ticket continua
+    'tickets'         => $tickets_para_resetar,
+    'para_avisar'     => $para_avisar,
 ]);
