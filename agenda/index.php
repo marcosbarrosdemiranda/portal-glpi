@@ -139,7 +139,7 @@ $user_id_sessao = (int)($_SESSION['user_id'] ?? 0);
     }
     .ticket-preview-overlay.show { display:block; }
     .ticket-preview {
-      position:fixed; top:50%; left:50%; transform:translate(-50%,-50%);
+      display:none; position:fixed; top:50%; left:50%; transform:translate(-50%,-50%);
       width:440px; max-width:92vw; max-height:80vh; overflow-y:auto;
       background:#fff; border-radius:14px; box-shadow:0 12px 50px rgba(0,0,0,.3);
       padding:1.5rem; z-index:5001;
@@ -1431,6 +1431,7 @@ function renderTickets(tickets) {
          data-titulo="${escHtml(t.titulo)}"
          data-urgencia="${t.urgencia}"
          data-setor="${escHtml(t.setor)}"
+         onclick="mostrarPreview(event, this)"
          data-descricao="${escHtml(t.descricao || '')}">
       <div class="tc-id">#${t.id} Â· ${t.data}</div>
       <div class="tc-title">${escHtml(t.titulo)}</div>
