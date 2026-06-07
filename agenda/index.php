@@ -1020,15 +1020,19 @@ document.addEventListener('DOMContentLoaded', function() {
 
     // Clique em evento existente → editar ou abrir menu ⋮
     eventClick(info) {
-      const target = info.jsEvent?.target;
-      // Se clicou no ⋮, abre o dropdown (FC suprime o evento click nativo)
-      if (target?.closest('.ev-menu-btn')) {
-        const btn = target.closest('.ev-menu-btn');
-        const ev = info.event;
-        const props = ev.extendedProps;
-        const c = _dropCache[ev.id] || {};
-        toggleMenuAcoes(btn, ev.id, props.ticket_id || c.ticket_id || '', props.concluido);
-        return;
+      // Detecta clique no ⋮ via coordenadas (elementFromPoint é mais
+      // confiável que info.jsEvent.target, que pode ser o pointerup)
+      const jsEv = info.jsEvent;
+      if (jsEv) {
+        const elAbaixo = document.elementFromPoint(jsEv.clientX, jsEv.clientY);
+        const btn = elAbaixo?.closest('.ev-menu-btn');
+        if (btn) {
+          const ev = info.event;
+          const props = ev.extendedProps;
+          const c = _dropCache[ev.id] || {};
+          toggleMenuAcoes(btn, ev.id, props.ticket_id || c.ticket_id || '', props.concluido);
+          return;
+        }
       }
       editarEvento(info.event);
     },
