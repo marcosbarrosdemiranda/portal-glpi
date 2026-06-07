@@ -1020,17 +1020,15 @@ document.addEventListener('DOMContentLoaded', function() {
 
     // Clique em evento existente → editar ou abrir menu ⋮
     eventClick(info) {
-      // Detecta clique no ⋮ via coordenadas (elementFromPoint é mais
-      // confiável que info.jsEvent.target, que pode ser o pointerup)
       const jsEv = info.jsEvent;
       if (jsEv) {
         const elAbaixo = document.elementFromPoint(jsEv.clientX, jsEv.clientY);
-        const btn = elAbaixo?.closest('.ev-menu-btn');
-        if (btn) {
+        if (elAbaixo?.closest('.ev-menu-btn')) {
           const ev = info.event;
           const props = ev.extendedProps;
           const c = _dropCache[ev.id] || {};
-          toggleMenuAcoes(btn, ev.id, props.ticket_id || c.ticket_id || '', props.concluido);
+          // Passa coordenadas do clique em vez de btn (FC pode remover o elemento)
+          abrirMenuAcoes(jsEv.clientX, jsEv.clientY, ev.id, props.ticket_id || c.ticket_id || '', props.concluido);
           return;
         }
       }
@@ -1450,11 +1448,11 @@ function filtrarPorTipo() {
 }
 
 // ── Menu ⋮ de ações no evento ────────────
-function toggleMenuAcoes(btn, evId, ticketId, concluido) {
-  // Fecha qualquer outro menu aberto (remove do DOM)
+function abrirMenuAcoes(clientX, clientY, evId, ticketId, concluido) {
+  // Fecha qualquer outro menu aberto
   document.querySelectorAll('.ev-dropdown-dinamico').forEach(el => el.remove());
 
-  // Cria o dropdown dinamicamente
+  // Cria o dropdown
   const dropdown = document.createElement('div');
   dropdown.className = 'ev-dropdown ev-dropdown-dinamico show';
   dropdown.innerHTML = `<div class="ev-dropdown-header">Chamado</div>
@@ -1477,19 +1475,18 @@ function toggleMenuAcoes(btn, evId, ticketId, concluido) {
     reabrirBtn.disabled = true;
   }
 
-  // Posiciona relativo ao botão
-  const rect = btn.getBoundingClientRect();
+  // Posiciona nas coordenadas do clique
   dropdown.style.position = 'fixed';
-  dropdown.style.left = Math.max(8, rect.right - 180) + 'px';
-  dropdown.style.top = (rect.bottom + 2) + 'px';
+  dropdown.style.left = Math.max(8, clientX - 170) + 'px';
+  dropdown.style.top = (clientY + 5) + 'px';
   dropdown.style.zIndex = '99999';
 
   document.body.appendChild(dropdown);
 
-  // Fecha ao clicar fora — usa pointerdown (FC suprime click, mas pointerdown passa)
+  // Fecha ao clicar fora
   setTimeout(() => {
     const fechar = (e) => {
-      if (!dropdown.contains(e.target) && e.target !== btn) {
+      if (!dropdown.contains(e.target)) {
         dropdown.remove();
         document.removeEventListener('pointerdown', fechar, true);
       }
