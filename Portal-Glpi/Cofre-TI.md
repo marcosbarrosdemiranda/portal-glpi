@@ -10,7 +10,8 @@ tags:
 > Cofre seguro para senhas, comandos, links, documentações críticas e contatos úteis da TI.
 
 **Status:** 🟡 Em andamento (~70%)  
-**Prazo:** 01/07/2026
+**Prazo:** 01/07/2026  
+**🏠 Módulo:** [[Bem-vindo|Portal GLPI]]
 
 ---
 
@@ -21,13 +22,14 @@ tags:
 | Código | `cofre.php` (monolítico — backend + frontend + crypto) |
 | Dashboard | `dashboard.php` → link para `cofre.php` |
 | Documentação | `Portal-Glpi/Cofre-TI.md` |
+| Projetos relacionados | [[Projetos-TI]] |
 
 ---
 
 ## ✅ Implementado
 
 - [x] **CRUD completo** com criptografia AES-256-CBC
-- [x] **5 categorias:** 🔑 Senha, 💻 Comando, 📋 Documentação, 🔗 Link, 📦 Outro
+- [x] **5 categorias:** 🔑 Senha, 💻 Comando, 📋 Documentação, 🔗 Link, 📦 Outro *(+ 📞 Contatos Úteis em breve)*
 - [x] **Conteúdo mascarado** (`● ● ● ● ●`) na listagem — olho para revelar
 - [x] **Cópia sem revelar** — botão copia descriptografado sem exibir na tela
 - [x] **Busca** server-side por título, tags e notas (`LIKE`)

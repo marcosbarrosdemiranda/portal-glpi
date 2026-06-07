@@ -10,7 +10,8 @@ tags:
 > Gestão de projetos da TI com progresso em tempo real via markdown (Obsidian).
 
 **Status:** 🟢 Ativo — ~80%  
-**Fonte de dados:** `Docs/wiki/projects/*.md` (arquivos markdown)
+**Fonte de dados:** `Docs/wiki/projects/*.md` (arquivos markdown)  
+**🏠 Módulo:** [[Bem-vindo|Portal GLPI]]
 
 ---
 
@@ -24,6 +25,7 @@ tags:
 | Equipe | `equipe_detalhe.php` (desempenho em projetos por técnico) |
 | Relatórios | `relatorios_projetos.php` (JSON endpoint) |
 | Documentação | `Portal-Glpi/Projetos-TI.md` |
+| Senhas e credenciais | [[Cofre-TI]] |
 
 ---
 
