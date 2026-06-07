@@ -1018,8 +1018,9 @@ document.addEventListener('DOMContentLoaded', function() {
       abrirModalEvento(info.dateStr);
     },
 
-    // Clique em evento existente → editar
+    // Clique em evento existente → editar, exceto se for no ⋮
     eventClick(info) {
+      if (info.jsEvent?.target?.closest('.ev-menu-btn')) return;
       editarEvento(info.event);
     },
 
@@ -1137,26 +1138,18 @@ document.addEventListener('DOMContentLoaded', function() {
       return classes;
     },
 
-    // Menu ⋮ — intercepta ANTES do FullCalendar detectar o clique
-    // FC usa pointerdown (e mousedown fallback) no container — precisamos
-    // stopPropagation no target para impedir bolha até o container do FC.
-    // Guarda 'handled' porque pointerdown sempre dispara antes de mousedown.
+    // Menu ⋮ — abre o dropdown no click, eventClick ignora via guarda
     eventDidMount(info) {
       const btn = info.el.querySelector('.ev-menu-btn');
       if (!btn) return;
-      let handled = false;
-      const abrirMenu = function(e) {
-        e.stopPropagation();
-        if (handled) return;
-        handled = true;
+      btn.addEventListener('click', function(e) {
+        // toggleMenuAcoes já fecha outros menus e cria o dropdown
         const ev = info.event;
         const props = ev.extendedProps;
         const c = _dropCache[ev.id] || {};
         const ticketId = props.ticket_id || c.ticket_id || '';
         toggleMenuAcoes(btn, ev.id, ticketId, props.concluido);
-      };
-      btn.addEventListener('pointerdown', abrirMenu);
-      btn.addEventListener('mousedown', abrirMenu);
+      });
     },
 
     // Renderiza ícone + título + menu ⋮ no evento
