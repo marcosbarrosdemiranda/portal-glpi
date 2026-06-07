@@ -181,6 +181,7 @@
 
 ### Gestão de Rede
 - [x] Link para pfSense configurável
+- [x] **Central pfSense** — lista de todas as lojas com IP e credenciais criptografadas (AES-256)
 - [x] Link para VMware configurável
 - [x] Link para Mikrotik configurável
 - [x] Link para UniFi configurável

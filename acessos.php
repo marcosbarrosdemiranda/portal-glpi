@@ -43,6 +43,9 @@ if ($pdo->query("SELECT COUNT(*) FROM portal_acessos")->fetchColumn() == 0) {
     foreach ($defaults as $d) $ins->execute($d);
 }
 
+// ── Garante que o pfSense aponte para a central de lojas ────
+$pdo->exec("UPDATE portal_acessos SET url='pfsense_lojas.php' WHERE nome='pfSense' AND grupo='infra' AND (url IS NULL OR url='')");
+
 // ── API AJAX ───────────────────────────────────────────────────
 $action = $_GET['action'] ?? '';
 if ($action) {
@@ -427,6 +430,11 @@ document.addEventListener('DOMContentLoaded', () => {
 
 function abrirUrl(url) {
   if (!url) return;
+  // Páginas locais (sem http) abrem na mesma aba; externas em nova aba
+  if (!url.startsWith('http://') && !url.startsWith('https://')) {
+    location.href = url;
+    return;
+  }
   window.open(url, '_blank', 'noopener');
 }
 
