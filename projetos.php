@@ -213,6 +213,92 @@ if ($modoDetalhe && $projeto['prazo']) {
 function barPct(int $ts, int $inicio, int $total): float {
     return $total > 0 ? round(($ts-$inicio)/86400/$total*100,2) : 0;
 }
+
+// ── Export sections (usado pelo modal) ──────────────────────────
+$exportModulos = [];
+if ($modoDetalhe) {
+    foreach ($projeto['modulos'] as $mi => $mod) {
+        if ($mod['tot'] > 0) {
+            $exportModulos[] = ['idx' => $mi, 'nome' => $mod['nome'], 'pct' => $mod['pct'], 'done' => $mod['done'], 'tot' => $mod['tot']];
+        }
+    }
+}
+
+// ── Action: download .md com seções selecionadas ────────────────
+if ($modoDetalhe && ($_GET['action'] ?? '') === 'download' && isset($_GET['sections'])) {
+    $filepath = __DIR__ . '/Docs/wiki/projects/' . basename($selArq);
+    $raw = @file_get_contents($filepath);
+    if (!$raw) { http_response_code(404); echo 'Arquivo não encontrado.'; exit; }
+
+    $selected = array_filter(explode(',', $_GET['sections']), 'trim');
+    $lines = explode("\n", str_replace("\r", '', $raw));
+
+    // Separa seções do markdown por heading ##
+    $secMarkdown = [];
+    $curKey = 'header';
+    $curLines = [];
+
+    foreach ($lines as $line) {
+        if (preg_match('/^## (.+)$/u', $line, $m)) {
+            if ($curLines) $secMarkdown[$curKey] = implode("\n", $curLines);
+            $curLines = [$line];
+            $heading = trim($m[1]);
+            if (preg_match('/cronograma/iu', $heading)) {
+                $curKey = 'gantt';
+            } elseif (preg_match('/progresso/iu', $heading)) {
+                $curKey = '_skip';
+            } else {
+                // Encontra o índice do módulo pelo nome
+                $foundIdx = null;
+                foreach ($projeto['modulos'] as $mi => $mod) {
+                    if ($mod['nome'] === $heading) { $foundIdx = $mi; break; }
+                }
+                $curKey = $foundIdx !== null ? 'modulo_' . $foundIdx : '_skip';
+            }
+        } else {
+            $curLines[] = $line;
+        }
+    }
+    if ($curLines) $secMarkdown[$curKey] = implode("\n", $curLines);
+
+    // Monta output só com seções selecionadas
+    $output = '';
+    $hasTitle = false;
+    foreach ($selected as $sel) {
+        if ($sel === 'header' && isset($secMarkdown['header'])) {
+            $output .= trim($secMarkdown['header']) . "\n\n";
+            $hasTitle = true;
+        } elseif (str_starts_with($sel, 'modulo_') && isset($secMarkdown[$sel])) {
+            // Garante título se ainda não foi incluído
+            if (!$hasTitle) {
+                if (preg_match('/^# .+$/m', $secMarkdown['header'] ?? '', $t)) {
+                    $output .= $t[0] . "\n\n";
+                }
+                $hasTitle = true;
+            }
+            $output .= trim($secMarkdown[$sel]) . "\n\n";
+        } elseif ($sel === 'gantt' && isset($secMarkdown['gantt'])) {
+            if (!$hasTitle) {
+                if (preg_match('/^# .+$/m', $secMarkdown['header'] ?? '', $t)) {
+                    $output .= $t[0] . "\n\n";
+                }
+                $hasTitle = true;
+            }
+            $output .= trim($secMarkdown['gantt']) . "\n\n";
+        }
+    }
+
+    if (!trim($output)) {
+        $output = "# " . ($projeto['titulo'] ?? 'Projeto') . "\n\n*(nenhuma seção selecionada)*\n";
+    }
+
+    $filename = basename($selArq, '.md') . '_exportado.md';
+    header('Content-Type: text/markdown; charset=utf-8');
+    header('Content-Disposition: attachment; filename="' . $filename . '"');
+    echo $output;
+    exit;
+}
+
 ?>
 <!DOCTYPE html>
 <html lang="pt-BR">
@@ -320,6 +406,22 @@ body  { background:#f0f4f9; font-family:'Segoe UI',sans-serif; font-size:.9rem; 
 .status-atencao   { background:#fef9c3; color:#854d0e; }
 .status-atrasado  { background:#fee2e2; color:#991b1b; }
 .mod-prazo { font-size:.67rem; margin:.2rem 0 .28rem; }
+
+/* ── Print ─────────────────────────────────────────────── */
+@media print {
+  .topbar, .hero, .stat-pill.border-0, .badge-obsidian { display:none !important; }
+  .card-box [onclick*="toggleMod"] { display:none !important; }
+  .mod-body-content { display:block !important; }
+  body  { background:#fff !important; font-size:10pt !important; }
+  .wrap { max-width:100% !important; margin:0 !important; padding:0 !important; }
+  .card-box { break-inside:avoid; border:1px solid #ddd !important;
+              box-shadow:none !important; border-radius:6px !important;
+              padding:.8rem !important; margin-bottom:.5rem !important; }
+  .gantt-wrap { overflow:visible !important; }
+  svg { max-width:100% !important; }
+  .status-badge, .prog-fill, .prog-bar, .gantt-bar, .gantt-today
+    { -webkit-print-color-adjust:exact; print-color-adjust:exact; }
+}
 </style>
 </head>
 <body>
@@ -444,7 +546,7 @@ body  { background:#f0f4f9; font-family:'Segoe UI',sans-serif; font-size:.9rem; 
   <!-- ═══════════════ DETALHE DO PROJETO ═══════════════ -->
 
   <!-- Header -->
-  <div class="card-box">
+  <div class="card-box" data-export-section="header">
     <div class="d-flex align-items-start justify-content-between flex-wrap gap-2 mb-3">
       <div>
         <h2 style="font-size:1.1rem;font-weight:700;margin:0"><?= esc($projeto['titulo']) ?></h2>
@@ -474,6 +576,12 @@ body  { background:#f0f4f9; font-family:'Segoe UI',sans-serif; font-size:.9rem; 
             <i class="bi bi-<?= $sIcons[$statusProj] ?>"></i><?= $sLabels[$statusProj] ?>
           </span>
         <?php endif; ?>
+        <button class="stat-pill border-0" onclick="abrirExportModal()"
+                style="cursor:pointer;background:#fff;transition:.15s"
+                onmouseover="this.style.background='#f0fdf4'" onmouseout="this.style.background='#fff'"
+                title="Exportar projeto">
+          <i class="bi bi-file-earmark-arrow-down text-success"></i> Exportar
+        </button>
       </div>
     </div>
     <div class="d-flex align-items-center gap-3 mb-1">
@@ -511,11 +619,10 @@ body  { background:#f0f4f9; font-family:'Segoe UI',sans-serif; font-size:.9rem; 
         };
         $modsPrazo = array_filter($projeto['modulos'], fn($m) => !empty($m['prazo']));
   ?>
-  <div class="card-box">
+  <div class="card-box" data-export-section="header">
     <h6 style="font-weight:700;margin-bottom:.75rem">
       <i class="bi bi-graph-up-arrow me-2 text-primary"></i>Cronograma de Previsão de Término
     </h6>
-    <svg viewBox="0 0 <?=$svgW?> <?=$svgH?>" style="width:100%;height:auto;display:block">
       <!-- Y grid -->
       <?php foreach ([0,25,50,75,100] as $g):
             $gy = $py($g); ?>
@@ -605,7 +712,7 @@ body  { background:#f0f4f9; font-family:'Segoe UI',sans-serif; font-size:.9rem; 
 
   <!-- Gantt -->
   <?php if ($ganttBars): ?>
-  <div class="card-box">
+  <div class="card-box" data-export-section="gantt">
     <h6 style="font-weight:700;margin-bottom:.75rem">
       <i class="bi bi-bar-chart-steps me-2 text-primary"></i>Cronograma — Linha do Tempo
     </h6>
@@ -657,7 +764,7 @@ body  { background:#f0f4f9; font-family:'Segoe UI',sans-serif; font-size:.9rem; 
   <div class="row g-2">
   <?php foreach ($projeto['modulos'] as $idx => $mod):
       if ($mod['tot'] === 0) continue; ?>
-    <div class="col-md-6">
+    <div class="col-md-6" data-export-section="modulo_<?= $idx ?>">
       <div class="card-box" style="padding:1rem">
         <div class="mod-header" onclick="toggleMod(<?= $idx ?>)">
           <i class="bi bi-chevron-right" id="chv-<?= $idx ?>" style="font-size:.75rem;color:#9ca3af;transition:transform .2s"></i>
@@ -675,7 +782,7 @@ body  { background:#f0f4f9; font-family:'Segoe UI',sans-serif; font-size:.9rem; 
             if ($mAtrasado) echo '<strong>Em atraso</strong> · '; ?>Prazo: <?= esc($mod['prazo']) ?>
           </div>
         <?php endif; ?>
-        <div id="mod-body-<?= $idx ?>" style="display:none">
+        <div id="mod-body-<?= $idx ?>" class="mod-body-content" style="display:none">
           <?php $subAtual = null;
           foreach ($mod['tarefas'] as $t):
               if ($t['sub'] !== $subAtual):
@@ -704,6 +811,57 @@ body  { background:#f0f4f9; font-family:'Segoe UI',sans-serif; font-size:.9rem; 
 <?php endif; ?>
 </div>
 
+<?php if ($modoDetalhe): ?>
+<!-- ── Modal Exportar ── -->
+<div class="modal fade" id="exportModal" tabindex="-1">
+  <div class="modal-dialog modal-dialog-centered modal-sm">
+    <div class="modal-content" style="border-radius:14px;border:none;box-shadow:0 8px 32px rgba(0,0,0,.15)">
+      <div class="modal-header" style="border-bottom:1px solid #f3f4f6">
+        <h6 class="modal-title fw-bold"><i class="bi bi-file-earmark-arrow-down me-2 text-success"></i>Exportar Projeto</h6>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <p class="small text-muted mb-3">Selecione as seções para exportar:</p>
+
+        <div class="mb-2">
+          <label class="d-flex align-items-center gap-2 py-1">
+            <input type="checkbox" class="form-check-input form-check-input-sm" checked data-section="header">
+            <span style="font-size:.82rem"><strong>Cabeçalho</strong> <span class="text-muted">(objetivo, equipe, prazos)</span></span>
+          </label>
+        </div>
+
+        <?php if ($ganttBars): ?>
+        <div class="mb-2">
+          <label class="d-flex align-items-center gap-2 py-1">
+            <input type="checkbox" class="form-check-input form-check-input-sm" checked data-section="gantt">
+            <span style="font-size:.82rem"><strong>Cronograma / Gantt</strong></span>
+          </label>
+        </div>
+        <?php endif; ?>
+
+        <div class="mt-3 mb-1" style="font-size:.82rem;font-weight:700;color:#374151"><i class="bi bi-diagram-2 me-1"></i>Módulos</div>
+        <?php foreach ($exportModulos as $em): ?>
+        <div class="mb-1">
+          <label class="d-flex align-items-center gap-2 py-1">
+            <input type="checkbox" class="form-check-input form-check-input-sm" checked data-section="modulo_<?= $em['idx'] ?>">
+            <span style="font-size:.82rem"><?= esc($em['nome']) ?> <span class="text-muted">(<?= $em['done'] ?>/<?= $em['tot'] ?>)</span></span>
+          </label>
+        </div>
+        <?php endforeach; ?>
+      </div>
+      <div class="modal-footer d-flex gap-2" style="border-top:1px solid #f3f4f6">
+        <button class="btn btn-outline-secondary btn-sm" onclick="exportarMD()" style="border-radius:8px">
+          <i class="bi bi-download me-1"></i> Download .md
+        </button>
+        <button class="btn btn-success btn-sm" onclick="exportarPrint()" style="border-radius:8px">
+          <i class="bi bi-printer me-1"></i> Imprimir / PDF
+        </button>
+      </div>
+    </div>
+  </div>
+</div>
+<?php endif; ?>
+
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
 <script>
 function toggleMod(idx) {
@@ -713,6 +871,69 @@ function toggleMod(idx) {
   b.style.display     = open ? 'none' : '';
   c.style.transform   = open ? '' : 'rotate(90deg)';
 }
+
+<?php if ($modoDetalhe): ?>
+// ── Export ───────────────────────────────────────────────────────────
+const exportProj = '<?= urlencode($selArq) ?>';
+
+function abrirExportModal() {
+  const el = document.getElementById('exportModal');
+  const modal = bootstrap.Modal.getInstance(el) || new bootstrap.Modal(el);
+  modal.show();
+}
+
+function getSelectedSections() {
+  const checks = document.querySelectorAll('#exportModal input[data-section]:checked');
+  return Array.from(checks).map(c => c.dataset.section).filter(Boolean);
+}
+
+function exportarMD() {
+  const sec = getSelectedSections();
+  if (!sec.length) { alert('Selecione ao menos uma seção.'); return; }
+  const url = 'projetos.php?proj=' + exportProj + '&action=download&sections=' + encodeURIComponent(sec.join(','));
+  window.location.href = url;
+  const modal = bootstrap.Modal.getInstance(document.getElementById('exportModal'));
+  if (modal) modal.hide();
+}
+
+function exportarPrint() {
+  const sec = getSelectedSections();
+  if (!sec.length) { alert('Selecione ao menos uma seção.'); return; }
+
+  // Fecha modal
+  const modal = bootstrap.Modal.getInstance(document.getElementById('exportModal'));
+  if (modal) modal.hide();
+
+  // Oculta seções não selecionadas
+  const todos = document.querySelectorAll('[data-export-section]');
+  todos.forEach(el => {
+    el.dataset.exportOrigDisplay = el.style.display || '';
+    const nome = el.dataset.exportSection;
+    el.style.display = sec.includes(nome) ? '' : 'none';
+  });
+
+  // Restaura após impressão (ou timeout de segurança)
+  function restaurar() {
+    document.querySelectorAll('[data-export-section]').forEach(el => {
+      el.style.display = el.dataset.exportOrigDisplay || '';
+      delete el.dataset.exportOrigDisplay;
+    });
+    window.onafterprint = null;
+  }
+
+  window.onafterprint = restaurar;
+
+  <?php if ($ganttBars): ?>
+  // Expande Gantt se estiver visível
+  <?php endif; ?>
+
+  setTimeout(() => {
+    window.print();
+    // Fallback: se afterprint não disparar em 30s, restaura mesmo assim
+    setTimeout(() => { if (window.onafterprint) restaurar(); }, 30000);
+  }, 400);
+}
+<?php endif; ?>
 </script>
 </body>
 </html>

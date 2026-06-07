@@ -20,7 +20,7 @@
 | 📚 Área do Conhecimento | 🔴 Pendente | ~20% |
 | 🔧 Infraestrutura | 🟡 Em andamento | ~60% |
 | 🏭 Ferramentas ERP | 🟡 Em andamento | ~50% |
-| 📁 Projetos | 🟡 Em andamento | ~75% |
+| 📁 Projetos | 🟡 Em andamento | ~80% |
 | 👥 Equipe | 🟡 Em andamento | ~50% |
 | 💰 Orçamento | 🟡 Em andamento | ~40% |
 | 📄 Contratos | 🟡 Em andamento | ~50% |
@@ -213,12 +213,13 @@
 - [x] Módulos colapsáveis com lista de tarefas (✅ concluída / ⭕ pendente)
 - [x] Badge Obsidian com link para o arquivo fonte e horário de leitura
 - [x] Suporte a múltiplos projetos (nav por abas)
+- [x] **Exportação**: Download .md seletivo (seções) + Imprimir/PDF com `window.print()`
 
 ### Pendente
 - [ ] Responsável e co-responsáveis por projeto (campo no markdown)
 - [ ] Vinculação de chamados GLPI a projetos
 - [ ] Filtro por módulo / status na view do portal
-- [ ] Exportação do projeto como PDF
+- [ ] Exportação do projeto como PDF (server-side)
 
 ---
 
