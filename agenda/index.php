@@ -1018,9 +1018,18 @@ document.addEventListener('DOMContentLoaded', function() {
       abrirModalEvento(info.dateStr);
     },
 
-    // Clique em evento existente → editar, exceto se for no ⋮
+    // Clique em evento existente → editar ou abrir menu ⋮
     eventClick(info) {
-      if (info.jsEvent?.target?.closest('.ev-menu-btn')) return;
+      const target = info.jsEvent?.target;
+      // Se clicou no ⋮, abre o dropdown (FC suprime o evento click nativo)
+      if (target?.closest('.ev-menu-btn')) {
+        const btn = target.closest('.ev-menu-btn');
+        const ev = info.event;
+        const props = ev.extendedProps;
+        const c = _dropCache[ev.id] || {};
+        toggleMenuAcoes(btn, ev.id, props.ticket_id || c.ticket_id || '', props.concluido);
+        return;
+      }
       editarEvento(info.event);
     },
 
@@ -1136,20 +1145,6 @@ document.addEventListener('DOMContentLoaded', function() {
       const dur = arg.event.end ? (arg.event.end - arg.event.start) : 0;
       if (dur > 0 && dur <= 20 * 60 * 1000) classes.push('ev-short');
       return classes;
-    },
-
-    // Menu ⋮ — abre o dropdown no click, eventClick ignora via guarda
-    eventDidMount(info) {
-      const btn = info.el.querySelector('.ev-menu-btn');
-      if (!btn) return;
-      btn.addEventListener('click', function(e) {
-        // toggleMenuAcoes já fecha outros menus e cria o dropdown
-        const ev = info.event;
-        const props = ev.extendedProps;
-        const c = _dropCache[ev.id] || {};
-        const ticketId = props.ticket_id || c.ticket_id || '';
-        toggleMenuAcoes(btn, ev.id, ticketId, props.concluido);
-      });
     },
 
     // Renderiza ícone + título + menu ⋮ no evento
@@ -1487,15 +1482,15 @@ function toggleMenuAcoes(btn, evId, ticketId, concluido) {
 
   document.body.appendChild(dropdown);
 
-  // Fecha ao clicar fora (com delay para não fechar imediatamente pelo clique que abriu)
+  // Fecha ao clicar fora — usa pointerdown (FC suprime click, mas pointerdown passa)
   setTimeout(() => {
     const fechar = (e) => {
       if (!dropdown.contains(e.target) && e.target !== btn) {
         dropdown.remove();
-        document.removeEventListener('click', fechar, true);
+        document.removeEventListener('pointerdown', fechar, true);
       }
     };
-    document.addEventListener('click', fechar, true);
+    document.addEventListener('pointerdown', fechar, true);
   }, 50);
 }
 
