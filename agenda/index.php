@@ -108,7 +108,7 @@ $user_id_sessao = (int)($_SESSION['user_id'] ?? 0);
     .ev-dropdown {
       display: none; position: absolute; top: 18px; right: 0; z-index: 5002;
       background: #fff; border: 1px solid #ddd; border-radius: 8px;
-      box-shadow: 0 4px 16px rgba(0,0,0,.18); min-width: 160px;
+      box-shadow: 0 4px 16px rgba(0,0,0,.18); min-width: 160px; max-width: 220px;
       font-size: .8rem; overflow: hidden;
     }
     .ev-dropdown.show { display: block; }
