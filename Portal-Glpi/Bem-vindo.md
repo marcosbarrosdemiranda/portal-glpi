@@ -41,6 +41,7 @@ Bem-vindo ao vault de documentação do Portal GLPI.
 - [[Logs/2026-06-06-sessao-historico-filtros-export-selfservice|06/06 — Histórico filtros export]]
 - [[Logs/2026-06-06-sessao-fix-encoding-emoji|06/06 — Fix encoding emoji]]
 - [[Logs/2026-06-06-sessao-filtro-tipo-menu-acoes|06/06 — Filtro tipo + menu ações]]
+- [[Logs/2026-06-06-sessao-docs-unificadas|06/06 — Unificação docs no Obsidian vault]]
 
 ---
 
