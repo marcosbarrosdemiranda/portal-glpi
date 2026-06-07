@@ -24,108 +24,148 @@ function vault_decrypt(string $data): string {
 
 $is_admin = in_array($_SESSION['perfil'] ?? '', ['admin','super-admin','tecnico']);
 
-// ── Tabela ─────────────────────────────────────────────────────
-$pdo->exec("
-    CREATE TABLE IF NOT EXISTS portal_pfsense_lojas (
-        id          INT AUTO_INCREMENT PRIMARY KEY,
-        loja        VARCHAR(100) NOT NULL,
-        ip          VARCHAR(45)  NOT NULL,
-        usuario     VARCHAR(100) NOT NULL,
-        senha_enc   TEXT         NOT NULL,
-        ativo       TINYINT(1)   DEFAULT 1,
-        ordem       INT          DEFAULT 0,
-        created_at  TIMESTAMP    DEFAULT CURRENT_TIMESTAMP
-    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
-");
+$loja_id = (int)($_GET['loja'] ?? 0);
+$path    = $_GET['path'] ?? '/';
 
-// Popula Loja 001 se a tabela estiver vazia
-if ($pdo->query("SELECT COUNT(*) FROM portal_pfsense_lojas")->fetchColumn() == 0) {
-    $st = $pdo->prepare("INSERT INTO portal_pfsense_lojas (loja,ip,usuario,senha_enc,ordem) VALUES (?,?,?,?,?)");
-    $st->execute(['Loja 001', '192.168.1.1', 'admin', vault_encrypt('gm560max2005'), 1]);
+// ── Busca dados da loja ─────────────────────────────────────────
+$loja = null;
+if ($loja_id) {
+    $st = $pdo->prepare("SELECT * FROM portal_pfsense_lojas WHERE id=? AND ativo=1");
+    $st->execute([$loja_id]);
+    $loja = $st->fetch(PDO::FETCH_ASSOC);
+    if (!$loja) { http_response_code(404); echo 'Loja não encontrada'; exit; }
 }
 
-// ── Pega a primeira loja (pra exibir como destino do card pfSense) ──
-$primeira_loja = $pdo->query("SELECT id, loja, ip, usuario FROM portal_pfsense_lojas WHERE ativo=1 ORDER BY ordem, loja LIMIT 1")->fetch(PDO::FETCH_ASSOC);
+// ── Login via cURL (primeira vez da sessão) ─────────────────────
+if ($loja && !isset($_SESSION['pfsense_logged_' . $loja_id])) {
+    $ip    = $loja['ip'];
+    $user  = $loja['usuario'];
+    $pass  = vault_decrypt($loja['senha_enc']);
+    $ckfile = sys_get_temp_dir() . '/pfsense_' . session_id() . '_' . $loja_id . '.ck';
 
-// ── AJAX ────────────────────────────────────────────────────────
-$action = $_GET['action'] ?? '';
-if ($action) {
-    header('Content-Type: application/json');
+    $ch = curl_init();
+    curl_setopt_array($ch, [
+        CURLOPT_URL => "https://$ip/index.php",
+        CURLOPT_POST => true,
+        CURLOPT_POSTFIELDS => http_build_query([
+            '__csrf_magic' => '',
+            'usernamefld'  => $user,
+            'passwordfld'  => $pass,
+            'login'        => 'Login',
+        ]),
+        CURLOPT_SSL_VERIFYPEER => false,
+        CURLOPT_SSL_VERIFYHOST => false,
+        CURLOPT_COOKIEJAR => $ckfile,
+        CURLOPT_RETURNTRANSFER => true,
+        CURLOPT_FOLLOWLOCATION => true,
+        CURLOPT_TIMEOUT => 15,
+    ]);
+    curl_exec($ch);
+    $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+    curl_close($ch);
 
-    // Listar todas
-    if ($action === 'list') {
-        $rows = $pdo->query("SELECT id, loja, ip, usuario, ordem FROM portal_pfsense_lojas WHERE ativo=1 ORDER BY ordem, loja")->fetchAll(PDO::FETCH_ASSOC);
-        echo json_encode(['ok' => true, 'dados' => $rows]);
+    if ($httpCode >= 400 && $httpCode !== 302 && $httpCode !== 200) {
+        http_response_code(502);
+        echo "Erro ao conectar no pfSense ($ip) — código $httpCode";
         exit;
     }
 
-    // Revelar senha
-    if ($action === 'reveal' && isset($_GET['id'])) {
-        $id  = (int)$_GET['id'];
-        $st  = $pdo->prepare("SELECT loja, ip, usuario, senha_enc FROM portal_pfsense_lojas WHERE id=?");
-        $st->execute([$id]);
-        $row = $st->fetch(PDO::FETCH_ASSOC);
-        if (!$row) { echo json_encode(['ok' => false, 'msg' => 'Loja não encontrada']); exit; }
-        echo json_encode([
-            'ok'       => true,
-            'loja'     => $row['loja'],
-            'ip'       => $row['ip'],
-            'usuario'  => $row['usuario'],
-            'senha'    => vault_decrypt($row['senha_enc']),
-        ]);
+    $_SESSION['pfsense_logged_' . $loja_id] = true;
+    $_SESSION['pfsense_ck_' . $loja_id] = $ckfile;
+    $_SESSION['pfsense_ip_' . $loja_id] = $ip;
+}
+
+// ── Proxy de página ──────────────────────────────────────────────
+if ($loja && isset($_GET['path'])) {
+    $ip    = $loja['ip'];
+    $ckfile = $_SESSION['pfsense_ck_' . $loja_id] ?? null;
+
+    if (!$ckfile || !file_exists($ckfile)) {
+        // Sessão expirou — limpa pra tentar de novo
+        unset($_SESSION['pfsense_logged_' . $loja_id]);
+        header('Location: pfsense_proxy.php?loja=' . $loja_id . '&path=' . urlencode($path));
         exit;
     }
 
-    if (!$is_admin) { echo json_encode(['ok' => false, 'msg' => 'Sem permissão']); exit; }
+    // Se for POST, repassa os dados
+    $isPost = $_SERVER['REQUEST_METHOD'] === 'POST';
+    $postData = $isPost ? $_POST : null;
 
-    // Adicionar
-    if ($action === 'add') {
-        $body = json_decode(file_get_contents('php://input'), true) ?? [];
-        $loja    = trim($body['loja'] ?? '');
-        $ip      = trim($body['ip'] ?? '');
-        $usuario = trim($body['usuario'] ?? '');
-        $senha   = $body['senha'] ?? '';
-        if (!$loja || !$ip || !$usuario || !$senha) {
-            echo json_encode(['ok' => false, 'msg' => 'Preencha todos os campos']); exit;
+    // Monta URL completa do pfSense
+    $url = "https://$ip$path";
+
+    $ch = curl_init();
+    $curlOpts = [
+        CURLOPT_URL => $url,
+        CURLOPT_SSL_VERIFYPEER => false,
+        CURLOPT_SSL_VERIFYHOST => false,
+        CURLOPT_COOKIEFILE => $ckfile,
+        CURLOPT_RETURNTRANSFER => true,
+        CURLOPT_FOLLOWLOCATION => true,
+        CURLOPT_TIMEOUT => 30,
+        CURLOPT_HEADER => true,
+    ];
+
+    if ($isPost) {
+        $curlOpts[CURLOPT_POST] = true;
+        // Rebuild POST data with __csrf_magic from our session if present
+        if (isset($_POST['__csrf_magic'])) {
+            $postData = $_POST;
         }
-        $maxOrdem = $pdo->query("SELECT COALESCE(MAX(ordem),0)+1 FROM portal_pfsense_lojas")->fetchColumn();
-        $st = $pdo->prepare("INSERT INTO portal_pfsense_lojas (loja,ip,usuario,senha_enc,ordem) VALUES (?,?,?,?,?)");
-        $st->execute([$loja, $ip, $usuario, vault_encrypt($senha), $maxOrdem]);
-        echo json_encode(['ok' => true, 'id' => $pdo->lastInsertId()]);
+        $curlOpts[CURLOPT_POSTFIELDS] = http_build_query($postData);
+    }
+
+    curl_setopt_array($ch, $curlOpts);
+    $response = curl_exec($ch);
+    $headerSize = curl_getinfo($ch, CURLINFO_HEADER_SIZE);
+    $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+    curl_close($ch);
+
+    if ($httpCode >= 400 && $httpCode !== 302 && $httpCode !== 200) {
+        // Sessão expirou no pfSense — limpa e tenta novamente
+        unset($_SESSION['pfsense_logged_' . $loja_id]);
+        @unlink($ckfile);
+        header('Location: pfsense_proxy.php?loja=' . $loja_id . '&path=' . urlencode($path));
         exit;
     }
 
-    // Editar
-    if ($action === 'edit') {
-        $body = json_decode(file_get_contents('php://input'), true) ?? [];
-        $id      = (int)($body['id'] ?? 0);
-        $loja    = trim($body['loja'] ?? '');
-        $ip      = trim($body['ip'] ?? '');
-        $usuario = trim($body['usuario'] ?? '');
-        $senha   = $body['senha'] ?? '';
-        if (!$id || !$loja || !$ip || !$usuario) {
-            echo json_encode(['ok' => false, 'msg' => 'Preencha todos os campos']); exit;
-        }
-        if ($senha) {
-            $st = $pdo->prepare("UPDATE portal_pfsense_lojas SET loja=?, ip=?, usuario=?, senha_enc=? WHERE id=?");
-            $st->execute([$loja, $ip, $usuario, vault_encrypt($senha), $id]);
-        } else {
-            $st = $pdo->prepare("UPDATE portal_pfsense_lojas SET loja=?, ip=?, usuario=? WHERE id=?");
-            $st->execute([$loja, $ip, $usuario, $id]);
-        }
-        echo json_encode(['ok' => true]);
-        exit;
+    // Extrai headers e body
+    $rawHeaders = substr($response, 0, $headerSize);
+    $body = substr($response, $headerSize);
+
+    // Remove headers problemáticos e repassa
+    $blockedHeaders = ['x-frame-options', 'content-security-policy', 'transfer-encoding'];
+    foreach (explode("\r\n", $rawHeaders) as $h) {
+        $hLower = strtolower(explode(':', $h)[0]);
+        if (in_array($hLower, $blockedHeaders)) continue;
+        if (empty(trim($h))) continue;
+        if (stripos($h, 'HTTP/') === 0) continue; // deixa PHP setar
+        header($h, false);
     }
 
-    // Excluir
-    if ($action === 'delete' && isset($_GET['id'])) {
-        $id = (int)$_GET['id'];
-        $pdo->prepare("DELETE FROM portal_pfsense_lojas WHERE id=?")->execute([$id]);
-        echo json_encode(['ok' => true]);
-        exit;
-    }
+    // Rewrite URLs no HTML para passar pelo proxy
+    $qs = 'loja=' . $loja_id . '&path=';
+    $body = preg_replace(
+        '/(<(?:a|link|script|img|form|iframe|source)\s[^>]*?(?:href|src|action)\s*=\s*["\'])\/([^"\']*)(["\'])/i',
+        '$1pfsense_proxy.php?' . $qs . '/$2$3',
+        $body
+    );
 
-    echo json_encode(['ok' => false, 'msg' => 'Ação inválida']);
+    // Rewrite URLs sem leading slash (relativas)
+    $body = preg_replace(
+        '/(<(?:a|link|script|img|form|iframe|source)\s[^>]*?(?:href|src|action)\s*=\s*["\'])(?!http|https|\/|#|[a-z]+:)([^"\']*)(["\'])/i',
+        '$1pfsense_proxy.php?' . $qs . '/$2$3',
+        $body
+    );
+
+    // Rewrite URLs em meta refresh
+    $body = preg_replace(
+        '/(<meta[^>]*url\s*=\s*["\'])\/([^"\']*)(["\'])/i',
+        '$1pfsense_proxy.php?' . $qs . '/$2$3',
+        $body
+    );
+
+    echo $body;
     exit;
 }
 ?>
@@ -140,8 +180,9 @@ if ($action) {
   <style>
     :root { --primary:#b91c1c; }
     * { box-sizing:border-box; }
-    body { background:#f0f4f9; font-family:'Segoe UI',sans-serif; min-height:100vh; }
+    body { background:#f0f4f9; font-family:'Segoe UI',sans-serif; min-height:100vh; margin:0; }
 
+    /* ── Topbar ── */
     .topbar {
       background:linear-gradient(135deg,#7f1d1d,var(--primary));
       color:white; padding:.75rem 1.5rem;
@@ -153,13 +194,14 @@ if ($action) {
                 background:rgba(255,255,255,.15); border-radius:6px; padding:.3rem .75rem; }
     .topbar a:hover { background:rgba(255,255,255,.25); }
 
+    /* ── Hero ── */
     .hero {
       background:linear-gradient(135deg,#7f1d1d,var(--primary));
       color:white; padding:2rem 1rem 4rem; text-align:center;
     }
-
     .wrap { max-width:800px; margin:-2.5rem auto 3rem; padding:0 1rem; }
 
+    /* ── Card loja ── */
     .loja-card {
       background:white; border-radius:12px; border:1px solid #e5e7eb;
       padding:1.25rem 1.5rem; margin-bottom:.75rem;
@@ -167,10 +209,7 @@ if ($action) {
       transition:box-shadow .18s;
     }
     .loja-card:hover { box-shadow:0 4px 16px rgba(0,0,0,.08); }
-
-    .loja-info {
-      display:flex; align-items:center; gap:1rem; flex:1; min-width:0;
-    }
+    .loja-info { display:flex; align-items:center; gap:1rem; flex:1; min-width:0; }
     .loja-icon {
       width:48px; height:48px; border-radius:12px;
       background:#fee2e2; color:#b91c1c;
@@ -180,10 +219,8 @@ if ($action) {
     .loja-nome { font-weight:700; font-size:1rem; color:#111; }
     .loja-ip   { font-size:.8rem; color:#6b7280; font-family:'Consolas','Courier New',monospace; }
     .loja-user { font-size:.75rem; color:#9ca3af; }
+    .loja-actions { display:flex; align-items:center; gap:.5rem; flex-shrink:0; }
 
-    .loja-actions {
-      display:flex; align-items:center; gap:.5rem; flex-shrink:0;
-    }
     .btn-pfsense {
       border:none; border-radius:8px; padding:.5rem .9rem;
       font-size:.8rem; font-weight:600; cursor:pointer;
@@ -218,7 +255,6 @@ if ($action) {
     }
     .btn-config:hover { background:#f3f4f6; color:#374151; }
 
-    /* Card "Adicionar" */
     .card-add {
       border:2px dashed #d1d5db; background:transparent; border-radius:12px;
       padding:1.5rem; text-align:center; color:#9ca3af; cursor:pointer;
@@ -226,22 +262,61 @@ if ($action) {
     }
     .card-add:hover { border-color:#6b7280; color:#374151; background:#f9fafb; }
 
-    /* Stats row */
-    .stats-row {
-      display:flex; gap:1rem; margin-bottom:1.5rem; flex-wrap:wrap;
-    }
+    .stats-row { display:flex; gap:1rem; margin-bottom:1.5rem; flex-wrap:wrap; }
     .stat-pill {
       background:white; border:1px solid #e5e7eb; border-radius:10px;
       padding:.5rem 1rem; font-size:.8rem; display:flex; align-items:center; gap:.5rem;
       box-shadow:0 1px 4px rgba(0,0,0,.04);
     }
 
-    /* Toast */
+    /* ── Player mode (topbar + iframe) ── */
+    .player-topbar {
+      background:#1f2937; color:white;
+      padding:.5rem 1rem;
+      display:flex; align-items:center; gap:.75rem;
+      flex-wrap:wrap; font-size:.85rem;
+      z-index:200; position:relative;
+    }
+    .player-topbar .btn-player {
+      background:rgba(255,255,255,.12); border:none; color:white;
+      border-radius:6px; padding:.35rem .7rem; font-size:.8rem;
+      cursor:pointer; transition:all .15s; text-decoration:none;
+      display:inline-flex; align-items:center; gap:.35rem;
+    }
+    .player-topbar .btn-player:hover { background:rgba(255,255,255,.25); }
+    .player-topbar .btn-player-outline {
+      background:transparent; border:1px solid rgba(255,255,255,.25); color:white;
+      border-radius:6px; padding:.35rem .7rem; font-size:.8rem;
+      cursor:pointer; transition:all .15s; text-decoration:none;
+      display:inline-flex; align-items:center; gap:.35rem;
+    }
+    .player-topbar .btn-player-outline:hover { background:rgba(255,255,255,.1); border-color:rgba(255,255,255,.4); }
+    .player-topbar .loja-badge {
+      background:#374151; border-radius:4px;
+      padding:.2rem .6rem; font-size:.75rem; font-family:monospace;
+    }
+    .player-topbar .sep { color:#6b7280; font-size:.7rem; }
+
+    .player-frame {
+      width:100%; height:calc(100vh - 80px);
+      border:none; display:block;
+    }
+
+    #view-list { display:block; }
+    #view-player { display:none; }
+
+    body.player-mode #view-list { display:none; }
+    body.player-mode #view-player { display:block; }
+    body.player-mode .hero { display:none; }
+    body.player-mode .topbar { display:none; }
+
+    /* ── Toast ── */
     #toast-container { position:fixed; bottom:1.5rem; right:1.5rem; z-index:9999; }
   </style>
 </head>
 <body>
 
+<!-- ── Topbar padrão (modo lista) ── -->
 <div class="topbar">
   <div class="brand"><i class="bi bi-shield-fill-check me-1"></i> Central pfSense</div>
   <div style="display:flex;gap:.5rem">
@@ -255,26 +330,36 @@ if ($action) {
   </div>
 </div>
 
+<!-- ── Hero (modo lista) ── -->
 <div class="hero">
   <h1 style="font-size:1.5rem;font-weight:700;margin:0">
     <i class="bi bi-shield-fill-check me-2"></i>pfSense — Todas as Lojas
   </h1>
   <p style="opacity:.8;margin-top:.5rem">
-    Firewalls pfSense do Grupo Gmais — acesso rápido e organizado
+    Firewalls pfSense do Grupo Gmais — clique em <strong>Abrir</strong> para acessar direto
   </p>
 </div>
 
-<div class="wrap" id="lista-lojas">
-  <!-- renderizado via JS -->
+<!-- ── View: Lista de lojas ── -->
+<div id="view-list">
+  <div class="wrap" id="lista-lojas"></div>
 </div>
 
-<!-- Modal: adicionar/editar loja -->
+<!-- ── View: Player pfSense ── -->
+<div id="view-player">
+  <div class="player-topbar" id="player-topbar">
+    <!-- preenchido via JS -->
+  </div>
+  <iframe class="player-frame" id="player-frame" sandbox="allow-same-origin allow-forms allow-scripts"></iframe>
+</div>
+
+<!-- ── Modal: adicionar/editar loja ── -->
 <div class="modal fade" id="modalLoja" tabindex="-1">
   <div class="modal-dialog modal-dialog-centered">
     <div class="modal-content">
       <div class="modal-header" style="background:linear-gradient(135deg,#7f1d1d,#b91c1c);color:white">
-        <h5 class="modal-title fw-bold" id="modal-loja-titulo">
-          <i class="bi bi-shield-fill-check me-2"></i><span id="modal-loja-label">Nova Loja</span>
+        <h5 class="modal-title fw-bold" id="modal-loja-label">
+          <i class="bi bi-shield-fill-check me-2"></i>Nova Loja
         </h5>
         <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
       </div>
@@ -294,7 +379,7 @@ if ($action) {
         </div>
         <div class="mb-2">
           <label class="form-label fw-semibold">
-            Senha <span class="text-muted small">(deixe em branco para manter a atual ao editar)</span>
+            Senha <span class="text-muted small">(deixe em branco para manter ao editar)</span>
           </label>
           <input type="password" class="form-control font-monospace" id="edit-senha" placeholder="••••••••"/>
           <div class="form-check mt-2">
@@ -325,9 +410,9 @@ document.addEventListener('DOMContentLoaded', () => {
   carregarLojas();
 });
 
-// ── Carregar lista ───────────────────────────────────────────────
+// ── Carregar lista de lojas ──────────────────────────────────────
 async function carregarLojas() {
-  const r   = await fetch('pfsense_lojas.php?action=list');
+  const r   = await fetch('pfsense_proxy.php?action=list');
   const d   = await r.json();
   const el  = document.getElementById('lista-lojas');
   const lojas = d.dados || [];
@@ -342,13 +427,11 @@ async function carregarLojas() {
     return;
   }
 
-  // Stats
   let html = `<div class="stats-row">
-    <div class="stat-pill"><i class="bi bi-shield-fill-check text-danger"></i>${lojas.length} loja(s) configurada(s)</div>
-    <div class="stat-pill"><i class="bi bi-shield-slash text-muted"></i>Acesso via navegador — sem alteração nos firewalls</div>
+    <div class="stat-pill"><i class="bi bi-shield-fill-check text-danger"></i>${lojas.length} loja(s)</div>
+    <div class="stat-pill"><i class="bi bi-layers text-muted"></i>Clique em <strong>Abrir</strong> para acessar sem digitar senha</div>
   </div>`;
 
-  // Cards
   lojas.forEach(l => {
     html += `
       <div class="loja-card" id="loja-${l.id}">
@@ -370,8 +453,8 @@ async function carregarLojas() {
           <button class="btn-reveal" id="reveal-${l.id}" onclick="revelarSenha(${l.id})" title="Ver senha">
             <i class="bi bi-eye"></i>
           </button>
-          <button class="btn-pfsense" style="background:#b91c1c;color:white" onclick="abrirPfSense('${esc(l.ip)}')">
-            <i class="bi bi-box-arrow-up-right"></i>Abrir
+          <button class="btn-pfsense" style="background:#059669;color:white" onclick="abrirPlayer(${l.id})">
+            <i class="bi bi-play-fill"></i>Abrir
           </button>
           ${isAdmin ? `
           <button class="btn-config" onclick="editarLoja(${l.id})" title="Editar">
@@ -384,7 +467,6 @@ async function carregarLojas() {
       </div>`;
   });
 
-  // Card adicionar (admin)
   if (isAdmin) {
     html += `<div class="card-add" onclick="abrirModalLoja()">
       <i class="bi bi-plus-circle" style="font-size:1.5rem;display:block;margin-bottom:.5rem"></i>
@@ -396,17 +478,51 @@ async function carregarLojas() {
   el.innerHTML = html;
 }
 
-// ── Ações ────────────────────────────────────────────────────────
-function abrirPfSense(ip) {
-  window.open(`https://${ip}`, '_blank', 'noopener');
+// ── Abrir pfSense no player (mesma página) ───────────────────────
+function abrirPlayer(lojaId) {
+  const iframe = document.getElementById('player-frame');
+  const topbar = document.getElementById('player-topbar');
+
+  // Busca dados da loja pra mostrar na barra
+  fetch(`pfsense_proxy.php?action=reveal&id=${lojaId}`)
+    .then(r => r.json())
+    .then(d => {
+      if (!d.ok) { toast(d.msg || 'Erro', 'danger'); return; }
+      topbar.innerHTML = `
+        <button class="btn-player" onclick="fecharPlayer()">
+          <i class="bi bi-arrow-left"></i> Voltar
+        </button>
+        <span class="sep">|</span>
+        <i class="bi bi-shield-fill-check text-danger"></i>
+        <strong>${esc(d.loja)}</strong>
+        <span class="loja-badge">${esc(d.ip)}</span>
+        <span class="sep">|</span>
+        <button class="btn-player-outline" onclick="document.getElementById('player-frame').contentWindow.location.reload()">
+          <i class="bi bi-arrow-clockwise"></i> Recarregar
+        </button>
+        <a class="btn-player-outline" href="https://${esc(d.ip)}" target="_blank" rel="noopener">
+          <i class="bi bi-box-arrow-up-right"></i> Abrir externo
+        </a>
+      `;
+
+      // Carrega o proxy no iframe
+      iframe.src = `pfsense_proxy.php?loja=${lojaId}&path=/`;
+      document.body.classList.add('player-mode');
+    })
+    .catch(() => toast('Erro ao carregar', 'danger'));
 }
 
+function fecharPlayer() {
+  document.body.classList.remove('player-mode');
+  document.getElementById('player-frame').src = 'about:blank';
+}
+
+// ── Revelar senha ────────────────────────────────────────────────
 async function revelarSenha(id) {
   const btn   = document.getElementById('reveal-' + id);
   const pwdEl = document.getElementById('pwd-' + id);
   const valEl = document.getElementById('pwd-val-' + id);
 
-  // Se já revelado, só toggle visual
   if (pwdEl.classList.contains('show')) {
     pwdEl.classList.remove('show');
     btn.classList.remove('revealed');
@@ -414,7 +530,7 @@ async function revelarSenha(id) {
     return;
   }
 
-  const r = await fetch(`pfsense_lojas.php?action=reveal&id=${id}`);
+  const r = await fetch(`pfsense_proxy.php?action=reveal&id=${id}`);
   const d = await r.json();
   if (!d.ok) { toast(d.msg || 'Erro', 'danger'); return; }
 
@@ -422,24 +538,22 @@ async function revelarSenha(id) {
   pwdEl.classList.add('show');
   btn.classList.add('revealed');
   btn.innerHTML = '<i class="bi bi-eye-slash"></i>';
-  toast('🔑 Senha revelada — clique no olho para ocultar', 'info');
+  toast('🔑 Senha revelada', 'info');
 }
 
 async function copiarSenha(id) {
   const valEl = document.getElementById('pwd-val-' + id);
   try {
     await navigator.clipboard.writeText(valEl.textContent);
-    toast('📋 Senha copiada!', 'success');
   } catch {
-    // Fallback
     const ta = document.createElement('textarea');
     ta.value = valEl.textContent;
     document.body.appendChild(ta);
     ta.select();
     document.execCommand('copy');
     document.body.removeChild(ta);
-    toast('📋 Senha copiada!', 'success');
   }
+  toast('📋 Senha copiada!', 'success');
 }
 
 // ── Admin: CRUD ──────────────────────────────────────────────────
@@ -451,14 +565,12 @@ function abrirModalLoja() {
   document.getElementById('edit-senha').value = '';
   document.getElementById('edit-mostrar-senha').checked = false;
   document.getElementById('edit-senha').type = 'password';
-  document.getElementById('modal-loja-label').textContent = 'Nova Loja';
-  document.getElementById('modal-loja-titulo').innerHTML =
-    `<i class="bi bi-plus-circle-fill me-2"></i><span id="modal-loja-label">Nova Loja</span>`;
+  document.getElementById('modal-loja-label').innerHTML = '<i class="bi bi-plus-circle-fill me-2"></i>Nova Loja';
   modalLoja.show();
 }
 
 async function editarLoja(id) {
-  const r = await fetch(`pfsense_lojas.php?action=reveal&id=${id}`);
+  const r = await fetch(`pfsense_proxy.php?action=reveal&id=${id}`);
   const d = await r.json();
   if (!d.ok) { toast(d.msg || 'Erro', 'danger'); return; }
 
@@ -469,9 +581,7 @@ async function editarLoja(id) {
   document.getElementById('edit-senha').value = '';
   document.getElementById('edit-mostrar-senha').checked = false;
   document.getElementById('edit-senha').type = 'password';
-  document.getElementById('modal-loja-label').textContent = d.loja;
-  document.getElementById('modal-loja-titulo').innerHTML =
-    `<i class="bi bi-pencil-fill me-2"></i><span id="modal-loja-label">${esc(d.loja)}</span>`;
+  document.getElementById('modal-loja-label').innerHTML = `<i class="bi bi-pencil-fill me-2"></i>${esc(d.loja)}`;
   modalLoja.show();
 }
 
@@ -486,7 +596,7 @@ async function salvarLoja() {
   if (!id && !senha) { toast('Informe a senha', 'danger'); return; }
 
   const action = id ? 'edit' : 'add';
-  const r = await fetch(`pfsense_lojas.php?action=${action}`, {
+  const r = await fetch(`pfsense_proxy.php?action=${action}`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ id: parseInt(id) || 0, loja, ip, usuario, senha }),
@@ -503,7 +613,7 @@ async function salvarLoja() {
 
 async function excluirLoja(id) {
   if (!confirm('Tem certeza que deseja excluir esta loja?')) return;
-  const r = await fetch(`pfsense_lojas.php?action=delete&id=${id}`);
+  const r = await fetch(`pfsense_proxy.php?action=delete&id=${id}`);
   const d = await r.json();
   if (d.ok) {
     toast('🗑️ Loja excluída');
@@ -514,8 +624,8 @@ async function excluirLoja(id) {
 }
 
 function alternarVisibilidadeSenha() {
-  const el = document.getElementById('edit-senha');
-  el.type = document.getElementById('edit-mostrar-senha').checked ? 'text' : 'password';
+  document.getElementById('edit-senha').type =
+    document.getElementById('edit-mostrar-senha').checked ? 'text' : 'password';
 }
 
 // ── Helpers ──────────────────────────────────────────────────────

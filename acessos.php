@@ -44,7 +44,7 @@ if ($pdo->query("SELECT COUNT(*) FROM portal_acessos")->fetchColumn() == 0) {
 }
 
 // ── Garante que o pfSense aponte para a central de lojas ────
-$pdo->exec("UPDATE portal_acessos SET url='pfsense_lojas.php' WHERE nome='pfSense' AND grupo='infra' AND (url IS NULL OR url='')");
+$pdo->exec("UPDATE portal_acessos SET url='pfsense_proxy.php' WHERE nome='pfSense' AND grupo='infra' AND (url IS NULL OR url='')");
 
 // ── API AJAX ───────────────────────────────────────────────────
 $action = $_GET['action'] ?? '';
