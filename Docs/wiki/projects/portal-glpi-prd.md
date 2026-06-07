@@ -293,13 +293,15 @@
 - [x] Conteúdo mascarado na listagem
 - [x] Reveal e copy individuais
 - [x] Tags e notas
+- [x] Busca server-side por título, tags e notas
+- [x] Filtro por categoria na toolbar
 
 ### Pendente
 - [ ] Controle de acesso por nível (técnico x encarregado)
 - [ ] Auditoria: quem acessou e quando
-- [ ] Busca por tag e categoria
 - [ ] Compartilhamento seguro de senha (link com expiração)
 - [ ] Senha mestra para acesso ao cofre
+- [ ] Categoria 📞 Contatos Úteis (telefones/ramais do setor)
 
 ---
 

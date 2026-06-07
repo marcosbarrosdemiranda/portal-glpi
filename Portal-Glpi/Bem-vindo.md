@@ -1,5 +1,13 @@
-Este é o seu novo *Cofre*.
+# 🗂️ Portal GLPI — Documentação
 
-Anote algo, [[crie um link]], ou tente [o Importer](https://help.obsidian.md/Plugins/Importer)!
+Bem-vindo ao vault de documentação do Portal GLPI.
 
-Quando estiver pronto, exclua esta nota e monte o cofre do seu jeito.
+## Módulos
+
+- [[Cofre-TI]] — Cofre de senhas, comandos e contatos úteis
+- *(mais módulos em breve)*
+
+## Links rápidos
+
+- [[Bem-vindo|Início]]
+- [Docs wiki](../Docs/index.md) — documentação técnica do projeto
