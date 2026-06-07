@@ -83,6 +83,63 @@ $user_id_sessao = (int)($_SESSION['user_id'] ?? 0);
     }
     .atendente-filtro select option { background: #1a237e; color: white; }
 
+    /* Filtro tipo */
+    .tipo-filtro {
+      display: flex; align-items: center; color: white;
+      background: rgba(255,255,255,.12);
+      border-radius: 8px; padding: .3rem .75rem; gap: .3rem;
+    }
+    .tipo-filtro select {
+      background: transparent; border: none; color: white;
+      font-size: .85rem; cursor: pointer; outline: none;
+      max-width: 160px;
+    }
+    .tipo-filtro select option { background: #1a237e; color: white; }
+
+    /* Menu ⋮ nos eventos */
+    .ev-menu-btn {
+      position: absolute; top: 1px; right: 1px; z-index: 10;
+      background: rgba(0,0,0,.15); border: none; color: rgba(255,255,255,.85);
+      font-size: .8rem; line-height: 1; padding: 1px 4px; border-radius: 3px;
+      cursor: pointer; display: none;
+    }
+    .fc-event:hover .ev-menu-btn { display: block; }
+    .ev-menu-btn:hover { background: rgba(0,0,0,.35); color: #fff; }
+    .ev-dropdown {
+      display: none; position: absolute; top: 18px; right: 0; z-index: 5002;
+      background: #fff; border: 1px solid #ddd; border-radius: 8px;
+      box-shadow: 0 4px 16px rgba(0,0,0,.18); min-width: 160px;
+      font-size: .8rem; overflow: hidden;
+    }
+    .ev-dropdown.show { display: block; }
+    .ev-dropdown .ev-dropdown-header {
+      padding: .4rem .7rem; font-weight: 700; font-size: .72rem;
+      color: #555; text-transform: uppercase; letter-spacing: .5px;
+      background: #f5f5f5; border-bottom: 1px solid #e0e0e0;
+    }
+    .ev-dropdown .ev-dropdown-item {
+      display: block; width: 100%; text-align: left;
+      padding: .45rem .7rem; border: none; background: none;
+      cursor: pointer; font-size: .8rem; color: #333;
+    }
+    .ev-dropdown .ev-dropdown-item:hover { background: #f0f4ff; color: #1a73e8; }
+    .ev-dropdown .ev-dropdown-item:disabled { opacity: .4; cursor: not-allowed; }
+    .ev-dropdown .ev-dropdown-divider { height: 1px; background: #e0e0e0; margin: 2px 0; }
+    .ev-dropdown .ev-submenu-wrap { position: relative; }
+    .ev-dropdown .ev-submenu-wrap .ev-submenu {
+      display: none; position: absolute; left: 100%; top: 0;
+      background: #fff; border: 1px solid #ddd; border-radius: 8px;
+      box-shadow: 0 4px 16px rgba(0,0,0,.18); min-width: 170px;
+    }
+    .ev-dropdown .ev-submenu-wrap:hover .ev-submenu { display: block; }
+    .ev-dropdown .ev-submenu-item {
+      display: block; width: 100%; text-align: left;
+      padding: .45rem .7rem; border: none; background: none;
+      cursor: pointer; font-size: .8rem; color: #333; white-space: nowrap;
+    }
+    .ev-dropdown .ev-submenu-item:hover { background: #f0f4ff; color: #1a73e8; }
+    .ev-dropdown .ev-submenu-item:disabled { opacity: .4; cursor: not-allowed; }
+
     /* ── Layout principal ── */
     .layout {
       display: flex;
@@ -393,6 +450,18 @@ $user_id_sessao = (int)($_SESSION['user_id'] ?? 0);
     <i class="bi bi-person-fill me-1"></i>
     <select id="filtro-atendente" onchange="filtrarPorAtendente()">
       <option value="">👥 Todos os atendentes</option>
+    </select>
+  </div>
+
+  <!-- Filtro por tipo -->
+  <div class="tipo-filtro">
+    <i class="bi bi-funnel me-1"></i>
+    <select id="filtro-tipo" onchange="filtrarPorTipo()">
+      <option value="">Todos os tipos</option>
+      <option value="chamado">🎫 Chamado</option>
+      <option value="requisicao">📋 Requisição</option>
+      <option value="reuniao">👥 Reunião</option>
+      <option value="evento">📅 Evento</option>
     </select>
   </div>
 
@@ -837,6 +906,7 @@ let modalEvento;
 let modalAtendentes;
 let atendentes      = [];
 let filtroAtendente = '';
+let filtroTipo = '';
 let _dropPendente   = null; // dados do drop aguardando seleção de atendente
 let _inEventReceive = false; // bloqueia eventChange durante mutações do eventReceive
 let _dropCache      = {};   // id → dados do drop; fallback de extendedProps no eventChange
@@ -1063,13 +1133,14 @@ document.addEventListener('DOMContentLoaded', function() {
       return classes;
     },
 
-    // Renderiza ícone + título no evento
+    // Renderiza ícone + título + menu ⋮ no evento
     eventContent(arg) {
       const props     = arg.event.extendedProps;
       const c         = _dropCache[arg.event.id] || {};
       const tipo      = props.tipo || c.tipo || 'chamado';
       const concluido = props.concluido;
       const multi     = props.multi;
+      const ticketId  = props.ticket_id || c.ticket_id || '';
       const icones = {
         evento:     'bi-calendar-event',
         requisicao: 'bi-clipboard-check',
@@ -1089,13 +1160,21 @@ document.addEventListener('DOMContentLoaded', function() {
       const avisoTag = props.atrasado
         ? `<span class="ev-aviso-icon" title="Atrasado — não concluído no prazo"><i class="bi bi-exclamation-triangle-fill"></i></span>`
         : '';
+      // Menu ⋮ apenas para chamado/requisição (que têm ticket_id no GLPI)
+      const temMenu = ticketId && (tipo === 'chamado' || tipo === 'requisicao');
+      const menuBtn = temMenu
+        ? `<button class="ev-menu-btn" onclick="event.stopPropagation();toggleMenuAcoes(this, '${arg.event.id}', '${ticketId}', ${concluido})" title="Ações">⋮</button>`
+        : '';
+      const evId = arg.event.id.replace(/[^a-zA-Z0-9_-]/g, '');
       return {
         html: `<div class="ev-inner">
                  ${timeText}<i class="bi ${icone} ev-icon"></i>
                  <span class="ev-title">${arg.event.title.replace(/^#\d+\s*[â€“-]\s*/, '')}</span>
                  ${grupoTag}${avisoTag}
                </div>
-               ${checkBadge}`
+               ${checkBadge}
+               ${menuBtn}
+               <div class="ev-dropdown" id="evMenu_${evId}"></div>`
       };
     },
 
@@ -1271,6 +1350,10 @@ function eventosFiltrados() {
         }
       });
     }
+    // Aplica filtro por tipo
+    if (filtroTipo) {
+      return filtrados.filter(e => e.extendedProps.tipo === filtroTipo);
+    }
     return filtrados;
   }
 
@@ -1323,12 +1406,131 @@ function eventosFiltrados() {
     }
   }
 
+  // Aplica filtro por tipo (após os filtros de atendente/Todos)
+  if (filtroTipo) {
+    return resultado.filter(e => e.extendedProps.tipo === filtroTipo);
+  }
   return resultado;
 }
 
 function filtrarPorAtendente() {
   filtroAtendente = document.getElementById('filtro-atendente').value;
   calendar.refetchEvents();
+}
+
+function filtrarPorTipo() {
+  filtroTipo = document.getElementById('filtro-tipo').value;
+  calendar.refetchEvents();
+}
+
+// ── Menu ⋮ de ações no evento ────────────
+function toggleMenuAcoes(btn, evId, ticketId, concluido) {
+  // Fecha qualquer outro menu aberto
+  document.querySelectorAll('.ev-dropdown.show').forEach(el => el.classList.remove('show'));
+
+  const menu = document.getElementById('evMenu_' + evId.replace(/[^a-zA-Z0-9_-]/g, ''));
+  if (!menu) return;
+
+  if (menu.classList.contains('show')) {
+    menu.classList.remove('show');
+    return;
+  }
+
+  menu.innerHTML = `<div class="ev-dropdown-header">Chamado</div>
+    <button class="ev-dropdown-item" onclick="excluirChamado('${ticketId}', this)" data-ticket="${ticketId}">
+      🗑️ Excluir chamado
+      ${concluido ? '<br><small style="color:#999;font-size:.7rem">(apenas chamados em aberto)</small>' : '<br><small style="color:#999;font-size:.7rem">Excluir permanentemente do GLPI</small>'}
+    </button>
+    <div class="ev-dropdown-divider"></div>
+    <button class="ev-dropdown-item" onclick="reabrirChamado('${ticketId}', this)" data-ticket="${ticketId}">
+      🔄 Reabrir chamado
+      ${concluido ? '<br><small style="color:#999;font-size:.7rem">Reabrir chamado fechado</small>' : '<br><small style="color:#999;font-size:.7rem">(chamado já está em aberto)</small>'}
+    </button>`;
+
+  // Habilita/desabilita itens conforme estado
+  const excluirBtn = menu.querySelector('button:nth-child(1)');
+  const reabrirBtn = menu.querySelector('button:nth-child(3)');
+  if (concluido) {
+    excluirBtn.disabled = true;  // só exclui em aberto
+  } else {
+    reabrirBtn.disabled = true;  // só reabre se fechado
+  }
+
+  menu.classList.add('show');
+
+  // Fecha ao clicar fora
+  setTimeout(() => {
+    document.addEventListener('click', fecharMenuAcoes, { once: true });
+  }, 10);
+}
+
+function fecharMenuAcoes(e) {
+  document.querySelectorAll('.ev-dropdown.show').forEach(el => el.classList.remove('show'));
+}
+
+function excluirChamado(ticketId, btn) {
+  if (btn.disabled) return;
+  if (!confirm(`🗑️ Tem certeza que deseja EXCLUIR permanentemente o chamado #${ticketId} do GLPI?\n\nEsta ação é irreversível e removerá o chamado do sistema.`)) return;
+
+  fetch('excluir_ticket_glpi.php', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ ticket_id: parseInt(ticketId) }),
+  })
+  .then(r => r.json())
+  .then(res => {
+    fecharMenuAcoes();
+    if (res.ok) {
+      // Remove também da agenda local
+      fetch('eventos.php?action=deleteByTicket&ticket_id=' + encodeURIComponent(ticketId))
+        .then(r => r.json())
+        .catch(() => ({}));
+      toast(`🗑️ Chamado #${ticketId} excluído permanentemente do GLPI.`);
+      calendar.refetchEvents();
+      carregarTickets();
+    } else {
+      alert('Erro ao excluir: ' + (res.msg || 'Falha desconhecida'));
+    }
+  })
+  .catch(() => {
+    fecharMenuAcoes();
+    alert('Erro de conexão ao tentar excluir chamado.');
+  });
+}
+
+function reabrirChamado(ticketId, btn) {
+  if (btn.disabled) return;
+  if (!confirm(`🔄 Reabrir chamado #${ticketId}?\n\nO chamado voltará para o status "Atribuído".`)) return;
+
+  fetch('reabrir_ticket.php', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ ticket_id: parseInt(ticketId) }),
+  })
+  .then(r => r.json())
+  .then(res => {
+    fecharMenuAcoes();
+    if (res.ok) {
+      // Atualiza eventos no banco local: marca como não concluído
+      const eventos = calendar.getEvents().filter(e => String(e.extendedProps.ticket_id) === String(ticketId));
+      eventos.forEach(ev => {
+        fetch('eventos.php?action=save', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ id: ev.id, ticket_id: parseInt(ticketId), concluido: 0 }),
+        }).catch(() => {});
+        ev.setExtendedProp('concluido', false);
+        ev.setDates(ev.start, ev.end, { allDay: ev.allDay });
+      });
+      toast(`🔄 Chamado #${ticketId} reaberto como "Atribuído"!`);
+    } else {
+      alert('Erro ao reabrir: ' + (res.msg || 'Falha desconhecida'));
+    }
+  })
+  .catch(() => {
+    fecharMenuAcoes();
+    alert('Erro de conexão ao tentar reabrir chamado.');
+  });
 }
 
 // ──────────────────────────────────────────
