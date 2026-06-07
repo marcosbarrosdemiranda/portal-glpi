@@ -18,7 +18,7 @@
 | 📊 Painel de Relatórios | 🟡 Em andamento | ~50% |
 | 🖥️ Inventário | 🟡 Em andamento | ~75% |
 | 📚 Área do Conhecimento | 🔴 Pendente | ~20% |
-| 🔧 Infraestrutura | 🟡 Em andamento | ~60% |
+| 🔧 Infraestrutura | 🟢 Concluído | 100% |
 | 🏭 Ferramentas ERP | 🟡 Em andamento | ~50% |
 | 📁 Projetos | 🟡 Em andamento | ~80% |
 | 👥 Equipe | 🟡 Em andamento | ~50% |
@@ -168,7 +168,10 @@
 > **Prazo:** 01/07/2026
 
 ### Acesso Remoto
-- [x] RDP — gera arquivo .rdp com hostname configurado
+- [x] **Central RDP** — página dedicada com servidores, coletores e PCs estratégicos (acordeão)
+- [x] RDP — gera arquivo .rdp individual com IP/hostname configurado
+- [x] **Apache Guacamole** — acesso RDP no browser com iframe + top bar + auto-login
+- [x] **Auto-sync Guacamole** — criar/editar/excluir conexões via API REST automaticamente
 - [x] VNC — estrutura criada (portal + banco)
 - [x] AnyDesk — link configurável
 - [ ] VNC funcional (instalar noVNC + websockify no servidor)

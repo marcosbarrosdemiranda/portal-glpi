@@ -44,6 +44,7 @@ Bem-vindo ao vault de documentação do Portal GLPI.
 - [[Logs/2026-06-06-sessao-docs-unificadas|06/06 — Unificação docs no Obsidian vault]]
 - [[Logs/2026-06-06-sessao-pfsense-central|06/06 — Central pfSense com lojas]]
 - [[Logs/2026-06-07-sessao-pfsense-proxy-fix|07/06 — Fix proxy pfSense]]
+- [[Logs/2026-06-07-sessao-rdp-central|07/06 — Central RDP]]
 
 ---
 
@@ -61,6 +62,7 @@ Bem-vindo ao vault de documentação do Portal GLPI.
 - [[Documentação/SOUL|🧠 Soul — persona e diretrizes]]
 - [[Documentação/log|📅 Timeline de atividades]]
 - [[Documentação/DOCUMENTACAO|📄 Documentação completa]]
+- `Docs/wiki/infra/GUACAMOLE.md` — 🖥️ Apache Guacamole (RDP no browser)
 
 ---
 

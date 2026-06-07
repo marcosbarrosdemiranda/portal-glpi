@@ -292,8 +292,8 @@ $grupo_info = [
         <?php if ($item['tipo'] === 'rdp'): ?>
           <button class="btn-acessar"
                   style="background:<?= $item['cor_text'] ?>;color:white"
-                  <?= $sem_url ? 'disabled title="Configure o IP/hostname primeiro"' : "onclick=\"baixarRDP({$item['id']})\"" ?>>
-            <i class="bi bi-download me-1"></i>Conectar RDP
+                  onclick="abrirUrl('rdp_central.php')">
+            <i class="bi bi-display-fill me-1"></i>Central RDP
           </button>
         <?php else: ?>
           <button class="btn-acessar"
