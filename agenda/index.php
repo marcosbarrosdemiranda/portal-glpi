@@ -1467,12 +1467,13 @@ function abrirMenuAcoes(clientX, clientY, evId, ticketId, concluido) {
     </button>`;
 
   // Habilita/desabilita itens conforme estado
-  const excluirBtn = dropdown.querySelector('button:nth-child(1)');
-  const reabrirBtn = dropdown.querySelector('button:nth-child(3)');
+  const botoes = dropdown.querySelectorAll('.ev-dropdown-item');
+  const excluirBtn = botoes[0];
+  const reabrirBtn = botoes[1];
   if (concluido) {
-    excluirBtn.disabled = true;
+    if (excluirBtn) excluirBtn.disabled = true;
   } else {
-    reabrirBtn.disabled = true;
+    if (reabrirBtn) reabrirBtn.disabled = true;
   }
 
   // Posiciona nas coordenadas do clique
