@@ -24,10 +24,8 @@ Documentação e Backup*/
 .claude/
 
 # ── Obsidian (vault) ─────────────────────────────────────────
-.obsidian/workspace.json
-.obsidian/graph.json
-**/.obsidian/workspace.json
-**/.obsidian/graph.json
+# TODO: Se for usar Portal-Glpi/ como vault, abrir manualmente no Obsidian
+**/.obsidian/
 *.canvas
 
 # ── Sistema operacional ────────────────────────────────────────
