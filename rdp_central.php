@@ -33,6 +33,7 @@ $pdo->exec("
         descricao   VARCHAR(255) DEFAULT '',
         usuario     VARCHAR(100) DEFAULT '',
         senha       TEXT         DEFAULT NULL COMMENT 'AES-256-CBC',
+        protocolo   VARCHAR(5)   NOT NULL DEFAULT 'rdp' COMMENT 'rdp ou vnc',
         categoria   VARCHAR(30)  NOT NULL DEFAULT 'servidor',
         guac_id     INT          DEFAULT NULL COMMENT 'ID da conexão no Guacamole',
         ativo       TINYINT(1)   DEFAULT 1,
@@ -41,7 +42,7 @@ $pdo->exec("
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
 ");
 // Colunas p/ versões anteriores
-foreach (['usuario VARCHAR(100) DEFAULT ""', 'senha TEXT DEFAULT NULL', 'guac_id INT DEFAULT NULL'] as $col) {
+foreach (['usuario VARCHAR(100) DEFAULT ""', 'senha TEXT DEFAULT NULL', 'guac_id INT DEFAULT NULL', "protocolo VARCHAR(5) NOT NULL DEFAULT 'rdp'"] as $col) {
     try { $pdo->exec("ALTER TABLE portal_rdp_maquinas ADD COLUMN $col"); } catch (Exception $e) {}
 }
 
@@ -86,7 +87,7 @@ if ($action) {
         $categoria = $_GET['categoria'] ?? '';
         $sql = "SELECT id, nome, ip, descricao, usuario,
                        CASE WHEN senha IS NOT NULL AND senha != '' THEN 1 ELSE 0 END as has_senha,
-                       categoria, ordem, guac_id
+                       protocolo, categoria, ordem, guac_id
                 FROM portal_rdp_maquinas WHERE ativo=1";
         $params = [];
         if ($categoria && in_array($categoria, ['servidor','coletor','pc'])) {
@@ -343,7 +344,9 @@ if ($action) {
         $n = trim($body['nome']??''); $i = trim($body['ip']??'');
         $d = trim($body['descricao']??''); $u = trim($body['usuario']??'');
         $s = $body['senha'] ?? ''; $g = $body['guac_id'] ?? null;
+        $p = $body['protocolo'] ?? 'rdp';
         $c = $body['categoria']??'servidor';
+        if (!in_array($p, ['rdp','vnc'])) $p = 'rdp';
         if (!$n||!$i) { echo json_encode(['ok'=>false,'msg'=>'Preencha nome e IP']); exit; }
         if (!in_array($c, ['servidor','coletor','pc'])) $c = 'servidor';
         $senha_enc = $s ? rdp_encrypt($s) : null;
@@ -380,22 +383,31 @@ if ($action) {
                     $resLista = curl_exec($ch3);
                     curl_close($ch3);
                     $lista = json_decode($resLista, true) ?? [];
-                    // Função auxiliar: monta payload RDP
-                    $guac_payload = function() use ($n, $i, $u, $s) {
+                    // Função auxiliar: monta payload RDP/VNC
+                    $guac_payload = function() use ($n, $i, $u, $s, $p) {
+                        $proto = $p ?? 'rdp';
+                        $params = ($proto === 'vnc')
+                            ? [
+                                'hostname' => $i, 'port' => '5900',
+                                'password' => $s, 'color-depth' => '16',
+                                'read-only' => '', 'swap-red-blue' => '',
+                                'cursor' => '',
+                              ]
+                            : [
+                                'hostname' => $i, 'port' => '3389',
+                                'username' => $u, 'password' => $s,
+                                'ignore-cert' => 'true', 'security' => 'any',
+                              ];
                         return [
                             'parentIdentifier' => 'ROOT',
                             'name' => $n,
-                            'protocol' => 'rdp',
+                            'protocol' => $proto,
                             'attributes' => [
                                 'max-connections' => '', 'max-connections-per-user' => '',
                                 'weight' => '', 'failover-only' => '',
                                 'guacd-hostname' => '', 'guacd-port' => '',
                             ],
-                            'parameters' => [
-                                'hostname' => $i, 'port' => '3389',
-                                'username' => $u, 'password' => $s,
-                                'ignore-cert' => 'true', 'security' => 'any',
-                            ],
+                            'parameters' => $params,
                         ];
                     };
 
@@ -454,8 +466,8 @@ if ($action) {
 
         $guac_val = ($g !== '' && $g !== null) ? (int)$g : null;
         $mo = $pdo->query("SELECT COALESCE(MAX(ordem),0)+1 FROM portal_rdp_maquinas")->fetchColumn();
-        $pdo->prepare("INSERT INTO portal_rdp_maquinas (nome,ip,descricao,usuario,senha,guac_id,categoria,ordem) VALUES (?,?,?,?,?,?,?,?)")
-            ->execute([$n,$i,$d,$u,$senha_enc,$guac_val,$c,$mo]);
+        $pdo->prepare("INSERT INTO portal_rdp_maquinas (nome,ip,descricao,usuario,senha,protocolo,guac_id,categoria,ordem) VALUES (?,?,?,?,?,?,?,?,?)")
+            ->execute([$n,$i,$d,$u,$senha_enc,$p,$guac_val,$c,$mo]);
         echo json_encode(['ok'=>true, 'id'=>$pdo->lastInsertId(), 'guac_id'=>$g, 'guac_auto'=>($g !== null && $g > 0), 'guac_log'=>$guac_log]); exit;
     }
 
@@ -464,7 +476,9 @@ if ($action) {
         $id=(int)($body['id']??0); $n=trim($body['nome']??''); $i=trim($body['ip']??'');
         $d=trim($body['descricao']??''); $u=trim($body['usuario']??'');
         $s = $body['senha'] ?? ''; $g = $body['guac_id'] ?? null;
+        $p = $body['protocolo'] ?? 'rdp';
         $c=$body['categoria']??'servidor';
+        if (!in_array($p, ['rdp','vnc'])) $p = 'rdp';
         if (!$id||!$n||!$i) { echo json_encode(['ok'=>false,'msg'=>'Preencha nome e IP']); exit; }
         if (!in_array($c, ['servidor','coletor','pc'])) $c = 'servidor';
 
@@ -487,22 +501,31 @@ if ($action) {
                 $token = $auth['authToken'] ?? '';
                 $ds = $auth['dataSource'] ?? 'mysql';
                 if ($token) {
-                    // Função auxiliar: monta payload RDP
-                    $guac_payload = function() use ($n, $i, $u, $s) {
+                    // Função auxiliar: monta payload RDP/VNC
+                    $guac_payload = function() use ($n, $i, $u, $s, $p) {
+                        $proto = $p ?? 'rdp';
+                        $params = ($proto === 'vnc')
+                            ? [
+                                'hostname' => $i, 'port' => '5900',
+                                'password' => $s, 'color-depth' => '16',
+                                'read-only' => '', 'swap-red-blue' => '',
+                                'cursor' => '',
+                              ]
+                            : [
+                                'hostname' => $i, 'port' => '3389',
+                                'username' => $u, 'password' => $s,
+                                'ignore-cert' => 'true', 'security' => 'any',
+                              ];
                         return [
                             'parentIdentifier' => 'ROOT',
                             'name' => $n,
-                            'protocol' => 'rdp',
+                            'protocol' => $proto,
                             'attributes' => [
                                 'max-connections' => '', 'max-connections-per-user' => '',
                                 'weight' => '', 'failover-only' => '',
                                 'guacd-hostname' => '', 'guacd-port' => '',
                             ],
-                            'parameters' => [
-                                'hostname' => $i, 'port' => '3389',
-                                'username' => $u, 'password' => $s,
-                                'ignore-cert' => 'true', 'security' => 'any',
-                            ],
+                            'parameters' => $params,
                         ];
                     };
 
@@ -562,13 +585,13 @@ if ($action) {
         $guac_val = ($g !== '' && $g !== null) ? (int)$g : null;
         if ($s !== '') {
             $senha_enc = $s ? rdp_encrypt($s) : null;
-            $pdo->prepare("UPDATE portal_rdp_maquinas SET nome=?,ip=?,descricao=?,usuario=?,senha=?,guac_id=?,categoria=? WHERE id=?")
-                ->execute([$n,$i,$d,$u,$senha_enc,$guac_val,$c,$id]);
+            $pdo->prepare("UPDATE portal_rdp_maquinas SET nome=?,ip=?,descricao=?,usuario=?,senha=?,protocolo=?,guac_id=?,categoria=? WHERE id=?")
+                ->execute([$n,$i,$d,$u,$senha_enc,$p,$guac_val,$c,$id]);
         } else {
-            $pdo->prepare("UPDATE portal_rdp_maquinas SET nome=?,ip=?,descricao=?,usuario=?,guac_id=?,categoria=? WHERE id=?")
-                ->execute([$n,$i,$d,$u,$guac_val,$c,$id]);
+            $pdo->prepare("UPDATE portal_rdp_maquinas SET nome=?,ip=?,descricao=?,usuario=?,protocolo=?,guac_id=?,categoria=? WHERE id=?")
+                ->execute([$n,$i,$d,$u,$p,$guac_val,$c,$id]);
         }
-        echo json_encode(['ok'=>true, 'guac_id'=>$guac_val, 'guac_log'=>$guac_log]); exit;
+        echo json_encode(['ok'=>true, 'guac_id'=>$guac_val, 'guac_log'=>$guac_log, 'protocolo'=>$p]); exit;
     }
 
     if ($action === 'delete' && isset($_GET['id'])) {
@@ -687,6 +710,9 @@ if ($action) {
     .stat-pill{background:white;border:1px solid #e5e7eb;border-radius:8px;padding:.4rem .85rem;font-size:.78rem;display:flex;align-items:center;gap:.4rem;}
     #toast-container{position:fixed;bottom:1.5rem;right:1.5rem;z-index:9999;}
     .badge-senha{display:inline-block;background:#fef3c7;color:#92400e;border-radius:10px;padding:.08rem .45rem;font-size:.6rem;font-weight:600;margin-left:.35rem;vertical-align:middle;}
+    .badge-proto{display:inline-block;border-radius:8px;padding:.08rem .4rem;font-size:.58rem;font-weight:700;margin-left:.35rem;vertical-align:middle;letter-spacing:.3px;}
+    .badge-rdp{background:#dbeafe;color:#1d4ed8;}
+    .badge-vnc{background:#ede9fe;color:#5b21b6;}
   </style>
 </head>
 <body>
@@ -722,9 +748,16 @@ if ($action) {
       <div class="modal-body">
         <input type="hidden" id="edit-id"/>
         <div class="mb-3"><label class="form-label fw-semibold">Nome</label><input type="text" class="form-control" id="edit-nome" placeholder="SRV-APP"/></div>
+        <div class="mb-3">
+          <label class="form-label fw-semibold">Protocolo <span class="text-muted small">(tipo de acesso)</span></label>
+          <select class="form-select" id="edit-protocolo" onchange="toggleProtocolo()">
+            <option value="rdp">RDP — Remote Desktop (Windows)</option>
+            <option value="vnc">VNC — Virtual Network Computing (Linux/qualquer)</option>
+          </select>
+        </div>
         <div class="mb-3"><label class="form-label fw-semibold">IP / Hostname</label><input type="text" class="form-control font-monospace" id="edit-ip" placeholder="192.168.1.x"/></div>
         <div class="mb-3"><label class="form-label fw-semibold">Descrição <span class="text-muted small">(opcional)</span></label><input type="text" class="form-control" id="edit-desc" placeholder="Servidor de aplicações..."/></div>
-        <div class="mb-3">
+        <div class="mb-3" id="campo-usuario">
           <label class="form-label fw-semibold">Usuário <span class="text-muted small">(para login automático)</span></label>
           <input type="text" class="form-control" id="edit-usuario" placeholder="marcos@grupogmais"/>
         </div>
@@ -734,7 +767,7 @@ if ($action) {
             <input type="password" class="form-control" id="edit-senha" placeholder="Deixe em branco para não salvar"/>
             <button class="btn btn-outline-secondary" type="button" onclick="toggleSenha()" style="font-size:.75rem"><i class="bi bi-eye-fill"></i></button>
           </div>
-          <div class="form-text text-muted small">Senha fica criptografada no banco. Só é descriptografada na hora de gerar o lançador automático.</div>
+          <div class="form-text text-muted small" id="senha-help">Senha fica criptografada no banco. Só é descriptografada na hora de gerar o lançador automático.</div>
         </div>
         <div class="mb-2">
           <label class="form-label fw-semibold">Categoria</label>
@@ -845,7 +878,7 @@ function renderLista(maqs) {
         <div class="maq-info">
           <div class="maq-icon" style="background:${getColor(c)};color:${getBg(c)}"><i class="${getIcon(c)}"></i></div>
           <div>
-            <div class="maq-nome">${esc(m.nome)} ${temSenha ? '<span class="badge-senha"><i class="bi bi-lock-fill"></i> auto</span>' : ''}</div>
+            <div class="maq-nome">${esc(m.nome)} ${temSenha ? '<span class="badge-senha"><i class="bi bi-lock-fill"></i> auto</span>' : ''} ${m.protocolo === 'vnc' ? '<span class="badge-proto badge-vnc">VNC</span>' : '<span class="badge-proto badge-rdp">RDP</span>'}</div>
             <div class="maq-ip">${esc(m.ip)}</div>
             ${m.descricao ? `<div class="maq-desc">${esc(m.descricao)}</div>` : ''}
             ${m.usuario ? `<div class="maq-desc" style="color:#6b7280"><i class="bi bi-person-fill me-1"></i>${esc(m.usuario)}</div>` : ''}
@@ -897,8 +930,10 @@ function toggleCategoria(cat) {
 
 function abrirModal() {
   ['edit-id','edit-nome','edit-ip','edit-desc','edit-usuario','edit-senha','edit-guac-id'].forEach(id => document.getElementById(id).value = '');
+  document.getElementById('edit-protocolo').value = 'rdp';
   document.getElementById('edit-categoria').value = 'servidor';
   document.getElementById('modal-label').innerHTML = '<i class="bi bi-plus-circle-fill me-2"></i>Nova Máquina';
+  toggleProtocolo();
   modalMaq.show();
 }
 
@@ -913,8 +948,10 @@ async function editar(id) {
   document.getElementById('edit-usuario').value = item.usuario || '';
   document.getElementById('edit-senha').value = '';
   document.getElementById('edit-guac-id').value = item.guac_id || '0';
+  document.getElementById('edit-protocolo').value = item.protocolo || 'rdp';
   document.getElementById('edit-categoria').value = item.categoria;
   document.getElementById('modal-label').innerHTML = '<i class="bi bi-pencil-fill me-2"></i>' + esc(item.nome);
+  toggleProtocolo();
   if (item.has_senha == 1) {
     document.getElementById('edit-senha').placeholder = '🔒 Mantenha em branco para não alterar';
   }
@@ -929,12 +966,13 @@ async function salvar() {
   const usuario = document.getElementById('edit-usuario').value.trim();
   const senha = document.getElementById('edit-senha').value;
   const guac_id = document.getElementById('edit-guac-id').value.trim();
+  const protocolo = document.getElementById('edit-protocolo').value;
   const categoria = document.getElementById('edit-categoria').value;
   if (!nome || !ip) { toast('Preencha nome e IP', 'danger'); return; }
   const action = id ? 'edit' : 'add';
   const r = await fetch('rdp_central.php?action=' + action, {
     method: 'POST', headers: {'Content-Type': 'application/json'},
-    body: JSON.stringify({id: parseInt(id)||0, nome, ip, descricao: desc, usuario, senha, guac_id: parseInt(guac_id)||null, categoria})
+    body: JSON.stringify({id: parseInt(id)||0, nome, ip, descricao: desc, usuario, senha, guac_id: parseInt(guac_id)||null, protocolo, categoria})
   });
   const d = await r.json();
   if (d.ok) {
@@ -958,6 +996,19 @@ async function excluir(id) {
 function toggleSenha() {
   const el = document.getElementById('edit-senha');
   el.type = el.type === 'password' ? 'text' : 'password';
+}
+
+function toggleProtocolo() {
+  const proto = document.getElementById('edit-protocolo').value;
+  const campoUser = document.getElementById('campo-usuario');
+  const helpSenha = document.getElementById('senha-help');
+  if (proto === 'vnc') {
+    campoUser.style.display = 'none';
+    if (helpSenha) helpSenha.textContent = 'Senha VNC (opcional — se deixar em branco, o Guacamole vai pedir ao conectar).';
+  } else {
+    campoUser.style.display = '';
+    if (helpSenha) helpSenha.textContent = 'Senha fica criptografada no banco. Só é descriptografada na hora de gerar o lançador automático.';
+  }
 }
 
 function esc(s) { const d = document.createElement('div'); d.textContent = s; return d.innerHTML; }

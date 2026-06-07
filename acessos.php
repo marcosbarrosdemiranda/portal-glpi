@@ -30,7 +30,7 @@ if ($pdo->query("SELECT COUNT(*) FROM portal_acessos")->fetchColumn() == 0) {
     $defaults = [
         // Acesso Remoto
         ['Remote Desktop','Área de Trabalho Remota do Windows (RDP)','remoto','rdp','','bi-display-fill','#dbeafe','#1d4ed8',1],
-        ['VNC Viewer','Acesso remoto via browser — noVNC integrado','remoto','web','vnc.php','bi-camera-video-fill','#e0e7ff','#3730a3',2],
+        ['VNC Viewer','Acesso remoto VNC no browser via Guacamole','remoto','web','rdp_central.php','bi-camera-video-fill','#e0e7ff','#3730a3',2],
         ['AnyDesk','Suporte remoto via AnyDesk','remoto','web','https://anydesk.com','bi-arrows-fullscreen','#ffedd5','#c2410c',3],
         // Infraestrutura
         ['pfSense','Firewall e roteador pfSense','infra','web','','bi-shield-fill-check','#fee2e2','#b91c1c',1],
