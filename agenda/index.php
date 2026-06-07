@@ -1,4 +1,4 @@
-﻿<?php
+<?php
 session_start();
 if (empty($_SESSION['autenticado'])) { header('Location: ../auth.php'); exit; }
 $nome_usuario  = $_SESSION['nome']    ?? $_SESSION['usuario'] ?? 'Atendente';
@@ -24,7 +24,7 @@ $user_id_sessao = (int)($_SESSION['user_id'] ?? 0);
     * { box-sizing: border-box; }
     body { margin: 0; font-family: 'Segoe UI', sans-serif; background: #f1f3f4; overflow: hidden; }
 
-    /* â”€â”€ Navbar â”€â”€ */
+    /* ── Navbar ── */
     .navbar {
       height: var(--navbar-h);
       background: #1a237e;
@@ -48,7 +48,7 @@ $user_id_sessao = (int)($_SESSION['user_id'] ?? 0);
     .nav-btn:hover { background: rgba(255,255,255,.25); }
     .nav-btn.active { background: var(--primary); }
 
-    /* BotÃµes de visÃ£o com setas embutidas */
+    /* Botões de visão com setas embutidas */
     .nav-views { display:flex; gap:4px; }
     .nav-view-btn {
       display: flex; align-items: center; gap: 4px;
@@ -83,14 +83,14 @@ $user_id_sessao = (int)($_SESSION['user_id'] ?? 0);
     }
     .atendente-filtro select option { background: #1a237e; color: white; }
 
-    /* â”€â”€ Layout principal â”€â”€ */
+    /* ── Layout principal ── */
     .layout {
       display: flex;
       height: calc(100vh - var(--navbar-h));
       margin-top: var(--navbar-h);
     }
 
-    /* â”€â”€ Sidebar â”€â”€ */
+    /* ── Sidebar ── */
     .sidebar {
       width: var(--sidebar-w);
       background: white;
@@ -182,7 +182,7 @@ $user_id_sessao = (int)($_SESSION['user_id'] ?? 0);
     #lbModal .lbx { position:absolute; top:16px; right:20px; color:#fff;
                     font-size:2rem; cursor:pointer; line-height:1; }
 
-    /* â”€â”€ Layout inline: label + campo na mesma linha â”€â”€ */
+    /* ── Layout inline: label + campo na mesma linha ── */
     #campos-evento .col-md-6,
     #campos-evento .col-inline {
       display: flex; align-items: center; gap: .5rem;
@@ -204,7 +204,7 @@ $user_id_sessao = (int)($_SESSION['user_id'] ?? 0);
     #ev-atendentes-multi { display:flex !important; flex-direction:row !important;
                            align-items:center; flex-wrap:wrap; gap:.3rem; flex:1; }
     .atendentes-multi-wrap { margin-bottom:0 !important; }
-    /* DescriÃ§Ã£o, followups e concluÃ­do ficam em coluna */
+    /* Descrição, followups e concluído ficam em coluna */
     #campo-followups,
     .col-descricao,
     .col-concluido { display: block !important; }
@@ -221,7 +221,7 @@ $user_id_sessao = (int)($_SESSION['user_id'] ?? 0);
     .urg-5 { background:#f3e5f5; color:#6a1b9a; }
     .badge-status { font-size: .68rem; border-radius: 10px; padding: .15rem .5rem; background:#f5f5f5; color:#555; }
 
-    /* â”€â”€ CalendÃ¡rio â”€â”€ */
+    /* ── Calendário ── */
     .cal-wrap {
       flex: 1;
       padding: .75rem 1rem;
@@ -243,9 +243,9 @@ $user_id_sessao = (int)($_SESSION['user_id'] ?? 0);
     .modo-leitura .form-select,
     .modo-leitura textarea { background:#f8f9fa!important; pointer-events:none; border-color:#dee2e6!important; color:#444!important; }
     .modo-leitura .form-check-input { pointer-events:none; }
-    /* Checkbox concluÃ­do sempre clicÃ¡vel mesmo em modo leitura */
+    /* Checkbox concluído sempre clicável mesmo em modo leitura */
     #ev-concluido, label[for="ev-concluido"] { pointer-events:all!important; }
-    /* BotÃ£o Responder sempre clicÃ¡vel, independente do modo */
+    /* Botão Responder sempre clicável, independente do modo */
     #btnResponder { pointer-events:all!important; opacity:1!important; }
 
     /* Drop zone de arquivos */
@@ -296,10 +296,10 @@ $user_id_sessao = (int)($_SESSION['user_id'] ?? 0);
       position: absolute; top: 18px; right: 22px;
       color: #fff; font-size: 2rem; cursor: pointer; line-height: 1;
     }
-    /* Evento multi-atendente: sÃ³ borda tracejada, mantÃ©m cor original */
+    /* Evento multi-atendente: só borda tracejada, mantém cor original */
     .ev-multi { outline: 3px dashed #f9a825 !important; outline-offset: -2px; }
     .ev-multi .fc-event-main { opacity: .95; }
-    /* Evento curto â‰¤ 20min: sem horÃ¡rio, tÃ­tulo compacto em 1 linha */
+    /* Evento curto ≤ 20min: sem horário, título compacto em 1 linha */
     .ev-short { overflow: hidden; }
     .ev-short .ev-inner { flex-wrap: nowrap; padding: 0 3px; line-height: 1.2; }
     .ev-short .ev-time  { display: none !important; }
@@ -308,12 +308,12 @@ $user_id_sessao = (int)($_SESSION['user_id'] ?? 0);
     .ev-short .ev-group-icon { font-size: .65rem; padding: 0 2px; }
     .ev-group-icon  { font-size:.8rem; background:rgba(255,255,255,.25); border-radius:4px; padding:0 3px; flex-shrink:0; }
     .ev-aviso-icon  { font-size:.85rem; flex-shrink:0; opacity:.95; }
-    /* Badge de concluÃ­do na beirada */
+    /* Badge de concluído na beirada */
     .ev-check-badge { position:absolute; top:-6px; right:-6px; width:18px; height:18px; background:#fff; border-radius:50%; display:flex; align-items:center; justify-content:center; box-shadow:0 1px 4px rgba(0,0,0,.3); }
     .ev-check-badge i { font-size:.7rem; color:#1e8e3e; font-weight:900; }
     /* REMOVIDO: .fc-event { position: relative !important; }
        Essa regra sobrescrevia o position:absolute do FullCalendar nos eventos
-       do timeGrid, fazendo o card colapsar para 25px (tamanho do conteÃºdo)
+       do timeGrid, fazendo o card colapsar para 25px (tamanho do conteúdo)
        em vez de preencher o harness corretamente (ex: 150px para 3h). */
     .fc-event { overflow: visible !important; }
 
@@ -340,7 +340,7 @@ $user_id_sessao = (int)($_SESSION['user_id'] ?? 0);
     .ev-time   { font-size: .72rem; opacity: .9; flex-shrink: 0; }
     .ev-title  { overflow: hidden; text-overflow: ellipsis; }
 
-    /* â”€â”€ Modal â”€â”€ */
+    /* ── Modal ── */
     .modal-header { border-bottom: 3px solid var(--primary); }
     .form-label { font-size: .85rem; font-weight: 600; }
     .form-control, .form-select { font-size: .85rem; }
@@ -368,7 +368,7 @@ $user_id_sessao = (int)($_SESSION['user_id'] ?? 0);
       .sidebar { width: 100%; height: 260px; }
       .layout { flex-direction: column; }
     }
-    /* â”€â”€ Google Calendar modal â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
+    /* ── Google Calendar modal ──────────────── */
     #google-info { margin-top: 12px; padding-top: 12px; border-top: 1px solid #e0e0e0; }
     .gcal-header { font-size: .8rem; color: #7b2d8e; font-weight: 700; margin-bottom: 8px; display: flex; align-items: center; gap: 6px; }
     .gcal-field { font-size: .9rem; margin-bottom: 6px; display: flex; align-items: center; gap: 6px; }
@@ -383,7 +383,7 @@ $user_id_sessao = (int)($_SESSION['user_id'] ?? 0);
 </head>
 <body>
 
-<!-- â”€â”€ Navbar â”€â”€ -->
+<!-- ── Navbar ── -->
 <div class="navbar">
   <div class="brand"><i class="bi bi-calendar3"></i> Agenda TI</div>
   <div class="spacer"></div>
@@ -396,15 +396,15 @@ $user_id_sessao = (int)($_SESSION['user_id'] ?? 0);
     </select>
   </div>
 
-  <!-- BotÃ£o Hoje separado -->
+  <!-- Botão Hoje separado -->
   <button class="nav-btn" onclick="calendar.today()" title="Voltar para hoje">
     <i class="bi bi-calendar-check me-1"></i>Hoje
   </button>
 
-  <!-- BotÃµes de visÃ£o com navegaÃ§Ã£o embutida no ativo -->
+  <!-- Botões de visão com navegação embutida no ativo -->
   <div class="nav-views">
     <div class="nav-view-btn" id="vbtn-month" onclick="calView('dayGridMonth')">
-      <i class="bi bi-calendar-month"></i> MÃªs
+      <i class="bi bi-calendar-month"></i> Mês
       <span class="nav-arrows" id="arrows-month">
         <button onclick="event.stopPropagation();calendar.prev()"><i class="bi bi-chevron-left"></i></button>
         <button onclick="event.stopPropagation();calendar.next()"><i class="bi bi-chevron-right"></i></button>
@@ -430,7 +430,7 @@ $user_id_sessao = (int)($_SESSION['user_id'] ?? 0);
   </button>
   <!-- Menu hamburguer -->
   <div style="position:relative;margin-left:.25rem" id="menu-wrap">
-    <button class="nav-btn" onclick="toggleMenu()" id="btn-menu" title="Mais opÃ§Ãµes">
+    <button class="nav-btn" onclick="toggleMenu()" id="btn-menu" title="Mais opções">
       <i class="bi bi-three-dots-vertical"></i>
     </button>
     <div id="dropdown-menu" style="display:none;position:absolute;top:calc(100% + 6px);right:0;background:white;border-radius:10px;box-shadow:0 4px 20px rgba(0,0,0,.18);min-width:190px;z-index:999;overflow:hidden">
@@ -442,10 +442,10 @@ $user_id_sessao = (int)($_SESSION['user_id'] ?? 0);
       </div>
     </div>
   </div>
-  <a href="../dashboard.php" class="nav-btn ms-1"><i class="bi bi-grid me-1"></i>InÃ­cio</a>
+  <a href="../dashboard.php" class="nav-btn ms-1"><i class="bi bi-grid me-1"></i>Início</a>
 </div>
 
-<!-- â”€â”€ Layout â”€â”€ -->
+<!-- ── Layout ── -->
 <div class="layout">
 
   <!-- Sidebar: chamados GLPI -->
@@ -463,10 +463,10 @@ $user_id_sessao = (int)($_SESSION['user_id'] ?? 0);
     <div class="filtros">
       <input type="text" id="filtro-texto" placeholder="ðŸ” Buscar chamado..." oninput="filtrarTickets()"/>
       <select id="filtro-urgencia" onchange="filtrarTickets()">
-        <option value="">Todas as urgÃªncias</option>
+        <option value="">Todas as urgências</option>
         <option value="muito baixa">Muito Baixa</option>
         <option value="baixa">Baixa</option>
-        <option value="mÃ©dia">MÃ©dia</option>
+        <option value="média">Média</option>
         <option value="alta">Alta</option>
         <option value="muito alta">Muito Alta</option>
       </select>
@@ -495,16 +495,16 @@ $user_id_sessao = (int)($_SESSION['user_id'] ?? 0);
     <div class="tp-id" id="tpId"></div>
     <div class="tp-titulo" id="tpTitulo"></div>
     <div class="tp-meta" id="tpMeta"></div>
-    <div class="tp-descricao" id="tpDescricao">Sem descriÃ§Ã£o</div>
+    <div class="tp-descricao" id="tpDescricao">Sem descrição</div>
   </div>
 
-  <!-- CalendÃ¡rio -->
+  <!-- Calendário -->
   <div class="cal-wrap">
     <div id="calendar"></div>
   </div>
 </div>
 
-<!-- â”€â”€ Modal: Criar/Editar Evento â”€â”€ -->
+<!-- ── Modal: Criar/Editar Evento ── -->
 <div class="modal fade" id="modalEvento" tabindex="-1">
   <div class="modal-dialog modal-lg">
     <div class="modal-content">
@@ -522,12 +522,12 @@ $user_id_sessao = (int)($_SESSION['user_id'] ?? 0);
             <label class="form-label">Tipo</label>
             <select class="form-select" id="ev-tipo" onchange="ajustarDuracaoPorTipo(); ajustarCamposPorTipo()">
               <option value="chamado" selected>ðŸŽ« Chamado GLPI</option>
-              <option value="requisicao">ðŸ“‹ RequisiÃ§Ã£o GLPI</option>
-              <option value="reuniao">ðŸ‘¥ ReuniÃ£o</option>
+              <option value="requisicao">ðŸ“‹ Requisição GLPI</option>
+              <option value="reuniao">ðŸ‘¥ Reunião</option>
               <option value="evento">ðŸ“… Evento</option>
             </select>
           </div>
-          <!-- Banner modo leitura â€” mesma linha que Tipo -->
+          <!-- Banner modo leitura — mesma linha que Tipo -->
           <div class="col-md-6 d-flex align-items-center" id="banner-readonly" style="display:none!important">
             <div class="d-flex align-items-center justify-content-between w-100 px-3 py-2 rounded" style="background:#fff8e1;border:1px solid #ffc107;font-size:.82rem;">
               <span><i class="bi bi-lock-fill text-warning me-1"></i>Modo leitura</span>
@@ -537,15 +537,15 @@ $user_id_sessao = (int)($_SESSION['user_id'] ?? 0);
             </div>
           </div>
           <div class="col-12 col-inline">
-            <label class="form-label">TÃ­tulo <span class="text-danger">*</span></label>
+            <label class="form-label">Título <span class="text-danger">*</span></label>
             <input type="text" class="form-control" id="ev-titulo" placeholder="Ex: Atendimento servidor"/>
           </div>
           <div class="col-md-4">
-            <label class="form-label">InÃ­cio <span class="text-danger">*</span></label>
+            <label class="form-label">Início <span class="text-danger">*</span></label>
             <input type="datetime-local" class="form-control" id="ev-start" oninput="aoMudarInicio()"/>
           </div>
           <div class="col-md-3">
-            <label class="form-label">DuraÃ§Ã£o</label>
+            <label class="form-label">Duração</label>
             <select class="form-select" id="ev-duracao" onchange="aoMudarDuracao()">
               <option value="900000">15 min</option>
               <option value="1800000" selected>30 min</option>
@@ -602,14 +602,14 @@ $user_id_sessao = (int)($_SESSION['user_id'] ?? 0);
             <label class="form-label">Prioridade</label>
             <select class="form-select" id="ev-prioridade">
               <option value="baixa">ðŸŸ¢ Baixa</option>
-              <option value="media" selected>ðŸŸ¡ MÃ©dia</option>
+              <option value="media" selected>ðŸŸ¡ Média</option>
               <option value="alta">ðŸ”´ Alta</option>
-              <option value="critica">ðŸŸ£ CrÃ­tica</option>
+              <option value="critica">ðŸŸ£ Crítica</option>
             </select>
           </div>
           <input type="hidden" id="ev-setor"/>
           <div class="col-12 col-descricao">
-            <label class="form-label" id="label-descricao">DescriÃ§Ã£o <span class="text-danger" id="star-descricao">*</span></label>
+            <label class="form-label" id="label-descricao">Descrição <span class="text-danger" id="star-descricao">*</span></label>
             <textarea class="form-control" id="ev-descricao" rows="3" placeholder="Detalhes do evento..."></textarea>
           </div>
           <div class="col-12" id="campo-followups" style="display:none">
@@ -624,13 +624,13 @@ $user_id_sessao = (int)($_SESSION['user_id'] ?? 0);
             </label>
             <div id="ev-anexos" class="anexo-grid"></div>
           </div>
-          <!-- Anexos na criaÃ§Ã£o/ediÃ§Ã£o -->
+          <!-- Anexos na criação/edição -->
           <div class="col-12" id="campo-anexos-criar">
             <label class="form-label fw-semibold">Anexar arquivos (imagens, docs, prints)</label>
             <div class="drop-zone" id="dropZoneCriar" onclick="document.getElementById('ev-arquivos').click()">
               <i class="bi bi-cloud-upload fs-3 text-muted"></i>
               <p class="mb-0 text-muted small">Clique ou arraste arquivos aqui</p>
-              <p class="mb-0 text-muted" style="font-size:.75rem"><kbd>Ctrl+V</kbd> para colar imagem da Ã¡rea de transferÃªncia</p>
+              <p class="mb-0 text-muted" style="font-size:.75rem"><kbd>Ctrl+V</kbd> para colar imagem da área de transferência</p>
               <input type="file" id="ev-arquivos" multiple accept="image/*,.pdf,.doc,.docx,.txt,.zip,.xls,.xlsx" class="d-none" onchange="listarArquivosCriar()"/>
             </div>
             <div id="lista-arquivos-criar" class="mt-2 d-flex flex-wrap gap-2"></div>
@@ -639,21 +639,21 @@ $user_id_sessao = (int)($_SESSION['user_id'] ?? 0);
             <div class="form-check form-switch">
               <input class="form-check-input" type="checkbox" id="ev-concluido" onchange="atualizarPreviewCor(); mostrarSalvarSeConcluido(); toggleFecharGlpi()"/>
               <label class="form-check-label fw-semibold" for="ev-concluido">
-                âœ… Marcar como concluÃ­do (ficarÃ¡ verde na agenda)
+                ✅ Marcar como concluído (ficará verde na agenda)
               </label>
             </div>
             <div id="campo-fechar-glpi" style="display:none" class="mt-2 ms-4">
               <div class="form-check">
                 <input class="form-check-input" type="checkbox" id="ev-fechar-glpi"/>
                 <label class="form-check-label text-danger fw-semibold" for="ev-fechar-glpi">
-                  ðŸ”’ Fechar chamado no GLPI (perÃ­odo final)
+                  🔒 Fechar chamado no GLPI (período final)
                 </label>
               </div>
             </div>
           </div>
         </div>
 
-        <!-- Painel de informaÃ§Ãµes do Google Calendar (eventos somente-leitura) -->
+        <!-- Painel de informações do Google Calendar (eventos somente-leitura) -->
         <div id="google-info" class="row g-2" style="display:none">
           <div class="col-12">
             <div class="gcal-header">
@@ -667,7 +667,7 @@ $user_id_sessao = (int)($_SESSION['user_id'] ?? 0);
           <div class="col-12">
             <div id="gcal-meet" class="gcal-field" style="display:none">
               <i class="bi bi-camera-video"></i>
-              <a id="gcal-meet-link" href="#" target="_blank" rel="noopener">Abrir reuniÃ£o</a>
+              <a id="gcal-meet-link" href="#" target="_blank" rel="noopener">Abrir reunião</a>
             </div>
           </div>
           <div class="col-12">
@@ -677,7 +677,7 @@ $user_id_sessao = (int)($_SESSION['user_id'] ?? 0);
             </div>
           </div>
           <div class="col-12">
-            <div class="gcal-subtitle"><i class="bi bi-card-text"></i> DescriÃ§Ã£o</div>
+            <div class="gcal-subtitle"><i class="bi bi-card-text"></i> Descrição</div>
             <div id="gcal-descricao" class="gcal-descricao"></div>
           </div>
         </div>
@@ -690,7 +690,7 @@ $user_id_sessao = (int)($_SESSION['user_id'] ?? 0);
           <i class="bi bi-reply-fill me-1"></i>Responder Chamado
         </button>
         <button class="btn btn-outline-primary" id="btnNovoPeriodo" onclick="novoPeriodo()" style="display:none">
-          <i class="bi bi-plus-circle me-1"></i>Novo perÃ­odo
+          <i class="bi bi-plus-circle me-1"></i>Novo período
         </button>
         <button class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
         <button class="btn btn-primary" onclick="salvarEvento()">
@@ -701,7 +701,7 @@ $user_id_sessao = (int)($_SESSION['user_id'] ?? 0);
   </div>
 </div>
 
-<!-- â”€â”€ Modal: Responder Chamado â”€â”€ -->
+<!-- ── Modal: Responder Chamado ── -->
 <div class="modal fade" id="modalResposta" tabindex="-1">
   <div class="modal-dialog modal-lg">
     <div class="modal-content">
@@ -724,7 +724,7 @@ $user_id_sessao = (int)($_SESSION['user_id'] ?? 0);
         <div class="mb-3">
           <label class="form-label fw-semibold">Resposta / Acompanhamento <span class="text-danger">*</span></label>
           <textarea id="resp-texto" class="form-control" rows="6"
-            placeholder="Descreva o que foi feito, orientaÃ§Ãµes ao usuÃ¡rio, prÃ³ximos passos..."></textarea>
+            placeholder="Descreva o que foi feito, orientações ao usuário, próximos passos..."></textarea>
         </div>
 
         <!-- Anexos -->
@@ -733,7 +733,7 @@ $user_id_sessao = (int)($_SESSION['user_id'] ?? 0);
           <div class="drop-zone" id="dropZone" onclick="document.getElementById('resp-arquivos').click()">
             <i class="bi bi-cloud-upload fs-3 text-muted"></i>
             <p class="mb-0 text-muted small">Clique ou arraste arquivos aqui</p>
-            <p class="mb-0 text-muted" style="font-size:.75rem"><kbd>Ctrl+V</kbd> para colar imagem da Ã¡rea de transferÃªncia</p>
+            <p class="mb-0 text-muted" style="font-size:.75rem"><kbd>Ctrl+V</kbd> para colar imagem da área de transferência</p>
             <input type="file" id="resp-arquivos" multiple accept="image/*,.pdf,.doc,.docx,.txt,.zip,.xls,.xlsx" class="d-none" onchange="listarArquivos()"/>
           </div>
           <div id="lista-arquivos" class="mt-2 d-flex flex-wrap gap-2"></div>
@@ -743,7 +743,7 @@ $user_id_sessao = (int)($_SESSION['user_id'] ?? 0);
         <div class="form-check form-switch me-auto">
           <input class="form-check-input" type="checkbox" id="resp-concluido"/>
           <label class="form-check-label fw-semibold" for="resp-concluido">
-            âœ… Marcar como concluÃ­do (ficarÃ¡ verde na agenda)
+            ✅ Marcar como concluído (ficará verde na agenda)
           </label>
         </div>
         <button class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
@@ -755,7 +755,7 @@ $user_id_sessao = (int)($_SESSION['user_id'] ?? 0);
   </div>
 </div>
 
-<!-- â”€â”€ Modal: Selecionar Atendentes (drag em visÃ£o "Todos") â”€â”€ -->
+<!-- ── Modal: Selecionar Atendentes (drag em visão "Todos") ── -->
 <div class="modal fade" id="modalAtendentes" tabindex="-1" data-bs-backdrop="static">
   <div class="modal-dialog modal-sm">
     <div class="modal-content">
@@ -786,34 +786,34 @@ $user_id_sessao = (int)($_SESSION['user_id'] ?? 0);
 <script src="https://cdn.jsdelivr.net/npm/fullcalendar@6.1.11/locales/pt-br.global.min.js"></script>
 
 <script>
-// Dados do usuÃ¡rio logado (via PHP session)
+// Dados do usuário logado (via PHP session)
 const USUARIO_LOGADO_NOME   = <?= json_encode($nome_usuario) ?>;
 const USUARIO_LOGADO_ID     = <?= json_encode($user_id_sessao) ?>;
 
-// â”€â”€ Gabarito visual de entidades â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ── Gabarito visual de entidades ─────────────────────────────────────────────
 // Muda APENAS o texto exibido no select. O value (nome real) e o data-id
-// continuam intactos â€” o GLPI recebe o nome original sem nenhuma alteraÃ§Ã£o.
+// continuam intactos — o GLPI recebe o nome original sem nenhuma alteração.
 const ALIAS_ENTIDADES = {
   'Entidade raiz > Grupo Gmais':                                     'Grupo Gmais',
   'Entidade raiz > Grupo Gmais > Gmais ADM':                         'Lj 101',
-  'Entidade raiz > Grupo Gmais > RincÃ£o Atacadista - BTO':           'Lj 030',
+  'Entidade raiz > Grupo Gmais > Rincão Atacadista - BTO':           'Lj 030',
   'Entidade raiz > Grupo Gmais > Supermercado Express - BTO':         'Lj 010',
   'Entidade raiz > Grupo Gmais > Supermercado Santos - BTO':         'Lj 001',
   'Entidade raiz > Grupo Gmais > Supermercado Santos - JDM':         'Lj 003',
 };
 
-/** Retorna o alias visual da entidade, ou o nome original se nÃ£o hÃ¡ mapeamento. */
+/** Retorna o alias visual da entidade, ou o nome original se não há mapeamento. */
 function apelidoEntidade(nome) {
   return ALIAS_ENTIDADES[nome] ?? nome;
 }
 
-/** Reduz nome completo do atendente para "Primeiro InÃ­cialSobrenome."
- *  Ex: "Barros de Miranda Marcos" â†’ "Marcos B."
- *      "Lima Cavalheiro Celso"    â†’ "Celso L."
- *      "Agnelo Felix"             â†’ "Felix A."  */
+/** Reduz nome completo do atendente para "Primeiro InícialSobrenome."
+ *  Ex: "Barros de Miranda Marcos" → "Marcos B."
+ *      "Lima Cavalheiro Celso"    → "Celso L."
+ *      "Agnelo Felix"             → "Felix A."  */
 function apelidoAtendente(nome) {
   const p = nome.trim().split(/\s+/);
-  return p[p.length - 1] || nome; // Ãºltima palavra = primeiro nome no GLPI
+  return p[p.length - 1] || nome; // última palavra = primeiro nome no GLPI
 }
 
 function toast(msg, type = 'success') {
@@ -837,21 +837,21 @@ let modalEvento;
 let modalAtendentes;
 let atendentes      = [];
 let filtroAtendente = '';
-let _dropPendente   = null; // dados do drop aguardando seleÃ§Ã£o de atendente
-let _inEventReceive = false; // bloqueia eventChange durante mutaÃ§Ãµes do eventReceive
-let _dropCache      = {};   // id â†’ dados do drop; fallback de extendedProps no eventChange
+let _dropPendente   = null; // dados do drop aguardando seleção de atendente
+let _inEventReceive = false; // bloqueia eventChange durante mutações do eventReceive
+let _dropCache      = {};   // id → dados do drop; fallback de extendedProps no eventChange
 
-// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ──────────────────────────────────────────
 // Cores por prioridade
-// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-// âš ï¸ CORES FIXAS â€” NÃƒO ALTERAR âš ï¸
+// ──────────────────────────────────────────
+// âš ï¸ CORES FIXAS — N?ƒO ALTERAR âš ï¸
 const COR_TIPO = {
   evento:     { bg: '#1a73e8', border: '#1558b0' }, // Azul
   requisicao: { bg: '#e67c00', border: '#b35f00' }, // Laranja
   reuniao:    { bg: '#7b1fa2', border: '#4a148c' }, // Roxo
   chamado:    { bg: '#d93025', border: '#a52218' }, // Vermelho
   concluido:  { bg: '#1e8e3e', border: '#155a2e' }, // Verde
-  atrasado:   { bg: '#f9a825', border: '#c6790a' }, // Amarelo (atrasado/nÃ£o concluÃ­do)
+  atrasado:   { bg: '#f9a825', border: '#c6790a' }, // Amarelo (atrasado/não concluído)
 };
 
 function corDoEvento(tipo, concluido, atrasado) {
@@ -865,13 +865,13 @@ function estaAtrasado(end, concluido) {
   return end && new Date(end) < new Date();
 }
 
-// Mantido para compatibilidade com urgÃªncia na sidebar
+// Mantido para compatibilidade com urgência na sidebar
 const COR_PRIORIDADE = COR_TIPO;
-const COR_URG = { 'muito baixa':'urg-1','baixa':'urg-2','mÃ©dia':'urg-3','alta':'urg-4','muito alta':'urg-5' };
+const COR_URG = { 'muito baixa':'urg-1','baixa':'urg-2','média':'urg-3','alta':'urg-4','muito alta':'urg-5' };
 
-// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ──────────────────────────────────────────
 // Init FullCalendar
-// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ──────────────────────────────────────────
 document.addEventListener('DOMContentLoaded', function() {
   modalEvento     = new bootstrap.Modal(document.getElementById('modalEvento'));
   modalAtendentes = new bootstrap.Modal(document.getElementById('modalAtendentes'));
@@ -886,7 +886,7 @@ document.addEventListener('DOMContentLoaded', function() {
     adicionarArquivos(e.dataTransfer.files);
   });
 
-  // Colar imagem da Ã¡rea de transferÃªncia (Ctrl+V no modal de resposta)
+  // Colar imagem da área de transferência (Ctrl+V no modal de resposta)
   document.getElementById('modalResposta').addEventListener('paste', e => {
     colarImagemClipboard(e);
   });
@@ -894,7 +894,7 @@ document.addEventListener('DOMContentLoaded', function() {
     if (colarImagemClipboard(e)) { e.preventDefault(); e.stopPropagation(); }
   });
 
-  // Drag & drop na drop zone de anexos da criaÃ§Ã£o
+  // Drag & drop na drop zone de anexos da criação
   const dzCriar = document.getElementById('dropZoneCriar');
   dzCriar.addEventListener('dragover',  e => { e.preventDefault(); dzCriar.classList.add('dragover'); });
   dzCriar.addEventListener('dragleave', () => dzCriar.classList.remove('dragover'));
@@ -903,7 +903,7 @@ document.addEventListener('DOMContentLoaded', function() {
     adicionarArquivosCriar(e.dataTransfer.files);
   });
 
-  // Colar imagem da Ã¡rea de transferÃªncia (Ctrl+V no modal do evento)
+  // Colar imagem da área de transferência (Ctrl+V no modal do evento)
   document.getElementById('modalEvento').addEventListener('paste', e => {
     if (e.target.closest('#dropZoneCriar') || e.target.closest('#lista-arquivos-criar') || e.target.closest('#ev-descricao')) {
       colarImagemClipboardCriar(e);
@@ -917,7 +917,7 @@ document.addEventListener('DOMContentLoaded', function() {
     allDayText: 'Dia Inteiro',
     dayHeaderContent: function(arg) {
       const d    = arg.date;
-      const dias = ['Dom','Seg','Ter','Qua','Qui','Sex','SÃ¡b'];
+      const dias = ['Dom','Seg','Ter','Qua','Qui','Sex','Sáb'];
       const dia  = String(d.getDate()).padStart(2,'0');
       const mes  = String(d.getMonth()+1).padStart(2,'0');
       return dias[d.getDay()] + ' ' + dia + '/' + mes;
@@ -934,17 +934,17 @@ document.addEventListener('DOMContentLoaded', function() {
     editable: true,
     droppable: true,
 
-    // âš ï¸ REGRA PROTEGIDA â€” NÃƒO ALTERAR SEM PERMISSÃƒO DO RESPONSÃVEL âš ï¸
-    // CriaÃ§Ã£o de eventos sÃ³ Ã© permitida em datas de hoje em diante.
+    // âš ï¸ REGRA PROTEGIDA — N?ƒO ALTERAR SEM PERMISS?ƒO DO RESPONSÁVEL âš ï¸
+    // Criação de eventos só é permitida em datas de hoje em diante.
     dateClick(info) {
       if (dataNoPassado(info.date)) {
-        toast('âš ï¸ NÃ£o Ã© possÃ­vel agendar em datas passadas.', 'danger');
+        toast('âš ï¸ Não é possível agendar em datas passadas.', 'danger');
         return;
       }
       abrirModalEvento(info.dateStr);
     },
 
-    // Clique em evento existente â†’ editar
+    // Clique em evento existente → editar
     eventClick(info) {
       editarEvento(info.event);
     },
@@ -953,18 +953,18 @@ document.addEventListener('DOMContentLoaded', function() {
     eventReceive(info) {
       const ev    = info.event;
       const props = ev.extendedProps;
-      const urg   = props.urgencia || 'mÃ©dia';
+      const urg   = props.urgencia || 'média';
       const setor = props.setor    || '';
       document.querySelectorAll('.ticket-card.dragging').forEach(c => c.classList.remove('dragging'));
 
       const start = new Date(ev.start);
 
-      // âš ï¸ REGRA PROTEGIDA â€” NÃƒO ALTERAR SEM PERMISSÃƒO DO RESPONSÃVEL âš ï¸
-      // Chamados arrastados do sidebar nÃ£o podem ser soltos em datas passadas.
+      // âš ï¸ REGRA PROTEGIDA — N?ƒO ALTERAR SEM PERMISS?ƒO DO RESPONSÁVEL âš ï¸
+      // Chamados arrastados do sidebar não podem ser soltos em datas passadas.
       if (dataNoPassado(start)) {
         ev.remove();
         document.querySelectorAll('.ticket-card.dragging').forEach(c => c.classList.remove('dragging'));
-        toast('âš ï¸ NÃ£o Ã© possÃ­vel agendar em datas passadas.', 'danger');
+        toast('âš ï¸ Não é possível agendar em datas passadas.', 'danger');
         return;
       }
 
@@ -972,7 +972,7 @@ document.addEventListener('DOMContentLoaded', function() {
       const prioridade = urgToProioridade(urg);
       const cor        = corDoEvento('chamado', false);
 
-      // Suprime eventChange enquanto aplicamos as mutaÃ§Ãµes visuais ao evento
+      // Suprime eventChange enquanto aplicamos as mutações visuais ao evento
       _inEventReceive = true;
       ev.setEnd(end);
       ev.setProp('backgroundColor', cor.bg);
@@ -998,38 +998,38 @@ document.addEventListener('DOMContentLoaded', function() {
       ev.setProp('id', dados.id);
       _inEventReceive = false;
 
-      // VisÃ£o de atendente especÃ­fico â†’ atribui direto
+      // Visão de atendente específico → atribui direto
       const atendenteAtivo = atendentes.find(a => a.nome === filtroAtendente);
       if (atendenteAtivo) {
         dados.atendente     = atendenteAtivo.nome;
         dados.atendente_id  = atendenteAtivo.id;
         dados.atendente_cor = atendenteAtivo.cor;
-        // Guarda cache: extendedProps do drop ficam vazios no FC atÃ© o prÃ³ximo refetch;
-        // o cache Ã© o fallback no eventChange para resizes antes do refetch
+        // Guarda cache: extendedProps do drop ficam vazios no FC até o próximo refetch;
+        // o cache é o fallback no eventChange para resizes antes do refetch
         _dropCache[dados.id] = { ...dados };
         salvarEventoObj(dados, () => carregarTickets());
         return;
       }
 
-      // VisÃ£o "Todos" â†’ remove fantasma e pergunta para quem atribuir
+      // Visão "Todos" → remove fantasma e pergunta para quem atribuir
       ev.remove();
       _dropPendente = dados;
       abrirModalAtendentes();
     },
 
-    // âš ï¸ REGRA PROTEGIDA â€” NÃƒO ALTERAR SEM PERMISSÃƒO DO RESPONSÃVEL âš ï¸
+    // âš ï¸ REGRA PROTEGIDA — N?ƒO ALTERAR SEM PERMISS?ƒO DO RESPONSÁVEL âš ï¸
     // Nenhum evento pode ser movido/solto em datas anteriores ao dia atual.
-    // Eventos concluÃ­dos jÃ¡ sÃ£o bloqueados antes via editable:false (nÃ£o chegam aqui).
+    // Eventos concluídos já são bloqueados antes via editable:false (não chegam aqui).
     eventAllow(dropInfo) {
       return !dataNoPassado(dropInfo.start);
     },
 
-    // Evento movido/redimensionado â†’ salva automaticamente
+    // Evento movido/redimensionado → salva automaticamente
     eventChange(info) {
-      if (_inEventReceive) return; // ignora mutaÃ§Ãµes programÃ¡ticas do eventReceive
+      if (_inEventReceive) return; // ignora mutações programáticas do eventReceive
       const ev = info.event;
-      // Fallback: extendedProps de evento recÃ©m-arrastado ficam vazios no FC
-      // atÃ© o prÃ³ximo refetch; o cache do drop preserva os dados corretos
+      // Fallback: extendedProps de evento recém-arrastado ficam vazios no FC
+      // até o próximo refetch; o cache do drop preserva os dados corretos
       const c = _dropCache[ev.id] || {};
       salvarEventoObj({
         id:            ev.id,
@@ -1046,7 +1046,7 @@ document.addEventListener('DOMContentLoaded', function() {
         ticket_id:     ev.extendedProps.ticket_id     || c.ticket_id     || null,
         tipo:          ev.extendedProps.tipo          || c.tipo          || 'chamado',
         concluido:     ev.extendedProps.concluido     ? 1 : (c.concluido ?? 0),
-        _only_reposition: true, // nÃ£o cria followup no GLPI ao reposicionar (ticket pode estar fechado)
+        _only_reposition: true, // não cria followup no GLPI ao reposicionar (ticket pode estar fechado)
       }, () => carregarTickets());
     },
 
@@ -1055,15 +1055,15 @@ document.addEventListener('DOMContentLoaded', function() {
     eventClassNames(arg) {
       const classes  = [];
       const props    = arg.event.extendedProps;
-      // Tracejado amarelo sÃ³ quando hÃ¡ 2+ atendentes
+      // Tracejado amarelo só quando há 2+ atendentes
       if (props.multi && (props.atendentes || []).length >= 2) classes.push('ev-multi');
-      // Evento curto: â‰¤ 20 minutos
+      // Evento curto: ≤ 20 minutos
       const dur = arg.event.end ? (arg.event.end - arg.event.start) : 0;
       if (dur > 0 && dur <= 20 * 60 * 1000) classes.push('ev-short');
       return classes;
     },
 
-    // Renderiza Ã­cone + tÃ­tulo no evento
+    // Renderiza ícone + título no evento
     eventContent(arg) {
       const props     = arg.event.extendedProps;
       const c         = _dropCache[arg.event.id] || {};
@@ -1076,18 +1076,18 @@ document.addEventListener('DOMContentLoaded', function() {
         reuniao:    'bi-people-fill',
         chamado:    'bi-headset',
       };
-      // Usa sempre o Ã­cone do tipo; o check aparece sÃ³ no badge da beirada
+      // Usa sempre o ícone do tipo; o check aparece só no badge da beirada
       const icone = icones[tipo] || 'bi-calendar-event';
-      const timeText = ''; // HorÃ¡rio oculto no evento â€” visÃ­vel na barra lateral
+      const timeText = ''; // Horário oculto no evento — visível na barra lateral
       const nAtendentes = (props.atendentes || []).length;
       const grupoTag = (multi && nAtendentes >= 2)
-        ? `<span class="ev-group-icon" title="AtribuÃ­do a: ${props.atendentes.join(', ')}"><i class="bi bi-people-fill"></i> ${nAtendentes}</span>`
+        ? `<span class="ev-group-icon" title="Atribuído a: ${props.atendentes.join(', ')}"><i class="bi bi-people-fill"></i> ${nAtendentes}</span>`
         : '';
       const checkBadge = concluido
         ? `<span class="ev-check-badge"><i class="bi bi-check-lg"></i></span>`
         : '';
       const avisoTag = props.atrasado
-        ? `<span class="ev-aviso-icon" title="Atrasado â€” nÃ£o concluÃ­do no prazo"><i class="bi bi-exclamation-triangle-fill"></i></span>`
+        ? `<span class="ev-aviso-icon" title="Atrasado — não concluído no prazo"><i class="bi bi-exclamation-triangle-fill"></i></span>`
         : '';
       return {
         html: `<div class="ev-inner">
@@ -1103,9 +1103,9 @@ document.addEventListener('DOMContentLoaded', function() {
 
   calendar.render();
 
-  // â”€â”€ Destaque visual: horÃ¡rios de plantÃ£o (fundo cinza claro na grade) â”€â”€
-  // As cÃ©lulas dos horÃ¡rios 06-07h, 11-13h e 17-22h recebem fundo cinza
-  // para indicar perÃ­odos cobertos por plantonistas.
+  // ── Destaque visual: horários de plantão (fundo cinza claro na grade) ──
+  // As células dos horários 06-07h, 11-13h e 17-22h recebem fundo cinza
+  // para indicar períodos cobertos por plantonistas.
   // Gera via JS para acompanhar a granularidade dos slots (15 min).
   (function() {
     const RANGES = [[6,7],[11,13],[17,22]];
@@ -1123,19 +1123,19 @@ document.addEventListener('DOMContentLoaded', function() {
     document.head.appendChild(style);
   })();
 
-  // â”€â”€ AlmoÃ§o: cÃ©lulas compactas (11h-13h) â”€â”€
+  // ── Almoço: células compactas (11h-13h) ──
   aplicarCompactacaoAlmoco();
 
   carregarAtendentes();
-  // verificarAtrasados â†’ syncRotinas â†’ refetchEvents + carregarTickets (sequencial)
-  // evita race condition onde refetchEvents do verificar removeria rotinas recÃ©m-inseridas
+  // verificarAtrasados → syncRotinas → refetchEvents + carregarTickets (sequencial)
+  // evita race condition onde refetchEvents do verificar removeria rotinas recém-inseridas
   verificarAtrasados();
 });
 
-// â”€â”€ AlmoÃ§o: cÃ©lulas compactas (11h-13h) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ── Almoço: células compactas (11h-13h) ───────────────────────
 // Reduz altura dos slots 11h-13h pela metade via JS inline !important.
-// style.setProperty('height', '...', 'important') â†’ inline important
-// que nada sobrescreve â€” resistente a re-renders do FullCalendar.
+// style.setProperty('height', '...', 'important') → inline important
+// que nada sobrescreve — resistente a re-renders do FullCalendar.
 function aplicarCompactacaoAlmoco() {
   const SEL_TBODY = '.fc-timegrid-slots table tbody';
   function comprimir() {
@@ -1151,7 +1151,7 @@ function aplicarCompactacaoAlmoco() {
     }
   }
   setTimeout(comprimir, 50);
-  // Reaplica em re-renders (troca de view, navegaÃ§Ã£o, redim)
+  // Reaplica em re-renders (troca de view, navegação, redim)
   const obs = new MutationObserver(comprimir);
   const alvo = document.querySelector('.fc-timegrid-slots');
   if (alvo) obs.observe(alvo, { childList: true, subtree: true });
@@ -1162,9 +1162,9 @@ function aplicarCompactacaoAlmoco() {
   });
 }
 
-// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ──────────────────────────────────────────
 // Carregar eventos da agenda (PHP)
-// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ──────────────────────────────────────────
 function carregarEventos(info, success) {
   fetch('eventos.php?action=list')
     .then(r => r.json())
@@ -1174,8 +1174,8 @@ function carregarEventos(info, success) {
         const atrasado  = estaAtrasado(e.end, concluido);
         const cor = corDoEvento(e.tipo, concluido, atrasado);
         // FullCalendar 6 exige formato ISO 8601 com 'T' para interpretar como
-        // horÃ¡rio LOCAL. Sem o 'T', o parser trata como UTC â†’ end fica errado
-        // e o evento colapsa para a altura mÃ­nima do slot (parecendo 30 min).
+        // horário LOCAL. Sem o 'T', o parser trata como UTC → end fica errado
+        // e o evento colapsa para a altura mínima do slot (parecendo 30 min).
         const fcStart = (e.start || '').replace(' ', 'T');
         const fcEnd   = (e.end   || e.start || '').replace(' ', 'T');
         return {
@@ -1185,8 +1185,8 @@ function carregarEventos(info, success) {
           end:   fcEnd,
           backgroundColor: cor.bg,
           borderColor: cor.border,
-          // âš ï¸ REGRA PROTEGIDA â€” NÃƒO ALTERAR SEM PERMISSÃƒO DO RESPONSÃVEL âš ï¸
-          // Eventos concluÃ­dos (verde) sÃ£o somente-leitura: nÃ£o podem ser arrastados nem redimensionados.
+          // âš ï¸ REGRA PROTEGIDA — N?ƒO ALTERAR SEM PERMISS?ƒO DO RESPONSÁVEL âš ï¸
+          // Eventos concluídos (verde) são somente-leitura: não podem ser arrastados nem redimensionados.
           editable: !concluido,
           extendedProps: {
             descricao:    e.descricao,
@@ -1202,7 +1202,7 @@ function carregarEventos(info, success) {
           }
         };
       });
-      // Log para depuraÃ§Ã£o multi-atendente
+      // Log para depuração multi-atendente
       if (todosEventos.some(e => e.extendedProps.ticket_id)) {
         const porAtendente = {};
         todosEventos.forEach(e => {
@@ -1218,17 +1218,17 @@ function carregarEventos(info, success) {
 }
 
 function eventosFiltrados() {
-  // âš ï¸ REGRA PROTEGIDA â€” NÃƒO ALTERAR SEM PERMISSÃƒO DO RESPONSÃVEL âš ï¸
+  // âš ï¸ REGRA PROTEGIDA — N?ƒO ALTERAR SEM PERMISS?ƒO DO RESPONSÁVEL âš ï¸
   // Visibilidade por atendente:
-  //   - Eventos (ativos ou concluÃ­dos) sÃ³ aparecem na agenda do atendente que os possui.
-  //   - ConcluÃ­dos sem atendente (histÃ³rico) aparecem apenas para o usuÃ¡rio logado.
+  //   - Eventos (ativos ou concluídos) só aparecem na agenda do atendente que os possui.
+  //   - Concluídos sem atendente (histórico) aparecem apenas para o usuário logado.
   //   - NUNCA mostrar eventos de um atendente na agenda de outro.
-  //   - Eventos tipo "evento" sÃ£o pessoais â€” sÃ³ aparecem na agenda de quem criou
+  //   - Eventos tipo "evento" são pessoais — só aparecem na agenda de quem criou
 
-  // â”€â”€ Mapa multi-atendente (aplicado a TODOS os eventos antes do filtro) â”€â”€
-  // Mesmo quando filtrado por um tÃ©cnico, o indicador "multi" deve aparecer
-  // se o chamado tiver 2+ tÃ©cnicos no total (nÃ£o apenas nos eventos filtrados).
-  const multiMap = {}; // "ticket_id|start" â†’ [atendente1, atendente2, ...]
+  // ── Mapa multi-atendente (aplicado a TODOS os eventos antes do filtro) ──
+  // Mesmo quando filtrado por um técnico, o indicador "multi" deve aparecer
+  // se o chamado tiver 2+ técnicos no total (não apenas nos eventos filtrados).
+  const multiMap = {}; // "ticket_id|start" → [atendente1, atendente2, ...]
   todosEventos.forEach(ev => {
     const tid = ev.extendedProps.ticket_id;
     if (!tid) return;
@@ -1253,7 +1253,7 @@ function eventosFiltrados() {
     }
   });
 
-  // â”€â”€ Filtro por atendente â”€â”€
+  // ── Filtro por atendente ──
   if (filtroAtendente) {
     const filtrados = todosEventos.filter(e => {
       if (e.extendedProps.atendente === filtroAtendente) return true;
@@ -1263,58 +1263,58 @@ function eventosFiltrados() {
       return false;
     });
     console.log(`ðŸ“Š eventosFiltrados: filtro="${filtroAtendente}", total=${todosEventos.length}, filtrados=${filtrados.length}`);
-    // Se filtrou menos que o total, loga os excluÃ­dos
+    // Se filtrou menos que o total, loga os excluídos
     if (filtrados.length < todosEventos.length) {
       todosEventos.forEach(e => {
         if (!filtrados.includes(e)) {
-          console.log(`   âŒ excluÃ­do: atendente="${e.extendedProps.atendente}", ticket=${e.extendedProps.ticket_id}, tipo=${e.extendedProps.tipo}`);
+          console.log(`   âŒ excluído: atendente="${e.extendedProps.atendente}", ticket=${e.extendedProps.ticket_id}, tipo=${e.extendedProps.tipo}`);
         }
       });
     }
     return filtrados;
   }
 
-  // VisÃ£o "Todos"
+  // Visão "Todos"
   // Regras:
-  //   1. Eventos tipo "evento" sÃ£o pessoais â†’ nÃ£o aparecem em "Todos"
-  //   2. Chamados com MESMO ticket + MESMO horÃ¡rio â†’ agrupa (multi-atendente)
-  //   3. Chamados com MESMO ticket + HORÃRIOS diferentes â†’ exibe separadamente (multi-perÃ­odo)
+  //   1. Eventos tipo "evento" são pessoais → não aparecem em "Todos"
+  //   2. Chamados com MESMO ticket + MESMO horário → agrupa (multi-atendente)
+  //   3. Chamados com MESMO ticket + HORÁRIOS diferentes → exibe separadamente (multi-período)
 
-  // Filtra eventos pessoais (tipo "evento") â€” sÃ³ aparecem na agenda do dono
+  // Filtra eventos pessoais (tipo "evento") — só aparecem na agenda do dono
   const eventosVisiveis = todosEventos.filter(e => e.extendedProps.tipo !== 'evento');
 
-  // Ignora eventos sem atendente se jÃ¡ existe versÃ£o com atendente do mesmo ticket
+  // Ignora eventos sem atendente se já existe versão com atendente do mesmo ticket
   const ticketsComAtendente = new Set(
     eventosVisiveis
       .filter(e => e.extendedProps.ticket_id && e.extendedProps.atendente)
       .map(e => e.extendedProps.ticket_id)
   );
 
-  const vistos    = {}; // "ticket_id|start" â†’ Ã­ndice no resultado
+  const vistos    = {}; // "ticket_id|start" → índice no resultado
   const resultado = [];
 
   for (const ev of eventosVisiveis) {
     const tid = ev.extendedProps.ticket_id;
 
-    // Ignora eventos sem atendente se jÃ¡ existe versÃ£o com atendente do mesmo ticket
+    // Ignora eventos sem atendente se já existe versão com atendente do mesmo ticket
     if (tid && !ev.extendedProps.atendente && ticketsComAtendente.has(tid)) continue;
 
     if (!tid) {
-      // Evento sem chamado vinculado â†’ exibe normalmente
+      // Evento sem chamado vinculado → exibe normalmente
       resultado.push(ev);
       continue;
     }
 
-    // Agrupa por ticket_id + horÃ¡rio de inÃ­cio
-    // Isso separa chamados com mÃºltiplos perÃ­odos (cada perÃ­odo aparece no seu horÃ¡rio)
-    // e agrupa apenas eventos do mesmo chamado no mesmo horÃ¡rio (multi-atendente)
+    // Agrupa por ticket_id + horário de início
+    // Isso separa chamados com múltiplos períodos (cada período aparece no seu horário)
+    // e agrupa apenas eventos do mesmo chamado no mesmo horário (multi-atendente)
     const key = tid + '|' + (ev.start || '');
 
     if (vistos[key] !== undefined) {
-      // Mesmo perÃ­odo â€” funde no primeiro (que jÃ¡ estÃ¡ em resultado)
-      // O multiMap jÃ¡ foi aplicado acima, entÃ£o o primeiro evento jÃ¡ tem multi info
+      // Mesmo período — funde no primeiro (que já está em resultado)
+      // O multiMap já foi aplicado acima, então o primeiro evento já tem multi info
     } else {
-      // Primeiro evento deste ticket NESTE horÃ¡rio â€” clona para nÃ£o mutar o original
+      // Primeiro evento deste ticket NESTE horário — clona para não mutar o original
       const clone = JSON.parse(JSON.stringify(ev));
       clone.extendedProps.multi      = ev.extendedProps.multi;
       clone.extendedProps.atendentes = ev.extendedProps.atendentes;
@@ -1331,30 +1331,30 @@ function filtrarPorAtendente() {
   calendar.refetchEvents();
 }
 
-// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ──────────────────────────────────────────
 // Carregar atendentes do GLPI
-// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ──────────────────────────────────────────
 function carregarAtendentes() {
   fetch('users.php')
     .then(r => r.json())
     .then(data => {
       atendentes = data;
 
-      // Popula select do modal (ediÃ§Ã£o de evento)
+      // Popula select do modal (edição de evento)
       document.getElementById('ev-atendente').innerHTML =
         '<option value="">Selecione...</option>' +
         data.map(a => `<option value="${escHtml(a.nome)}" data-cor="${a.cor}" data-id="${a.id}">${escHtml(apelidoAtendente(a.nome))}</option>`).join('');
       renderAtendentesMulti([]);
 
-      // Popula filtro do navbar â€” usa a.nome cru (sem escHtml no value) para
-      // comparaÃ§Ã£o exata com e.extendedProps.atendente em eventosFiltrados.
-      // Escapamos apenas & para nÃ£o quebrar a sintaxe HTML quando o nome contÃ©m &.
+      // Popula filtro do navbar — usa a.nome cru (sem escHtml no value) para
+      // comparação exata com e.extendedProps.atendente em eventosFiltrados.
+      // Escapamos apenas & para não quebrar a sintaxe HTML quando o nome contém &.
       const filtro = document.getElementById('filtro-atendente');
       filtro.innerHTML =
         '<option value="">ðŸ‘¥ Todos os atendentes</option>' +
         data.map(a => `<option value="${String(a.nome).replace(/&/g, '&amp;').replace(/"/g, '&quot;')}">${escHtml(apelidoAtendente(a.nome))}</option>`).join('');
 
-      // PrÃ©-seleciona o atendente logado (por ID ou por nome)
+      // Pré-seleciona o atendente logado (por ID ou por nome)
       const atendenteLogado = data.find(a => a.id === USUARIO_LOGADO_ID || a.nome === USUARIO_LOGADO_NOME);
       if (atendenteLogado) {
         filtro.value     = atendenteLogado.nome;
@@ -1375,7 +1375,7 @@ function carregarAtendentes() {
         data.map(e => `<option value="${escHtml(e.nome)}" data-id="${e.id}">${escHtml(apelidoEntidade(e.nome))}</option>`).join('');
     });
 
-  // Carrega requerentes (todos os usuÃ¡rios ativos)
+  // Carrega requerentes (todos os usuários ativos)
   fetch('users.php?todos=1')
     .then(r => r.json())
     .then(data => {
@@ -1394,9 +1394,9 @@ function carregarAtendentes() {
     });
 }
 
-// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ──────────────────────────────────────────
 // Carregar chamados GLPI
-// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ──────────────────────────────────────────
 function carregarTickets() {
   fetch('tickets.php')
     .then(r => r.json())
@@ -1422,7 +1422,7 @@ function renderTickets(tickets) {
     return;
   }
   const urgLabel = {
-    'muito baixa':'Muito Baixa','baixa':'Baixa','mÃ©dia':'MÃ©dia','alta':'Alta','muito alta':'Muito Alta'
+    'muito baixa':'Muito Baixa','baixa':'Baixa','média':'Média','alta':'Alta','muito alta':'Muito Alta'
   };
   list.innerHTML = tickets.map(t => `
     <div class="ticket-card pr-${urgToProioridade(t.urgencia)}${t.agendado ? ' em-andamento' : ''}"
@@ -1433,7 +1433,7 @@ function renderTickets(tickets) {
          data-setor="${escHtml(t.setor)}"
          onclick="mostrarPreview(event, this)"
          data-descricao="${escHtml(t.descricao || '')}">
-      <div class="tc-id">#${t.id} Â· ${t.data}</div>
+      <div class="tc-id">#${t.id} · ${t.data}</div>
       <div class="tc-title">${escHtml(t.titulo)}</div>
       <div class="tc-tags">
         <span class="badge-urg ${COR_URG[t.urgencia] || 'urg-3'}">${urgLabel[t.urgencia] || t.urgencia}</span>
@@ -1447,7 +1447,7 @@ function renderTickets(tickets) {
   iniciarDrag();
 }
 
-/* ── Preview do chamado no sidebar ── */
+/* -- Preview do chamado no sidebar -- */
 const PREVIEW_CORES = {1:'primary',2:'info',3:'warning',4:'danger',5:'purple'};
 const PREVIEW_URG   = {'muito baixa':1,'baixa':2,'média':3,'alta':4,'muito alta':5};
 const PREVIEW_URG_LABEL = {1:'Muito Baixa',2:'Baixa',3:'Média',4:'Alta',5:'Muito Alta'};
@@ -1501,7 +1501,7 @@ function filtrarTickets() {
     return ok_txt && ok_urg && ok_sta;
   });
 
-  // Ordena: por data de abertura ou por Ãºltima atualizaÃ§Ã£o (padrÃ£o)
+  // Ordena: por data de abertura ou por última atualização (padrão)
   if (porAbertura) {
     filtrados = [...filtrados].sort((a, b) => (b.data || '').localeCompare(a.data || ''));
   } else {
@@ -1511,10 +1511,10 @@ function filtrarTickets() {
   renderTickets(filtrados);
 }
 
-// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-// Drag & Drop (sidebar â†’ calendÃ¡rio)
-// Registrado uma Ãºnica vez na inicializaÃ§Ã£o
-// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ──────────────────────────────────────────
+// Drag & Drop (sidebar → calendário)
+// Registrado uma única vez na inicialização
+// ──────────────────────────────────────────
 let _draggableIniciado = false;
 function iniciarDrag() {
   if (!_draggableIniciado && FullCalendar.Draggable) {
@@ -1543,11 +1543,11 @@ function verificarAtrasados() {
     .then(r => r.json())
     .then(res => {
       if (res.removidos > 0) {
-        const extra = res.periodos_antigos > 0 ? ` (${res.periodos_antigos} perÃ­odo(s) antigo(s) removido(s), ticket continua ativo)` : '';
+        const extra = res.periodos_antigos > 0 ? ` (${res.periodos_antigos} período(s) antigo(s) removido(s), ticket continua ativo)` : '';
         toast(`â†©ï¸ ${res.removidos} chamado(s) com +24h de atraso retornaram para a fila${extra}.`);
       }
-      // ApÃ³s verificar atrasados, sincroniza rotinas e sÃ³ depois carrega tudo
-      // (evita race condition onde refetchEvents do verificar apaga rotinas recÃ©m-inseridas)
+      // Após verificar atrasados, sincroniza rotinas e só depois carrega tudo
+      // (evita race condition onde refetchEvents do verificar apaga rotinas recém-inseridas)
       syncRotinas();
     })
     .catch(() => {
@@ -1569,9 +1569,9 @@ function dataNoPassado(date) {
   return dDia < hoje;
 }
 
-// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-// Modal de seleÃ§Ã£o de atendentes (visÃ£o Todos)
-// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ──────────────────────────────────────────
+// Modal de seleção de atendentes (visão Todos)
+// ──────────────────────────────────────────
 function abrirModalAtendentes() {
   const lista = document.getElementById('lista-atendentes-check');
   lista.innerHTML = atendentes.map(a => `
@@ -1619,7 +1619,7 @@ async function confirmarAtribuicao() {
 
   calendar.refetchEvents();
   carregarTickets();
-  toast(`âœ… Chamado atribuÃ­do a ${selecionados.length} atendente(s).`);
+  toast(`✅ Chamado atribuído a ${selecionados.length} atendente(s).`);
 }
 
 async function uploadAnexosCriar(ticketId) {
@@ -1662,16 +1662,16 @@ function salvarEventoObjAsync(dados) {
   });
 }
 
-// DuraÃ§Ã£o padrÃ£o em ms por tipo
+// Duração padrão em ms por tipo
 function duracaoPadrao(tipo) {
   if (tipo === 'reuniao')                              return 60 * 60 * 1000;  // 1 hora
   if (tipo === 'chamado' || tipo === 'requisicao')     return 30 * 60 * 1000;  // 30 min
   return 30 * 60 * 1000;                                                        // evento: 30 min
 }
 
-// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ──────────────────────────────────────────
 // Modal de Evento
-// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ──────────────────────────────────────────
 let _dadosModal = null;
 
 function abrirModalEvento(dataStr) {
@@ -1693,7 +1693,7 @@ function abrirModalEvento(dataStr) {
   document.getElementById('ev-concluido').checked  = false;
   document.getElementById('ev-fechar-glpi').checked = false;
   document.getElementById('campo-fechar-glpi').style.display = 'none';
-  renderAtendentesMulti([]); // limpa chips de atendente da sessÃ£o anterior
+  renderAtendentesMulti([]); // limpa chips de atendente da sessão anterior
   document.getElementById('ev-followups').innerHTML = '';
   document.getElementById('campo-followups').style.display = 'none';
   document.getElementById('ev-anexos').innerHTML = '';
@@ -1706,12 +1706,12 @@ function abrirModalEvento(dataStr) {
   document.getElementById('banner-readonly').style.display = 'none';
   document.getElementById('modalTitulo').innerHTML = '<i class="bi bi-calendar-plus me-2"></i>Novo Evento';
   ajustarCamposPorTipo();
-  setModoLeitura(false); // novo evento sempre em modo ediÃ§Ã£o
+  setModoLeitura(false); // novo evento sempre em modo edição
 
   const now = dataStr ? new Date(dataStr) : new Date();
   document.getElementById('ev-start').value  = toDatetimeLocal(now);
-  document.getElementById('ev-duracao').value = String(duracaoPadrao('chamado')); // 30 min padrÃ£o
-  aoMudarInicio(); // calcula ev-end = start + duraÃ§Ã£o
+  document.getElementById('ev-duracao').value = String(duracaoPadrao('chamado')); // 30 min padrão
+  aoMudarInicio(); // calcula ev-end = start + duração
 
   modalEvento.show();
 }
@@ -1726,7 +1726,7 @@ function preencherModal(dados) {
   document.getElementById('ev-orig-start').value = dados.start || '';
   document.getElementById('ev-start').value = toDatetimeLocal(new Date(dados.start));
   document.getElementById('ev-end').value   = toDatetimeLocal(new Date(dados.end || dados.start));
-  // Sincroniza o select de duraÃ§Ã£o com a diferenÃ§a real do evento
+  // Sincroniza o select de duração com a diferença real do evento
   (function() {
     const diffMs = new Date(dados.end || dados.start).getTime() - new Date(dados.start).getTime();
     const sel    = document.getElementById('ev-duracao');
@@ -1742,16 +1742,16 @@ function preencherModal(dados) {
   document.getElementById('ev-concluido').checked  = !!dados.concluido;
   toggleFecharGlpi();
 
-  // Busca dados completos do ticket no GLPI (descriÃ§Ã£o, entidade, categoria, requerente)
+  // Busca dados completos do ticket no GLPI (descrição, entidade, categoria, requerente)
   if (dados.ticket_id) {
     fetch('ticket_descricao.php?id=' + dados.ticket_id)
       .then(r => r.json())
       .then(d => {
         if (d.descricao) document.getElementById('ev-descricao').value = d.descricao;
 
-        // Entidade: options tÃªm data-id â†’ busca por ID numÃ©rico (evita mismatch de HTML entities)
-        // Se a entidade nÃ£o estiver na lista (ex: Entidade raiz excluÃ­da), insere dinamicamente
-        // âš ï¸ d.entidade_id pode ser 0 (entidade raiz) â€” NÃƒO usar if (d.entidade_id) pois 0 Ã© falsy
+        // Entidade: options têm data-id → busca por ID numérico (evita mismatch de HTML entities)
+        // Se a entidade não estiver na lista (ex: Entidade raiz excluída), insere dinamicamente
+        // âš ï¸ d.entidade_id pode ser 0 (entidade raiz) — N?ƒO usar if (d.entidade_id) pois 0 é falsy
         const selEnt = document.getElementById('ev-entidade');
         if (selEnt && d.entidade_id !== undefined && d.entidade_id !== null) {
           const opt = selEnt.querySelector(`option[data-id="${d.entidade_id}"]`);
@@ -1765,14 +1765,14 @@ function preencherModal(dados) {
           }
         }
 
-        // Categoria: options tÃªm value=id â†’ usa d.categoria_id (correto)
+        // Categoria: options têm value=id → usa d.categoria_id (correto)
         if (d.categoria_id) {
           const selCat = document.getElementById('ev-categoria');
           if (selCat) selCat.value = d.categoria_id;
         }
 
-        // Requerente: options tÃªm value=nome mas hÃ¡ data-id â†’ busca pelo data-id para evitar
-        // problemas de formataÃ§Ã£o de nome (GLPI pode retornar ordem diferente de users.php)
+        // Requerente: options têm value=nome mas há data-id → busca pelo data-id para evitar
+        // problemas de formatação de nome (GLPI pode retornar ordem diferente de users.php)
         if (d.requerente_id) {
           const selReq = document.getElementById('ev-requerente');
           if (selReq) {
@@ -1780,7 +1780,7 @@ function preencherModal(dados) {
             if (opt) {
               selReq.value = opt.value;
             } else if (d.requerente) {
-              // Requerente nÃ£o estÃ¡ na lista â†’ insere dinamicamente
+              // Requerente não está na lista → insere dinamicamente
               const novaOpt = new Option(d.requerente, d.requerente);
               novaOpt.dataset.id = d.requerente_id;
               selReq.insertBefore(novaOpt, selReq.options[1]);
@@ -1844,8 +1844,8 @@ function preencherModal(dados) {
       .catch(() => {});
   }
 
-  // Atualiza modo single/multi e chips (NÃƒO chama ajustarDuracaoPorTipo aqui â€”
-  // a duraÃ§Ã£o e o ev-end jÃ¡ foram sincronizados pela IIFE acima com os dados reais do evento)
+  // Atualiza modo single/multi e chips (N?ƒO chama ajustarDuracaoPorTipo aqui —
+  // a duração e o ev-end já foram sincronizados pela IIFE acima com os dados reais do evento)
   document.getElementById('ev-atendente').style.display        = 'none';
   document.getElementById('ev-atendentes-multi').style.display = '';
   document.getElementById('label-atendente').innerHTML = 'Atendentes <span class="text-danger">*</span>';
@@ -1859,27 +1859,27 @@ function ajustarCamposPorTipo() {
   const evento    = tipo === 'evento';
   const isChamado = tipo === 'chamado' || tipo === 'requisicao';
 
-  // Prioridade: oculta em reuniÃ£o e evento
+  // Prioridade: oculta em reunião e evento
   document.getElementById('campo-prioridade').style.display  = (reuniao || evento) ? 'none' : '';
   // Atendentes: oculta apenas em evento; ajusta largura por tipo
   const atCampo = document.getElementById('campo-atendentes');
   atCampo.style.display = evento ? 'none' : '';
-  // Chamado/RequisiÃ§Ã£o â†’ col-md-6 (ao lado da Entidade); ReuniÃ£o â†’ col-12 (linha inteira)
+  // Chamado/Requisição → col-md-6 (ao lado da Entidade); Reunião → col-12 (linha inteira)
   atCampo.className = atCampo.className.replace(/\bcol-\S+/g, '').trim()
     + (isChamado ? ' col-md-6' : ' col-12');
-  // Chips sempre visÃ­veis, dropdown sempre oculto
+  // Chips sempre visíveis, dropdown sempre oculto
   document.getElementById('ev-atendente').style.display        = 'none';
   document.getElementById('ev-atendentes-multi').style.display = '';
-  // Entidade, Requerente, Categoria e Origem: apenas em chamado e requisiÃ§Ã£o
+  // Entidade, Requerente, Categoria e Origem: apenas em chamado e requisição
   document.getElementById('campo-entidade').style.display   = isChamado ? '' : 'none';
   document.getElementById('campo-requerente').style.display = isChamado ? '' : 'none';
   document.getElementById('campo-categoria').style.display  = isChamado ? '' : 'none';
   document.getElementById('campo-origem').style.display     = isChamado ? '' : 'none';
-  // Asterisco de DescriÃ§Ã£o: obrigatÃ³rio apenas em chamado/requisiÃ§Ã£o
+  // Asterisco de Descrição: obrigatório apenas em chamado/requisição
   const starDesc = document.getElementById('star-descricao');
   if (starDesc) starDesc.style.display = isChamado ? '' : 'none';
 
-  // Atualiza tÃ­tulo do modal
+  // Atualiza título do modal
   const titulo = document.getElementById('modalTitulo');
   const icone  = titulo.innerHTML.includes('bi-eye') ? 'bi-eye'
                : titulo.innerHTML.includes('bi-pencil') ? 'bi-pencil'
@@ -1888,7 +1888,7 @@ function ajustarCamposPorTipo() {
   const acao   = acoes[icone] || 'Novo';
 
   if (reuniao) {
-    titulo.innerHTML = `<i class="bi ${icone} me-2"></i>${acao} ReuniÃ£o`;
+    titulo.innerHTML = `<i class="bi ${icone} me-2"></i>${acao} Reunião`;
   } else if (evento) {
     titulo.innerHTML = `<i class="bi ${icone} me-2"></i>${acao} Evento`;
   }
@@ -1896,7 +1896,7 @@ function ajustarCamposPorTipo() {
 
 function ajustarDuracaoPorTipo() {
   const tipo = document.getElementById('ev-tipo').value;
-  // Reseta o select de duraÃ§Ã£o para o padrÃ£o do tipo e recalcula o Fim
+  // Reseta o select de duração para o padrão do tipo e recalcula o Fim
   document.getElementById('ev-duracao').value = String(duracaoPadrao(tipo));
   aoMudarInicio();
   // Sempre usa multi-select para todos os tipos
@@ -1928,18 +1928,18 @@ function getAtendentesMultiSelecionados() {
     nome: el.dataset.nome,
     id:   parseInt(el.dataset.id),
     cor:  el.dataset.cor,
-  })).filter(a => a.id && !isNaN(a.id)); // descarta chips sem ID vÃ¡lido
+  })).filter(a => a.id && !isNaN(a.id)); // descarta chips sem ID válido
 }
 
-// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ──────────────────────────────────────────
 // Modal de Resposta ao Chamado
-// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ──────────────────────────────────────────
 let modalResposta;
 let arquivosAnexos = [];
 let arquivosAnexosCriar = [];
 // Snapshot do evento capturado no momento de abrir o modal de resposta.
 // Evita race condition com verificarAtrasados() que pode remover o evento
-// do store do FullCalendar enquanto o usuÃ¡rio estÃ¡ preenchendo a resposta.
+// do store do FullCalendar enquanto o usuário está preenchendo a resposta.
 let _eventoParaResponder = null;
 
 // modalResposta inicializado no DOMContentLoaded principal (abaixo)
@@ -1990,9 +1990,9 @@ function abrirModalResposta() {
   const titulo   = document.getElementById('ev-titulo').value;
   if (!ticketId) return;
 
-  // â”€â”€ Captura snapshot do evento ANTES de fechar o modal.
-  //    Fontes em cascata: FC store â†’ _dropCache (drag recente) â†’ _dadosModal (form).
-  //    Nunca fica null â€” garante que enviarResposta() sempre tenha dados para o
+  // ── Captura snapshot do evento ANTES de fechar o modal.
+  //    Fontes em cascata: FC store → _dropCache (drag recente) → _dadosModal (form).
+  //    Nunca fica null — garante que enviarResposta() sempre tenha dados para o
   //    INSERT de fallback caso verificarAtrasados() tenha deletado o evento do DB.
   const evId  = document.getElementById('ev-id').value;
   const evCal = evId ? calendar.getEventById(evId) : null;
@@ -2014,7 +2014,7 @@ function abrirModalResposta() {
   };
 
   document.getElementById('resp-ticket-id').value   = ticketId;
-  document.getElementById('resp-chamado-label').textContent = `#${ticketId} â€” ${titulo}`;
+  document.getElementById('resp-chamado-label').textContent = `#${ticketId} — ${titulo}`;
   document.getElementById('resp-texto').value         = '';
   document.getElementById('resp-arquivos').value      = '';
   document.getElementById('lista-arquivos').innerHTML = '';
@@ -2057,7 +2057,7 @@ function renderizarArquivos() {
       };
       reader.readAsDataURL(f);
 
-      // footer via DOM â€” nÃ£o usar innerHTML+= (destrÃ³i o nÃ³ thumb jÃ¡ inserido)
+      // footer via DOM — não usar innerHTML+= (destrói o nó thumb já inserido)
       const footer = document.createElement('div');
       footer.className = 'chip-footer';
       const span = document.createElement('span');
@@ -2097,7 +2097,7 @@ function removerArquivo(i) {
   renderizarArquivos();
 }
 
-// â”€â”€ Upload de arquivos na criaÃ§Ã£o do chamado â”€â”€
+// ── Upload de arquivos na criação do chamado ──
 
 function listarArquivosCriar() {
   adicionarArquivosCriar(document.getElementById('ev-arquivos').files);
@@ -2176,7 +2176,7 @@ async function enviarResposta() {
   arquivosAnexos.forEach(f => form.append('arquivos[]', f));
 
   const concluido = document.getElementById('resp-concluido').checked;
-  // Snapshot capturado fora do bloco if/else para garantir escopo acessÃ­vel em todo o try/catch
+  // Snapshot capturado fora do bloco if/else para garantir escopo acessível em todo o try/catch
   const snap = _eventoParaResponder;
 
   try {
@@ -2194,9 +2194,9 @@ async function enviarResposta() {
         });
         const dataFechar = await resFechar.json();
 
-        // â”€â”€ Marca o evento como concluÃ­do â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-        // EstratÃ©gia em 2 etapas para resistir a race conditions com verificarAtrasados():
-        //   1) UPDATE cirÃºrgico (inclui atendente do logado para rotinas sem dono)
+        // ── Marca o evento como concluído ────────────────────────────────
+        // Estratégia em 2 etapas para resistir a race conditions com verificarAtrasados():
+        //   1) UPDATE cirúrgico (inclui atendente do logado para rotinas sem dono)
         //   2) Fallback: re-INSERT completo se o evento foi removido do DB
         const concluirRes = await fetch('eventos.php?action=concluir_ticket', {
           method: 'POST',
@@ -2209,8 +2209,8 @@ async function enviarResposta() {
           }),
         }).then(r => r.json()).catch(() => ({ updated: 0 }));
 
-        // Se updated=0, o evento foi deletado do DB (verificarAtrasados) â†’ recria com concluido=1
-        // Usa parseInt(ticketId) em vez de snap.ticket_id por consistÃªncia com o request anterior
+        // Se updated=0, o evento foi deletado do DB (verificarAtrasados) → recria com concluido=1
+        // Usa parseInt(ticketId) em vez de snap.ticket_id por consistência com o request anterior
         if (!concluirRes.updated && snap && snap.id) {
           await salvarEventoObjAsync({
             id:           snap.id,
@@ -2230,17 +2230,17 @@ async function enviarResposta() {
         }
 
         toast(dataFechar.ok
-          ? `ðŸ”’ Resposta enviada e chamado #${ticketId} fechado${extra}!`
-          : `âœ… Resposta enviada${extra} (erro ao fechar chamado)`);
+          ? `🔒 Resposta enviada e chamado #${ticketId} fechado${extra}!`
+          : `✅ Resposta enviada${extra} (erro ao fechar chamado)`);
       } else {
-        toast(`âœ… Resposta enviada ao chamado #${ticketId}${extra}!`);
+        toast(`✅ Resposta enviada ao chamado #${ticketId}${extra}!`);
       }
 
       modalResposta.hide();
       calendar.refetchEvents();
       carregarTickets();
     } else {
-      // Exibe o detalhe retornado pelo GLPI para facilitar diagnÃ³stico
+      // Exibe o detalhe retornado pelo GLPI para facilitar diagnóstico
       const detalhe = data.detail ? '\n\nDetalhe GLPI: ' + JSON.stringify(data.detail) : '';
       alert('Erro ao enviar resposta: ' + (data.msg || 'Falha ao enviar') + detalhe);
       console.error('enviarResposta GLPI error:', data);
@@ -2255,7 +2255,7 @@ async function enviarResposta() {
 }
 
 function mostrarSalvarSeConcluido() {
-  // Exibe o botÃ£o Salvar ao interagir com o checkbox mesmo em modo leitura
+  // Exibe o botão Salvar ao interagir com o checkbox mesmo em modo leitura
   const btnSalvar = document.querySelector('#modalEvento .btn-primary');
   btnSalvar.style.display = '';
 }
@@ -2267,7 +2267,7 @@ function toggleFecharGlpi() {
   const fecharCheck = document.getElementById('ev-fechar-glpi');
   if (concluido && temTicket) {
     campoFechar.style.display = '';
-    // Auto-marca "Fechar GLPI" â€” concluir = fechar no GLPI por padrÃ£o
+    // Auto-marca "Fechar GLPI" — concluir = fechar no GLPI por padrão
     fecharCheck.checked = true;
   } else {
     campoFechar.style.display = 'none';
@@ -2281,7 +2281,7 @@ function atualizarPreviewCor() {
   label.style.color = check.checked ? '#212121' : '';
 }
 
-// â”€â”€ Novo perÃ­odo para o mesmo chamado â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ── Novo período para o mesmo chamado ─────────────────────────
 function novoPeriodo() {
   const tid   = document.getElementById('ev-ticket-id').value;
   const titulo = document.getElementById('ev-titulo').value;
@@ -2320,10 +2320,10 @@ function novoPeriodo() {
     document.getElementById('btnNovoPeriodo').style.display = 'none';
     document.getElementById('banner-readonly').style.display = 'none';
     document.getElementById('modalTitulo').innerHTML =
-      `<i class="bi bi-clock-history me-2"></i>Novo perÃ­odo â€” #${tid}`;
+      `<i class="bi bi-clock-history me-2"></i>Novo período — #${tid}`;
     setModoLeitura(false);
 
-    toast(`ðŸ“… Novo perÃ­odo para o chamado #${tid} â€” informe a data e horÃ¡rio.`);
+    toast(`ðŸ“… Novo período para o chamado #${tid} — informe a data e horário.`);
     modalEvento.show();
   });
 }
@@ -2341,7 +2341,7 @@ function abrirModalSemLimpar() {
 
 function editarEvento(ev) {
   limparValidacao();
-  const c = _dropCache[ev.id] || {}; // fallback para eventos recÃ©m-arrastados (antes do refetch)
+  const c = _dropCache[ev.id] || {}; // fallback para eventos recém-arrastados (antes do refetch)
   preencherModal({
     id:        ev.id,
     titulo:    ev.title,
@@ -2358,24 +2358,24 @@ function editarEvento(ev) {
   const concluido = ev.extendedProps.concluido;
   const isGoogle = ev.extendedProps.google === true;
 
-  // Abre em modo LEITURA; se concluÃ­do esconde o botÃ£o Editar
+  // Abre em modo LEITURA; se concluído esconde o botão Editar
   setModoLeitura(true);
   document.getElementById('banner-readonly').querySelector('button').style.display =
     concluido ? 'none' : '';
 
-  // â”€â”€ Google Calendar: modo somente-leitura especial â”€â”€
+  // ── Google Calendar: modo somente-leitura especial ──
   const googleInfo = document.getElementById('google-info');
   if (isGoogle) {
-    // Popula descriÃ§Ã£o
+    // Popula descrição
     const desc = ev.extendedProps.descricao || '';
-    document.getElementById('gcal-descricao').textContent = desc || '(sem descriÃ§Ã£o)';
+    document.getElementById('gcal-descricao').textContent = desc || '(sem descrição)';
 
     // Local
     const local = ev.extendedProps.local || '';
     document.getElementById('gcal-local-text').textContent = local;
     document.getElementById('gcal-local').style.display = local ? '' : 'none';
 
-    // Link da reuniÃ£o
+    // Link da reunião
     const meetUrl = ev.extendedProps.meet_url || '';
     const gcalMeet = document.getElementById('gcal-meet');
     if (meetUrl) {
@@ -2402,12 +2402,12 @@ function editarEvento(ev) {
       gcalPart.style.display = 'none';
     }
 
-    // Exibe painel Google, esconde formulÃ¡rio principal e banner
+    // Exibe painel Google, esconde formulário principal e banner
     googleInfo.style.display = '';
     document.getElementById('campos-evento').style.display = 'none';
     document.getElementById('banner-readonly').style.display = 'none';
 
-    // Esconde todos os botÃµes de aÃ§Ã£o do footer
+    // Esconde todos os botões de ação do footer
     document.getElementById('btnDeletar').style.display = 'none';
     document.getElementById('btnResponder').style.display = 'none';
     document.getElementById('btnNovoPeriodo').style.display = 'none';
@@ -2421,7 +2421,7 @@ function editarEvento(ev) {
     document.getElementById('campos-evento').style.display = '';
     document.querySelector('#modalEvento .btn-secondary')?.style.removeProperty('display');
 
-    // BotÃµes normais (concluÃ­do controla visibilidade)
+    // Botões normais (concluído controla visibilidade)
     document.getElementById('btnDeletar').style.display     = concluido ? 'none' : 'inline-block';
     document.getElementById('btnResponder').style.display   = (ev.extendedProps.ticket_id && !concluido) ? 'inline-block' : 'none';
     document.getElementById('btnNovoPeriodo').style.display = (ev.extendedProps.ticket_id && !concluido) ? 'inline-block' : 'none';
@@ -2448,7 +2448,7 @@ function setModoLeitura(ativo) {
     document.getElementById('campo-anexos-criar').style.display = '';
     const tipoAtual = document.getElementById('ev-tipo').value;
     document.getElementById('modalTitulo').innerHTML = tipoAtual === 'reuniao'
-      ? '<i class="bi bi-pencil me-2"></i>Editar ReuniÃ£o'
+      ? '<i class="bi bi-pencil me-2"></i>Editar Reunião'
       : '<i class="bi bi-pencil me-2"></i>Editar Evento';
     ajustarCamposPorTipo();
   }
@@ -2458,8 +2458,8 @@ function habilitarEdicao() {
   setModoLeitura(false);
 }
 
-// â”€â”€ Controle de DuraÃ§Ã£o â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-// aoMudarInicio: recalcula Fim mantendo a duraÃ§Ã£o selecionada
+// ── Controle de Duração ───────────────────────────────────────────────────────
+// aoMudarInicio: recalcula Fim mantendo a duração selecionada
 function aoMudarInicio() {
   const dur = parseInt(document.getElementById('ev-duracao').value);
   if (dur > 0) {
@@ -2471,15 +2471,15 @@ function aoMudarInicio() {
   }
 }
 
-// aoMudarDuracao: ao trocar o select de duraÃ§Ã£o, recalcula Fim
+// aoMudarDuracao: ao trocar o select de duração, recalcula Fim
 function aoMudarDuracao() {
   const dur = parseInt(document.getElementById('ev-duracao').value);
-  // "Personalizado" (0): o usuÃ¡rio digita o Fim manualmente â€” deixa como estÃ¡
+  // "Personalizado" (0): o usuário digita o Fim manualmente — deixa como está
   if (dur > 0) aoMudarInicio();
 }
 
-// aoMudarFim: quando o usuÃ¡rio edita o Fim manualmente, marca como Personalizado
-// e atualiza o select para refletir o novo valor (se coincidir com opÃ§Ã£o padrÃ£o)
+// aoMudarFim: quando o usuário edita o Fim manualmente, marca como Personalizado
+// e atualiza o select para refletir o novo valor (se coincidir com opção padrão)
 function aoMudarFim() {
   const start = document.getElementById('ev-start').value;
   const end   = document.getElementById('ev-end').value;
@@ -2491,7 +2491,7 @@ function aoMudarFim() {
   sel.value = match ? match.value : '0'; // 0 = Personalizado
 }
 
-// â”€â”€ Helpers de validaÃ§Ã£o do modal â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ── Helpers de validação do modal ────────────────────────────────────────────
 function limparValidacao() {
   document.querySelectorAll('#campos-evento .is-invalid').forEach(el => el.classList.remove('is-invalid'));
   const banner = document.getElementById('modal-erros');
@@ -2513,7 +2513,7 @@ function mostrarErroModal(erros) {
   }
   banner.className = 'alert alert-danger py-2 px-3 mb-0 mt-1';
   banner.innerHTML = '<i class="bi bi-exclamation-triangle-fill me-1"></i>'
-    + '<strong>Campos obrigatÃ³rios:</strong> ' + erros.join(' Â· ');
+    + '<strong>Campos obrigatórios:</strong> ' + erros.join(' · ');
 }
 
 function salvarEvento() {
@@ -2522,60 +2522,60 @@ function salvarEvento() {
   const tipo     = document.getElementById('ev-tipo').value;
   const multiSel = getAtendentesMultiSelecionados();
 
-  // Garante que o ev-end esteja atualizado com a duraÃ§Ã£o selecionada antes de qualquer leitura
+  // Garante que o ev-end esteja atualizado com a duração selecionada antes de qualquer leitura
   aoMudarInicio();
   const end = document.getElementById('ev-end').value;
 
-  // â”€â”€ ValidaÃ§Ã£o de campos obrigatÃ³rios â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ── Validação de campos obrigatórios ──────────────────────────────────
   limparValidacao();
   const errosVal = [];
   const isChamadoOuReq = (tipo === 'chamado' || tipo === 'requisicao');
 
-  if (!titulo) { errosVal.push('TÃ­tulo');  marcarInvalido('ev-titulo'); }
-  if (!start)    errosVal.push('InÃ­cio');
+  if (!titulo) { errosVal.push('Título');  marcarInvalido('ev-titulo'); }
+  if (!start)    errosVal.push('Início');
   if (!end)      errosVal.push('Fim');
 
   if (isChamadoOuReq) {
     const _desc     = document.getElementById('ev-descricao').value.trim();
     const _entId    = document.getElementById('ev-entidade').selectedOptions[0]?.dataset?.id || '';
     const _reqId    = document.getElementById('ev-requerente').selectedOptions[0]?.dataset?.id || '';
-    // Todos os tipos usam chips â€” verifica multiSel
+    // Todos os tipos usam chips — verifica multiSel
     const _temAtend = multiSel.length > 0;
-    if (!_desc)     { errosVal.push('DescriÃ§Ã£o');  marcarInvalido('ev-descricao'); }
+    if (!_desc)     { errosVal.push('Descrição');  marcarInvalido('ev-descricao'); }
     if (!_entId)    { errosVal.push('Entidade');   marcarInvalido('ev-entidade'); }
     if (!_temAtend) { errosVal.push('Atendente');  marcarInvalido('lista-atendentes-multi'); }
     if (!_reqId)    { errosVal.push('Requerente'); marcarInvalido('ev-requerente'); }
   }
 
   if (errosVal.length > 0) { mostrarErroModal(errosVal); return; }
-  // â”€â”€ fim validaÃ§Ã£o â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ── fim validação ─────────────────────────────────────────────────────
 
   const atendenteEl  = document.getElementById('ev-atendente');
   const atendenteOpt = atendenteEl.selectedOptions[0];
   const cor          = atendenteOpt?.dataset?.cor || '#1a73e8';
   const atendId      = atendenteOpt?.dataset?.id  || null;
 
-  // Garante que o ID seja string nÃ£o-vazia (ediÃ§Ã£o) ou null (novo)
+  // Garante que o ID seja string não-vazia (edição) ou null (novo)
   const evId = document.getElementById('ev-id').value.trim() || null;
 
   const concluido = document.getElementById('ev-concluido').checked ? 1 : 0;
 
-  // Chamado/requisiÃ§Ã£o com 2+ tÃ©cnicos: fluxo multi-atendente (cria ticket + um evento por tÃ©cnico).
-  // ReuniÃ£o/evento com 1+ tÃ©cnico: fluxo multi-atendente (um evento por tÃ©cnico, sem ticket GLPI).
-  // Chamado/requisiÃ§Ã£o com 1 tÃ©cnico: caminho Ãºnico clÃ¡ssico.
+  // Chamado/requisição com 2+ técnicos: fluxo multi-atendente (cria ticket + um evento por técnico).
+  // Reunião/evento com 1+ técnico: fluxo multi-atendente (um evento por técnico, sem ticket GLPI).
+  // Chamado/requisição com 1 técnico: caminho único clássico.
   const qtdTecs = multiSel.length;
   const isMulti = qtdTecs > 1 || (!isChamadoOuReq && qtdTecs > 0);
 
-  // Para chamado/requisiÃ§Ã£o com 1 tÃ©cnico: compatibilidade retroativa
+  // Para chamado/requisição com 1 técnico: compatibilidade retroativa
   const primeiroChip = isChamadoOuReq && qtdTecs > 0 && !isMulti ? multiSel[0] : null;
 
-  // Categoria: options tÃªm value=id (direto)
+  // Categoria: options têm value=id (direto)
   const categoriaId = parseInt(document.getElementById('ev-categoria').value) || null;
-  // Entidade: options tÃªm data-id no elemento selecionado
+  // Entidade: options têm data-id no elemento selecionado
   const entidadeEl  = document.getElementById('ev-entidade');
   const entidadeId  = entidadeEl.selectedOptions[0]?.dataset?.id
                       ? parseInt(entidadeEl.selectedOptions[0].dataset.id) : null;
-  // Requerente: options tÃªm data-id
+  // Requerente: options têm data-id
   const requerenteEl = document.getElementById('ev-requerente');
   const requerenteId = requerenteEl.selectedOptions[0]?.dataset?.id
                        ? parseInt(requerenteEl.selectedOptions[0].dataset.id) : null;
@@ -2619,21 +2619,21 @@ function salvarEvento() {
 
   const dados = dadosBase;
 
-  // â”€â”€ Fluxo multi-atendente: 2+ tÃ©cnicos (chamado) ou 1+ tÃ©cnico (evento/reuniÃ£o) â”€â”€
+  // ── Fluxo multi-atendente: 2+ técnicos (chamado) ou 1+ técnico (evento/reunião) ──
   if (isMulti) {
     const btnSalvar2 = document.querySelector('#modalEvento .btn-primary');
     btnSalvar2.disabled = true;
     btnSalvar2.innerHTML = '<span class="spinner-border spinner-border-sm me-2"></span>Salvando...';
     const reativar = () => { btnSalvar2.disabled = false; btnSalvar2.innerHTML = '<i class="bi bi-check-lg me-1"></i>Salvar'; };
     const finalizarMulti = (ticket_id) => {
-      // Se ediÃ§Ã£o (tem evId) â†’ deleta o evento antigo e recria (sÃ³ para evento, chamado edita in-line)
+      // Se edição (tem evId) → deleta o evento antigo e recria (só para evento, chamado edita in-line)
       const mapTech = (a, i) => Object.assign({}, dadosBase, {
         id:       (!isChamadoOuReq && i === 0 && evId) ? evId : uniqEvId(),
         atendente:     a.nome,
         atendente_id:  a.id,
         atendente_cor: a.cor,
         ticket_id:     ticket_id || dadosBase.ticket_id,
-        // Chamado criado no GLPI jÃ¡ tem todos os tÃ©cnicos â€” pula atribuiÃ§Ã£o extra
+        // Chamado criado no GLPI já tem todos os técnicos — pula atribuição extra
         _skipGlpi:     isChamadoOuReq,
       });
       const dadosSalvos = multiSel.map(mapTech);
@@ -2645,7 +2645,7 @@ function salvarEvento() {
         carregarTickets();
         reativar();
         const verb = isChamadoOuReq ? 'Chamado' : 'Evento';
-        toast(`âœ… ${verb} salvo para ${multiSel.length} atendente(s).`);
+        toast(`✅ ${verb} salvo para ${multiSel.length} atendente(s).`);
       }).catch(err => {
         console.error('âŒ Multi-tech save falhou:', err);
         // Mesmo com erro, tenta recarregar o que foi salvo
@@ -2657,7 +2657,7 @@ function salvarEvento() {
     };
 
     if (isChamadoOuReq && !dadosBase.ticket_id) {
-      // Novo chamado com 2+ tÃ©cnicos â†’ cria ticket no GLPI com todos
+      // Novo chamado com 2+ técnicos → cria ticket no GLPI com todos
       const catId  = parseInt(document.getElementById('ev-categoria').value) || null;
       const entEl  = document.getElementById('ev-entidade');
       const entId  = entEl.selectedOptions[0]?.dataset?.id ? parseInt(entEl.selectedOptions[0].dataset.id) : null;
@@ -2693,13 +2693,13 @@ function salvarEvento() {
         }
       })
       .catch(() => {
-        alert('Erro de conexÃ£o ao criar chamado.');
+        alert('Erro de conexão ao criar chamado.');
         reativar();
       });
       return;
     }
 
-    // Chamado jÃ¡ existente â†’ deleta eventos antigos antes de recriar
+    // Chamado já existente → deleta eventos antigos antes de recriar
     if (isChamadoOuReq && dadosBase.ticket_id) {
       fetch('eventos.php?action=deleteByTicket&ticket_id=' + dadosBase.ticket_id)
         .then(r => r.json())
@@ -2712,12 +2712,12 @@ function salvarEvento() {
       return;
     }
 
-    // Evento/reuniÃ£o (sem ticket)
+    // Evento/reunião (sem ticket)
     finalizarMulti(null);
     return;
   }
 
-  // Desabilita botÃ£o para evitar cliques mÃºltiplos
+  // Desabilita botão para evitar cliques múltiplos
   const btnSalvar = document.querySelector('#modalEvento .btn-primary');
   btnSalvar.disabled = true;
   btnSalvar.innerHTML = '<span class="spinner-border spinner-border-sm me-2"></span>Salvando...';
@@ -2732,11 +2732,11 @@ function salvarEvento() {
     calendar.refetchEvents();
     carregarTickets();
     reativarBtn();
-    // Navega o calendÃ¡rio atÃ© a data do evento salvo
+    // Navega o calendário até a data do evento salvo
     if (start) calendar.gotoDate(start.slice(0, 10));
   };
 
-  // Se Ã© chamado/requisiÃ§Ã£o sem ticket_id â†’ cria no GLPI primeiro
+  // Se é chamado/requisição sem ticket_id → cria no GLPI primeiro
   const precisaCriar = (tipo === 'chamado' || tipo === 'requisicao') && !dados.ticket_id;
   if (precisaCriar) {
     fetch('criar_ticket.php', {
@@ -2768,7 +2768,7 @@ function salvarEvento() {
       }
     })
     .catch(() => {
-      alert('Erro de conexÃ£o ao criar chamado.');
+      alert('Erro de conexão ao criar chamado.');
       reativarBtn();
     });
     return;
@@ -2795,7 +2795,7 @@ function salvarEventoObj(dados, cb) {
     if (dados._skipGlpi)  { if (cb) cb(); return; }
 
     if (dados.concluido && !dados._only_reposition) {
-        // Registra o perÃ­odo como acompanhamento no GLPI (apenas no save do modal, nÃ£o no drag)
+        // Registra o período como acompanhamento no GLPI (apenas no save do modal, não no drag)
         const fmtDt = s => {
           const d = new Date(String(s).replace(' ', 'T'));
           return {
@@ -2805,8 +2805,8 @@ function salvarEventoObj(dados, cb) {
         };
         const ini = fmtDt(dados.start);
         const fim = fmtDt(dados.end || dados.start);
-        let msg = `PerÃ­odo de atendimento registrado: ${ini.dia} das ${ini.hora} Ã s ${fim.hora}`;
-        if (dados.atendente) msg += ` â€” ${dados.atendente}`;
+        let msg = `Período de atendimento registrado: ${ini.dia} das ${ini.hora} às ${fim.hora}`;
+        if (dados.atendente) msg += ` — ${dados.atendente}`;
 
         const fd = new FormData();
         fd.append('ticket_id', dados.ticket_id);
@@ -2814,17 +2814,17 @@ function salvarEventoObj(dados, cb) {
         fetch('responder_ticket.php', { method: 'POST', body: fd })
           .then(r => r.json())
           .then(res => {
-            if (res.ok) toast(`ðŸ“ PerÃ­odo registrado no acompanhamento do #${dados.ticket_id}.`);
+            if (res.ok) toast(`ðŸ“ Período registrado no acompanhamento do #${dados.ticket_id}.`);
           })
           .catch(() => {});
       }
 
-      // âš ï¸ ORDEM DE EXECUÃ‡ÃƒO PROTEGIDA â€” NÃƒO ALTERAR SEM PERMISSÃƒO DO RESPONSÃVEL âš ï¸
+      // âš ï¸ ORDEM DE EXECU?‡?ƒO PROTEGIDA — N?ƒO ALTERAR SEM PERMISS?ƒO DO RESPONSÁVEL âš ï¸
       // REGRA: atualizar_ticket.php deve SEMPRE completar ANTES de fechar_ticket.php.
       // Se rodarem em paralelo, o PUT de campos do atualizar pode chegar ao GLPI DEPOIS
-      // do fechamento e reabrir o chamado. O padrÃ£o _fecharAposSalvar garante a sequÃªncia:
-      //   1. atualizar_ticket (PUT campos) â†’ .then() â†’ fechar_ticket (PUT status=6)
-      //   2. Se atualizar falhar â†’ .catch() â†’ fechar_ticket de qualquer forma
+      // do fechamento e reabrir o chamado. O padrão _fecharAposSalvar garante a sequência:
+      //   1. atualizar_ticket (PUT campos) → .then() → fechar_ticket (PUT status=6)
+      //   2. Se atualizar falhar → .catch() → fechar_ticket de qualquer forma
       if (!dados._only_reposition && (dados.tipo === 'chamado' || dados.tipo === 'requisicao')) {
         const _fecharAposSalvar = () => {
           if (dados.fechar_glpi) {
@@ -2835,7 +2835,7 @@ function salvarEventoObj(dados, cb) {
             })
             .then(r => r.json())
             .then(res => {
-              if (res.ok) toast(`ðŸ”’ Chamado #${dados.ticket_id} fechado no GLPI.`);
+              if (res.ok) toast(`🔒 Chamado #${dados.ticket_id} fechado no GLPI.`);
             });
           }
         };
@@ -2850,8 +2850,8 @@ function salvarEventoObj(dados, cb) {
             tipo:          dados.tipo          || null,
             prioridade:    dados.prioridade    || null,
             categoria_id:  dados.categoria_id  || null,
-            // entities_id NÃƒO Ã© enviado â€” entidade Ã© definida na criaÃ§Ã£o
-            // e NUNCA deve ser alterada por atualizaÃ§Ã£o da agenda
+            // entities_id N?ƒO é enviado — entidade é definida na criação
+            // e NUNCA deve ser alterada por atualização da agenda
             requerente_id: dados.requerente_id || null,
             origem_id:     dados.origem_id     || null,
           }),
@@ -2866,7 +2866,7 @@ function salvarEventoObj(dados, cb) {
         });
 
       } else if (dados.fechar_glpi) {
-        // Tipo nÃ£o Ã© chamado/requisiÃ§Ã£o mas tem fechar_glpi (nÃ£o deveria ocorrer, mas garante)
+        // Tipo não é chamado/requisição mas tem fechar_glpi (não deveria ocorrer, mas garante)
         fetch('fechar_ticket.php', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -2874,11 +2874,11 @@ function salvarEventoObj(dados, cb) {
         })
         .then(r => r.json())
         .then(res => {
-          if (res.ok) toast(`ðŸ”’ Chamado #${dados.ticket_id} fechado no GLPI.`);
+          if (res.ok) toast(`🔒 Chamado #${dados.ticket_id} fechado no GLPI.`);
         });
       }
 
-      // AtribuiÃ§Ã£o de tÃ©cnico: apenas quando nÃ£o estÃ¡ fechando e nÃ£o estÃ¡ concluÃ­do
+      // Atribuição de técnico: apenas quando não está fechando e não está concluído
       if (dados.atendente_id && !dados.concluido && !dados.fechar_glpi) {
         fetch('atribuir_ticket.php', {
           method: 'POST',
@@ -2887,7 +2887,7 @@ function salvarEventoObj(dados, cb) {
         })
         .then(r => r.json())
         .then(res => {
-          if (res.ok) toast(`âœ… Chamado #${dados.ticket_id} atribuÃ­do a ${dados.atendente} no GLPI.`);
+          if (res.ok) toast(`✅ Chamado #${dados.ticket_id} atribuído a ${dados.atendente} no GLPI.`);
         });
       }
     if (cb) cb();
@@ -2901,18 +2901,18 @@ function salvarEventoObj(dados, cb) {
 function deletarEvento() {
   const id       = document.getElementById('ev-id').value.trim();
   const ticketId = document.getElementById('ev-ticket-id').value.trim();
-  if (!id) { alert('Evento sem ID, nÃ£o Ã© possÃ­vel excluir.'); return; }
+  if (!id) { alert('Evento sem ID, não é possível excluir.'); return; }
 
-  // Verifica se Ã© evento multi-atendente (mesmo ticket_id em vÃ¡rios eventos)
+  // Verifica se é evento multi-atendente (mesmo ticket_id em vários eventos)
   const isMulti = ticketId && todosEventos.filter(e => String(e.extendedProps.ticket_id) === ticketId).length > 1;
 
   const msg = isMulti
-    ? `Este chamado #${ticketId} estÃ¡ agendado para mÃºltiplos atendentes.\nDeseja remover da agenda de TODOS?\n\nO chamado voltarÃ¡ para "Novo" e sem tÃ©cnico atribuÃ­do.`
-    : `Excluir este evento da agenda?` + (ticketId ? `\n\nO chamado #${ticketId} voltarÃ¡ para "Novo" e sem tÃ©cnico atribuÃ­do.` : '');
+    ? `Este chamado #${ticketId} está agendado para múltiplos atendentes.\nDeseja remover da agenda de TODOS?\n\nO chamado voltará para "Novo" e sem técnico atribuído.`
+    : `Excluir este evento da agenda?` + (ticketId ? `\n\nO chamado #${ticketId} voltará para "Novo" e sem técnico atribuído.` : '');
 
   if (!confirm(msg)) return;
 
-  // Se multi â†’ deleta todos pelo ticket_id; senÃ£o â†’ deleta sÃ³ este evento
+  // Se multi → deleta todos pelo ticket_id; senão → deleta só este evento
   const url = isMulti
     ? `eventos.php?action=deleteByTicket&ticket_id=${encodeURIComponent(ticketId)}`
     : `eventos.php?action=delete&id=${encodeURIComponent(id)}`;
@@ -2921,8 +2921,8 @@ function deletarEvento() {
     .then(r => r.json())
     .then(res => {
       if (res.ok) {
-        // Remove imediatamente do calendÃ¡rio (eventos de drag ficam em fonte separada
-        // e o refetchEvents() sozinho nÃ£o os remove â€” precisa do remove() explÃ­cito)
+        // Remove imediatamente do calendário (eventos de drag ficam em fonte separada
+        // e o refetchEvents() sozinho não os remove — precisa do remove() explícito)
         if (isMulti) {
           todosEventos
             .filter(e => String(e.extendedProps.ticket_id) === ticketId)
@@ -2947,12 +2947,12 @@ function deletarEvento() {
           })
           .then(r => r.json())
           .then(r => {
-            if (r.ok) toast(`â†©ï¸ Chamado #${ticketId} voltou para Novo e sem tÃ©cnico.`);
-            carregarTickets(); // sidebar atualizada APÃ“S o GLPI ter status=1
+            if (r.ok) toast(`â†©ï¸ Chamado #${ticketId} voltou para Novo e sem técnico.`);
+            carregarTickets(); // sidebar atualizada AP?“S o GLPI ter status=1
           })
           .catch(() => carregarTickets()); // garante reload mesmo se resetar falhar
         } else {
-          carregarTickets(); // evento puro (sem ticket) â†’ recarrega imediatamente
+          carregarTickets(); // evento puro (sem ticket) → recarrega imediatamente
         }
       } else {
         alert('Erro ao excluir: ' + (res.error || 'desconhecido'));
@@ -2960,9 +2960,9 @@ function deletarEvento() {
     });
 }
 
-// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-// UtilitÃ¡rios
-// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ──────────────────────────────────────────
+// Utilitários
+// ──────────────────────────────────────────
 function calView(view) {
   calendar.changeView(view);
   document.querySelectorAll('.nav-view-btn').forEach(b => b.classList.remove('active'));
@@ -2971,7 +2971,7 @@ function calView(view) {
 }
 
 function urgToProioridade(urg) {
-  const m = {'muito baixa':'baixa','baixa':'baixa','mÃ©dia':'media','alta':'alta','muito alta':'critica'};
+  const m = {'muito baixa':'baixa','baixa':'baixa','média':'media','alta':'alta','muito alta':'critica'};
   return m[urg] || 'media';
 }
 
@@ -2984,9 +2984,9 @@ function escHtml(str) {
   return String(str||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
 }
 
-// â”€â”€ Sync Rotinas â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-// Chamado pelo botÃ£o manual E automaticamente no carregamento da agenda.
-// O script PHP jÃ¡ ignora chamados jÃ¡ agendados hoje (idempotente).
+// ── Sync Rotinas ──────────────────────────────────────────────
+// Chamado pelo botão manual E automaticamente no carregamento da agenda.
+// O script PHP já ignora chamados já agendados hoje (idempotente).
 function syncRotinas(manual = false) {
   const btn = document.querySelector('[onclick*="syncRotinas"]');
   if (btn) {
@@ -2998,15 +2998,15 @@ function syncRotinas(manual = false) {
     .then(r => r.json())
     .then(d => {
       if (d.adicionados > 0) {
-        toast(`ðŸ“‹ ${d.adicionados} rotina(s) adicionada(s) Ã  agenda automaticamente.`);
+        toast(`ðŸ“‹ ${d.adicionados} rotina(s) adicionada(s) à agenda automaticamente.`);
       } else if (manual) {
-        toast(`âœ… Rotinas jÃ¡ sincronizadas (${d.ignorados} jÃ¡ estavam na agenda).`);
+        toast(`✅ Rotinas já sincronizadas (${d.ignorados} já estavam na agenda).`);
       }
     })
     .catch(() => { if (manual) toast('âš ï¸ Erro ao sincronizar rotinas.'); })
     .finally(() => {
-      // Sempre carrega eventos e tickets ao final do sync (automÃ¡tico ou manual)
-      // Garante que rotinas e eventuais remoÃ§Ãµes do verificarAtrasados sejam refletidos juntos
+      // Sempre carrega eventos e tickets ao final do sync (automático ou manual)
+      // Garante que rotinas e eventuais remoções do verificarAtrasados sejam refletidos juntos
       calendar.refetchEvents();
       carregarTickets();
       if (btn) {
@@ -3035,14 +3035,14 @@ function syncRotinas(manual = false) {
         <div class="alert alert-info small p-2 mb-3">
           <strong>Como obter o link:</strong><br>
           1. Abra <a href="https://calendar.google.com" target="_blank">calendar.google.com</a><br>
-          2. Clique nos <strong>3 pontinhos</strong> do seu calendÃ¡rio â†’ <strong>ConfiguraÃ§Ãµes</strong><br>
-          3. Role atÃ© <strong>"URL secreta no formato iCal"</strong><br>
+          2. Clique nos <strong>3 pontinhos</strong> do seu calendário → <strong>Configurações</strong><br>
+          3. Role até <strong>"URL secreta no formato iCal"</strong><br>
           4. Copie e cole aqui abaixo
         </div>
 
         <label class="form-label fw-semibold">URL iCal do Google Calendar</label>
         <input type="url" id="gcal-url" class="form-control" placeholder="https://calendar.google.com/calendar/ical/..."/>
-        <div class="form-text">Seus eventos aparecerÃ£o em <span style="color:#0b8043;font-weight:700">verde</span> na agenda.</div>
+        <div class="form-text">Seus eventos aparecerão em <span style="color:#0b8043;font-weight:700">verde</span> na agenda.</div>
 
         <div id="gcal-status" class="mt-2"></div>
       </div>
@@ -3059,7 +3059,7 @@ function syncRotinas(manual = false) {
 </div>
 
 <script>
-// â”€â”€ Menu hamburguer â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ── Menu hamburguer ───────────────────────────────────────────
 function toggleMenu() {
   const menu = document.getElementById('dropdown-menu');
   menu.style.display = menu.style.display === 'none' ? 'block' : 'none';
@@ -3070,7 +3070,7 @@ document.addEventListener('click', e => {
   }
 });
 
-// â”€â”€ Google Calendar â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ── Google Calendar ───────────────────────────────────────────
 let modalGcal;
 let gcalEventIds = new Set();
 
@@ -3086,7 +3086,7 @@ function abrirConfigGcal() {
       document.getElementById('gcal-url').value = d.url || '';
       document.getElementById('gcal-status').innerHTML = d.url
         ? '<span class="badge bg-success">âœ“ Google Calendar conectado</span>'
-        : '<span class="text-muted small">NÃ£o configurado</span>';
+        : '<span class="text-muted small">Não configurado</span>';
     });
   modalGcal.show();
 }
@@ -3118,7 +3118,7 @@ function removerGcal() {
   })
   .then(r => r.json())
   .then(() => {
-    // Remove eventos do Google do calendÃ¡rio
+    // Remove eventos do Google do calendário
     gcalEventIds.forEach(id => {
       const ev = calendar.getEventById(id);
       if (ev) ev.remove();
@@ -3150,7 +3150,7 @@ function carregarEventosGcal() {
         gcalEventIds.add(ev.id);
       });
 
-      // Atualiza botÃ£o para indicar que estÃ¡ conectado
+      // Atualiza botão para indicar que está conectado
       document.getElementById('btn-gcal').style.background = '#0b8043';
     })
     .catch(() => {});
