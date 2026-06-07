@@ -41,32 +41,73 @@ if ($loja && !isset($_SESSION['pfsense_logged_' . $loja_id])) {
     $ip    = $loja['ip'];
     $user  = $loja['usuario'];
     $pass  = vault_decrypt($loja['senha_enc']);
-    $ckfile = sys_get_temp_dir() . '/pfsense_' . session_id() . '_' . $loja_id . '.ck';
+    $ckfile = sys_get_temp_dir() . '/pfsense_' . session_id() . '_' . $loja_id . '.ck.txt';
 
+    // ── PASSO 1: GET da página de login pra extrair CSRF ──
     $ch = curl_init();
+    curl_setopt_array($ch, [
+        CURLOPT_URL => "https://$ip/",
+        CURLOPT_SSL_VERIFYPEER => false,
+        CURLOPT_SSL_VERIFYHOST => false,
+        CURLOPT_COOKIEJAR => $ckfile,
+        CURLOPT_COOKIEFILE => $ckfile,
+        CURLOPT_RETURNTRANSFER => true,
+        CURLOPT_FOLLOWLOCATION => true,
+        CURLOPT_TIMEOUT => 20,
+        CURLOPT_USERAGENT => 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+    ]);
+    $loginPage = curl_exec($ch);
+    $httpCode  = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+    if ($httpCode >= 400) {
+        http_response_code(502);
+        echo "Erro ao conectar no pfSense ($ip) — código $httpCode";
+        exit;
+    }
+
+    // Extrai o token CSRF do HTML (formatos: value="xxx" ou value='xxx')
+    $csrf = '';
+    if (preg_match('/__csrf_magic["\']?\s*(?:value\s*=\s*["\']([^"\']+)["\']|>\s*([^<]+)<)/is', $loginPage, $m)) {
+        $csrf = !empty($m[1]) ? $m[1] : (!empty($m[2]) ? trim($m[2]) : '');
+    }
+    $csrf = html_entity_decode($csrf, ENT_QUOTES | ENT_HTML5);
+
+    // ── PASSO 2: POST com credentials + CSRF ───────────────
     curl_setopt_array($ch, [
         CURLOPT_URL => "https://$ip/index.php",
         CURLOPT_POST => true,
         CURLOPT_POSTFIELDS => http_build_query([
-            '__csrf_magic' => '',
+            '__csrf_magic' => $csrf,
             'usernamefld'  => $user,
             'passwordfld'  => $pass,
             'login'        => 'Login',
         ]),
-        CURLOPT_SSL_VERIFYPEER => false,
-        CURLOPT_SSL_VERIFYHOST => false,
-        CURLOPT_COOKIEJAR => $ckfile,
+        CURLOPT_COOKIEFILE => $ckfile,
+        CURLOPT_COOKIEJAR  => $ckfile,
         CURLOPT_RETURNTRANSFER => true,
         CURLOPT_FOLLOWLOCATION => true,
-        CURLOPT_TIMEOUT => 15,
+        CURLOPT_TIMEOUT => 20,
+        CURLOPT_USERAGENT => 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
     ]);
-    curl_exec($ch);
-    $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+    $loginResult = curl_exec($ch);
+    $httpCode    = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+    $loginErr    = curl_error($ch);
+    $redirectUrl = curl_getinfo($ch, CURLINFO_EFFECTIVE_URL);
     curl_close($ch);
 
-    if ($httpCode >= 400 && $httpCode !== 302 && $httpCode !== 200) {
+    // Verifica se o login redirecionou pro dashboard (sucesso)
+    $loginOk = ($httpCode === 200 || $httpCode === 302);
+    if ($loginOk && $loginResult) {
+        // Se ainda estiver na página de login, falhou
+        if (stripos($loginResult, 'usernamefld') !== false || stripos($loginResult, 'Login') !== false) {
+            $loginOk = false;
+        }
+    }
+
+    if (!$loginOk) {
+        unset($_SESSION['pfsense_logged_' . $loja_id]);
         http_response_code(502);
-        echo "Erro ao conectar no pfSense ($ip) — código $httpCode";
+        echo "Falha no login do pfSense ($ip). Verifique usuário e senha.";
+        if ($loginErr) echo " cURL: $loginErr";
         exit;
     }
 
