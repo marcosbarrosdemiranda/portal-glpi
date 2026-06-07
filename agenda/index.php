@@ -392,7 +392,7 @@ $user_id_sessao = (int)($_SESSION['user_id'] ?? 0);
   <div class="atendente-filtro">
     <i class="bi bi-person-fill me-1"></i>
     <select id="filtro-atendente" onchange="filtrarPorAtendente()">
-      <option value="">ðŸ‘¥ Todos os atendentes</option>
+      <option value="">👥 Todos os atendentes</option>
     </select>
   </div>
 
@@ -461,7 +461,7 @@ $user_id_sessao = (int)($_SESSION['user_id'] ?? 0);
 
     <!-- Filtros -->
     <div class="filtros">
-      <input type="text" id="filtro-texto" placeholder="ðŸ” Buscar chamado..." oninput="filtrarTickets()"/>
+      <input type="text" id="filtro-texto" placeholder="🔍 Buscar chamado..." oninput="filtrarTickets()"/>
       <select id="filtro-urgencia" onchange="filtrarTickets()">
         <option value="">Todas as urgências</option>
         <option value="muito baixa">Muito Baixa</option>
@@ -521,10 +521,10 @@ $user_id_sessao = (int)($_SESSION['user_id'] ?? 0);
           <div class="col-md-6">
             <label class="form-label">Tipo</label>
             <select class="form-select" id="ev-tipo" onchange="ajustarDuracaoPorTipo(); ajustarCamposPorTipo()">
-              <option value="chamado" selected>ðŸŽ« Chamado GLPI</option>
-              <option value="requisicao">ðŸ“‹ Requisição GLPI</option>
-              <option value="reuniao">ðŸ‘¥ Reunião</option>
-              <option value="evento">ðŸ“… Evento</option>
+              <option value="chamado" selected>🎫 Chamado GLPI</option>
+              <option value="requisicao">📋 Requisição GLPI</option>
+              <option value="reuniao">👥 Reunião</option>
+              <option value="evento">📅 Evento</option>
             </select>
           </div>
           <!-- Banner modo leitura — mesma linha que Tipo -->
@@ -601,10 +601,10 @@ $user_id_sessao = (int)($_SESSION['user_id'] ?? 0);
           <div class="col-md-6" id="campo-prioridade">
             <label class="form-label">Prioridade</label>
             <select class="form-select" id="ev-prioridade">
-              <option value="baixa">ðŸŸ¢ Baixa</option>
-              <option value="media" selected>ðŸŸ¡ Média</option>
-              <option value="alta">ðŸ”´ Alta</option>
-              <option value="critica">ðŸŸ£ Crítica</option>
+              <option value="baixa">🟢 Baixa</option>
+              <option value="media" selected>🟡 Média</option>
+              <option value="alta">🔴 Alta</option>
+              <option value="critica">🟣 Crítica</option>
             </select>
           </div>
           <input type="hidden" id="ev-setor"/>
@@ -1209,7 +1209,7 @@ function carregarEventos(info, success) {
           const a = e.extendedProps.atendente || '(sem atendente)';
           porAtendente[a] = (porAtendente[a] || 0) + 1;
         });
-        console.log('ðŸ“Š carregarEventos: total=', todosEventos.length, 'porAtendente=', porAtendente);
+        console.log('📊 carregarEventos: total=', todosEventos.length, 'porAtendente=', porAtendente);
       }
 
       // Aplica filtro de atendente se houver
@@ -1262,7 +1262,7 @@ function eventosFiltrados() {
       }
       return false;
     });
-    console.log(`ðŸ“Š eventosFiltrados: filtro="${filtroAtendente}", total=${todosEventos.length}, filtrados=${filtrados.length}`);
+    console.log(`📊 eventosFiltrados: filtro="${filtroAtendente}", total=${todosEventos.length}, filtrados=${filtrados.length}`);
     // Se filtrou menos que o total, loga os excluídos
     if (filtrados.length < todosEventos.length) {
       todosEventos.forEach(e => {
@@ -1351,7 +1351,7 @@ function carregarAtendentes() {
       // Escapamos apenas & para não quebrar a sintaxe HTML quando o nome contém &.
       const filtro = document.getElementById('filtro-atendente');
       filtro.innerHTML =
-        '<option value="">ðŸ‘¥ Todos os atendentes</option>' +
+        '<option value="">👥 Todos os atendentes</option>' +
         data.map(a => `<option value="${String(a.nome).replace(/&/g, '&amp;').replace(/"/g, '&quot;')}">${escHtml(apelidoAtendente(a.nome))}</option>`).join('');
 
       // Pré-seleciona o atendente logado (por ID ou por nome)
@@ -1630,7 +1630,7 @@ async function uploadAnexosCriar(ticketId) {
   const res = await fetch('anexar_ticket.php', { method: 'POST', body: form });
   const data = await res.json();
   if (data.ok && data.anexos > 0) {
-    toast(`ðŸ“Ž ${data.anexos} anexo(s) enviado(s) ao chamado #${ticketId}.`);
+    toast(`📎 ${data.anexos} anexo(s) enviado(s) ao chamado #${ticketId}.`);
   }
   return data;
 }
@@ -2323,7 +2323,7 @@ function novoPeriodo() {
       `<i class="bi bi-clock-history me-2"></i>Novo período — #${tid}`;
     setModoLeitura(false);
 
-    toast(`ðŸ“… Novo período para o chamado #${tid} — informe a data e horário.`);
+    toast(`📅 Novo período para o chamado #${tid} — informe a data e horário.`);
     modalEvento.show();
   });
 }
@@ -2637,7 +2637,7 @@ function salvarEvento() {
         _skipGlpi:     isChamadoOuReq,
       });
       const dadosSalvos = multiSel.map(mapTech);
-      console.log('ðŸ“Š Multi-tech save:', dadosSalvos.map(d => ({atendente: d.atendente, atendente_id: d.atendente_id, ticket_id: d.ticket_id, id: d.id})));
+      console.log('📊 Multi-tech save:', dadosSalvos.map(d => ({atendente: d.atendente, atendente_id: d.atendente_id, ticket_id: d.ticket_id, id: d.id})));
       const promises = dadosSalvos.map(d => salvarEventoObj(d));
       Promise.all(promises).then(() => {
         modalEvento.hide();
@@ -2683,7 +2683,7 @@ function salvarEvento() {
       .then(r => r.json())
       .then(res => {
         if (res.ok) {
-          toast(`ðŸŽ« Chamado #${res.ticket_id} criado no GLPI!`);
+          toast(`🎫 Chamado #${res.ticket_id} criado no GLPI!`);
           uploadAnexosCriar(res.ticket_id).then(() => {
             finalizarMulti(res.ticket_id);
           });
@@ -2758,7 +2758,7 @@ function salvarEvento() {
     .then(res => {
       if (res.ok) {
         dados.ticket_id = res.ticket_id;
-        toast(`ðŸŽ« Chamado #${res.ticket_id} criado no GLPI!`);
+        toast(`🎫 Chamado #${res.ticket_id} criado no GLPI!`);
         uploadAnexosCriar(res.ticket_id).then(() => {
           salvarEventoObj(dados, finalizarSalvar);
         });
@@ -2814,7 +2814,7 @@ function salvarEventoObj(dados, cb) {
         fetch('responder_ticket.php', { method: 'POST', body: fd })
           .then(r => r.json())
           .then(res => {
-            if (res.ok) toast(`ðŸ“ Período registrado no acompanhamento do #${dados.ticket_id}.`);
+            if (res.ok) toast(`📝 Período registrado no acompanhamento do #${dados.ticket_id}.`);
           })
           .catch(() => {});
       }
@@ -2858,7 +2858,7 @@ function salvarEventoObj(dados, cb) {
         })
         .then(r => r.json())
         .then(res => {
-          if (res.ok && res.campos > 0) toast(`ðŸ”„ Chamado #${dados.ticket_id} atualizado no GLPI.`);
+          if (res.ok && res.campos > 0) toast(`🔄 Chamado #${dados.ticket_id} atualizado no GLPI.`);
           _fecharAposSalvar(); // fecha DEPOIS dos campos atualizados
         })
         .catch(() => {
@@ -2998,7 +2998,7 @@ function syncRotinas(manual = false) {
     .then(r => r.json())
     .then(d => {
       if (d.adicionados > 0) {
-        toast(`ðŸ“‹ ${d.adicionados} rotina(s) adicionada(s) à agenda automaticamente.`);
+        toast(`📋 ${d.adicionados} rotina(s) adicionada(s) à agenda automaticamente.`);
       } else if (manual) {
         toast(`✅ Rotinas já sincronizadas (${d.ignorados} já estavam na agenda).`);
       }
