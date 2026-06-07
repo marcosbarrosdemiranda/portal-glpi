@@ -43,82 +43,109 @@ if ($loja && !isset($_SESSION['pfsense_logged_' . $loja_id])) {
     $pass  = vault_decrypt($loja['senha_enc']);
     $ckfile = sys_get_temp_dir() . '/pfsense_' . session_id() . '_' . $loja_id . '.ck.txt';
 
-    // ── PASSO 1: GET da página de login pra extrair CSRF ──
-    $ch = curl_init();
-    curl_setopt_array($ch, [
-        CURLOPT_URL => "https://$ip/",
-        CURLOPT_SSL_VERIFYPEER => false,
-        CURLOPT_SSL_VERIFYHOST => false,
-        CURLOPT_COOKIEJAR => $ckfile,
-        CURLOPT_COOKIEFILE => $ckfile,
-        CURLOPT_RETURNTRANSFER => true,
-        CURLOPT_FOLLOWLOCATION => true,
-        CURLOPT_TIMEOUT => 20,
-        CURLOPT_USERAGENT => 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
-    ]);
-    $loginPage = curl_exec($ch);
-    $httpCode  = curl_getinfo($ch, CURLINFO_HTTP_CODE);
-    if ($httpCode >= 400) {
-        http_response_code(502);
-        echo "Erro ao conectar no pfSense ($ip) — código $httpCode";
-        exit;
-    }
+    // Tenta HTTPS primeiro, depois HTTP
+    $protocols = ['https', 'http'];
 
-    // Extrai o token CSRF do HTML (formatos: value="xxx" ou value='xxx')
-    $csrf = '';
-    if (preg_match('/__csrf_magic["\']?\s*(?:value\s*=\s*["\']([^"\']+)["\']|>\s*([^<]+)<)/is', $loginPage, $m)) {
-        $csrf = !empty($m[1]) ? $m[1] : (!empty($m[2]) ? trim($m[2]) : '');
-    }
-    $csrf = html_entity_decode($csrf, ENT_QUOTES | ENT_HTML5);
+    $loginOk = false;
+    $loginResult = '';
+    $lastError = '';
 
-    // ── PASSO 2: POST com credentials + CSRF ───────────────
-    curl_setopt_array($ch, [
-        CURLOPT_URL => "https://$ip/index.php",
-        CURLOPT_POST => true,
-        CURLOPT_POSTFIELDS => http_build_query([
-            '__csrf_magic' => $csrf,
-            'usernamefld'  => $user,
-            'passwordfld'  => $pass,
-            'login'        => 'Login',
-        ]),
-        CURLOPT_COOKIEFILE => $ckfile,
-        CURLOPT_COOKIEJAR  => $ckfile,
-        CURLOPT_RETURNTRANSFER => true,
-        CURLOPT_FOLLOWLOCATION => true,
-        CURLOPT_TIMEOUT => 20,
-        CURLOPT_USERAGENT => 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
-    ]);
-    $loginResult = curl_exec($ch);
-    $httpCode    = curl_getinfo($ch, CURLINFO_HTTP_CODE);
-    $loginErr    = curl_error($ch);
-    $redirectUrl = curl_getinfo($ch, CURLINFO_EFFECTIVE_URL);
-    curl_close($ch);
+    foreach ($protocols as $proto) {
+        if ($loginOk) break;
 
-    // Verifica se o login redirecionou pro dashboard (sucesso)
-    $loginOk = ($httpCode === 200 || $httpCode === 302);
-    if ($loginOk && $loginResult) {
-        // Se ainda estiver na página de login, falhou
-        if (stripos($loginResult, 'usernamefld') !== false || stripos($loginResult, 'Login') !== false) {
-            $loginOk = false;
+        // ── PASSO 1: GET da página de login ──
+        $ch = curl_init();
+        curl_setopt_array($ch, [
+            CURLOPT_URL => "$proto://$ip/",
+            CURLOPT_SSL_VERIFYPEER => false,
+            CURLOPT_SSL_VERIFYHOST => false,
+            CURLOPT_COOKIEJAR => $ckfile,
+            CURLOPT_COOKIEFILE => $ckfile,
+            CURLOPT_RETURNTRANSFER => true,
+            CURLOPT_FOLLOWLOCATION => true,
+            CURLOPT_TIMEOUT => 10,
+            CURLOPT_CONNECTTIMEOUT => 5,
+            CURLOPT_USERAGENT => 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+        ]);
+        $loginPage = curl_exec($ch);
+        $httpCode  = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+
+        if ($httpCode >= 400 || !$loginPage) {
+            $lastError = "$proto://$ip/ — código $httpCode";
+            curl_close($ch);
+            continue;
         }
+
+        // Extrai CSRF se existir
+        $csrf = '';
+        if (preg_match('/__csrf_magic[^v]*value\s*=\s*"([^"]+)"/is', $loginPage, $m)) {
+            $csrf = $m[1];
+        } elseif (preg_match('/__csrf_magic[^>]*>\s*([^<]+)</is', $loginPage, $m)) {
+            $csrf = trim($m[1]);
+        }
+        $csrf = html_entity_decode($csrf, ENT_QUOTES | ENT_HTML5);
+
+        // ── PASSO 2: POST login ───────────────────────────
+        $postFields = [
+            'usernamefld' => $user,
+            'passwordfld' => $pass,
+            'login'       => 'Login',
+        ];
+        if ($csrf) {
+            $postFields['__csrf_magic'] = $csrf;
+        }
+
+        curl_setopt_array($ch, [
+            CURLOPT_URL => "$proto://$ip/index.php",
+            CURLOPT_POST => true,
+            CURLOPT_POSTFIELDS => http_build_query($postFields),
+            CURLOPT_COOKIEFILE => $ckfile,
+            CURLOPT_COOKIEJAR  => $ckfile,
+            CURLOPT_RETURNTRANSFER => true,
+            CURLOPT_FOLLOWLOCATION => true,
+            CURLOPT_TIMEOUT => 15,
+            CURLOPT_USERAGENT => 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+        ]);
+        $loginResult = curl_exec($ch);
+        $httpCode    = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+        $redirectUrl = curl_getinfo($ch, CURLINFO_EFFECTIVE_URL);
+        curl_close($ch);
+
+        // Verifica se saiu da página de login
+        if ($httpCode === 200 || $httpCode === 302) {
+            $naoContemForm = stripos($loginResult, 'usernamefld') === false
+                         && stripos($loginResult, 'passwordfld') === false;
+            if ($naoContemForm) {
+                $loginOk = true;
+                break;
+            }
+        }
+        $lastError = "$proto — HTTP $httpCode, ainda na página de login";
     }
 
     if (!$loginOk) {
         unset($_SESSION['pfsense_logged_' . $loja_id]);
+        @unlink($ckfile);
         http_response_code(502);
-        echo "Falha no login do pfSense ($ip). Verifique usuário e senha.";
-        if ($loginErr) echo " cURL: $loginErr";
+        echo "<div style='font-family:sans-serif;padding:2rem;max-width:600px;margin:auto;text-align:center'>";
+        echo "<h2 style='color:#b91c1c'>⚠️ Falha no login do pfSense ($ip)</h2>";
+        echo "<p style='color:#6b7280'>$lastError</p>";
+        echo "<p style='font-size:.85rem;color:#9ca3af'>Verifique se o IP, usuário e senha estão corretos no cadastro da loja.</p>";
+        echo "<a href='pfsense_proxy.php' style='color:#b91c1c'>← Voltar à lista de lojas</a>";
+        echo "</div>";
         exit;
     }
 
     $_SESSION['pfsense_logged_' . $loja_id] = true;
     $_SESSION['pfsense_ck_' . $loja_id] = $ckfile;
     $_SESSION['pfsense_ip_' . $loja_id] = $ip;
+    $_SESSION['pfsense_proto_' . $loja_id] = $proto;
 }
 
 // ── Proxy de página ──────────────────────────────────────────────
 if ($loja && isset($_GET['path'])) {
     $ip    = $loja['ip'];
+    $proto = $_SESSION['pfsense_proto_' . $loja_id] ?? 'https';
     $ckfile = $_SESSION['pfsense_ck_' . $loja_id] ?? null;
 
     if (!$ckfile || !file_exists($ckfile)) {
@@ -133,7 +160,7 @@ if ($loja && isset($_GET['path'])) {
     $postData = $isPost ? $_POST : null;
 
     // Monta URL completa do pfSense
-    $url = "https://$ip$path";
+    $url = "$proto://$ip$path";
 
     $ch = curl_init();
     $curlOpts = [
@@ -145,21 +172,18 @@ if ($loja && isset($_GET['path'])) {
         CURLOPT_FOLLOWLOCATION => true,
         CURLOPT_TIMEOUT => 30,
         CURLOPT_HEADER => true,
+        CURLOPT_USERAGENT => 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
     ];
 
     if ($isPost) {
         $curlOpts[CURLOPT_POST] = true;
-        // Rebuild POST data with __csrf_magic from our session if present
-        if (isset($_POST['__csrf_magic'])) {
-            $postData = $_POST;
-        }
-        $curlOpts[CURLOPT_POSTFIELDS] = http_build_query($postData);
+        $curlOpts[CURLOPT_POSTFIELDS] = http_build_query($_POST);
     }
 
     curl_setopt_array($ch, $curlOpts);
     $response = curl_exec($ch);
-    $headerSize = curl_getinfo($ch, CURLINFO_HEADER_SIZE);
     $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+    $contentType = curl_getinfo($ch, CURLINFO_CONTENT_TYPE);
     curl_close($ch);
 
     if ($httpCode >= 400 && $httpCode !== 302 && $httpCode !== 200) {
@@ -170,23 +194,42 @@ if ($loja && isset($_GET['path'])) {
         exit;
     }
 
-    // Extrai headers e body
-    $rawHeaders = substr($response, 0, $headerSize);
-    $body = substr($response, $headerSize);
-
-    // Remove headers problemáticos e repassa
-    $blockedHeaders = ['x-frame-options', 'content-security-policy', 'transfer-encoding'];
-    foreach (explode("\r\n", $rawHeaders) as $h) {
-        $hLower = strtolower(explode(':', $h)[0]);
-        if (in_array($hLower, $blockedHeaders)) continue;
-        if (empty(trim($h))) continue;
-        if (stripos($h, 'HTTP/') === 0) continue; // deixa PHP setar
-        header($h, false);
+    // Acha o início do body (após o último header vazio \r\n\r\n)
+    $body = $response;
+    $headerEnd = strpos($response, "\r\n\r\n");
+    if ($headerEnd !== false) {
+        $body = substr($response, $headerEnd + 4);
     }
 
-    // Rewrite URLs no HTML para passar pelo proxy
-    $qs = 'loja=' . $loja_id . '&path=';
-    $body = preg_replace(
+    // Só faz rewrite se for HTML
+    $isHtml = $contentType && stripos($contentType, 'text/html') !== false;
+
+    if ($isHtml) {
+        // Rewrite URLs no HTML para passar pelo proxy
+        $qs = 'loja=' . $loja_id . '&path=';
+        $body = preg_replace(
+            '/(<(?:a|link|script|img|form|iframe|source)\s[^>]*?(?:href|src|action)\s*=\s*["\'])\/([^"\']*)(["\'])/i',
+            '$1pfsense_proxy.php?' . $qs . '/$2$3',
+            $body
+        );
+        $body = preg_replace(
+            '/(<(?:a|link|script|img|form|iframe|source)\s[^>]*?(?:href|src|action)\s*=\s*["\'])(?!http|https|\/|#|[a-z]+:)([^"\']*)(["\'])/i',
+            '$1pfsense_proxy.php?' . $qs . '/$2$3',
+            $body
+        );
+        $body = preg_replace(
+            '/(<meta[^>]*url\s*=\s*["\'])\/([^"\']*)(["\'])/i',
+            '$1pfsense_proxy.php?' . $qs . '/$2$3',
+            $body
+        );
+    }
+
+    // Send Content-Type header (important for browser rendering)
+    if ($contentType) {
+        header("Content-Type: $contentType");
+    }
+
+    echo $body;
         '/(<(?:a|link|script|img|form|iframe|source)\s[^>]*?(?:href|src|action)\s*=\s*["\'])\/([^"\']*)(["\'])/i',
         '$1pfsense_proxy.php?' . $qs . '/$2$3',
         $body
