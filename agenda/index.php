@@ -458,7 +458,11 @@ $user_id_sessao = (int)($_SESSION['user_id'] ?? 0);
     <i class="bi bi-funnel me-1"></i>
     <select id="filtro-tipo" onchange="filtrarPorTipo()">
       <option value="">Todos os tipos</option>
-      <option value="chamado">🎫 Chamado</option>
+      <optgroup label="🔷 Chamados">
+        <option value="chamado_todos">🔷 Chamados (Todos)</option>
+        <option value="chamado_concluido">✅ Chamados Concluídos</option>
+        <option value="chamado_pendente">⏳ Chamados Pendentes</option>
+      </optgroup>
       <option value="requisicao">📋 Requisição</option>
       <option value="reuniao">👥 Reunião</option>
       <option value="evento">📅 Evento</option>
@@ -1165,7 +1169,6 @@ document.addEventListener('DOMContentLoaded', function() {
       const menuBtn = temMenu
         ? `<button class="ev-menu-btn" onclick="event.stopPropagation();toggleMenuAcoes(this, '${arg.event.id}', '${ticketId}', ${concluido})" title="Ações">⋮</button>`
         : '';
-      const evId = arg.event.id.replace(/[^a-zA-Z0-9_-]/g, '');
       return {
         html: `<div class="ev-inner">
                  ${timeText}<i class="bi ${icone} ev-icon"></i>
@@ -1173,8 +1176,7 @@ document.addEventListener('DOMContentLoaded', function() {
                  ${grupoTag}${avisoTag}
                </div>
                ${checkBadge}
-               ${menuBtn}
-               <div class="ev-dropdown" id="evMenu_${evId}"></div>`
+               ${menuBtn}`
       };
     },
 
@@ -1352,7 +1354,12 @@ function eventosFiltrados() {
     }
     // Aplica filtro por tipo
     if (filtroTipo) {
-      return filtrados.filter(e => e.extendedProps.tipo === filtroTipo);
+      return filtrados.filter(e => {
+        if (filtroTipo === 'chamado_todos') return e.extendedProps.tipo === 'chamado';
+        if (filtroTipo === 'chamado_concluido') return e.extendedProps.tipo === 'chamado' && e.extendedProps.concluido;
+        if (filtroTipo === 'chamado_pendente') return e.extendedProps.tipo === 'chamado' && !e.extendedProps.concluido;
+        return e.extendedProps.tipo === filtroTipo;
+      });
     }
     return filtrados;
   }
@@ -1408,7 +1415,12 @@ function eventosFiltrados() {
 
   // Aplica filtro por tipo (após os filtros de atendente/Todos)
   if (filtroTipo) {
-    return resultado.filter(e => e.extendedProps.tipo === filtroTipo);
+    return resultado.filter(e => {
+      if (filtroTipo === 'chamado_todos') return e.extendedProps.tipo === 'chamado';
+      if (filtroTipo === 'chamado_concluido') return e.extendedProps.tipo === 'chamado' && e.extendedProps.concluido;
+      if (filtroTipo === 'chamado_pendente') return e.extendedProps.tipo === 'chamado' && !e.extendedProps.concluido;
+      return e.extendedProps.tipo === filtroTipo;
+    });
   }
   return resultado;
 }
@@ -1425,18 +1437,13 @@ function filtrarPorTipo() {
 
 // ── Menu ⋮ de ações no evento ────────────
 function toggleMenuAcoes(btn, evId, ticketId, concluido) {
-  // Fecha qualquer outro menu aberto
-  document.querySelectorAll('.ev-dropdown.show').forEach(el => el.classList.remove('show'));
+  // Fecha qualquer outro menu aberto (remove do DOM)
+  document.querySelectorAll('.ev-dropdown-dinamico').forEach(el => el.remove());
 
-  const menu = document.getElementById('evMenu_' + evId.replace(/[^a-zA-Z0-9_-]/g, ''));
-  if (!menu) return;
-
-  if (menu.classList.contains('show')) {
-    menu.classList.remove('show');
-    return;
-  }
-
-  menu.innerHTML = `<div class="ev-dropdown-header">Chamado</div>
+  // Cria o dropdown dinamicamente
+  const dropdown = document.createElement('div');
+  dropdown.className = 'ev-dropdown ev-dropdown-dinamico show';
+  dropdown.innerHTML = `<div class="ev-dropdown-header">Chamado</div>
     <button class="ev-dropdown-item" onclick="excluirChamado('${ticketId}', this)" data-ticket="${ticketId}">
       🗑️ Excluir chamado
       ${concluido ? '<br><small style="color:#999;font-size:.7rem">(apenas chamados em aberto)</small>' : '<br><small style="color:#999;font-size:.7rem">Excluir permanentemente do GLPI</small>'}
@@ -1448,24 +1455,33 @@ function toggleMenuAcoes(btn, evId, ticketId, concluido) {
     </button>`;
 
   // Habilita/desabilita itens conforme estado
-  const excluirBtn = menu.querySelector('button:nth-child(1)');
-  const reabrirBtn = menu.querySelector('button:nth-child(3)');
+  const excluirBtn = dropdown.querySelector('button:nth-child(1)');
+  const reabrirBtn = dropdown.querySelector('button:nth-child(3)');
   if (concluido) {
-    excluirBtn.disabled = true;  // só exclui em aberto
+    excluirBtn.disabled = true;
   } else {
-    reabrirBtn.disabled = true;  // só reabre se fechado
+    reabrirBtn.disabled = true;
   }
 
-  menu.classList.add('show');
+  // Posiciona relativo ao botão
+  const rect = btn.getBoundingClientRect();
+  dropdown.style.position = 'fixed';
+  dropdown.style.left = Math.max(8, rect.right - 180) + 'px';
+  dropdown.style.top = (rect.bottom + 2) + 'px';
+  dropdown.style.zIndex = '99999';
 
-  // Fecha ao clicar fora
+  document.body.appendChild(dropdown);
+
+  // Fecha ao clicar fora (com delay para não fechar imediatamente pelo clique que abriu)
   setTimeout(() => {
-    document.addEventListener('click', fecharMenuAcoes, { once: true });
-  }, 10);
-}
-
-function fecharMenuAcoes(e) {
-  document.querySelectorAll('.ev-dropdown.show').forEach(el => el.classList.remove('show'));
+    const fechar = (e) => {
+      if (!dropdown.contains(e.target) && e.target !== btn) {
+        dropdown.remove();
+        document.removeEventListener('click', fechar, true);
+      }
+    };
+    document.addEventListener('click', fechar, true);
+  }, 50);
 }
 
 function excluirChamado(ticketId, btn) {
@@ -1479,7 +1495,7 @@ function excluirChamado(ticketId, btn) {
   })
   .then(r => r.json())
   .then(res => {
-    fecharMenuAcoes();
+    document.querySelectorAll('.ev-dropdown-dinamico').forEach(el => el.remove());
     if (res.ok) {
       // Remove também da agenda local
       fetch('eventos.php?action=deleteByTicket&ticket_id=' + encodeURIComponent(ticketId))
@@ -1493,7 +1509,7 @@ function excluirChamado(ticketId, btn) {
     }
   })
   .catch(() => {
-    fecharMenuAcoes();
+    document.querySelectorAll('.ev-dropdown-dinamico').forEach(function(el) { el.remove(); });
     alert('Erro de conexão ao tentar excluir chamado.');
   });
 }
@@ -1509,7 +1525,7 @@ function reabrirChamado(ticketId, btn) {
   })
   .then(r => r.json())
   .then(res => {
-    fecharMenuAcoes();
+    document.querySelectorAll('.ev-dropdown-dinamico').forEach(el => el.remove());
     if (res.ok) {
       // Atualiza eventos no banco local: marca como não concluído
       const eventos = calendar.getEvents().filter(e => String(e.extendedProps.ticket_id) === String(ticketId));
@@ -1528,7 +1544,7 @@ function reabrirChamado(ticketId, btn) {
     }
   })
   .catch(() => {
-    fecharMenuAcoes();
+    document.querySelectorAll('.ev-dropdown-dinamico').forEach(function(el) { el.remove(); });
     alert('Erro de conexão ao tentar reabrir chamado.');
   });
 }
