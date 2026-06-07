@@ -1137,22 +1137,26 @@ document.addEventListener('DOMContentLoaded', function() {
       return classes;
     },
 
-    // Menu ⋮ — attach handler via mousedown (FC usa mousedown para detectar eventClick)
+    // Menu ⋮ — intercepta ANTES do FullCalendar detectar o clique
+    // FC usa pointerdown (e mousedown fallback) no container — precisamos
+    // stopPropagation no target para impedir bolha até o container do FC.
+    // Guarda 'handled' porque pointerdown sempre dispara antes de mousedown.
     eventDidMount(info) {
       const btn = info.el.querySelector('.ev-menu-btn');
-      if (btn) {
-        btn.onmousedown = function(e) {
-          e.stopPropagation();
-          // Extrai dados do evento — busca do próprio FullCalendar,
-          // não de atributos HTML (que podem ser perdidos em re-renders)
-          const ev = info.event;
-          const props = ev.extendedProps;
-          const c = _dropCache[ev.id] || {};
-          const ticketId = props.ticket_id || c.ticket_id || '';
-          const concluido = props.concluido;
-          toggleMenuAcoes(btn, ev.id, ticketId, concluido);
-        };
-      }
+      if (!btn) return;
+      let handled = false;
+      const abrirMenu = function(e) {
+        e.stopPropagation();
+        if (handled) return;
+        handled = true;
+        const ev = info.event;
+        const props = ev.extendedProps;
+        const c = _dropCache[ev.id] || {};
+        const ticketId = props.ticket_id || c.ticket_id || '';
+        toggleMenuAcoes(btn, ev.id, ticketId, props.concluido);
+      };
+      btn.addEventListener('pointerdown', abrirMenu);
+      btn.addEventListener('mousedown', abrirMenu);
     },
 
     // Renderiza ícone + título + menu ⋮ no evento
