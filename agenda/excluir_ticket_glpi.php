@@ -1,6 +1,6 @@
 <?php
 /**
- * Exclui permanentemente um chamado do GLPI (DELETE /Ticket/{id})
+ * Move um chamado em aberto para a LIXEIRA do GLPI (PUT is_deleted=1)
  * Apenas permite exclusão de chamados em aberto (status = 1 = Novo)
  * POST JSON: { ticket_id }
  */
@@ -52,7 +52,6 @@ curl_close($ch);
 $status = (int)($ticket['status'] ?? 0);
 
 if ($status !== 1) {
-    // Encerra sessão antes de retornar erro
     $ch = curl_init(GLPI_URL . '/apirest.php/killSession');
     curl_setopt_array($ch, [
         CURLOPT_RETURNTRANSFER => true,
@@ -65,11 +64,12 @@ if ($status !== 1) {
     exit;
 }
 
-// ── Exclui permanentemente do GLPI ────────────────────────────
+// ── Move para a LIXEIRA do GLPI (soft delete: is_deleted=1) ──
 $ch = curl_init(GLPI_URL . '/apirest.php/Ticket/' . $ticket_id);
 curl_setopt_array($ch, [
     CURLOPT_RETURNTRANSFER => true,
-    CURLOPT_CUSTOMREQUEST  => 'DELETE',
+    CURLOPT_CUSTOMREQUEST  => 'PUT',
+    CURLOPT_POSTFIELDS     => json_encode(['input' => ['is_deleted' => 1]]),
     CURLOPT_HTTPHEADER     => $headers,
 ]);
 $res = curl_exec($ch);
@@ -86,7 +86,7 @@ curl_exec($ch);
 curl_close($ch);
 
 if ($httpCode >= 200 && $httpCode < 300) {
-    echo json_encode(['ok' => true, 'msg' => "Chamado #{$ticket_id} excluído permanentemente do GLPI."]);
+    echo json_encode(['ok' => true, 'msg' => "Chamado #{$ticket_id} movido para a lixeira do GLPI."]);
 } else {
-    echo json_encode(['ok' => false, 'msg' => "Falha ao excluir chamado #{$ticket_id} do GLPI (HTTP {$httpCode})."]);
+    echo json_encode(['ok' => false, 'msg' => "Falha ao mover chamado #{$ticket_id} para a lixeira (HTTP {$httpCode})."]);
 }

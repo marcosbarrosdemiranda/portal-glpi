@@ -66,4 +66,56 @@ Botão "⋮" no canto superior direito dos eventos (visível ao hover). Dropdown
 `Docs/wiki/decisions/ADR-003-filtro-tipo-menu-tres-pontos.md`
 
 ## Commits
-- Pendente (incluir no próximo push)
+- `bd3fd7a` — fix: filtro chamados com sub-opções + menu ⋮ cria dropdown dinâmico no body
+
+---
+
+## 🔧 Fix pós-entrega 1: Filtro de Chamados com sub-opções
+
+### Problema
+O filtro original tinha uma opção genérica "🎫 Chamado", mas o usuário precisava de:
+- Chamados (Todos)
+- Chamados **Concluídos**  
+- Chamados **Pendentes**
+
+### O que foi feito
+- O `<select>` agora usa `<optgroup label="🔷 Chamados">` com 3 sub-opções
+- Valores: `chamado_todos`, `chamado_concluido`, `chamado_pendente`
+- Lógica de filtro atualizada em ambos os paths (atendente e "Todos") em `eventosFiltrados()`
+
+### Lógica
+```javascript
+if (filtroTipo === 'chamado_todos') return e.extendedProps.tipo === 'chamado';
+if (filtroTipo === 'chamado_concluido') return e.extendedProps.tipo === 'chamado' && e.extendedProps.concluido;
+if (filtroTipo === 'chamado_pendente') return e.extendedProps.tipo === 'chamado' && !e.extendedProps.concluido;
+```
+
+---
+
+## 🔧 Fix pós-entrega 2: Menu ⋮ não funcionava
+
+### Problema
+O botão ⋮ aparecia nos eventos, mas clicar não fazia nada. O dropdown `<div class="ev-dropdown" id="evMenu_..."></div>` era criado vazio no `eventContent` do FullCalendar, e o FC removia elementos vazios do DOM durante a renderização.
+
+### Solução
+Trocar de **estratégia de renderização**:
+- **Antes**: dropdown preexistia como elemento vazio no HTML do evento (inline no FC)
+- **Agora**: dropdown é criado **dinamicamente** via `document.createElement('div')`, posicionado com `position: fixed` relativo às coordenadas do botão, anexado a `document.body`
+
+### Mudanças
+| Antes | Depois |
+|-------|--------|
+| `<div class="ev-dropdown" id="evMenu_${evId}"></div>` em eventContent | Div removida do eventContent |
+| `toggleMenuAcoes` fazia `getElementById` + innerHTML | Cria dropdown, seta innerHTML, appendChild no body |
+| `fecharMenuAcoes()` toggle class | Remove elemento do DOM diretamente |
+| `position: absolute` relativo ao evento | `position: fixed` relativo ao `btn.getBoundingClientRect()` |
+| Click-outside: evento de clique no doc (bubble) | Click-outside: evento em **capture phase** |
+
+### Fluxo atual
+1. Clique ⋮ → `event.stopPropagation()` + `toggleMenuAcoes(btn, evId, ticketId, concluido)`
+2. Remove qualquer dropdown existente (`.ev-dropdown-dinamico`)
+3. Cria novo dropdown com innerHTML, habilita/desabilita itens
+4. Posiciona com `position: fixed` baseado no `btn.getBoundingClientRect()`
+5. Anexa a `document.body`
+6. Após 50ms: adiciona listener **capture phase** no document para fechar ao clicar fora
+7. Clique fora → `dropdown.remove()` + `removeEventListener`

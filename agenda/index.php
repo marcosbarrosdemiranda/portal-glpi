@@ -1137,6 +1137,24 @@ document.addEventListener('DOMContentLoaded', function() {
       return classes;
     },
 
+    // Menu ⋮ — attach handler via mousedown (FC usa mousedown para detectar eventClick)
+    eventDidMount(info) {
+      const btn = info.el.querySelector('.ev-menu-btn');
+      if (btn) {
+        btn.onmousedown = function(e) {
+          e.stopPropagation();
+          // Extrai dados do evento — busca do próprio FullCalendar,
+          // não de atributos HTML (que podem ser perdidos em re-renders)
+          const ev = info.event;
+          const props = ev.extendedProps;
+          const c = _dropCache[ev.id] || {};
+          const ticketId = props.ticket_id || c.ticket_id || '';
+          const concluido = props.concluido;
+          toggleMenuAcoes(btn, ev.id, ticketId, concluido);
+        };
+      }
+    },
+
     // Renderiza ícone + título + menu ⋮ no evento
     eventContent(arg) {
       const props     = arg.event.extendedProps;
@@ -1167,7 +1185,7 @@ document.addEventListener('DOMContentLoaded', function() {
       // Menu ⋮ apenas para chamado/requisição (que têm ticket_id no GLPI)
       const temMenu = ticketId && (tipo === 'chamado' || tipo === 'requisicao');
       const menuBtn = temMenu
-        ? `<button class="ev-menu-btn" onclick="event.stopPropagation();toggleMenuAcoes(this, '${arg.event.id}', '${ticketId}', ${concluido})" title="Ações">⋮</button>`
+        ? `<button class="ev-menu-btn" title="Ações">⋮</button>`
         : '';
       return {
         html: `<div class="ev-inner">
@@ -1484,9 +1502,19 @@ function toggleMenuAcoes(btn, evId, ticketId, concluido) {
   }, 50);
 }
 
+// ── Confirmação com código aleatório ─────────
+function confirmWithCode(mensagem) {
+  const codigo = Math.floor(1000 + Math.random() * 9000);
+  const resposta = prompt(
+    '🔐 CONFIRMAÇÃO SEGURA\n\nDigite o código abaixo para confirmar esta ação:\n\n📌 Código: ' + codigo + '\n\n' + mensagem,
+    ''
+  );
+  return resposta === String(codigo);
+}
+
 function excluirChamado(ticketId, btn) {
   if (btn.disabled) return;
-  if (!confirm(`🗑️ Tem certeza que deseja EXCLUIR permanentemente o chamado #${ticketId} do GLPI?\n\nEsta ação é irreversível e removerá o chamado do sistema.`)) return;
+  if (!confirmWithCode('🗑️ EXCLUIR chamado #' + ticketId + ' permanentemente para a lixeira do GLPI?')) return;
 
   fetch('excluir_ticket_glpi.php', {
     method: 'POST',
@@ -1497,11 +1525,10 @@ function excluirChamado(ticketId, btn) {
   .then(res => {
     document.querySelectorAll('.ev-dropdown-dinamico').forEach(el => el.remove());
     if (res.ok) {
-      // Remove também da agenda local
       fetch('eventos.php?action=deleteByTicket&ticket_id=' + encodeURIComponent(ticketId))
         .then(r => r.json())
         .catch(() => ({}));
-      toast(`🗑️ Chamado #${ticketId} excluído permanentemente do GLPI.`);
+      toast('🗑️ Chamado #' + ticketId + ' enviado para a lixeira do GLPI.');
       calendar.refetchEvents();
       carregarTickets();
     } else {
@@ -1516,7 +1543,7 @@ function excluirChamado(ticketId, btn) {
 
 function reabrirChamado(ticketId, btn) {
   if (btn.disabled) return;
-  if (!confirm(`🔄 Reabrir chamado #${ticketId}?\n\nO chamado voltará para o status "Atribuído".`)) return;
+  if (!confirmWithCode('🔄 REABRIR chamado #' + ticketId + '?\n\nO chamado voltará para o status "Atribuído".')) return;
 
   fetch('reabrir_ticket.php', {
     method: 'POST',
@@ -1527,7 +1554,6 @@ function reabrirChamado(ticketId, btn) {
   .then(res => {
     document.querySelectorAll('.ev-dropdown-dinamico').forEach(el => el.remove());
     if (res.ok) {
-      // Atualiza eventos no banco local: marca como não concluído
       const eventos = calendar.getEvents().filter(e => String(e.extendedProps.ticket_id) === String(ticketId));
       eventos.forEach(ev => {
         fetch('eventos.php?action=save', {
@@ -1538,14 +1564,14 @@ function reabrirChamado(ticketId, btn) {
         ev.setExtendedProp('concluido', false);
         ev.setDates(ev.start, ev.end, { allDay: ev.allDay });
       });
-      toast(`🔄 Chamado #${ticketId} reaberto como "Atribuído"!`);
+      toast('🔄 Chamado #' + ticketId + ' reaberto como "Atribuído"!');
     } else {
       alert('Erro ao reabrir: ' + (res.msg || 'Falha desconhecida'));
     }
   })
   .catch(() => {
     document.querySelectorAll('.ev-dropdown-dinamico').forEach(function(el) { el.remove(); });
-    alert('Erro de conexão ao tentar reabrir chamado.');
+    alert('Erro de conexao ao tentar reabrir chamado.');
   });
 }
 
