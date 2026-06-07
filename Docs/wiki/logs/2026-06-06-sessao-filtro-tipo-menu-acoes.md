@@ -119,3 +119,42 @@ Trocar de **estratégia de renderização**:
 5. Anexa a `document.body`
 6. Após 50ms: adiciona listener **capture phase** no document para fechar ao clicar fora
 7. Clique fora → `dropdown.remove()` + `removeEventListener`
+
+---
+
+## 🔧 Fix pós-entrega 3: Cor não atualizava após reabrir chamado
+
+### Problema
+Após reabrir um chamado (concluído → aberto), a cor do evento continuava verde (#4caf50) até recarregar a página. O `setExtendedProp('concluido', false)` + `setDates()` não alterava `backgroundColor`/`borderColor`.
+
+### Solução
+Remover `ev.setDates()` (não afetava cor) e adicionar `calendar.refetchEvents()` após o loop de salvamento. O refetch recarrega os eventos de `carregarEventos()` que calcula a cor correta baseada no `concluido` do banco local.
+
+### Mudanças
+| Arquivo | Linha | Antes | Depois |
+|---------|-------|-------|--------|
+| `agenda/index.php` | ~1559 | `ev.setDates(ev.start, ev.end, { allDay: ev.allDay })` | removido |
+| `agenda/index.php` | ~1560 | | `calendar.refetchEvents()` adicionado |
+
+---
+
+## 🔧 Fix pós-entrega 4: Excluir chamado bloqueava status Atribuído (2)
+
+### Problema
+O PHP `excluir_ticket_glpi.php` só permitia exclusão de chamados em status 1 (Novo). Chamados reabertos ficam em status 2 (Atribuído) e não podiam ser excluídos.
+
+### Solução
+Alterar a validação para permitir exclusão de status 1 **ou** 2:
+```php
+if (!in_array($status, [1, 2], true)) { ... }
+```
+
+### Mudanças
+| Arquivo | Linha | Antes | Depois |
+|---------|-------|-------|--------|
+| `agenda/excluir_ticket_glpi.php` | 54-55 | `if ($status !== 1)` | `if (!in_array($status, [1, 2], true))` |
+
+### Mensagem de erro
+Também foi melhorada para mostrar o label do status atual:
+- Antes: `"Chamado #X não pode ser excluído pois não está em aberto (status atual: 6)."`
+- Depois: `"Chamado #X está como «Fechado». Só é possível excluir chamados em Novo ou Atribuído."`

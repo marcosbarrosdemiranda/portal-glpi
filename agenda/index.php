@@ -1556,8 +1556,9 @@ function reabrirChamado(ticketId, btn) {
           body: JSON.stringify({ id: ev.id, ticket_id: parseInt(ticketId), concluido: 0 }),
         }).catch(() => {});
         ev.setExtendedProp('concluido', false);
-        ev.setDates(ev.start, ev.end, { allDay: ev.allDay });
       });
+      // Refetch completo para atualizar as cores (concluído→aberto troca de verde para cor original)
+      calendar.refetchEvents();
       toast('🔄 Chamado #' + ticketId + ' reaberto como "Atribuído"!');
     } else {
       alert('Erro ao reabrir: ' + (res.msg || 'Falha desconhecida'));

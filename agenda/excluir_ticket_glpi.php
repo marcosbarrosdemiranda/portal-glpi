@@ -51,7 +51,8 @@ curl_close($ch);
 
 $status = (int)($ticket['status'] ?? 0);
 
-if ($status !== 1) {
+// Permite excluir chamados em Novo (1) ou Atribuído (2)
+if (!in_array($status, [1, 2], true)) {
     $ch = curl_init(GLPI_URL . '/apirest.php/killSession');
     curl_setopt_array($ch, [
         CURLOPT_RETURNTRANSFER => true,
@@ -60,7 +61,9 @@ if ($status !== 1) {
     curl_exec($ch);
     curl_close($ch);
 
-    echo json_encode(['ok' => false, 'msg' => "Chamado #{$ticket_id} não pode ser excluído pois não está em aberto (status atual: {$status})."]);
+    $statusLabels = [1 => 'Novo', 2 => 'Atribuído', 3 => 'Planejado', 4 => 'Pendente', 5 => 'Solucionado', 6 => 'Fechado'];
+    $label = $statusLabels[$status] ?? "desconhecido ({$status})";
+    echo json_encode(['ok' => false, 'msg' => "Chamado #{$ticket_id} está como «{$label}». Só é possível excluir chamados em Novo ou Atribuído."]);
     exit;
 }
 
