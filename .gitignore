@@ -23,6 +23,13 @@ Documentação e Backup*/
 # ── Ambiente local do Claude Code ─────────────────────────────
 .claude/
 
+# ── Obsidian (vault) ─────────────────────────────────────────
+.obsidian/workspace.json
+.obsidian/graph.json
+**/.obsidian/workspace.json
+**/.obsidian/graph.json
+*.canvas
+
 # ── Sistema operacional ────────────────────────────────────────
 Thumbs.db
 desktop.ini

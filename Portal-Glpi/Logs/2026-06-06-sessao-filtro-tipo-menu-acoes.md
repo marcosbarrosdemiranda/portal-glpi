@@ -158,3 +158,10 @@ if (!in_array($status, [1, 2], true)) { ... }
 Também foi melhorada para mostrar o label do status atual:
 - Antes: `"Chamado #X não pode ser excluído pois não está em aberto (status atual: 6)."`
 - Depois: `"Chamado #X está como «Fechado». Só é possível excluir chamados em Novo ou Atribuído."`
+
+---
+
+## ✅ Verificado pelo responsável
+- Fix pós-entrega 3 (cor ao reabrir): **OK** — usuário confirmou "agora sim deu certo"
+- Fix pós-entrega 4 (excluir status 2): **OK** — usuário confirmou "agora sim deu certo"
+- Commit: `5b43d54`

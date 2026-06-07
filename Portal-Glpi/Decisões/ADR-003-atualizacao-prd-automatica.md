@@ -22,7 +22,7 @@ Para que o progresso reflita a realidade, o PRD precisa estar sempre atualizado.
 
 2. Atualizar a tabela de **Progresso Geral** no topo do PRD se o % mudou.
 
-3. Atualizar `Docs/wiki/tasks/backlog.md`:
+3. Atualizar `Portal-Glpi/Tarefas/backlog.md`:
    - Mover item de pendente para `✅ Concluído Recentemente`
    - Adicionar novas pendências se surgirem
 
@@ -36,5 +36,5 @@ Para que o progresso reflita a realidade, o PRD precisa estar sempre atualizado.
 ## Impacto
 
 - `Docs/wiki/projects/portal-glpi-prd.md` — atualizado a cada sessão
-- `Docs/wiki/tasks/backlog.md` — mantido em sincronia
+- `Portal-Glpi/Tarefas/backlog.md` — mantido em sincronia
 - `projetos.php` — exibe automaticamente o progresso atualizado

@@ -2,15 +2,15 @@
 
 ## REGRA #0 — Protocolo de Sincronizacao e Execucao
 Antes de propor ou redigir codigo, o agente DEVE executar silenciosamente:
-1. Ler ./CONTRIBUTING.md para garantir conformidade arquitetural e seguranca.
-2. Ler ./ARCHITECTURE.md para entender a arquitetura, principios e decisoes do sistema.
-3. Localizar o log mais recente em ./Docs/wiki/logs/ para continuar o contexto exato da sessao anterior.
+1. Ler ./Portal-Glpi/Arquitetura/CONTRIBUTING.md para garantir conformidade arquitetural e seguranca.
+2. Ler ./Portal-Glpi/Arquitetura/ARCHITECTURE.md para entender a arquitetura, principios e decisoes do sistema.
+3. Localizar o log mais recente em ./Portal-Glpi/Logs/ para continuar o contexto exato da sessao anterior.
 4. Validar o plano arquitetural antes de reescrever arquivos core do sistema.
-5. Ler ./Docs/wiki/decisions/ para identificar regras protegidas antes de qualquer alteracao.
+5. Ler ./Portal-Glpi/Decisões/ para identificar regras protegidas antes de qualquer alteracao.
 6. Ler ./Docs/wiki/projects/ para verificar o PRD atual, status dos modulos e pendencias registradas.
 
 ## REGRA #1 — Regras Protegidas (IMUTAVEIS sem aprovacao explicita)
-O arquivo Docs/wiki/decisions/ADR-001-regras-protegidas-agenda.md define comportamentos
+O arquivo Portal-Glpi/Decisões/ADR-001-regras-protegidas-agenda.md define comportamentos
 que NAO podem ser alterados sem permissao direta do responsavel.
 Qualquer codigo marcado com o comentario abaixo e INTOCAVEL sem aprovacao:
   // ⚠️ REGRA PROTEGIDA — NÃO ALTERAR SEM PERMISSÃO DO RESPONSÁVEL ⚠️

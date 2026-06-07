@@ -127,7 +127,7 @@ portal-glpi/
 
 ## Regras de Negócio Protegidas (ADR-001)
 
-Ver `Docs/wiki/decisions/ADR-001-regras-protegidas-agenda.md`
+Ver `Portal-Glpi/Decisões/ADR-001-regras-protegidas-agenda.md`
 
 - ❌ Criar evento em data passada → bloqueado
 - ❌ Arrastar do sidebar para data passada → bloqueado

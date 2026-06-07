@@ -4,27 +4,20 @@
     "type": "split",
     "children": [
       {
-        "id": "left",
-        "type": "split",
+        "id": "10315de577a951d4",
+        "type": "tabs",
         "children": [
           {
-            "id": "editor",
-            "type": "tabs",
-            "children": [
-              {
-                "id": "start",
-                "type": "leaf",
-                "state": {
-                  "type": "empty",
-                  "state": {},
-                  "icon": "lucide-file",
-                  "title": "Nova aba"
-                }
-              }
-            ]
+            "id": "b431b59b1a85ad49",
+            "type": "leaf",
+            "state": {
+              "type": "empty",
+              "state": {},
+              "icon": "lucide-file",
+              "title": "Nova aba"
+            }
           }
-        ],
-        "direction": "vertical"
+        ]
       }
     ],
     "direction": "vertical"
@@ -187,45 +180,46 @@
       "bases:Criar nova base": false
     }
   },
-  "active": "start",
+  "active": "files",
   "lastOpenFiles": [
-    "agenda/index.php.tmp.50104.879261b5ef49",
-    "agenda/index.php.tmp.50104.aae1cf6a0329",
-    "agenda/index.php.tmp.50104.47fee32643ac",
-    "agenda/index.php.tmp.50104.9746609af9d3",
-    "agenda/index.php.tmp.50104.e65aef853856",
-    "agenda/index.php.tmp.50104.e6410d325bef",
-    "agenda/index.php.tmp.50104.351fd37545a9",
-    "agenda/index.php.tmp.50104.c7fd94fb725c",
-    "agenda/index.php.tmp.50104.c45d30b3ccd9",
-    "agenda/index.php.tmp.50104.d11c1c1dfeac",
-    "agenda/index.php.tmp.50104.08ba1c1d0cc2",
-    "Docs/wiki/logs/2026-06-06-sessao-filtro-tipo-menu-acoes.md",
-    "Docs/wiki/decisions/ADR-003-filtro-tipo-menu-tres-pontos.md",
-    "Docs/wiki/logs/2026-06-06-sessao-fix-encoding-emoji.md",
-    "Docs/wiki/logs/2026-06-06-sessao-historico-filtros-export-selfservice.md",
-    "Docs/wiki/logs/2026-06-06-sessao-anexos-criacao-chamado.md",
-    "DOCUMENTACAO.md",
+    "Portal-Glpi/Decisões/ADR-003-atualizacao-prd-automatica.md.tmp.50104.bd5c25afe307",
+    "Portal-Glpi/Decisões/ADR-003-atualizacao-prd-automatica.md.tmp.50104.14db2bbd823e",
+    "Portal-Glpi/Arquitetura/ARCHITECTURE.md.tmp.50104.48c2187b1f5c",
+    "CLAUDE.md.tmp.50104.9e4d7b469992",
+    "Portal-Glpi/Bem-vindo.md.tmp.50104.2480621b2d68",
+    "Portal-Glpi/Arquitetura/MIGRACAO_PRODUCAO.md",
+    "Portal-Glpi/Arquitetura/CONTRIBUTING.md",
+    "Portal-Glpi/Arquitetura/ARCHITECTURE.md",
+    "Portal-Glpi/Documentação/DOCUMENTACAO.md",
+    "Portal-Glpi/Documentação/log.md",
+    "Portal-Glpi/Documentação/SOUL.md",
+    "Portal-Glpi/Documentação/CRITICAL_FACTS.md",
+    "Portal-Glpi/Documentação/index.md",
+    "Portal-Glpi/Template/daily-note.md",
+    "Portal-Glpi/Template/session-log.md",
+    "Portal-Glpi/Tarefas/backlog.md",
+    "Portal-Glpi/Módulos/Projetos-TI.md",
+    "Portal-Glpi/Módulos/Cofre-TI.md",
+    "Portal-Glpi/Logs/2026-06-06-sessao-filtro-tipo-menu-acoes.md",
+    "Portal-Glpi/Logs/2026-06-06-sessao-fix-encoding-emoji.md",
+    "Portal-Glpi/Logs/2026-06-06-sessao-historico-filtros-export-selfservice.md",
+    "Portal-Glpi/Logs/2026-06-06-sessao-anexos-criacao-chamado.md",
+    "Portal-Glpi/Logs/2026-06-06-sessao-inventario-gateway.md",
+    "Portal-Glpi/Logs/2026-06-05-sessao-modal-gcal-sync-glpi.md",
+    "Portal-Glpi/Logs/2026-06-05-sessao-fix-multi-tech-diagnostico.md",
+    "Portal-Glpi/Logs/2026-06-05-sessao-fix-duplicata-concluir.md",
+    "Portal-Glpi/Logs/2026-06-05-sessao-rotinas-grid.md",
+    "Portal-Glpi/Logs/2026-06-05-sessao-relatorios-bi.md",
+    "Portal-Glpi/Logs/2026-06-04-sessao-portal.md",
+    "Portal-Glpi/Logs/2026-06-03-sessao-agenda.md",
+    "Portal-Glpi/Arquitetura",
+    "Portal-Glpi/Template",
+    "Portal-Glpi/Documentação",
+    "Portal-Glpi/Tarefas",
+    "Portal-Glpi/Logs",
+    "Portal-Glpi/Decisões",
+    "Portal-Glpi/Sem título.canvas",
     "assets/Logo GMAIS b.jpg",
-    "Documentação e Backup do Projeto Data 01-06-26/DOCUMENTACAO.md",
-    "Docs/wiki/tasks/backlog.md",
-    "Docs/wiki/projects/portal-glpi-prd.md",
-    "Docs/wiki/logs/2026-06-06-sessao-inventario-gateway.md",
-    "Docs/wiki/logs/2026-06-05-sessao-rotinas-grid.md",
-    "Docs/wiki/logs/2026-06-05-sessao-relatorios-bi.md",
-    "Docs/wiki/logs/2026-06-05-sessao-modal-gcal-sync-glpi.md",
-    "Docs/wiki/logs/2026-06-05-sessao-fix-multi-tech-diagnostico.md",
-    "Docs/wiki/logs/2026-06-05-sessao-fix-duplicata-concluir.md",
-    "Docs/wiki/logs/2026-06-04-sessao-portal.md",
-    "Docs/wiki/logs/2026-06-03-sessao-agenda.md",
-    "Docs/wiki/logs/2026-06-02-sessao-agenda.md",
-    "Docs/wiki/decisions/ADR-003-atualizacao-prd-automatica.md",
-    "Docs/wiki/decisions/ADR-002-integracao-glpi-obrigatoria.md",
-    "Docs/wiki/decisions/ADR-001-regras-protegidas-agenda.md",
-    "Docs/templates/session-log.md",
-    "Docs/templates/daily-note.md",
-    "Docs/SOUL.md",
-    "Docs/log.md",
     "Sem título.canvas"
   ]
 }
