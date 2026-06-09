@@ -724,6 +724,33 @@ $user_id_sessao = (int)($_SESSION['user_id'] ?? 0);
               </div>
             </div>
           </div>
+
+          <!-- Recorrência semanal (apenas para Eventos) -->
+          <div class="col-12" id="campo-recorrencia" style="display:none">
+            <hr class="my-2">
+            <div class="form-check form-switch mb-2">
+              <input class="form-check-input" type="checkbox" id="ev-recorrencia-ativa" onchange="toggleRecorrencia()"/>
+              <label class="form-check-label fw-semibold" for="ev-recorrencia-ativa">
+                🔁 Repetir semanalmente
+              </label>
+            </div>
+            <div id="ev-recorrencia-opcoes" style="display:none;padding-left:1.5rem">
+              <label class="form-label fw-semibold">Dias da semana:</label>
+              <div class="d-flex gap-2 flex-wrap mb-2" id="ev-recorrencia-dias">
+                <label class="btn btn-outline-secondary btn-sm dia-recorrencia"><input type="checkbox" value="2" class="d-none"/> Seg</label>
+                <label class="btn btn-outline-secondary btn-sm dia-recorrencia"><input type="checkbox" value="3" class="d-none"/> Ter</label>
+                <label class="btn btn-outline-secondary btn-sm dia-recorrencia"><input type="checkbox" value="4" class="d-none"/> Qua</label>
+                <label class="btn btn-outline-secondary btn-sm dia-recorrencia"><input type="checkbox" value="5" class="d-none"/> Qui</label>
+                <label class="btn btn-outline-secondary btn-sm dia-recorrencia"><input type="checkbox" value="6" class="d-none"/> Sex</label>
+                <label class="btn btn-outline-secondary btn-sm dia-recorrencia"><input type="checkbox" value="7" class="d-none"/> Sáb</label>
+                <label class="btn btn-outline-secondary btn-sm dia-recorrencia"><input type="checkbox" value="1" class="d-none"/> Dom</label>
+              </div>
+              <div class="mb-2">
+                <label class="form-label">Data limite <span class="text-muted small">(opcional — sem data = sempre)</span></label>
+                <input type="date" class="form-control form-control-sm" id="ev-recorrencia-data-limite" style="max-width:220px"/>
+              </div>
+            </div>
+          </div>
         </div>
 
         <!-- Painel de informações do Google Calendar (eventos somente-leitura) -->
@@ -889,7 +916,21 @@ function apelidoAtendente(nome) {
   return p[p.length - 1] || nome; // última palavra = primeiro nome no GLPI
 }
 
+// Fila de toasts com debounce: mesma mensagem não repete em menos de 60s
+const _toastCache = new Map();
 function toast(msg, type = 'success') {
+  const key = msg.slice(0, 60); // chave pelos primeiros 60 caracteres
+  const agora = Date.now();
+  const ultimo = _toastCache.get(key) || 0;
+  if (agora - ultimo < 60000) {
+    console.log('🔇 TOAST BLOQUEADO (cooldown):', msg);
+    return; // mesma mensagem já foi exibida nos últimos 60s
+  }
+  _toastCache.set(key, agora);
+  // Limpa cache antigo (>5 min) pra não acumular
+  for (const [k, t] of _toastCache) { if (agora - t > 300000) _toastCache.delete(k); }
+
+  console.log('📢 TOAST:', msg, '| type:', type);
   const id  = 'toast-' + Date.now();
   const bg  = type === 'success' ? 'bg-success' : 'bg-danger';
   const icon= type === 'success' ? 'bi-check-circle-fill' : 'bi-exclamation-circle-fill';
@@ -1220,6 +1261,22 @@ document.addEventListener('DOMContentLoaded', function() {
   aplicarCompactacaoAlmoco();
 
   carregarAtendentes();
+  initRecorrenciaDias();
+  iniciarAlarmeEventos(); // Monitora eventos que começam em 10 min
+
+  // Limpa recorrência ao fechar o modal (evita sujeira de sessão anterior)
+  document.getElementById('modalEvento').addEventListener('hidden.bs.modal', function() {
+    document.getElementById('ev-recorrencia-ativa').checked = false;
+    document.getElementById('ev-recorrencia-opcoes').style.display = 'none';
+    document.querySelectorAll('#ev-recorrencia-dias input[type=checkbox]').forEach(cb => {
+      cb.checked = false;
+      cb.closest('.dia-recorrencia').classList.remove('active');
+    });
+    if (!document.getElementById('ev-recorrencia-data-limite').value) {
+      document.getElementById('ev-recorrencia-data-limite').value = '2026-12-31';
+    }
+  });
+
   // verificarAtrasados → syncRotinas → refetchEvents + carregarTickets (sequencial)
   // evita race condition onde refetchEvents do verificar removeria rotinas recém-inseridas
   verificarAtrasados();
@@ -1292,6 +1349,9 @@ function carregarEventos(info, success) {
             tipo:         e.tipo,
             concluido,
             atrasado,
+            recorrencia_id:         e.recorrencia_id || null,
+            recorrencia_dias:       e.recorrencia_dias || '',
+            recorrencia_data_limite: e.recorrencia_data_limite || '',
           }
         };
       });
@@ -1932,6 +1992,14 @@ function abrirModalEvento(dataStr) {
   document.getElementById('ev-concluido').checked  = false;
   document.getElementById('ev-fechar-glpi').checked = false;
   document.getElementById('campo-fechar-glpi').style.display = 'none';
+  // Recorrência: limpa tudo
+  document.getElementById('ev-recorrencia-ativa').checked = false;
+  document.getElementById('ev-recorrencia-opcoes').style.display = 'none';
+  document.querySelectorAll('#ev-recorrencia-dias input[type=checkbox]').forEach(cb => {
+    cb.checked = false;
+    cb.closest('.dia-recorrencia').classList.remove('active');
+  });
+  document.getElementById('ev-recorrencia-data-limite').value = '2026-12-31';
   renderAtendentesMulti([]); // limpa chips de atendente da sessão anterior
   document.getElementById('ev-followups').innerHTML = '';
   document.getElementById('campo-followups').style.display = 'none';
@@ -1980,6 +2048,23 @@ function preencherModal(dados) {
   document.getElementById('ev-atendente').value    = dados.atendente || '';
   document.getElementById('ev-concluido').checked  = !!dados.concluido;
   toggleFecharGlpi();
+
+  // Recorrência (só aparece se tipo=evento em ajustarCamposPorTipo)
+  const recAtiva = dados.recorrencia_id || dados.recorrencia_ativa;
+  document.getElementById('ev-recorrencia-ativa').checked = !!recAtiva;
+  document.getElementById('ev-recorrencia-opcoes').style.display = recAtiva ? '' : 'none';
+
+  // Dias da semana
+  const dias = dados.recorrencia_dias || '';
+  const diasArr = dias.split(',').map(v => v.trim()).filter(Boolean);
+  document.querySelectorAll('#ev-recorrencia-dias input[type=checkbox]').forEach(cb => {
+    const checked = diasArr.includes(cb.value);
+    cb.checked = checked;
+    cb.closest('.dia-recorrencia').classList.toggle('active', checked);
+  });
+
+  // Data limite
+  document.getElementById('ev-recorrencia-data-limite').value = dados.recorrencia_data_limite || '';
 
   // Busca dados completos do ticket no GLPI (descrição, entidade, categoria, requerente)
   if (dados.ticket_id) {
@@ -2118,6 +2203,15 @@ function ajustarCamposPorTipo() {
   const starDesc = document.getElementById('star-descricao');
   if (starDesc) starDesc.style.display = isChamado ? '' : 'none';
 
+  // Recorrência: apenas para Evento
+  const campoRec = document.getElementById('campo-recorrencia');
+  if (campoRec) campoRec.style.display = evento ? '' : 'none';
+  if (!evento) {
+    // Desmarca recorrência ao trocar para outro tipo
+    document.getElementById('ev-recorrencia-ativa').checked = false;
+    document.getElementById('ev-recorrencia-opcoes').style.display = 'none';
+  }
+
   // Atualiza título do modal
   const titulo = document.getElementById('modalTitulo');
   const icone  = titulo.innerHTML.includes('bi-eye') ? 'bi-eye'
@@ -2131,6 +2225,20 @@ function ajustarCamposPorTipo() {
   } else if (evento) {
     titulo.innerHTML = `<i class="bi ${icone} me-2"></i>${acao} Evento`;
   }
+}
+
+function toggleRecorrencia() {
+  const ativa = document.getElementById('ev-recorrencia-ativa').checked;
+  document.getElementById('ev-recorrencia-opcoes').style.display = ativa ? '' : 'none';
+}
+
+// Inicializa visual toggle dos dias da semana na recorrência
+function initRecorrenciaDias() {
+  document.querySelectorAll('#ev-recorrencia-dias input[type=checkbox]').forEach(cb => {
+    cb.addEventListener('change', function() {
+      this.closest('.dia-recorrencia').classList.toggle('active', this.checked);
+    });
+  });
 }
 
 function ajustarDuracaoPorTipo() {
@@ -2593,6 +2701,10 @@ function editarEvento(ev) {
     atendente: ev.extendedProps.atendente  || c.atendente,
     ticket_id: ev.extendedProps.ticket_id  || c.ticket_id,
     concluido: ev.extendedProps.concluido,
+    // Recorrência
+    recorrencia_id:         ev.extendedProps.recorrencia_id || c.recorrencia_id,
+    recorrencia_dias:       ev.extendedProps.recorrencia_dias || c.recorrencia_dias || '',
+    recorrencia_data_limite: ev.extendedProps.recorrencia_data_limite || c.recorrencia_data_limite || '',
   });
   const concluido = ev.extendedProps.concluido;
   const isGoogle = ev.extendedProps.google === true;
@@ -2842,6 +2954,11 @@ function salvarEvento() {
     entidade_id:   entidadeId,
     requerente_id: requerenteId,
     origem_id:     origemId,
+    // Recorrência semanal (apenas para Evento)
+    recorrencia_id:         _dadosModal?.recorrencia_id || null,
+    recorrencia_ativa:      document.getElementById('ev-recorrencia-ativa').checked ? 1 : 0,
+    recorrencia_dias:       Array.from(document.querySelectorAll('#ev-recorrencia-dias input:checked')).map(cb => cb.value).join(','),
+    recorrencia_data_limite: document.getElementById('ev-recorrencia-data-limite').value || '',
   };
   // Para tipo 'evento' ou 'reuniao': se nenhum atendente foi selecionado, atribui automaticamente ao criador
   if ((tipo === 'evento' || tipo === 'reuniao') && !dadosBase.atendente) {
@@ -3151,10 +3268,29 @@ function deletarEvento() {
 
   if (!confirm(msg)) return;
 
+  // Recorrência: pergunta se exclui só esta ou todas futuras
+  const evCal = calendar.getEventById(id);
+  const recorrenciaId = evCal?.extendedProps?.recorrencia_id || null;
+  let recorrenciaAction = null; // null = normal, 'futuras' = exclui futuras
+  if (recorrenciaId && !isMulti) {
+    if (confirm("🔁 Este evento faz parte de uma recorrência semanal.\n\nClique OK para excluir APENAS esta ocorrência.\nClique Cancelar para ver mais opções.")) {
+      // Só esta — normal
+    } else {
+      const confirmFuturas = confirm("Excluir TODAS as ocorrências futuras (incluindo esta)?\n\nEventos passados não serão afetados.");
+      if (confirmFuturas) {
+        recorrenciaAction = 'futuras';
+      } else {
+        return; // Cancelou tudo
+      }
+    }
+  }
+
   // Se multi → deleta todos pelo ticket_id; senão → deleta só este evento
   const url = isMulti
     ? `eventos.php?action=deleteByTicket&ticket_id=${encodeURIComponent(ticketId)}`
-    : `eventos.php?action=delete&id=${encodeURIComponent(id)}`;
+    : recorrenciaAction === 'futuras'
+      ? `eventos.php?action=delete&id=${encodeURIComponent(id)}&recorrencia=futuras`
+      : `eventos.php?action=delete&id=${encodeURIComponent(id)}`;
 
   fetch(url)
     .then(r => r.json())
@@ -3223,6 +3359,40 @@ function escHtml(str) {
   return String(str||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
 }
 
+// ── Alarme 10 min antes do evento ──────────────────────────────
+// Usa chave composta (ticket_id|startStr) pra dedup seguro mesmo com refetch.
+// Só dispara UMA vez por evento por sessão.
+let _alarmeInterval = null;
+const _alarmeDisparados = new Set();
+
+function iniciarAlarmeEventos() {
+  if (_alarmeInterval) clearInterval(_alarmeInterval);
+
+  // Espera o sync inicial terminar antes de começar a monitorar
+  setTimeout(() => {
+    _alarmeInterval = setInterval(() => {
+      const agora = new Date();
+      const limite = new Date(agora.getTime() + 10 * 60 * 1000);
+      const events = calendar?.getEvents() || [];
+      for (const ev of events) {
+        const start = ev.start;
+        if (!start || ev.extendedProps?.concluido) continue;
+        if (start > agora && start <= limite) {
+          // Chave composta: ticket_id + data (ou id + data pra eventos sem ticket)
+          const ticketId = ev.extendedProps?.ticket_id || '';
+          const key = ticketId
+            ? `tkt_${ticketId}_${ev.startStr}`
+            : `ev_${ev.id}_${ev.startStr}`;
+          if (!_alarmeDisparados.has(key)) {
+            _alarmeDisparados.add(key);
+            toast(`⏰ "${ev.title}" começa em 10 min (${start.toLocaleTimeString('pt-BR', {hour:'2-digit', minute:'2-digit'})})`);
+          }
+        }
+      }
+    }, 60000); // verifica a cada 60s
+  }, 5000); // começa 5s após o load pra garantir que o sync inicial já carregou
+}
+
 // ── Sync Rotinas ──────────────────────────────────────────────
 // Chamado pelo botão manual E automaticamente no carregamento da agenda.
 // O script PHP já ignora chamados já agendados hoje (idempotente).
@@ -3237,13 +3407,25 @@ function syncRotinas(manual = false) {
     .then(r => r.json())
     .then(d => {
       if (d.adicionados > 0) {
-        toast(`📋 ${d.adicionados} rotina(s) adicionada(s) à agenda automaticamente.`);
+        // Só notifica em modo manual — o sync automático roda silenciosamente
+        if (manual) {
+          toast(`📋 ${d.adicionados} novo(s) chamado(s) de rotina adicionado(s) à agenda.`);
+        }
       } else if (manual) {
         toast(`✅ Rotinas já sincronizadas (${d.ignorados} já estavam na agenda).`);
       }
     })
     .catch(() => { if (manual) toast('âš ï¸ Erro ao sincronizar rotinas.'); })
     .finally(() => {
+      // Gera eventos recorrentes da semana
+      fetch('eventos.php?action=gerar_semana')
+        .then(r => r.json())
+        .then(g => { if (g.criados > 0) {
+          // Eventos recorrentes são esperados, só notifica em manual
+          if (manual) toast(`🔁 ${g.criados} evento(s) recorrente(s) gerado(s).`);
+        }})
+        .catch(() => {});
+
       // Sempre carrega eventos e tickets ao final do sync (automático ou manual)
       // Garante que rotinas e eventuais remoções do verificarAtrasados sejam refletidos juntos
       calendar.refetchEvents();
