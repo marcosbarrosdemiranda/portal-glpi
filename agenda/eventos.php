@@ -21,7 +21,10 @@ try { $pdo->exec("CREATE TABLE IF NOT EXISTS agenda_recorrencias (
     data_limite DATE DEFAULT NULL,
     ativo TINYINT(1) DEFAULT 1,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4"); } catch (Exception $e) {}
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci"); } catch (Exception $e) {}
+// Corrige collation de tabelas já existentes (compatibilidade retroativa)
+try { $pdo->exec("ALTER TABLE agenda_recorrencias CONVERT TO CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci"); } catch (Exception $e) {}
+try { $pdo->exec("ALTER TABLE agenda_recorrencias MODIFY evento_id VARCHAR(50) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL"); } catch (Exception $e) {}
 try { $pdo->exec("ALTER TABLE glpi_plugin_agenda_events ADD COLUMN recorrencia_id INT DEFAULT NULL AFTER concluido"); } catch (Exception $e) {}
 
 $action = $_GET['action'] ?? 'list';
@@ -343,19 +346,19 @@ try {
                    e.atendente, e.atendente_id, e.atendente_cor, e.prioridade, e.setor,
                    e.ticket_id, e.tipo
             FROM agenda_recorrencias r
-            JOIN glpi_plugin_agenda_events e ON r.evento_id = e.id
+            JOIN glpi_plugin_agenda_events e ON r.evento_id COLLATE utf8mb4_unicode_ci = e.id
             WHERE r.ativo = 1
               AND (r.data_limite IS NULL OR r.data_limite >= CURDATE())
         ")->fetchAll();
 
         foreach ($recurrences as $rec) {
             try {
-                $result = gerarInstanciasRecorrencia($pdo, $rec, null, 52);
+                // Limite de 50 inserts por recorrência por chamada (evita timeout)
+                $result = gerarInstanciasRecorrencia($pdo, $rec, null, 52, 50);
                 $criados += $result['criados'];
                 $ignorados += $result['ignorados'];
             } catch (\Throwable $e) {
                 $erros++;
-                // Loga erro mas continua processando outras recorrências
                 error_log('gerar_semana: erro na recorrência #' . ($rec['id'] ?? '?') . ' - ' . $e->getMessage());
             }
         }
@@ -377,14 +380,14 @@ try {
 // ── Helper: gera instâncias futuras de uma recorrência ──────────────
 // Gera TODAS as ocorrências futuras de uma vez (até data limite ou 364 dias).
 // $rec = registro completo via JOIN, $recId = só o ID (busca internamente)
-function gerarInstanciasRecorrencia($pdo, $rec = null, $recId = null, $semanas = 52) {
+function gerarInstanciasRecorrencia($pdo, $rec = null, $recId = null, $semanas = 52, $maxInserts = PHP_INT_MAX) {
     if ($rec === null && $recId !== null) {
         $st = $pdo->prepare("
             SELECT r.*, e.titulo, e.descricao, e.start, e.end,
                    e.atendente, e.atendente_id, e.atendente_cor, e.prioridade, e.setor,
                    e.ticket_id, e.tipo
             FROM agenda_recorrencias r
-            JOIN glpi_plugin_agenda_events e ON r.evento_id = e.id
+            JOIN glpi_plugin_agenda_events e ON r.evento_id COLLATE utf8mb4_unicode_ci = e.id
             WHERE r.id = ? AND r.ativo = 1
         ");
         $st->execute([$recId]);
@@ -447,6 +450,7 @@ function gerarInstanciasRecorrencia($pdo, $rec = null, $recId = null, $semanas =
                     $recDbId,
                 ]);
                 $criados++;
+                if ($criados >= $maxInserts) break;
             } else {
                 $ignorados++;
             }
