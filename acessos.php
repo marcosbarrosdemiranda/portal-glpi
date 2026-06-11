@@ -1,5 +1,5 @@
 <?php
-session_start();
+require_once __DIR__ . '/auth_guard.php';
 if (empty($_SESSION['autenticado'])) { header('Location: auth.php'); exit; }
 if (($_SESSION['perfil'] ?? '') === 'self-service') { header('Location: dashboard.php'); exit; }
 
@@ -30,8 +30,8 @@ if ($pdo->query("SELECT COUNT(*) FROM portal_acessos")->fetchColumn() == 0) {
     $defaults = [
         // Acesso Remoto
         ['Remote Desktop','Área de Trabalho Remota do Windows (RDP)','remoto','rdp','','bi-display-fill','#dbeafe','#1d4ed8',1],
-        ['VNC Viewer','Acesso remoto VNC no browser via Guacamole','remoto','web','rdp_central.php','bi-camera-video-fill','#e0e7ff','#3730a3',2],
-        ['AnyDesk','Suporte remoto via AnyDesk','remoto','web','https://anydesk.com','bi-arrows-fullscreen','#ffedd5','#c2410c',3],
+        ['VNC Viewer','Acesso remoto VNC no browser via Guacamole','remoto','web','vnc_central.php','bi-camera-video-fill','#e0e7ff','#3730a3',2],
+        ['AnyDesk','Suporte remoto via AnyDesk','remoto','web','anydesk_central.php','bi-arrows-fullscreen','#ffedd5','#c2410c',3],
         // Infraestrutura
         ['pfSense','Firewall e roteador pfSense','infra','web','','bi-shield-fill-check','#fee2e2','#b91c1c',1],
         ['VMware','Virtualização VMware vSphere / ESXi','infra','web','','bi-cloud-fill','#dbeafe','#1d4ed8',2],
@@ -45,6 +45,10 @@ if ($pdo->query("SELECT COUNT(*) FROM portal_acessos")->fetchColumn() == 0) {
 
 // ── Garante que o pfSense aponte para a central de lojas ────
 $pdo->exec("UPDATE portal_acessos SET url='pfsense_proxy.php' WHERE nome='pfSense' AND grupo='infra' AND (url IS NULL OR url='')");
+// Garante que o VNC Viewer aponte para a Central VNC
+$pdo->exec("UPDATE portal_acessos SET url='vnc_central.php', tipo='web' WHERE nome='VNC Viewer' AND grupo='remoto'");
+// Garante que o AnyDesk aponte para a Central AnyDesk
+$pdo->exec("UPDATE portal_acessos SET url='anydesk_central.php', tipo='web' WHERE nome='AnyDesk' AND grupo='remoto'");
 
 // ── API AJAX ───────────────────────────────────────────────────
 $action = $_GET['action'] ?? '';

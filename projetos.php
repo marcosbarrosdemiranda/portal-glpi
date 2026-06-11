@@ -1,5 +1,5 @@
 <?php
-session_start();
+require_once __DIR__ . '/auth_guard.php';
 if (empty($_SESSION['autenticado'])) { header('Location: auth.php'); exit; }
 if (($_SESSION['perfil'] ?? '') === 'self-service') { header('Location: dashboard.php'); exit; }
 
@@ -623,6 +623,7 @@ body  { background:#f0f4f9; font-family:'Segoe UI',sans-serif; font-size:.9rem; 
     <h6 style="font-weight:700;margin-bottom:.75rem">
       <i class="bi bi-graph-up-arrow me-2 text-primary"></i>Cronograma de Previsão de Término
     </h6>
+    <svg viewBox="0 0 <?=$svgW?> <?=$svgH?>" style="width:100%;height:auto;display:block">
       <!-- Y grid -->
       <?php foreach ([0,25,50,75,100] as $g):
             $gy = $py($g); ?>
