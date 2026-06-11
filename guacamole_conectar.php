@@ -1,5 +1,5 @@
 <?php
-session_start();
+require_once __DIR__ . '/auth_guard.php';
 if (empty($_SESSION['autenticado'])) { header('Location: auth.php'); exit; }
 if (($_SESSION['perfil'] ?? '') === 'self-service') { header('Location: dashboard.php'); exit; }
 
@@ -7,12 +7,17 @@ require_once __DIR__ . '/agenda/db.php';
 require_once __DIR__ . '/agenda/config.php';
 
 $id = (int)($_GET['id'] ?? 0);
-if (!$id) { header('Location: rdp_central.php'); exit; }
+if (!$id) { header('Location: acessos.php'); exit; }
 
-$st = $pdo->prepare("SELECT nome, guac_id, ip FROM portal_rdp_maquinas WHERE id=? AND ativo=1 AND guac_id IS NOT NULL");
+$st = $pdo->prepare("SELECT nome, guac_id, ip, protocolo FROM portal_rdp_maquinas WHERE id=? AND ativo=1 AND guac_id IS NOT NULL");
 $st->execute([$id]);
 $row = $st->fetch(PDO::FETCH_ASSOC);
-if (!$row) { echo "<script>alert('Máquina sem Guacamole');location.href='rdp_central.php';</script>"; exit; }
+if (!$row) { echo "<script>alert('Máquina sem Guacamole');location.href='acessos.php';</script>"; exit; }
+
+$proto = $row['protocolo'] ?? 'rdp';
+$voltar = ($proto === 'vnc') ? 'vnc_central.php' : 'rdp_central.php';
+$proto_icon = ($proto === 'vnc') ? 'bi-camera-video-fill' : 'bi-display-fill';
+$proto_label = strtoupper($proto);
 
 $guac_url = rtrim(GUACAMOLE_URL, '/');
 $conn_id = (int)$row['guac_id'];
@@ -90,13 +95,13 @@ iframe {
 
 <div class="guac-topbar">
   <div class="left">
-    <a href="rdp_central.php" onclick="event.preventDefault();window.close()">← Fechar</a>
+    <a href="<?= $voltar ?>" onclick="event.preventDefault();window.close()">← Fechar</a>
     <span class="guac-sep" style="color:#6b7280;font-size:.7rem;">|</span>
-    <span class="maq-nome"><i class="bi bi-display-fill"></i> <?= htmlspecialchars($row['nome']) ?></span>
+    <span class="maq-nome"><i class="bi <?= $proto_icon ?>"></i> <?= htmlspecialchars($row['nome']) ?></span>
     <span class="maq-ip"><?= htmlspecialchars($row['ip']) ?></span>
   </div>
   <div class="right">
-    <a href="rdp_central.php">← Central RDP</a>
+    <a href="<?= $voltar ?>">← Central <?= $proto_label ?></a>
     <a href="<?= htmlspecialchars($guac_url) ?>" target="_blank">Abrir Guacamole</a>
   </div>
 </div>
