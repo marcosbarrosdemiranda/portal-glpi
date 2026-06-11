@@ -5,7 +5,7 @@
  *
  * GET ?dt_ini=YYYY-MM-DD&dt_fim=YYYY-MM-DD&entidade_id=N
  */
-session_start();
+require_once __DIR__ . '/auth_guard.php';
 if (empty($_SESSION['autenticado'])) { http_response_code(401); exit; }
 if (($_SESSION['perfil'] ?? '') === 'self-service') { echo json_encode([]); exit; }
 

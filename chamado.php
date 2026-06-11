@@ -1,5 +1,5 @@
 <?php
-session_start();
+require_once __DIR__ . '/auth_guard.php';
 if (empty($_SESSION['autenticado'])) { header('Location: auth.php'); exit; }
 
 $ticket_id = (int)($_GET['id'] ?? 0);

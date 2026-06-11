@@ -9,7 +9,7 @@
  * - Atualiza eventos existentes se o horário mudou
  * - Busca chamados de entidade raiz (entities_id=0) de hoje em diante
  */
-session_start();
+require_once __DIR__ . '/../auth_guard.php';
 if (empty($_SESSION['autenticado'])) {
     http_response_code(401);
     echo json_encode(['ok'=>false,'msg'=>'Não autenticado']);
@@ -25,6 +25,7 @@ $hoje        = date('Y-m-d');
 $adicionados = 0;
 $atualizados = 0;
 $ignorados   = 0;
+$novos_tickets = [];
 
 $cores = ['#1a73e8','#e67c00','#0f9d58','#9c27b0','#d93025','#0097a7'];
 
@@ -135,6 +136,7 @@ try {
                 ':ticket_id'    => $ticket_id,
             ]);
             $adicionados++;
+            $novos_tickets[] = $ticket_id;
         }
     }
 } catch (Exception $e) {
@@ -147,5 +149,6 @@ echo json_encode([
     'adicionados' => $adicionados,
     'atualizados' => $atualizados,
     'ignorados'   => $ignorados,
+    'ticket_ids'  => $novos_tickets ?? [],
     'msg'         => "$adicionados adicionado(s), $atualizados atualizado(s), $ignorados ignorado(s)",
 ]);

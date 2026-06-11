@@ -1,5 +1,5 @@
 <?php
-session_start();
+require_once __DIR__ . '/../auth_guard.php';
 if (empty($_SESSION['autenticado'])) { header('Location: ../auth.php'); exit; }
 $nome    = $_SESSION['nome']    ?? $_SESSION['usuario'] ?? '';
 $usuario = $_SESSION['usuario'] ?? '';

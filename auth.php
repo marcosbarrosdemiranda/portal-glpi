@@ -229,6 +229,11 @@ if (!empty($_SESSION['autenticado'])) {
       <i class="bi bi-exclamation-circle-fill"></i>
       <?= htmlspecialchars($erro) ?>
     </div>
+    <?php elseif (isset($_GET['timeout'])): ?>
+    <div class="alert-erro mb-3">
+      <i class="bi bi-clock-history"></i>
+      Sua sessão expirou por inatividade. Faça login novamente.
+    </div>
     <?php endif; ?>
 
     <form method="POST" action="" id="formLogin">

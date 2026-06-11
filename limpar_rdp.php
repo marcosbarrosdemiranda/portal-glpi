@@ -1,5 +1,5 @@
 <?php
-session_start();
+require_once __DIR__ . '/auth_guard.php';
 if (empty($_SESSION['autenticado'])) { header('Location: auth.php'); exit; }
 if (!in_array($_SESSION['perfil'] ?? '', ['admin','super-admin','tecnico'])) { echo "Sem permissão"; exit; }
 require_once __DIR__ . '/agenda/db.php';

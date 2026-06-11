@@ -169,6 +169,9 @@
 
   // ── Mostra notificação ───────────────────────────────────────
   function mostrarNotificacao(ticket) {
+    // Som só toca quando o card realmente aparece
+    tocarSom();
+
     const card = document.createElement('div');
     card.className = 'notif-card';
     card.innerHTML = `
@@ -208,20 +211,35 @@
     badge.style.display   = 'flex';
   }
 
+  // ── Controle de tickets já notificados ──────────────────────────
+  const _notifJaVistos = new Set();
+
   // ── Polling ──────────────────────────────────────────────────
   function verificar() {
-    const params = new URLSearchParams({ ultimo: ultimoCheck });
+    const params = new URLSearchParams({ ultimo: ultimoCheck, bg: 1 });
     fetch(`${BASE_URL}notificacoes.php?${params}`)
-      .then(r => r.ok ? r.json() : [])
+      .then(r => {
+        // 440 = sessão expirada por inatividade → vai para o login
+        if (r.status === 440) { window.location.href = (BASE_URL || '') + 'auth.php?timeout=1'; return null; }
+        return r.ok ? r.json() : [];
+      })
       .then(novos => {
+        if (novos === null) return;
         ultimoCheck = new Date().toISOString().slice(0, 19);
         if (!Array.isArray(novos) || novos.length === 0) return;
 
-        // Toca som uma vez para todos os novos
-        tocarSom();
+        // Filtra apenas tickets que ainda não foram notificados
+        const realmenteNovos = novos.filter(t => {
+          if (_notifJaVistos.has(t.id)) return false;
+          _notifJaVistos.add(t.id);
+          return true;
+        });
 
-        // Mostra notificação para cada chamado novo
-        novos.forEach((t, i) => {
+        if (realmenteNovos.length === 0) return;
+
+        // Mostra notificação para cada chamado realmente novo
+        // O som toca dentro de mostrarNotificacao() — acoplado ao card
+        realmenteNovos.forEach((t, i) => {
           setTimeout(() => mostrarNotificacao(t), i * 300);
         });
       })

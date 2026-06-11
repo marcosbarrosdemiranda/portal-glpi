@@ -5,7 +5,7 @@
  */
 ob_start();
 error_reporting(0);
-session_start();
+require_once __DIR__ . '/../auth_guard.php';
 
 if (empty($_SESSION['autenticado'])) {
     ob_end_clean();
