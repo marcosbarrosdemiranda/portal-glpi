@@ -1,109 +1,81 @@
 <?php
-session_start();
+require_once __DIR__ . '/auth_guard.php';
 if (empty($_SESSION['autenticado'])) { header('Location: auth.php'); exit; }
 if (($_SESSION['perfil'] ?? '') === 'self-service') { header('Location: dashboard.php'); exit; }
 
 require_once __DIR__ . '/agenda/config.php';
+require_once __DIR__ . '/agenda/db.php';        // PDO $pdo (banco glpi2) — muito mais rápido que a API REST
 require_once __DIR__ . '/entidade_alias.php';
 
-function glpi_req(string $endpoint, string $token): array {
-    $ch = curl_init(GLPI_URL . '/apirest.php/' . $endpoint);
-    curl_setopt_array($ch, [
-        CURLOPT_RETURNTRANSFER => true,
-        CURLOPT_TIMEOUT        => 20,
-        CURLOPT_HTTPHEADER     => ['Session-Token: '.$token, 'App-Token: '.GLPI_APP_TOKEN],
-    ]);
-    $r = json_decode(curl_exec($ch), true);
-    curl_close($ch);
-    return is_array($r) && !isset($r['ERROR']) ? $r : [];
-}
-
-// Abre sessão
-$auth  = base64_encode(GLPI_USER . ':' . GLPI_PASS);
-$ch    = curl_init(GLPI_URL . '/apirest.php/initSession');
-curl_setopt_array($ch, [CURLOPT_RETURNTRANSFER=>true, CURLOPT_HTTPHEADER=>['Authorization: Basic '.$auth,'App-Token: '.GLPI_APP_TOKEN]]);
-$r     = json_decode(curl_exec($ch), true); curl_close($ch);
-$token = $r['session_token'] ?? '';
-
-// Busca computadores
-$computadores_raw = glpi_req('Computer?range=0-500&expand_dropdowns=true&order=ASC', $token);
-
-// Busca entidades
-$entidades_raw = glpi_req('Entity?range=0-100&expand_dropdowns=true', $token);
-
-// ── Busca IPs reais via NetworkPort → NetworkName → IPAddress ─
-// O endpoint /Computer não retorna IP diretamente no GLPI 10
-$netports_raw = glpi_req('NetworkPort?range=0-2000', $token);
-$netnames_raw = glpi_req('NetworkName?range=0-2000', $token);
-$ipaddrs_raw  = glpi_req('IPAddress?range=0-2000', $token);
-
-// port_id → computer_id
-$port_to_pc = [];
-foreach ($netports_raw as $np) {
-    if (($np['itemtype'] ?? '') === 'Computer') {
-        $port_to_pc[(int)$np['id']] = (int)$np['items_id'];
-    }
-}
-// name_id → computer_id
-$name_to_pc = [];
-foreach ($netnames_raw as $nn) {
-    if (($nn['itemtype'] ?? '') === 'NetworkPort') {
-        $pid = (int)$nn['items_id'];
-        if (isset($port_to_pc[$pid])) {
-            $name_to_pc[(int)$nn['id']] = $port_to_pc[$pid];
-        }
-    }
-}
-// computer_id → ip (prefere 192.168.x.x; ignora loopback e IPv6)
-$ips_por_pc = [];
-foreach ($ipaddrs_raw as $ip) {
-    if (($ip['itemtype'] ?? '') !== 'NetworkName') continue;
-    $nid  = (int)$ip['items_id'];
-    if (!isset($name_to_pc[$nid])) continue;
-    $cid  = $name_to_pc[$nid];
-    $addr = trim($ip['name'] ?? '');
-    if (!$addr || str_starts_with($addr, '127.') || str_contains($addr, ':')) continue;
-    // Prefere LAN 192.168.x.x; aceita qualquer IPv4 como fallback
-    if (!isset($ips_por_pc[$cid]) || str_starts_with($addr, '192.168.')) {
-        $ips_por_pc[$cid] = $addr;
-    }
-}
-
-// Encerra sessão
-$ch = curl_init(GLPI_URL . '/apirest.php/killSession');
-curl_setopt_array($ch, [CURLOPT_RETURNTRANSFER=>true, CURLOPT_HTTPHEADER=>['Session-Token: '.$token,'App-Token: '.GLPI_APP_TOKEN]]);
-curl_exec($ch); curl_close($ch);
-
-// Organiza entidades
-$entidades = [];
-foreach ($entidades_raw as $e) {
-    if (!isset($e['id'])) continue;
-    $entidades[$e['id']] = apelido_entidade($e['completename'] ?? $e['name'] ?? 'Entidade '.$e['id']);
-}
-
-// Organiza computadores por entidade
+// ── Busca direto no banco do GLPI ─────────────────────────────────────────────
+// Substitui 5 chamadas REST (Computer + Entity + NetworkPort/Name/IPAddress 0-2000)
+// por UMA query com JOINs. O IP é resolvido via subconsulta (prefere LAN 192.168.x).
 $por_entidade = [];
-foreach ($computadores_raw as $c) {
-    if (!isset($c['id'])) continue;
-    $ent_nome = apelido_entidade($c['entities_id'] ?? 'Entidade raiz');
-    if (!isset($por_entidade[$ent_nome])) $por_entidade[$ent_nome] = [];
-    $por_entidade[$ent_nome][] = [
-        'id'          => $c['id'],
-        'nome'        => $c['name'] ?? 'PC '.$c['id'],
-        'ip'          => $ips_por_pc[$c['id']] ?? ($c['ip'] ?? ''),
-        'so'          => $c['operatingsystems_id'] ?? '',
-        'fabricante'  => $c['manufacturers_id'] ?? '',
-        'modelo'      => $c['computermodels_id'] ?? '',
-        'serial'      => $c['serial'] ?? '',
-        'entidade'    => $ent_nome,
-        'usuario'     => $c['users_id'] ?? '',
-        'atualizado'  => substr($c['date_mod'] ?? '', 0, 16),
-        'ultimo_inv'  => substr($c['last_inventory_date'] ?? $c['date_mod'] ?? '', 0, 16),
-    ];
-}
-ksort($por_entidade);
+$total_pcs    = 0;
 
-$total_pcs = count($computadores_raw);
+try {
+    $sql = "
+        SELECT c.id, c.name, c.serial, c.date_mod, c.last_inventory_date,
+               e.completename                                                     AS entidade_nome,
+               man.name                                                           AS fabricante,
+               mdl.name                                                           AS modelo,
+               os.name                                                            AS so,
+               TRIM(CONCAT(COALESCE(u.realname,''),' ',COALESCE(u.firstname,''))) AS usuario_nome,
+               u.name                                                             AS usuario_login,
+               ipmap.ip                                                           AS ip
+        FROM glpi_computers c
+        LEFT JOIN glpi_entities       e   ON e.id   = c.entities_id
+        LEFT JOIN glpi_manufacturers  man ON man.id = c.manufacturers_id
+        LEFT JOIN glpi_computermodels mdl ON mdl.id = c.computermodels_id
+        LEFT JOIN glpi_users          u   ON u.id   = c.users_id
+        LEFT JOIN glpi_items_operatingsystems ios
+               ON ios.itemtype = 'Computer' AND ios.items_id = c.id
+        LEFT JOIN glpi_operatingsystems os ON os.id = ios.operatingsystems_id
+        LEFT JOIN (
+            SELECT np.items_id AS pc_id,
+                   SUBSTRING_INDEX(
+                     GROUP_CONCAT(ip.name ORDER BY (ip.name LIKE '192.168.%') DESC SEPARATOR ','),
+                     ',', 1
+                   ) AS ip
+            FROM glpi_networkports np
+            JOIN glpi_networknames nn ON nn.itemtype = 'NetworkPort' AND nn.items_id = np.id
+            JOIN glpi_ipaddresses  ip ON ip.itemtype = 'NetworkName'  AND ip.items_id = nn.id
+            WHERE np.itemtype = 'Computer'
+              AND ip.version = 4
+              AND ip.name <> '' AND ip.name NOT LIKE '127.%'
+            GROUP BY np.items_id
+        ) ipmap ON ipmap.pc_id = c.id
+        WHERE c.is_deleted = 0 AND c.is_template = 0
+        ORDER BY e.completename ASC, c.name ASC
+    ";
+    $rows = $pdo->query($sql)->fetchAll(PDO::FETCH_ASSOC);
+
+    foreach ($rows as $c) {
+        $ent_nome = apelido_entidade($c['entidade_nome'] ?? 'Entidade raiz');
+        $usuario  = trim($c['usuario_nome'] ?? '');
+        if ($usuario === '') $usuario = $c['usuario_login'] ?? '';
+
+        $por_entidade[$ent_nome][] = [
+            'id'         => (int)$c['id'],
+            'nome'       => $c['name'] ?: ('PC ' . $c['id']),
+            'ip'         => $c['ip'] ?? '',
+            'so'         => $c['so'] ?? '',
+            'fabricante' => $c['fabricante'] ?? '',
+            'modelo'     => $c['modelo'] ?? '',
+            'serial'     => $c['serial'] ?? '',
+            'entidade'   => $ent_nome,
+            'usuario'    => $usuario,
+            'atualizado' => substr($c['date_mod'] ?? '', 0, 16),
+            'ultimo_inv' => substr($c['last_inventory_date'] ?? $c['date_mod'] ?? '', 0, 16),
+        ];
+        $total_pcs++;
+    }
+    ksort($por_entidade);
+} catch (Exception $e) {
+    // Falha de SQL → página abre vazia em vez de quebrar
+    $por_entidade = [];
+    $total_pcs    = 0;
+}
 $f_entidade = $_GET['entidade'] ?? '';
 ?>
 <!DOCTYPE html>
@@ -154,19 +126,26 @@ $f_entidade = $_GET['entidade'] ?? '';
       box-shadow:0 1px 4px rgba(0,0,0,.05);
     }
 
-    /* Seção entidade */
-    .entidade-section { margin-bottom:1.5rem; }
+    /* Seção entidade (accordion — recolhido por padrão) */
+    .entidade-section { margin-bottom:.75rem; }
     .entidade-header {
       background:linear-gradient(135deg,var(--primary),#1565c0);
-      color:white; border-radius:10px 10px 0 0;
+      color:white; border-radius:10px;
       padding:.65rem 1.25rem; font-weight:700; font-size:.9rem;
       display:flex; align-items:center; justify-content:space-between;
+      cursor:pointer; user-select:none; transition:border-radius .15s, filter .15s;
     }
+    .entidade-header:hover { filter:brightness(1.1); }
+    .entidade-header .chevron { transition:transform .2s; }
+    .entidade-section.expanded .entidade-header { border-radius:10px 10px 0 0; }
+    .entidade-section.expanded .entidade-header .chevron { transform:rotate(180deg); }
     .entidade-body {
       background:white; border-radius:0 0 10px 10px;
       border:1px solid #e5e7eb; border-top:none;
       box-shadow:0 2px 8px rgba(0,0,0,.06); overflow:hidden;
+      display:none;
     }
+    .entidade-section.expanded .entidade-body { display:block; }
 
     /* Grid de PCs */
     .pcs-grid { padding:.75rem; }
@@ -212,6 +191,20 @@ $f_entidade = $_GET['entidade'] ?? '';
     .status-badge {
       display:inline-flex; align-items:center; gap:.4rem;
       padding:.35rem .9rem; border-radius:20px; font-size:.8rem; font-weight:700;
+    }
+
+    /* ── Responsivo (mobile/tablet) ── */
+    @media (max-width: 640px) {
+      .topbar { flex-wrap:wrap; gap:.4rem; }
+      .topbar .brand { font-size:.9rem; }
+      .hero { padding:1.5rem 1rem 3.5rem; }
+      .hero h1 { font-size:1.2rem; }
+      .wrap { margin-top:-2.5rem; }
+      .filtros-card { padding:.85rem; gap:.6rem; }
+      .filtros-card > div { flex:1 1 100%; }
+      .filtros-card input, .filtros-card select { width:100% !important; }
+      .btn-filtrar { width:100%; justify-content:center; }
+      .pcs-grid { padding:.5rem; }
     }
 
   </style>
@@ -270,9 +263,12 @@ $f_entidade = $_GET['entidade'] ?? '';
   <!-- PCs por entidade -->
   <?php foreach ($por_entidade as $ent_nome => $pcs): ?>
   <div class="entidade-section" data-entidade="<?= htmlspecialchars($ent_nome) ?>">
-    <div class="entidade-header">
+    <div class="entidade-header" onclick="toggleEntidade(this)">
       <span><i class="bi bi-building me-2"></i><?= htmlspecialchars($ent_nome) ?></span>
-      <span class="badge bg-light text-dark"><?= count($pcs) ?> máquinas</span>
+      <span class="d-flex align-items-center gap-2">
+        <span class="badge bg-light text-dark"><?= count($pcs) ?> máquinas</span>
+        <i class="bi bi-chevron-down chevron"></i>
+      </span>
     </div>
     <div class="entidade-body">
       <div class="pcs-grid">
@@ -489,29 +485,50 @@ function atualizarContadores() {
   document.getElementById('cnt-offline').textContent = offline;
 }
 
-// ── Filtros ───────────────────────────────────────────────────
-function filtrarEntidade() {
-  const sel = document.getElementById('f-entidade').value;
-  document.querySelectorAll('.entidade-section').forEach(s => {
-    s.style.display = !sel || s.dataset.entidade === sel ? '' : 'none';
-  });
+// ── Accordion das unidades ────────────────────────────────────
+function toggleEntidade(header) {
+  header.closest('.entidade-section').classList.toggle('expanded');
 }
 
-function filtrarStatus() {
-  const sel = document.getElementById('f-status').value;
-  document.querySelectorAll('.pc-card').forEach(c => {
-    c.style.display = !sel || c.dataset.status === sel ? '' : 'none';
+// ── Filtros (unificados) ──────────────────────────────────────
+// Recolhido é o padrão. Com qualquer filtro ativo, expande automaticamente
+// as unidades que têm resultado; ao limpar tudo, volta a recolher.
+function aplicarFiltros() {
+  const q   = document.getElementById('f-busca').value.toLowerCase().trim();
+  const st  = document.getElementById('f-status').value;
+  const ent = document.getElementById('f-entidade').value;
+  const filtroAtivo = !!(q || st || ent);
+
+  document.querySelectorAll('.entidade-section').forEach(section => {
+    const entOk = !ent || section.dataset.entidade === ent;
+    let visiveis = 0;
+
+    section.querySelectorAll('.pc-card').forEach(c => {
+      const mBusca  = !q  || c.dataset.nome.toLowerCase().includes(q) || c.dataset.ip.includes(q);
+      const mStatus = !st || c.dataset.status === st;
+      const show = entOk && mBusca && mStatus;
+      c.style.display = show ? '' : 'none';
+      if (show) visiveis++;
+    });
+
+    // Mostra a seção se a entidade casa e há cards visíveis (ou se não há filtro)
+    section.style.display = (entOk && (visiveis > 0 || !filtroAtivo)) ? '' : 'none';
+
+    // Com filtro ativo → expande quem tem resultado; sem filtro → recolhe (padrão)
+    if (filtroAtivo) {
+      section.classList.toggle('expanded', visiveis > 0);
+    } else {
+      section.classList.remove('expanded');
+    }
   });
+
   atualizarContadores();
 }
 
-function filtrarBusca() {
-  const q = document.getElementById('f-busca').value.toLowerCase();
-  document.querySelectorAll('.pc-card').forEach(c => {
-    const match = c.dataset.nome.toLowerCase().includes(q) || c.dataset.ip.includes(q);
-    c.style.display = match ? '' : 'none';
-  });
-}
+// Aliases mantidos para os handlers inline do HTML
+function filtrarEntidade() { aplicarFiltros(); }
+function filtrarStatus()   { aplicarFiltros(); }
+function filtrarBusca()    { aplicarFiltros(); }
 
 // ── Modal detalhes ────────────────────────────────────────────
 function abrirDetalhes(card) {

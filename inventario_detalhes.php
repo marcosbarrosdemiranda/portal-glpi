@@ -1,5 +1,5 @@
 <?php
-session_start();
+require_once __DIR__ . '/auth_guard.php';
 if (empty($_SESSION['autenticado'])) { http_response_code(401); exit; }
 
 header('Content-Type: application/json');
