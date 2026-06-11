@@ -19,13 +19,16 @@
 | 🖥️ Inventário | 🟡 Em andamento | ~75% |
 | 📚 Área do Conhecimento | 🔴 Pendente | ~20% |
 | 🔧 Infraestrutura | 🟢 Concluído | 100% |
+| 👁️ Central VNC | 🟢 Concluído | 100% |
+| 📂 Grupos Dinâmicos (RDP/VNC) | 🟢 Concluído | 100% |
+| 🖥️ Central AnyDesk | 🟢 Concluído | 100% |
 | 🏭 Ferramentas ERP | 🟡 Em andamento | ~50% |
 | 📁 Projetos | 🟡 Em andamento | ~80% |
 | 👥 Equipe | 🟡 Em andamento | ~50% |
 | 💰 Orçamento | 🟡 Em andamento | ~40% |
 | 📄 Contratos | 🟡 Em andamento | ~50% |
 | 🔑 Licenças de Software | 🟡 Em andamento | ~50% |
-| 🔒 Cofre TI | 🟡 Em andamento | ~70% |
+| 🔒 Cofre TI | ✅ Concluído | 100% |
 | 📱 Acesso Mobile | 🔴 Pendente | 0% |
 
 ---
@@ -172,9 +175,11 @@
 - [x] RDP — gera arquivo .rdp individual com IP/hostname configurado
 - [x] **Apache Guacamole** — acesso RDP no browser com iframe + top bar + auto-login
 - [x] **Auto-sync Guacamole** — criar/editar/excluir conexões via API REST automaticamente
-- [x] VNC — estrutura criada (portal + banco)
+- [x] **VNC funcional via Guacamole** — acesso VNC no browser com mesma top bar e auto-login
+- [x] **Central VNC** — página dedicada com CRUD de máquinas VNC + Guacamole
+- [x] **Grupos Dinâmicos** — CRUD de grupos cadastráveis/editáveis/excluíveis (RDP e VNC)
+- [x] **Central AnyDesk** — página dedicada com CRUD de máquinas, grupos dinâmicos e conexão via protocolo `anydesk://`
 - [x] AnyDesk — link configurável
-- [ ] VNC funcional (instalar noVNC + websockify no servidor)
 - [ ] SSH via browser (xterm.js)
 
 ### Monitoramento
@@ -300,13 +305,16 @@
 - [x] Tags e notas
 - [x] Busca server-side por título, tags e notas
 - [x] Filtro por categoria na toolbar
+- [x] Formulário dinâmico por categoria (Link = título/link/notas; campos ocultos são limpos)
+- [x] Categoria 📞 Contatos Úteis (pessoa de referência + telefone/ramal visível)
+- [x] Auditoria: quem revelou/copiou/criou/editou/excluiu/compartilhou e quando (modal na toolbar)
+- [x] PIN por usuário — cadastro na 1ª vez, desbloqueio por sessão, reset ("esqueci o PIN")
+- [x] Compartilhamento por link temporário (token + expiração + limite de visualizações; `compartilhar.php` público)
 
-### Pendente
-- [ ] Controle de acesso por nível (técnico x encarregado)
-- [ ] Auditoria: quem acessou e quando
-- [ ] Compartilhamento seguro de senha (link com expiração)
-- [ ] Senha mestra para acesso ao cofre
-- [ ] Categoria 📞 Contatos Úteis (telefones/ramais do setor)
+> ✅ **Concluído (10/06/2026)** — módulo completo e em uso.
+
+### Backlog futuro (opcional)
+- [ ] Controle de acesso por nível técnico x encarregado (descartado por ora — segurança via auditoria + PIN)
 
 ---
 
