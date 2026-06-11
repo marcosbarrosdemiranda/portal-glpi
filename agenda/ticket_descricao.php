@@ -70,6 +70,30 @@ if (is_array($followups_raw)) {
     }
 }
 
+// Documentos vinculados DIRETAMENTE ao Ticket (anexos da criação via anexar_ticket.php)
+$docs_por_ticket = [];
+$chTD = curl_init(GLPI_URL . '/apirest.php/Ticket/'.$id.'/Document_Item');
+curl_setopt_array($chTD, [CURLOPT_RETURNTRANSFER=>true, CURLOPT_HTTPHEADER=>$h]);
+$td_list = json_decode(curl_exec($chTD), true) ?? [];
+curl_close($chTD);
+foreach ((array)$td_list as $di) {
+    $docid = (int)($di['documents_id'] ?? 0);
+    if (!$docid) continue;
+    $chDoc = curl_init(GLPI_URL . '/apirest.php/Document/'.$docid);
+    curl_setopt_array($chDoc, [CURLOPT_RETURNTRANSFER=>true, CURLOPT_HTTPHEADER=>$h]);
+    $docData = json_decode(curl_exec($chDoc), true) ?? [];
+    curl_close($chDoc);
+    if (empty($docData['id'])) continue;
+    $fname = $docData['filename'] ?? $docData['name'] ?? 'arquivo';
+    $ext   = strtolower(pathinfo($fname, PATHINFO_EXTENSION));
+    $docs_por_ticket[] = [
+        'id'    => $docid,
+        'nome'  => $fname,
+        'isImg' => in_array($ext, ['jpg','jpeg','png','gif','webp','bmp','svg']),
+        'size'  => (int)($docData['filesize'] ?? 0),
+    ];
+}
+
 $ch3 = curl_init(GLPI_URL . '/apirest.php/killSession');
 curl_setopt_array($ch3, [CURLOPT_RETURNTRANSFER=>true, CURLOPT_HTTPHEADER=>$h]);
 curl_exec($ch3); curl_close($ch3);
@@ -108,7 +132,14 @@ if (is_array($followups_raw)) {
     }
 }
 
-$docs = $docs_por_fu; // todos os docs dos followups, lista plana
+// Une docs do Ticket (criação) + dos followups (Responder), sem duplicar por id
+$docs   = [];
+$vistos = [];
+foreach (array_merge($docs_por_ticket, $docs_por_fu) as $d) {
+    if (isset($vistos[$d['id']])) continue;
+    $vistos[$d['id']] = true;
+    $docs[] = $d;
+}
 
 echo json_encode([
     'descricao'    => $descricao,

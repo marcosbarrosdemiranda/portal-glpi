@@ -1,5 +1,5 @@
 <?php
-session_start();
+require_once __DIR__ . '/../auth_guard.php';
 if (empty($_SESSION['autenticado'])) { header('Location: ../auth.php'); exit; }
 $nome_usuario  = $_SESSION['nome']    ?? $_SESSION['usuario'] ?? 'Atendente';
 $user_id_sessao = (int)($_SESSION['user_id'] ?? 0);
@@ -951,6 +951,7 @@ let modalEvento;
 let modalAtendentes;
 let atendentes      = [];
 let filtroAtendente = '';
+let nomeAtendenteLogado = ''; // nome do usuário logado COMO a agenda o conhece (a.nome)
 let filtroTipo = '';
 let _dropPendente   = null; // dados do drop aguardando seleção de atendente
 let _inEventReceive = false; // bloqueia eventChange durante mutações do eventReceive
@@ -1108,7 +1109,7 @@ document.addEventListener('DOMContentLoaded', function() {
 
       const dados = {
         id:           ev.id || uniqEvId(),
-        titulo:       ev.title,
+        titulo:       ev.title.replace(/^#\d+\s*[-–]\s*/, '').trim(),
         start:        toDatetimeLocal(start),
         end:          toDatetimeLocal(end),
         prioridade,
@@ -1134,7 +1135,15 @@ document.addEventListener('DOMContentLoaded', function() {
         // Guarda cache: extendedProps do drop ficam vazios no FC até o próximo refetch;
         // o cache é o fallback no eventChange para resizes antes do refetch
         _dropCache[dados.id] = { ...dados };
-        salvarEventoObj(dados, () => carregarTickets());
+        salvarEventoObj(dados, () => {
+          // Reconcilia: descarta o fantasma do drag (fica numa fonte separada do FC
+          // e o refetchEvents NÃO o remove) e recarrega a fonte oficial, que já contém
+          // o evento salvo. Sem isso o evento aparece duplicado até apertar F5.
+          info.event.remove();
+          delete _dropCache[dados.id];
+          calendar.refetchEvents();
+          carregarTickets();
+        });
         return;
       }
 
@@ -1160,7 +1169,7 @@ document.addEventListener('DOMContentLoaded', function() {
       const c = _dropCache[ev.id] || {};
       salvarEventoObj({
         id:            ev.id,
-        titulo:        ev.title,
+        titulo:        ev.title.replace(/^#\d+\s*[-–]\s*/, '').trim(),
         start:         ev.startStr,
         end:           ev.endStr || ev.startStr,
         orig_start:    info.oldEvent.startStr,
@@ -1225,7 +1234,7 @@ document.addEventListener('DOMContentLoaded', function() {
       return {
         html: `<div class="ev-inner">
                  ${timeText}<i class="bi ${icone} ev-icon"></i>
-                 <span class="ev-title">${arg.event.title.replace(/^#\d+\s*[â€“-]\s*/, '')}</span>
+                 <span class="ev-title">${arg.event.title.replace(/^#\d+\s*[\-–]\s*/, '')}</span>
                  ${grupoTag}${avisoTag}
                </div>
                ${checkBadge}
@@ -1500,6 +1509,7 @@ function eventosFiltrados() {
 function filtrarPorAtendente() {
   filtroAtendente = document.getElementById('filtro-atendente').value;
   calendar.refetchEvents();
+  renderGcal(); // Google Calendar só na agenda do próprio usuário
 }
 
 function filtrarPorTipo() {
@@ -1656,9 +1666,11 @@ function carregarAtendentes() {
       // Pré-seleciona o atendente logado (por ID ou por nome)
       const atendenteLogado = data.find(a => a.id === USUARIO_LOGADO_ID || a.nome === USUARIO_LOGADO_NOME);
       if (atendenteLogado) {
-        filtro.value     = atendenteLogado.nome;
-        filtroAtendente  = atendenteLogado.nome;
+        filtro.value         = atendenteLogado.nome;
+        filtroAtendente      = atendenteLogado.nome;
+        nomeAtendenteLogado  = atendenteLogado.nome; // referência para o Google Calendar
         calendar.refetchEvents();
+        renderGcal(); // reavalia visibilidade do Google agora que sabemos o nome certo
       }
     })
     .catch(() => {
@@ -1823,7 +1835,7 @@ function iniciarDrag() {
         el.classList.add('dragging');
         return {
           id:       uniqEvId(),
-          title:    `#${el.dataset.id} â€“ ${el.dataset.titulo}`,
+          title:    `#${el.dataset.id} – ${el.dataset.titulo}`,
           duration: '00:30', // ghost visual (chamados = 30min)
           extendedProps: {
             ticket_id: el.dataset.id,
@@ -2691,7 +2703,7 @@ function editarEvento(ev) {
   const c = _dropCache[ev.id] || {}; // fallback para eventos recém-arrastados (antes do refetch)
   preencherModal({
     id:        ev.id,
-    titulo:    ev.title,
+    titulo:    ev.title.replace(/^#\d+\s*[-–]\s*/, '').trim(),
     start:     ev.startStr,
     end:       ev.endStr || ev.startStr,
     prioridade:ev.extendedProps.prioridade || c.prioridade,
@@ -3201,7 +3213,7 @@ function salvarEventoObj(dados, cb) {
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             ticket_id:     dados.ticket_id,
-            titulo:        dados.titulo?.replace(/#\d+\s*[â€“-]\s*/g, '').trim() || null,
+            titulo:        dados.titulo?.replace(/#\d+\s*[-–]\s*/g, '').trim() || null,
             descricao:     dados.descricao     || null,
             tipo:          dados.tipo          || null,
             prioridade:    dados.prioridade    || null,
@@ -3494,6 +3506,7 @@ document.addEventListener('click', e => {
 // ── Google Calendar ───────────────────────────────────────────
 let modalGcal;
 let gcalEventIds = new Set();
+let gcalEventosCache = []; // eventos do Google do usuário logado (brutos, antes do filtro)
 
 document.addEventListener('DOMContentLoaded', () => {
   modalGcal = new bootstrap.Modal(document.getElementById('modalGcal'));
@@ -3556,25 +3569,38 @@ function carregarEventosGcal() {
   fetch('google_eventos.php')
     .then(r => r.json())
     .then(eventos => {
-      if (!Array.isArray(eventos) || eventos.length === 0) return;
-
-      // Remove eventos Google anteriores
-      gcalEventIds.forEach(id => {
-        const ev = calendar.getEventById(id);
-        if (ev) ev.remove();
-      });
-      gcalEventIds.clear();
-
-      // Adiciona novos eventos do Google
-      eventos.forEach(ev => {
-        calendar.addEvent(ev);
-        gcalEventIds.add(ev.id);
-      });
-
-      // Atualiza botão para indicar que está conectado
-      document.getElementById('btn-gcal').style.background = '#0b8043';
+      if (!Array.isArray(eventos)) return;
+      gcalEventosCache = eventos;
+      renderGcal();
+      if (eventos.length > 0) {
+        // Botão verde indica que o Google Calendar está conectado
+        document.getElementById('btn-gcal').style.background = '#0b8043';
+      }
     })
     .catch(() => {});
+}
+
+// O Google Calendar é PESSOAL do usuário logado. Por isso só aparece na
+// própria agenda dele (ou na visão "Todos") — nunca na agenda de outro técnico.
+function renderGcal() {
+  // Remove TODOS os eventos do Google do calendário, varrendo por propriedade
+  // (mais seguro que rastrear ids: não deixa eventos órfãos ao trocar de atendente).
+  calendar.getEvents().forEach(ev => {
+    if (ev.extendedProps && ev.extendedProps.google) ev.remove();
+  });
+  gcalEventIds.clear();
+
+  // Mostra na visão "Todos" ('') ou quando o filtro é o próprio usuário logado.
+  // Compara tanto pelo nome da agenda (a.nome) quanto pelo nome de sessão, porque
+  // os dois formatos podem diferir.
+  const ehMinhaAgenda = filtroAtendente === nomeAtendenteLogado
+                      || filtroAtendente === USUARIO_LOGADO_NOME;
+  if (filtroAtendente && !ehMinhaAgenda) return;
+
+  gcalEventosCache.forEach(ev => {
+    calendar.addEvent(ev);
+    gcalEventIds.add(ev.id);
+  });
 }
 </script>
 
