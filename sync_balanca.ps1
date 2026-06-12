@@ -128,6 +128,14 @@ if (-not $col_id) {
 
 Write-Host "[OK] Mapeamento: ID='$col_id' Modelo='$col_modelo' Serie='$col_serie' Loja='$col_loja' Depto='$col_depto'" -ForegroundColor Green
 
+# ── Helper pra ler campo ODBC com segurança ──────────────────
+function Get-FieldValue($reader, $colName) {
+    if (-not $colName) { return "" }
+    $val = $reader[$colName]
+    if ($val -eq $null -or $val -eq [DBNull]::Value) { return "" }
+    return $val.ToString().Trim()
+}
+
 # ── Extrai dados ──────────────────────────────────────────────
 $cmd = $conn.CreateCommand()
 $cmd.CommandText = "SELECT * FROM $tabela_encontrada"
@@ -137,15 +145,14 @@ $balancas = @()
 $total = 0
 while ($reader.Read()) {
     $total++
-    $ident = ($reader[$col_id] -as [string] ?? "").Trim()
+    $ident = Get-FieldValue $reader $col_id
     if (-not $ident) { continue }
 
     $b = @{ identificacao = $ident }
-
-    if ($col_modelo)  { $b.modelo       = ($reader[$col_modelo] -as [string] ?? "").Trim() }
-    if ($col_serie)   { $b.serie        = ($reader[$col_serie] -as [string] ?? "").Trim() }
-    if ($col_loja)    { $b.loja         = ($reader[$col_loja] -as [string] ?? "").Trim() }
-    if ($col_depto)   { $b.departamento = ($reader[$col_depto] -as [string] ?? "").Trim() }
+    if ($col_modelo)  { $b.modelo       = Get-FieldValue $reader $col_modelo }
+    if ($col_serie)   { $b.serie        = Get-FieldValue $reader $col_serie }
+    if ($col_loja)    { $b.loja         = Get-FieldValue $reader $col_loja }
+    if ($col_depto)   { $b.departamento = Get-FieldValue $reader $col_depto }
 
     $balancas += $b
 }
