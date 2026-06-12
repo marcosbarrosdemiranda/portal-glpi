@@ -4,78 +4,106 @@ if (empty($_SESSION['autenticado'])) { header('Location: auth.php'); exit; }
 if (($_SESSION['perfil'] ?? '') === 'self-service') { header('Location: dashboard.php'); exit; }
 
 require_once __DIR__ . '/agenda/config.php';
-require_once __DIR__ . '/agenda/db.php';        // PDO $pdo (banco glpi2) — muito mais rápido que a API REST
 require_once __DIR__ . '/entidade_alias.php';
 
-// ── Busca direto no banco do GLPI ─────────────────────────────────────────────
-// Substitui 5 chamadas REST (Computer + Entity + NetworkPort/Name/IPAddress 0-2000)
-// por UMA query com JOINs. O IP é resolvido via subconsulta (prefere LAN 192.168.x).
-$por_entidade = [];
-$total_pcs    = 0;
-
-try {
-    $sql = "
-        SELECT c.id, c.name, c.serial, c.date_mod, c.last_inventory_date,
-               e.completename                                                     AS entidade_nome,
-               man.name                                                           AS fabricante,
-               mdl.name                                                           AS modelo,
-               os.name                                                            AS so,
-               TRIM(CONCAT(COALESCE(u.realname,''),' ',COALESCE(u.firstname,''))) AS usuario_nome,
-               u.name                                                             AS usuario_login,
-               ipmap.ip                                                           AS ip
-        FROM glpi_computers c
-        LEFT JOIN glpi_entities       e   ON e.id   = c.entities_id
-        LEFT JOIN glpi_manufacturers  man ON man.id = c.manufacturers_id
-        LEFT JOIN glpi_computermodels mdl ON mdl.id = c.computermodels_id
-        LEFT JOIN glpi_users          u   ON u.id   = c.users_id
-        LEFT JOIN glpi_items_operatingsystems ios
-               ON ios.itemtype = 'Computer' AND ios.items_id = c.id
-        LEFT JOIN glpi_operatingsystems os ON os.id = ios.operatingsystems_id
-        LEFT JOIN (
-            SELECT np.items_id AS pc_id,
-                   SUBSTRING_INDEX(
-                     GROUP_CONCAT(ip.name ORDER BY (ip.name LIKE '192.168.%') DESC SEPARATOR ','),
-                     ',', 1
-                   ) AS ip
-            FROM glpi_networkports np
-            JOIN glpi_networknames nn ON nn.itemtype = 'NetworkPort' AND nn.items_id = np.id
-            JOIN glpi_ipaddresses  ip ON ip.itemtype = 'NetworkName'  AND ip.items_id = nn.id
-            WHERE np.itemtype = 'Computer'
-              AND ip.version = 4
-              AND ip.name <> '' AND ip.name NOT LIKE '127.%'
-            GROUP BY np.items_id
-        ) ipmap ON ipmap.pc_id = c.id
-        WHERE c.is_deleted = 0 AND c.is_template = 0
-        ORDER BY e.completename ASC, c.name ASC
-    ";
-    $rows = $pdo->query($sql)->fetchAll(PDO::FETCH_ASSOC);
-
-    foreach ($rows as $c) {
-        $ent_nome = apelido_entidade($c['entidade_nome'] ?? 'Entidade raiz');
-        $usuario  = trim($c['usuario_nome'] ?? '');
-        if ($usuario === '') $usuario = $c['usuario_login'] ?? '';
-
-        $por_entidade[$ent_nome][] = [
-            'id'         => (int)$c['id'],
-            'nome'       => $c['name'] ?: ('PC ' . $c['id']),
-            'ip'         => $c['ip'] ?? '',
-            'so'         => $c['so'] ?? '',
-            'fabricante' => $c['fabricante'] ?? '',
-            'modelo'     => $c['modelo'] ?? '',
-            'serial'     => $c['serial'] ?? '',
-            'entidade'   => $ent_nome,
-            'usuario'    => $usuario,
-            'atualizado' => substr($c['date_mod'] ?? '', 0, 16),
-            'ultimo_inv' => substr($c['last_inventory_date'] ?? $c['date_mod'] ?? '', 0, 16),
-        ];
-        $total_pcs++;
-    }
-    ksort($por_entidade);
-} catch (Exception $e) {
-    // Falha de SQL → página abre vazia em vez de quebrar
-    $por_entidade = [];
-    $total_pcs    = 0;
+function glpi_req(string $endpoint, string $token): array {
+    $ch = curl_init(GLPI_URL . '/apirest.php/' . $endpoint);
+    curl_setopt_array($ch, [
+        CURLOPT_RETURNTRANSFER => true,
+        CURLOPT_TIMEOUT        => 20,
+        CURLOPT_HTTPHEADER     => ['Session-Token: '.$token, 'App-Token: '.GLPI_APP_TOKEN],
+    ]);
+    $r = json_decode(curl_exec($ch), true);
+    curl_close($ch);
+    return is_array($r) && !isset($r['ERROR']) ? $r : [];
 }
+
+// Abre sessão
+$auth  = base64_encode(GLPI_USER . ':' . GLPI_PASS);
+$ch    = curl_init(GLPI_URL . '/apirest.php/initSession');
+curl_setopt_array($ch, [CURLOPT_RETURNTRANSFER=>true, CURLOPT_HTTPHEADER=>['Authorization: Basic '.$auth,'App-Token: '.GLPI_APP_TOKEN]]);
+$r     = json_decode(curl_exec($ch), true); curl_close($ch);
+$token = $r['session_token'] ?? '';
+
+// Busca computadores
+$computadores_raw = glpi_req('Computer?range=0-500&expand_dropdowns=true&order=ASC', $token);
+
+// Busca entidades
+$entidades_raw = glpi_req('Entity?range=0-100&expand_dropdowns=true', $token);
+
+// ── Busca IPs reais via NetworkPort → NetworkName → IPAddress ─
+// O endpoint /Computer não retorna IP diretamente no GLPI 10
+$netports_raw = glpi_req('NetworkPort?range=0-2000', $token);
+$netnames_raw = glpi_req('NetworkName?range=0-2000', $token);
+$ipaddrs_raw  = glpi_req('IPAddress?range=0-2000', $token);
+
+// port_id → computer_id
+$port_to_pc = [];
+foreach ($netports_raw as $np) {
+    if (($np['itemtype'] ?? '') === 'Computer') {
+        $port_to_pc[(int)$np['id']] = (int)$np['items_id'];
+    }
+}
+// name_id → computer_id
+$name_to_pc = [];
+foreach ($netnames_raw as $nn) {
+    if (($nn['itemtype'] ?? '') === 'NetworkPort') {
+        $pid = (int)$nn['items_id'];
+        if (isset($port_to_pc[$pid])) {
+            $name_to_pc[(int)$nn['id']] = $port_to_pc[$pid];
+        }
+    }
+}
+// computer_id → ip (prefere 192.168.x.x; ignora loopback e IPv6)
+$ips_por_pc = [];
+foreach ($ipaddrs_raw as $ip) {
+    if (($ip['itemtype'] ?? '') !== 'NetworkName') continue;
+    $nid  = (int)$ip['items_id'];
+    if (!isset($name_to_pc[$nid])) continue;
+    $cid  = $name_to_pc[$nid];
+    $addr = trim($ip['name'] ?? '');
+    if (!$addr || str_starts_with($addr, '127.') || str_contains($addr, ':')) continue;
+    // Prefere LAN 192.168.x.x; aceita qualquer IPv4 como fallback
+    if (!isset($ips_por_pc[$cid]) || str_starts_with($addr, '192.168.')) {
+        $ips_por_pc[$cid] = $addr;
+    }
+}
+
+// Encerra sessão
+$ch = curl_init(GLPI_URL . '/apirest.php/killSession');
+curl_setopt_array($ch, [CURLOPT_RETURNTRANSFER=>true, CURLOPT_HTTPHEADER=>['Session-Token: '.$token,'App-Token: '.GLPI_APP_TOKEN]]);
+curl_exec($ch); curl_close($ch);
+
+// Organiza entidades
+$entidades = [];
+foreach ($entidades_raw as $e) {
+    if (!isset($e['id'])) continue;
+    $entidades[$e['id']] = apelido_entidade($e['completename'] ?? $e['name'] ?? 'Entidade '.$e['id']);
+}
+
+// Organiza computadores por entidade
+$por_entidade = [];
+foreach ($computadores_raw as $c) {
+    if (!isset($c['id'])) continue;
+    $ent_nome = apelido_entidade($c['entities_id'] ?? 'Entidade raiz');
+    if (!isset($por_entidade[$ent_nome])) $por_entidade[$ent_nome] = [];
+    $por_entidade[$ent_nome][] = [
+        'id'          => $c['id'],
+        'nome'        => $c['name'] ?? 'PC '.$c['id'],
+        'ip'          => $ips_por_pc[$c['id']] ?? ($c['ip'] ?? ''),
+        'so'          => $c['operatingsystems_id'] ?? '',
+        'fabricante'  => $c['manufacturers_id'] ?? '',
+        'modelo'      => $c['computermodels_id'] ?? '',
+        'serial'      => $c['serial'] ?? '',
+        'entidade'    => $ent_nome,
+        'usuario'     => $c['users_id'] ?? '',
+        'atualizado'  => substr($c['date_mod'] ?? '', 0, 16),
+        'ultimo_inv'  => substr($c['last_inventory_date'] ?? $c['date_mod'] ?? '', 0, 16),
+    ];
+}
+ksort($por_entidade);
+
+$total_pcs = count($computadores_raw);
 $f_entidade = $_GET['entidade'] ?? '';
 ?>
 <!DOCTYPE html>
