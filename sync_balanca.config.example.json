@@ -2,11 +2,12 @@
     "servidor_nome":  "MGV Loja 01",
     "portal_url":     "http://192.168.1.198/inventario_balancas.php",
     "sync_token":     "wZDUZdEGzwDWmcU9EPeUFDsvonsnuAhO",
-    "fb_driver":      "Firebird/InterBase(r) driver",
-    "fb_host":        "localhost",
-    "fb_port":        3050,
-    "fb_database":    "C:\\MGV6\\DADOS\\MGV6.FDB",
-    "fb_user":        "SYSDBA",
-    "fb_pass":        "masterkey",
+
+    "sql_server":     "localhost",
+    "sql_database":   "MGV6",
+    "sql_auth":       "windows",
+    "sql_user":       "sa",
+    "sql_pass":       "",
+
     "tabelas_tentar": ["BALANCAS", "TB_BALANCAS", "EQUIPAMENTOS", "BALANCA"]
 }

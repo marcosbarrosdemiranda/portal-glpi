@@ -2,12 +2,12 @@
 .SYNOPSIS
   Agente de sincronização de balanças MGV 6 → Portal TI
 .DESCRIPTION
-  Conecta no Firebird local do MGV 6, extrai as balanças e envia
+  Conecta no SQL Server local do MGV 6, extrai as balanças e envia
   via HTTP/JSON para o endpoint sync_remoto do portal.
   Projetado para rodar no Task Scheduler de cada servidor MGV.
 
   Requisitos:
-    - Firebird ODBC driver instalado (já vem com MGV 6)
+    - Acesso ao SQL Server local (instância do MGV 6)
     - Acesso HTTP ao servidor do portal (VPN)
     - Arquivo de config: sync_balanca.config.json (lado a lado)
 
@@ -29,41 +29,51 @@ if (Test-Path (Join-Path $scriptPath $Config)) {
     $cfg = Get-Content (Join-Path $scriptPath $Config) -Raw | ConvertFrom-Json
 } else {
     Write-Host "[!] Arquivo de config não encontrado: $Config" -ForegroundColor Red
-    Write-Host "[i] Criando template... Gerando $Config" -ForegroundColor Yellow
+    Write-Host "[i] Criando template... $Config gerado." -ForegroundColor Yellow
 
     $template = @{
-        servidor_nome  = "MGV Loja 01"              # Nome exato cadastrado no portal
+        servidor_nome  = "MGV Loja 01"               # Nome exato cadastrado no portal
         portal_url     = "http://192.168.1.198/inventario_balancas.php"
-        sync_token     = ""                          # Token se configurado no portal
-        fb_driver      = "Firebird/InterBase(r) driver"
-        fb_host        = "localhost"
-        fb_port        = 3050
-        fb_database    = "C:\MGV6\DADOS\MGV6.FDB"    # Ajuste para o caminho real
-        fb_user        = "SYSDBA"
-        fb_pass        = "masterkey"
+        sync_token     = "wZDUZdEGzwDWmcU9EPeUFDsvonsnuAhO"
+
+        # ── Conexão SQL Server ──
+        sql_server     = "localhost"                   # Instância SQL (ex: localhost, .\SQLEXPRESS, .\MGV6)
+        sql_database   = "MGV6"                        # Nome do banco de dados
+        sql_auth       = "windows"                     # "windows" (integrada) ou "sql" (usuário/senha)
+        sql_user       = "sa"
+        sql_pass       = ""
+
+        # Tabelas que o script vai procurar
         tabelas_tentar = @("BALANCAS", "TB_BALANCAS", "EQUIPAMENTOS", "BALANCA")
     } | ConvertTo-Json -Depth 3
 
     $template | Out-File (Join-Path $scriptPath $Config) -Encoding utf8
-    Write-Host "[i] Template criado. Edite o arquivo e rode novamente." -ForegroundColor Yellow
+    Write-Host "[i] Edite o $Config com os dados do SQL Server e rode novamente." -ForegroundColor Yellow
     exit 1
 }
 
 # ── Validação básica ────────────────────────────────────────────
 if (-not $cfg.servidor_nome)  { Write-Host "[!] servidor_nome não configurado"; exit 1 }
 if (-not $cfg.portal_url)     { Write-Host "[!] portal_url não configurado"; exit 1 }
-if (-not $cfg.fb_database)    { Write-Host "[!] fb_database não configurado"; exit 1 }
+if (-not $cfg.sql_server)     { Write-Host "[!] sql_server não configurado"; exit 1 }
+if (-not $cfg.sql_database)   { Write-Host "[!] sql_database não configurado"; exit 1 }
 
-# ── Conecta no Firebird via ODBC ──────────────────────────────
-Write-Host "[*] Conectando Firebird: $($cfg.fb_database)..." -ForegroundColor Cyan
+# ── Conecta no SQL Server ─────────────────────────────────────
+Write-Host "[*] Conectando SQL Server: $($cfg.sql_server) / $($cfg.sql_database)..." -ForegroundColor Cyan
 
-$connStr = "Driver={$($cfg.fb_driver)};DBNAME=$($cfg.fb_host)/$($cfg.fb_port):$($cfg.fb_database);UID=$($cfg.fb_user);PWD=$($cfg.fb_pass)"
+if ($cfg.sql_auth -eq "sql") {
+    $connStr = "Server=$($cfg.sql_server);Database=$($cfg.sql_database);User Id=$($cfg.sql_user);Password=$($cfg.sql_pass);"
+} else {
+    $connStr = "Server=$($cfg.sql_server);Database=$($cfg.sql_database);Integrated Security=True;"
+}
+
 try {
-    $conn = New-Object System.Data.Odbc.OdbcConnection($connStr)
+    $conn = New-Object System.Data.SqlClient.SqlConnection($connStr)
     $conn.Open()
-    Write-Host "[OK] Conectado ao Firebird!" -ForegroundColor Green
+    Write-Host "[OK] Conectado ao SQL Server!" -ForegroundColor Green
 } catch {
-    Write-Host "[!] Erro ao conectar Firebird: $_" -ForegroundColor Red
+    Write-Host "[!] Erro ao conectar no SQL Server: $_" -ForegroundColor Red
+    Write-Host "[i] Dica: A instância pode ser .\SQLEXPRESS, .\MGV6 ou o nome do servidor." -ForegroundColor Yellow
     exit 1
 }
 
@@ -94,7 +104,7 @@ Write-Host "[OK] Tabela encontrada: $tabela_encontrada" -ForegroundColor Green
 
 # ── Detecta colunas ───────────────────────────────────────────
 $cmd = $conn.CreateCommand()
-$cmd.CommandText = "SELECT FIRST 1 * FROM $tabela_encontrada"
+$cmd.CommandText = "SELECT TOP 1 * FROM $tabela_encontrada"
 $reader = $cmd.ExecuteReader()
 $colunas = @()
 if ($reader.Read()) {
@@ -121,14 +131,15 @@ $col_loja   = Get-Col @('BAL_LOJA', 'COD_LOJA', 'LOJA', 'CD_LOJA')
 $col_depto  = Get-Col @('BAL_DEPARTAMENTO', 'COD_DEPARTAMENTO', 'DEPARTAMENTO', 'SETOR', 'CD_DEPARTAMENTO')
 
 if (-not $col_id) {
-    Write-Host "[!] Coluna de identificação não encontrada. Colunas: $($colunas -join ', ')" -ForegroundColor Red
+    Write-Host "[!] Coluna de identificação não encontrada." -ForegroundColor Red
+    Write-Host "[i] Colunas disponíveis: $($colunas -join ', ')" -ForegroundColor Yellow
     $conn.Close()
     exit 1
 }
 
 Write-Host "[OK] Mapeamento: ID='$col_id' Modelo='$col_modelo' Serie='$col_serie' Loja='$col_loja' Depto='$col_depto'" -ForegroundColor Green
 
-# ── Helper pra ler campo ODBC com segurança ──────────────────
+# ── Helper pra ler campo com segurança ─────────────────────────
 function Get-FieldValue($reader, $colName) {
     if (-not $colName) { return "" }
     $val = $reader[$colName]
