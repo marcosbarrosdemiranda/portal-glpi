@@ -223,12 +223,11 @@ if (($_SESSION['perfil'] ?? '') === 'self-service') { header('Location: dashboar
     <span class="badge-embreve">Em breve</span>
   </div>
 
-  <div class="cat-card disabled">
+  <a href="inventario_balancas.php" class="cat-card" style="border-top-color:#558b2f">
     <div class="cat-icon balanca-icon"><i class="bi bi-speedometer2"></i></div>
-    <h3>Balança</h3>
-    <p>Balanças e equipamentos de pesagem</p>
-    <span class="badge-embreve">Em breve</span>
-  </div>
+    <h3>Balanças</h3>
+    <p>Balanças, servidores MGV 6 e equipamentos de pesagem</p>
+  </a>
 </div>
 
 </body>
