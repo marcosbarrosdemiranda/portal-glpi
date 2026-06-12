@@ -33,7 +33,7 @@ if (Test-Path (Join-Path $scriptPath $Config)) {
 
     $template = @{
         servidor_nome  = "MGV Loja 01"              # Nome exato cadastrado no portal
-        portal_url     = "http://192.168.1.3/inventario_balancas.php"
+        portal_url     = "http://192.168.1.198/inventario_balancas.php"
         sync_token     = ""                          # Token se configurado no portal
         fb_driver      = "Firebird/InterBase(r) driver"
         fb_host        = "localhost"
