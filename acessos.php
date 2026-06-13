@@ -44,7 +44,7 @@ if ($pdo->query("SELECT COUNT(*) FROM portal_acessos")->fetchColumn() == 0) {
 }
 
 // ── Garante que o pfSense aponte para a central de lojas ────
-$pdo->exec("UPDATE portal_acessos SET url='pfsense_proxy.php' WHERE nome='pfSense' AND grupo='infra' AND (url IS NULL OR url='')");
+$pdo->exec("UPDATE portal_acessos SET url='pfsense_lojas.php' WHERE nome='pfSense' AND grupo='infra' AND (url IS NULL OR url='')");
 // Garante que o VNC Viewer aponte para a Central VNC
 $pdo->exec("UPDATE portal_acessos SET url='vnc_central.php', tipo='web' WHERE nome='VNC Viewer' AND grupo='remoto'");
 // Garante que o AnyDesk aponte para a Central AnyDesk
