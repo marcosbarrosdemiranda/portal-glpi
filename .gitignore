@@ -33,6 +33,9 @@ Thumbs.db
 desktop.ini
 .DS_Store
 
+# ── Configurações locais de projetos ────────────────────────────
+config_projetos.local.php
+
 # ── Logs e temporários ────────────────────────────────────────
 *.log
 *.tmp

@@ -44,7 +44,7 @@ if (Test-Path (Join-Path $scriptPath $Config)) {
         sql_pass       = ""
 
         # Tabelas que o script vai procurar
-        tabelas_tentar = @("BALANCAS", "TB_BALANCAS", "EQUIPAMENTOS", "BALANCA")
+        tabelas_tentar = @("tbBalanca", "BALANCAS", "TB_BALANCAS", "TB_BALANCA", "EQUIPAMENTOS", "BALANCA")
     } | ConvertTo-Json -Depth 3
 
     $template | Out-File (Join-Path $scriptPath $Config) -Encoding utf8
@@ -124,11 +124,17 @@ function Get-Col([string[]]$alias) {
     return $null
 }
 
-$col_id    = Get-Col @('BAL_NUMERO', 'COD_BALANCA', 'NUMERO', 'ID_BALANCA', 'CODIGO', 'ID')
+$col_id    = Get-Col @('BAL_CODIGO', 'BAL_NUMERO', 'COD_BALANCA', 'NUMERO', 'ID_BALANCA', 'CODIGO', 'ID')
 $col_modelo = Get-Col @('BAL_MODELO', 'MODELO', 'DS_MODELO', 'DESCRICAO_MODELO')
-$col_serie  = Get-Col @('BAL_SERIE', 'NUM_SERIE', 'SERIE', 'NR_SERIE', 'NUMERO_SERIE')
+$col_serie  = Get-Col @('BAL_NUMERO_SERIE', 'BAL_SERIE', 'NUM_SERIE', 'SERIE', 'NR_SERIE', 'NUMERO_SERIE')
 $col_loja   = Get-Col @('BAL_LOJA', 'COD_LOJA', 'LOJA', 'CD_LOJA')
 $col_depto  = Get-Col @('BAL_DEPARTAMENTO', 'COD_DEPARTAMENTO', 'DEPARTAMENTO', 'SETOR', 'CD_DEPARTAMENTO')
+$col_ip     = Get-Col @('BAL_ENDERECO_IP', 'BAL_DMP_ENDERECO_IP', 'ENDERECO_IP', 'IP', 'BAL_IP')
+$col_versao = Get-Col @('BAL_VERSAO', 'BAL_DMP_VERSAO_BALANCA', 'VERSAO_FIRMWARE', 'VERSAO')
+$col_carga_atual = Get-Col @('BAL_NUMERO_CARGA_ATUAL', 'CARGA_ATUAL', 'BAL_DMP_NUM_CARGA', 'NUMERO_CARGA')
+$col_carga_prog  = Get-Col @('BAL_NUMERO_CARGA_PROG', 'CARGA_PROGRAMADA', 'BAL_DMP_NUM_CARGA_PROG')
+$col_ultima_cx   = Get-Col @('BAL_ULTIMA_CX_GW', 'ULTIMA_COMUNICACAO', 'ULTIMA_CX_GW')
+$col_lote        = Get-Col @('BAL_LOTE_FABRICACAO', 'LOTE_FABRICACAO', 'LOTE')
 
 if (-not $col_id) {
     Write-Host "[!] Coluna de identificação não encontrada." -ForegroundColor Red
@@ -137,7 +143,7 @@ if (-not $col_id) {
     exit 1
 }
 
-Write-Host "[OK] Mapeamento: ID='$col_id' Modelo='$col_modelo' Serie='$col_serie' Loja='$col_loja' Depto='$col_depto'" -ForegroundColor Green
+Write-Host "[OK] Mapeamento: ID='$col_id' Modelo='$col_modelo' Serie='$col_serie' Loja='$col_loja' Depto='$col_depto' FW='$col_versao' Carga='$col_carga_atual'" -ForegroundColor Green
 
 # ── Helper pra ler campo com segurança ─────────────────────────
 function Get-FieldValue($reader, $colName) {
@@ -148,33 +154,98 @@ function Get-FieldValue($reader, $colName) {
 }
 
 # ── Extrai dados ──────────────────────────────────────────────
-$cmd = $conn.CreateCommand()
-$cmd.CommandText = "SELECT * FROM $tabela_encontrada"
-$reader = $cmd.ExecuteReader()
 
-$balancas = @()
-$total = 0
-while ($reader.Read()) {
-    $total++
-    $ident = Get-FieldValue $reader $col_id
-    if (-not $ident) { continue }
+# MGV6: esquema específico com JOINs (tbBalanca + tbTipoBalanca + tbDepartamento)
+if ($tabela_encontrada -match '^tbBalanca') {
+    $balancas = @()
+    $cmd = $conn.CreateCommand()
+    $cmd.CommandText = @"
+SELECT
+    b.BAL_CODIGO AS id_bal,
+    t.TPB_NOME AS nome_modelo,
+    b.BAL_NUMERO_SERIE AS num_serie,
+    d.DPT_NOME AS nome_depto,
+    COALESCE(NULLIF(b.BAL_ENDERECO_IP, ''), NULLIF(b.BAL_DMP_ENDERECO_IP, ''), '') AS end_ip
+FROM tbBalanca b
+LEFT JOIN tbTipoBalanca t ON t.TPB_CODIGO = b.TPB_CODIGO
+LEFT JOIN tbDepartamento d ON d.DPT_CODIGO = b.DPT_CODIGO
+WHERE b.BAL_ATIVA = 1
+ORDER BY b.BAL_CODIGO
+"@
+    $reader = $cmd.ExecuteReader()
 
-    $b = @{ identificacao = $ident }
-    if ($col_modelo)  { $b.modelo       = Get-FieldValue $reader $col_modelo }
-    if ($col_serie)   { $b.serie        = Get-FieldValue $reader $col_serie }
-    if ($col_loja)    { $b.loja         = Get-FieldValue $reader $col_loja }
-    if ($col_depto)   { $b.departamento = Get-FieldValue $reader $col_depto }
+    $total = 0
+    while ($reader.Read()) {
+        $total++
+        $ident = (Get-FieldValue $reader "id_bal").Trim()
+        if (-not $ident) { continue }
 
-    $balancas += $b
+        $balancas += @{
+            identificacao    = $ident
+            modelo           = Get-FieldValue $reader "nome_modelo"
+            serie            = Get-FieldValue $reader "num_serie"
+            departamento     = Get-FieldValue $reader "nome_depto"
+            ip               = Get-FieldValue $reader "end_ip"
+            versao_firmware  = Get-FieldValue $reader "versao_firmware"
+            carga_atual      = [int](Get-FieldValue $reader "carga_atual")
+            carga_programada = [int](Get-FieldValue $reader "carga_programada")
+            ultima_comunicacao = Get-FieldValue $reader "ultima_comunicacao"
+            lote_fabricacao  = Get-FieldValue $reader "lote_fabricacao"
+        }
+    }
+    $reader.Close()
+    $conn.Close()
+
+    Write-Host "[OK] Extraídas $total balanças (MGV6 com JOINs)" -ForegroundColor Green
+} else {
+    # ── Generic path: detecta colunas e extrai ──
+    $balancas = @()
+    $cmd = $conn.CreateCommand()
+    $cmd.CommandText = "SELECT * FROM $tabela_encontrada"
+    $reader = $cmd.ExecuteReader()
+
+    $total = 0
+    while ($reader.Read()) {
+        $total++
+        $ident = Get-FieldValue $reader $col_id
+        if (-not $ident) { continue }
+
+        $b = @{ identificacao = $ident }
+        if ($col_modelo)  { $b.modelo       = Get-FieldValue $reader $col_modelo }
+        if ($col_serie)   { $b.serie        = Get-FieldValue $reader $col_serie }
+        if ($col_loja)    { $b.loja         = Get-FieldValue $reader $col_loja }
+        if ($col_depto)   { $b.departamento = Get-FieldValue $reader $col_depto }
+        if ($col_ip)      { $b.ip           = Get-FieldValue $reader $col_ip }
+        if ($col_versao)  { $b.versao_firmware = Get-FieldValue $reader $col_versao }
+        if ($col_carga_atual) { $b.carga_atual = [int](Get-FieldValue $reader $col_carga_atual) }
+        if ($col_carga_prog)  { $b.carga_programada = [int](Get-FieldValue $reader $col_carga_prog) }
+        if ($col_ultima_cx)   { $b.ultima_comunicacao = Get-FieldValue $reader $col_ultima_cx }
+        if ($col_lote)        { $b.lote_fabricacao = Get-FieldValue $reader $col_lote }
+
+        $balancas += $b
+    }
+    $reader.Close()
+    $conn.Close()
+
+    Write-Host "[OK] Extraídas $total balanças ($($balancas.Count) válidas)" -ForegroundColor Green
 }
-$reader.Close()
-$conn.Close()
-
-Write-Host "[OK] Extraídas $total balanças ($($balancas.Count) válidas)" -ForegroundColor Green
 
 # ── Modo TEST ─────────────────────────────────────────────────
 if ($Test) {
     Write-Host "`n[MODO TEST] Dados que seriam enviados:" -ForegroundColor Yellow
+    $endpoint = $cfg.portal_url
+    if ($endpoint -notmatch '[?&]action=') {
+        $endpoint += if ($endpoint.Contains('?')) { '&action=sync_remoto' } else { '?action=sync_remoto' }
+    }
+    Write-Host "URL: $endpoint" -ForegroundColor Gray
+    # Teste de conexão com o portal (ping)
+    try {
+        $testUrl = "$($cfg.portal_url)?action=ping&$(Get-Random)"
+        $ping = Invoke-RestMethod -Uri $testUrl -TimeoutSec 10
+        Write-Host "[OK] Portal respondendo: $($ping.versao) - $($ping.mensagem)" -ForegroundColor Green
+    } catch {
+        Write-Host "[!] Portal não respondeu ping: $_" -ForegroundColor Red
+    }
     $payload = @{
         servidor_nome = $cfg.servidor_nome
         sync_token    = $cfg.sync_token
@@ -196,11 +267,26 @@ $payload = @{
 $body = $payload | ConvertTo-Json -Depth 3 -Compress
 
 try {
-    $response = Invoke-RestMethod -Uri $cfg.portal_url `
+    $endpoint = $cfg.portal_url
+    if ($endpoint -notmatch '[?&]action=') {
+        $endpoint += if ($endpoint.Contains('?')) { '&action=sync_remoto' } else { '?action=sync_remoto' }
+    }
+    $endpoint += "&n=$(Get-Random)"  # Evita cache PHP/Apache
+    $response = Invoke-RestMethod -Uri $endpoint `
                                   -Method POST `
                                   -Body $body `
                                   -ContentType "application/json; charset=utf-8" `
                                   -TimeoutSec 30
+
+    if ($response -isnot [PSCustomObject]) {
+        Write-Host "[!] Resposta inesperada (não-JSON). Verifique URL e servidor." -ForegroundColor Red
+        Write-Host "[i] Resposta bruta: $($response | Out-String)" -ForegroundColor Gray
+        exit 1
+    }
+
+    # DEBUG: mostra a resposta completa
+    Write-Host "[DEBUG] Resposta completa do portal:" -ForegroundColor DarkGray
+    Write-Host ($response | ConvertTo-Json -Depth 3) -ForegroundColor DarkGray
 
     if ($response.ok) {
         Write-Host "[OK] Sync concluído!" -ForegroundColor Green
@@ -209,7 +295,8 @@ try {
         Write-Host "     Atualizadas: $($response.atualizados)" -ForegroundColor Gray
         exit 0
     } else {
-        Write-Host "[!] Portal retornou erro: $($response.erro)" -ForegroundColor Red
+        $erro_msg = if ($response.erro) { $response.erro } else { 'Resposta inesperada do portal (verificar logs do Apache/PHP)' }
+        Write-Host "[!] Portal retornou erro: $erro_msg" -ForegroundColor Red
         exit 1
     }
 } catch {

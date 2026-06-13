@@ -144,9 +144,22 @@ function esc(string $s): string {
 $pastaProj = __DIR__ . '/Docs/wiki/projects';
 $projetos  = [];
 if (is_dir($pastaProj)) {
+    // 1. Arquivos .md na raiz (legado — compatibilidade)
     foreach (glob($pastaProj . '/*.md') as $arq) {
         $p = parseProjeto($arq);
-        if ($p) { $p['arquivo'] = basename($arq); $projetos[] = $p; }
+        if ($p) { $p['arquivo'] = basename($arq); $p['pasta'] = ''; $projetos[] = $p; }
+    }
+    // 2. Arquivos .md dentro de subpastas (cada subpasta = um projeto)
+    foreach (glob($pastaProj . '/*', GLOB_ONLYDIR) as $subPasta) {
+        $nomePasta = basename($subPasta);
+        foreach (glob($subPasta . '/*.md') as $arq) {
+            $p = parseProjeto($arq);
+            if ($p) {
+                $p['arquivo'] = $nomePasta . '/' . basename($arq);
+                $p['pasta']   = $nomePasta;
+                $projetos[] = $p;
+            }
+        }
     }
 }
 
@@ -226,7 +239,14 @@ if ($modoDetalhe) {
 
 // ── Action: download .md com seções selecionadas ────────────────
 if ($modoDetalhe && ($_GET['action'] ?? '') === 'download' && isset($_GET['sections'])) {
-    $filepath = __DIR__ . '/Docs/wiki/projects/' . basename($selArq);
+    // Suporte a subpastas: $selArq pode ser "pasta/arquivo.md"
+    $filepath = __DIR__ . '/Docs/wiki/projects/' . $selArq;
+    // Segurança: só permite .md dentro de Docs/wiki/projects/
+    $realBase = realpath(__DIR__ . '/Docs/wiki/projects');
+    $realPath = realpath($filepath);
+    if (!$realPath || !str_starts_with($realPath, $realBase) || !str_ends_with($filepath, '.md')) {
+        http_response_code(403); echo 'Acesso negado.'; exit;
+    }
     $raw = @file_get_contents($filepath);
     if (!$raw) { http_response_code(404); echo 'Arquivo não encontrado.'; exit; }
 
@@ -292,7 +312,8 @@ if ($modoDetalhe && ($_GET['action'] ?? '') === 'download' && isset($_GET['secti
         $output = "# " . ($projeto['titulo'] ?? 'Projeto') . "\n\n*(nenhuma seção selecionada)*\n";
     }
 
-    $filename = basename($selArq, '.md') . '_exportado.md';
+    $filename = str_replace('/', '-', $selArq);
+    $filename = basename($filename, '.md') . '_exportado.md';
     header('Content-Type: text/markdown; charset=utf-8');
     header('Content-Disposition: attachment; filename="' . $filename . '"');
     echo $output;
@@ -807,6 +828,14 @@ body  { background:#f0f4f9; font-family:'Segoe UI',sans-serif; font-size:.9rem; 
     <i class="bi bi-journal-bookmark me-1"></i>
     <code>Docs/wiki/projects/<?= esc($projeto['arquivo']) ?></code>
     · Edite no Obsidian e recarregue · <?= date('d/m/Y H:i') ?>
+    <?php
+    $lastSyncFile = __DIR__ . '/Docs/wiki/projects/.last_sync';
+    if (file_exists($lastSyncFile)):
+        $lastSync = @file_get_contents($lastSyncFile);
+        if ($lastSync):
+    ?>
+    · <i class="bi bi-arrow-repeat me-1"></i>Último sync: <?= esc(substr($lastSync, 0, 16)) ?>
+    <?php endif; endif; ?>
   </div>
 
 <?php endif; ?>

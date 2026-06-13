@@ -16,7 +16,7 @@
 | 🎫 Abertura de Chamado | 🟢 Concluído | 100% |
 | 📋 Histórico de Chamados | 🟢 Concluído | 100% |
 | 📊 Painel de Relatórios | 🟡 Em andamento | ~50% |
-| 🖥️ Inventário | 🟡 Em andamento | ~85% |
+| 🖥️ Inventário | 🟢 Quase concluído | ~95% |
 | 📚 Área do Conhecimento | 🔴 Pendente | ~20% |
 | 🔧 Infraestrutura | 🟢 Concluído | 100% |
 | 👁️ Central VNC | 🟢 Concluído | 100% |
@@ -140,7 +140,7 @@
 - [x] Sistema operacional (versão, arquitetura, kernel)
 - [x] Programas instalados (via GLPI)
 - [x] IPs via NetworkPort → NetworkName → IPAddress
-- [x] Balanças — servidores MGV 6 com CRUD + sync Firebird
+- [x] Balanças — servidores MGV 6 com CRUD, sync SQL Server + Firebird, cards com status online/offline, firmware e carga
 
 ### Pendente
 - [ ] Filtro por loja/entidade

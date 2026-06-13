@@ -1,7 +1,20 @@
 <?php
+
+// ── Lê php://input uma vez só (sync remoto envia JSON no body) ──
+$HTTP_RAW_INPUT = file_get_contents('php://input');
+$HTTP_RAW_JSON  = json_decode($HTTP_RAW_INPUT, true);
+
+// Sync remoto não precisa de auth (agente PowerShell)
+$is_sync_remoto = (
+    ($_GET['action'] ?? $_POST['action'] ?? '') === 'sync_remoto' ||
+    ($HTTP_RAW_JSON['action'] ?? '') === 'sync_remoto'
+);
+
 require_once __DIR__ . '/auth_guard.php';
-if (empty($_SESSION['autenticado'])) { header('Location: auth.php'); exit; }
-if (($_SESSION['perfil'] ?? '') === 'self-service') { header('Location: dashboard.php'); exit; }
+if (!$is_sync_remoto) {
+    if (empty($_SESSION['autenticado'])) { header('Location: auth.php'); exit; }
+    if (($_SESSION['perfil'] ?? '') === 'self-service') { header('Location: dashboard.php'); exit; }
+}
 
 require_once __DIR__ . '/agenda/db.php';
 
@@ -40,7 +53,60 @@ $pdo->exec("
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
 ");
 
+// ── Migração: adiciona colunas SQL Server se não existirem ──────
+$colunas_existentes = [];
+try {
+    $r = $pdo->query("SHOW COLUMNS FROM portal_servidores_mgv");
+    while ($row = $r->fetch(PDO::FETCH_ASSOC)) {
+        $colunas_existentes[] = $row['Field'];
+    }
+} catch (Exception $e) { $colunas_existentes = []; }
+
+$novas_colunas = [
+    'db_type'     => "VARCHAR(20) DEFAULT 'firebird' COMMENT 'firebird|sqlserver'",
+    'sql_host'    => "VARCHAR(45) DEFAULT NULL COMMENT 'SQL Server host'",
+    'sql_port'    => "VARCHAR(10) DEFAULT '1433' COMMENT 'SQL Server porta'",
+    'sql_database'=> "VARCHAR(255) DEFAULT NULL COMMENT 'SQL Server database'",
+    'sql_user'    => "VARCHAR(50) DEFAULT NULL COMMENT 'SQL Server usuario'",
+    'sql_pass'    => "VARCHAR(50) DEFAULT NULL COMMENT 'SQL Server senha'",
+];
+foreach ($novas_colunas as $col => $def) {
+    if (!in_array($col, $colunas_existentes, true)) {
+        try {
+            $pdo->exec("ALTER TABLE portal_servidores_mgv ADD COLUMN $col $def");
+        } catch (Exception $e) { }
+    }
+}
+
+// ── Migração: colunas extras na portal_balancas ────────────────
+$colunas_balancas = [];
+try {
+    $r = $pdo->query("SHOW COLUMNS FROM portal_balancas");
+    while ($row = $r->fetch(PDO::FETCH_ASSOC)) { $colunas_balancas[] = $row['Field']; }
+} catch (Exception $e) { $colunas_balancas = []; }
+
+$novas_colunas_bal = [
+    'versao_firmware'   => "VARCHAR(50) DEFAULT ''",
+    'carga_atual'       => "INT DEFAULT 0",
+    'carga_programada'  => "INT DEFAULT 0",
+    'ultima_comunicacao'=> "VARCHAR(50) DEFAULT ''",
+    'lote_fabricacao'   => "VARCHAR(50) DEFAULT ''",
+];
+foreach ($novas_colunas_bal as $col => $def) {
+    if (!in_array($col, $colunas_balancas, true)) {
+        try {
+            $pdo->exec("ALTER TABLE portal_balancas ADD COLUMN $col $def");
+        } catch (Exception $e) { }
+    }
+}
+
 $action = $_GET['action'] ?? $_POST['action'] ?? '';
+
+// ── Ping / teste de versão ─────────────────────────────────────
+if ($action === 'ping') {
+    echo json_encode(['ok' => true, 'versao' => '2.0', 'php_versao' => phpversion(), 'mensagem' => 'Inventário de Balanças atualizado']);
+    exit;
+}
 
 // ── CRUD Servidores MGV ────────────────────────────────────────
 if ($action === 'listar_servidores') {
@@ -55,10 +121,16 @@ if ($action === 'salvar_servidor') {
     $dados = [
         'nome'        => $_POST['nome'] ?? '',
         'ip'          => $_POST['ip'] ?? '',
+        'db_type'     => $_POST['db_type'] ?? 'sqlserver',
         'fb_host'     => $_POST['fb_host'] ?: null,
         'fb_database' => $_POST['fb_database'] ?: null,
         'fb_user'     => $_POST['fb_user'] ?: 'SYSDBA',
         'fb_pass'     => $_POST['fb_pass'] ?: 'masterkey',
+        'sql_host'    => $_POST['sql_host'] ?: null,
+        'sql_port'    => $_POST['sql_port'] ?: '1433',
+        'sql_database'=> $_POST['sql_database'] ?: null,
+        'sql_user'    => $_POST['sql_user'] ?: null,
+        'sql_pass'    => $_POST['sql_pass'] ?: null,
         'sync_token'  => $sync_token ?: null,
         'observacao'  => $_POST['observacao'] ?? '',
     ];
@@ -68,10 +140,10 @@ if ($action === 'salvar_servidor') {
     }
     if ($id) {
         $dados['id'] = $id;
-        $stmt = $pdo->prepare("UPDATE portal_servidores_mgv SET nome=:nome, ip=:ip, fb_host=:fb_host, fb_database=:fb_database, fb_user=:fb_user, fb_pass=:fb_pass, sync_token=:sync_token, observacao=:observacao WHERE id=:id");
+        $stmt = $pdo->prepare("UPDATE portal_servidores_mgv SET nome=:nome, ip=:ip, db_type=:db_type, fb_host=:fb_host, fb_database=:fb_database, fb_user=:fb_user, fb_pass=:fb_pass, sql_host=:sql_host, sql_port=:sql_port, sql_database=:sql_database, sql_user=:sql_user, sql_pass=:sql_pass, sync_token=:sync_token, observacao=:observacao WHERE id=:id");
         $stmt->execute($dados);
     } else {
-        $stmt = $pdo->prepare("INSERT INTO portal_servidores_mgv (nome, ip, fb_host, fb_database, fb_user, fb_pass, sync_token, observacao) VALUES (:nome, :ip, :fb_host, :fb_database, :fb_user, :fb_pass, :sync_token, :observacao)");
+        $stmt = $pdo->prepare("INSERT INTO portal_servidores_mgv (nome, ip, db_type, fb_host, fb_database, fb_user, fb_pass, sql_host, sql_port, sql_database, sql_user, sql_pass, sync_token, observacao) VALUES (:nome, :ip, :db_type, :fb_host, :fb_database, :fb_user, :fb_pass, :sql_host, :sql_port, :sql_database, :sql_user, :sql_pass, :sync_token, :observacao)");
         $stmt->execute($dados);
         $id = $pdo->lastInsertId();
     }
@@ -104,26 +176,30 @@ if ($action === 'listar_balancas') {
 if ($action === 'salvar_balanca') {
     $id    = (int)($_POST['id'] ?? 0);
     $dados = [
-        'servidor_id'   => (int)($_POST['servidor_id'] ?? 0),
-        'identificacao' => $_POST['identificacao'] ?? '',
-        'modelo'        => $_POST['modelo'] ?? '',
-        'serie'         => $_POST['serie'] ?? '',
-        'loja'          => $_POST['loja'] ?? '',
-        'departamento'  => $_POST['departamento'] ?? '',
-        'ip'            => $_POST['ip'] ?? '',
-        'observacao'    => $_POST['observacao'] ?? '',
+        'servidor_id'      => (int)($_POST['servidor_id'] ?? 0),
+        'identificacao'    => $_POST['identificacao'] ?? '',
+        'modelo'           => $_POST['modelo'] ?? '',
+        'serie'            => $_POST['serie'] ?? '',
+        'loja'             => $_POST['loja'] ?? '',
+        'departamento'     => $_POST['departamento'] ?? '',
+        'ip'               => $_POST['ip'] ?? '',
+        'versao_firmware'  => $_POST['versao_firmware'] ?? '',
+        'carga_atual'      => (int)($_POST['carga_atual'] ?? 0),
+        'carga_programada' => (int)($_POST['carga_programada'] ?? 0),
+        'ultima_comunicacao'=> $_POST['ultima_comunicacao'] ?? '',
+        'lote_fabricacao'  => $_POST['lote_fabricacao'] ?? '',
+        'observacao'       => $_POST['observacao'] ?? '',
     ];
     if (!$dados['servidor_id'] || !$dados['identificacao']) {
         echo json_encode(['ok' => false, 'erro' => 'Servidor e identificação são obrigatórios.']);
         exit;
     }
+    $cols = 'servidor_id=:servidor_id, identificacao=:identificacao, modelo=:modelo, serie=:serie, loja=:loja, departamento=:departamento, ip=:ip, versao_firmware=:versao_firmware, carga_atual=:carga_atual, carga_programada=:carga_programada, ultima_comunicacao=:ultima_comunicacao, lote_fabricacao=:lote_fabricacao, observacao=:observacao';
     if ($id) {
         $dados['id'] = $id;
-        $stmt = $pdo->prepare("UPDATE portal_balancas SET servidor_id=:servidor_id, identificacao=:identificacao, modelo=:modelo, serie=:serie, loja=:loja, departamento=:departamento, ip=:ip, observacao=:observacao WHERE id=:id");
-        $stmt->execute($dados);
+        $pdo->prepare("UPDATE portal_balancas SET $cols WHERE id=:id")->execute($dados);
     } else {
-        $stmt = $pdo->prepare("INSERT INTO portal_balancas (servidor_id, identificacao, modelo, serie, loja, departamento, ip, observacao) VALUES (:servidor_id, :identificacao, :modelo, :serie, :loja, :departamento, :ip, :observacao)");
-        $stmt->execute($dados);
+        $pdo->prepare("INSERT INTO portal_balancas (servidor_id, identificacao, modelo, serie, loja, departamento, ip, versao_firmware, carga_atual, carga_programada, ultima_comunicacao, lote_fabricacao, observacao) VALUES (:servidor_id, :identificacao, :modelo, :serie, :loja, :departamento, :ip, :versao_firmware, :carga_atual, :carga_programada, :ultima_comunicacao, :lote_fabricacao, :observacao)")->execute($dados);
         $id = $pdo->lastInsertId();
     }
     echo json_encode(['ok' => true, 'id' => $id]);
@@ -139,7 +215,7 @@ if ($action === 'excluir_balanca') {
     exit;
 }
 
-// ── Sync MGV Firebird ──────────────────────────────────────────
+// ── Sync MGV (Firebird ou SQL Server) ─────────────────────────
 if ($action === 'sync_mgv') {
     $servidor_id = (int)($_POST['servidor_id'] ?? 0);
     if (!$servidor_id) { echo json_encode(['ok' => false, 'erro' => 'Servidor não informado.']); exit; }
@@ -149,6 +225,132 @@ if ($action === 'sync_mgv') {
     $sv = $stmt->fetch();
     if (!$sv) { echo json_encode(['ok' => false, 'erro' => 'Servidor não encontrado.']); exit; }
 
+    $db_type = $sv['db_type'] ?? 'firebird';
+
+    // ══════════════ SQL Server path ═══════════════════════════
+    if ($db_type === 'sqlserver') {
+        $sql_host = $sv['sql_host'] ?: $sv['ip'];
+        $sql_port = $sv['sql_port'] ?: '1433';
+        $sql_db   = $sv['sql_database'] ?? '';
+        $sql_user = $sv['sql_user'] ?? '';
+        $sql_pass = $sv['sql_pass'] ?? '';
+
+        if (!$sql_db) {
+            echo json_encode(['ok' => false, 'erro' => 'Banco SQL Server não configurado. Edite o servidor e informe o banco de dados.']);
+            exit;
+        }
+
+        // Tenta PDO sqlsrv → fallback ODBC
+        try {
+            $conn = new PDO("sqlsrv:Server={$sql_host},{$sql_port};Database={$sql_db}", $sql_user, $sql_pass, [
+                PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION,
+                PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC,
+            ]);
+        } catch (Exception $e) {
+            try {
+                $odbc_dsn = "DRIVER={SQL Server};SERVER={$sql_host},{$sql_port};DATABASE={$sql_db}";
+                $conn = new PDO("odbc:{$odbc_dsn}", $sql_user, $sql_pass, [
+                    PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION,
+                    PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC,
+                ]);
+            } catch (Exception $e2) {
+                echo json_encode(['ok' => false, 'erro' => 'Conexão SQL Server falhou.' . "\nPDO: " . $e->getMessage() . "\nODBC: " . $e2->getMessage()]);
+                exit;
+            }
+        }
+
+        // Verifica se é MGV6 (tbBalanca) ou genérico
+        try {
+            $r = $conn->query("SELECT COUNT(*) AS c FROM tbBalanca");
+            $r->execute();
+            $tem_tbBalanca = ($r->fetch()['c'] >= 0);
+        } catch (Exception $e) { $tem_tbBalanca = false; }
+
+        if ($tem_tbBalanca) {
+            $query = "
+                SELECT
+                    b.BAL_CODIGO AS identificacao,
+                    t.TPB_NOME AS modelo,
+                    b.BAL_NUMERO_SERIE AS serie,
+                    d.DPT_NOME AS departamento,
+                    COALESCE(NULLIF(b.BAL_ENDERECO_IP, ''), NULLIF(b.BAL_DMP_ENDERECO_IP, ''), '') AS ip,
+                    COALESCE(NULLIF(b.BAL_VERSAO, ''), NULLIF(b.BAL_DMP_VERSAO_BALANCA, ''), '') AS versao_firmware,
+                    b.BAL_NUMERO_CARGA_ATUAL AS carga_atual,
+                    b.BAL_NUMERO_CARGA_PROG AS carga_programada,
+                    b.BAL_ULTIMA_CX_GW AS ultima_comunicacao,
+                    b.BAL_LOTE_FABRICACAO AS lote_fabricacao
+                FROM tbBalanca b
+                LEFT JOIN tbTipoBalanca t ON t.TPB_CODIGO = b.TPB_CODIGO
+                LEFT JOIN tbDepartamento d ON d.DPT_CODIGO = b.DPT_CODIGO
+                WHERE b.BAL_ATIVA = 1
+                ORDER BY b.BAL_CODIGO
+            ";
+            $balancas = $conn->query($query)->fetchAll();
+            $tabela = 'tbBalanca (JOIN)';
+        } else {
+            // Fallback genérico: tenta encontrar tabela
+            $tabelas = ['BALANCAS', 'TB_BALANCAS', 'TB_BALANCA', 'EQUIPAMENTOS', 'BALANCA'];
+            $tb_encontrada = null;
+            foreach ($tabelas as $tbl) {
+                try {
+                    $conn->query("SELECT TOP 1 1 FROM {$tbl}")->execute();
+                    $tb_encontrada = $tbl;
+                    break;
+                } catch (Exception $e) { continue; }
+            }
+            if (!$tb_encontrada) {
+                echo json_encode(['ok' => false, 'erro' => 'Nenhuma tabela de balanças encontrada no SQL Server.']);
+                exit;
+            }
+            $balancas = $conn->query("SELECT * FROM {$tb_encontrada}")->fetchAll();
+            $tabela = $tb_encontrada;
+        }
+
+        $importados = 0;
+        $atualizados = 0;
+
+        foreach ($balancas as $b) {
+            $ident = trim((string)($b['identificacao'] ?? $b['BAL_CODIGO'] ?? $b['CODIGO'] ?? ''));
+            if (!$ident) continue;
+
+            $modelo           = trim((string)($b['modelo'] ?? $b['TPB_NOME'] ?? ''));
+            $serie            = trim((string)($b['serie'] ?? $b['BAL_NUMERO_SERIE'] ?? $b['SERIE'] ?? ''));
+            $loja             = trim((string)($b['loja'] ?? ''));
+            $departamento     = trim((string)($b['departamento'] ?? $b['DPT_NOME'] ?? ''));
+            $ip               = trim((string)($b['ip'] ?? $b['BAL_ENDERECO_IP'] ?? ''));
+            $versao_firmware  = trim((string)($b['versao_firmware'] ?? ''));
+            $carga_atual      = (int)($b['carga_atual'] ?? $b['BAL_NUMERO_CARGA_ATUAL'] ?? 0);
+            $carga_programada = (int)($b['carga_programada'] ?? $b['BAL_NUMERO_CARGA_PROG'] ?? 0);
+            $ultima_cx        = trim((string)($b['ultima_comunicacao'] ?? $b['BAL_ULTIMA_CX_GW'] ?? ''));
+            $lote             = trim((string)($b['lote_fabricacao'] ?? $b['BAL_LOTE_FABRICACAO'] ?? ''));
+
+            $check = $pdo->prepare("SELECT id FROM portal_balancas WHERE servidor_id=? AND identificacao=?");
+            $check->execute([$servidor_id, $ident]);
+            $existing = $check->fetch();
+
+            if ($existing) {
+                $pdo->prepare("UPDATE portal_balancas SET modelo=?, serie=?, loja=?, departamento=?, ip=?, versao_firmware=?, carga_atual=?, carga_programada=?, ultima_comunicacao=?, lote_fabricacao=? WHERE id=?")
+                    ->execute([$modelo, $serie, $loja, $departamento, $ip, $versao_firmware, $carga_atual, $carga_programada, $ultima_cx, $lote, $existing['id']]);
+                $atualizados++;
+            } else {
+                $pdo->prepare("INSERT INTO portal_balancas (servidor_id, identificacao, modelo, serie, loja, departamento, ip, versao_firmware, carga_atual, carga_programada, ultima_comunicacao, lote_fabricacao) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)")
+                    ->execute([$servidor_id, $ident, $modelo, $serie, $loja, $departamento, $ip, $versao_firmware, $carga_atual, $carga_programada, $ultima_cx, $lote]);
+                $importados++;
+            }
+        }
+
+        echo json_encode([
+            'ok'         => true,
+            'tabela'     => $tabela,
+            'total'      => count($balancas),
+            'importados' => $importados,
+            'atualizados' => $atualizados,
+            'db_type'    => 'sqlserver',
+        ]);
+        exit;
+    }
+
+    // ══════════════ Firebird path (legacy) ═════════════════════
     $fb_host     = $sv['fb_host'] ?: $sv['ip'];
     $fb_db       = $sv['fb_database'] ?? '';
     $fb_user     = $sv['fb_user'] ?: 'SYSDBA';
@@ -167,7 +369,6 @@ if ($action === 'sync_mgv') {
             PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC,
         ]);
     } catch (Exception $e) {
-        // Fallback: tenta ODBC
         try {
             $odbc_dsn = "DRIVER={Firebird/InterBase(r) driver};UID={$fb_user};PWD={$fb_pass};DBNAME={$fb_host}/3050:{$fb_db}";
             $fb = new PDO("odbc:{$odbc_dsn}", $fb_user, $fb_pass, [
@@ -175,14 +376,13 @@ if ($action === 'sync_mgv') {
                 PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC,
             ]);
         } catch (Exception $e2) {
-            echo json_encode(['ok' => false, 'erro' => 'Conexão Firebird falhou. Verifique se o driver PDO_Firebird ou ODBC Firebird está instalado.' . "\nFirebird: " . $e->getMessage() . "\nODBC: " . $e2->getMessage()]);
+            echo json_encode(['ok' => false, 'erro' => 'Conexão Firebird falhou.' . "\nFirebird: " . $e->getMessage() . "\nODBC: " . $e2->getMessage()]);
             exit;
         }
     }
 
     // ── Tenta consultar balanças ─────────────────────────────────
-    // Tabelas comuns do MGV: BALANCAS, TB_BALANCAS, EQUIPAMENTOS
-    $tabelas_possiveis = ['BALANCAS', 'TB_BALANCAS', 'EQUIPAMENTOS', 'BALANCA'];
+    $tabelas_possiveis = ['BALANCAS', 'TB_BALANCAS', 'TB_BALANCA', 'EQUIPAMENTOS', 'BALANCA', 'TB_BALANCA'];
     $tabela_encontrada = null;
 
     foreach ($tabelas_possiveis as $tbl) {
@@ -201,8 +401,7 @@ if ($action === 'sync_mgv') {
         exit;
     }
 
-    // ── Mapeia colunas comuns do MGV ─────────────────────────────
-    // Tenta detectar as colunas disponíveis
+    // ── Mapeia colunas ──────────────────────────────────────────
     $col_info = [];
     try {
         $r = $fb->query("SELECT FIRST 1 * FROM {$tabela_encontrada}");
@@ -214,18 +413,23 @@ if ($action === 'sync_mgv') {
     $col = function($possiveis) use ($col_info) {
         foreach ((array)$possiveis as $p) {
             if (in_array(strtoupper($p), array_map('strtoupper', $col_info), true)) return $p;
-            // Tenta com underscore
             $p_ = str_replace(' ', '_', $p);
             if (in_array(strtoupper($p_), array_map('strtoupper', $col_info), true)) return $p_;
         }
         return null;
     };
 
-    $col_id          = $col(['BAL_NUMERO', 'COD_BALANCA', 'NUMERO', 'ID_BALANCA', 'CODIGO', 'ID']);
-    $col_modelo      = $col(['BAL_MODELO', 'MODELO', 'DS_MODELO', 'DESCRICAO_MODELO']);
-    $col_serie       = $col(['BAL_SERIE', 'NUM_SERIE', 'SERIE', 'NR_SERIE', 'NUMERO_SERIE']);
-    $col_loja        = $col(['BAL_LOJA', 'COD_LOJA', 'LOJA', 'CD_LOJA']);
+    $col_id           = $col(['BAL_CODIGO', 'BAL_NUMERO', 'COD_BALANCA', 'NUMERO', 'ID_BALANCA', 'CODIGO', 'ID']);
+    $col_modelo       = $col(['BAL_MODELO', 'MODELO', 'DS_MODELO', 'DESCRICAO_MODELO']);
+    $col_serie        = $col(['BAL_NUMERO_SERIE', 'BAL_SERIE', 'NUM_SERIE', 'SERIE', 'NR_SERIE']);
+    $col_loja         = $col(['BAL_LOJA', 'COD_LOJA', 'LOJA', 'CD_LOJA']);
     $col_departamento = $col(['BAL_DEPARTAMENTO', 'COD_DEPARTAMENTO', 'DEPARTAMENTO', 'SETOR', 'CD_DEPARTAMENTO']);
+    $col_ip           = $col(['BAL_ENDERECO_IP', 'BAL_DMP_ENDERECO_IP', 'ENDERECO_IP', 'IP']);
+    $col_versao       = $col(['BAL_VERSAO', 'BAL_DMP_VERSAO_BALANCA', 'VERSAO', 'VERSAO_FIRMWARE']);
+    $col_carga_atual  = $col(['BAL_NUMERO_CARGA_ATUAL', 'BAL_DMP_NUM_CARGA', 'CARGA_ATUAL', 'NUMERO_CARGA']);
+    $col_carga_prog   = $col(['BAL_NUMERO_CARGA_PROG', 'CARGA_PROGRAMADA']);
+    $col_ultima_cx    = $col(['BAL_ULTIMA_CX_GW', 'ULTIMA_COMUNICACAO']);
+    $col_lote         = $col(['BAL_LOTE_FABRICACAO', 'LOTE_FABRICACAO', 'LOTE']);
 
     if (!$col_id) {
         echo json_encode(['ok' => false, 'erro' => "Tabela '{$tabela_encontrada}' encontrada, mas não foi possível identificar a coluna de identificação. Colunas disponíveis: " . implode(', ', $col_info)]);
@@ -243,23 +447,28 @@ if ($action === 'sync_mgv') {
         $ident = trim((string)($b[$col_id] ?? ''));
         if (!$ident) continue;
 
-        $modelo      = $col_modelo      ? trim((string)($b[$col_modelo] ?? '')) : '';
-        $serie       = $col_serie       ? trim((string)($b[$col_serie] ?? '')) : '';
-        $loja        = $col_loja        ? trim((string)($b[$col_loja] ?? '')) : '';
-        $departamento = $col_departamento ? trim((string)($b[$col_departamento] ?? '')) : '';
+        $modelo           = $col_modelo       ? trim((string)($b[$col_modelo] ?? '')) : '';
+        $serie            = $col_serie        ? trim((string)($b[$col_serie] ?? '')) : '';
+        $loja             = $col_loja         ? trim((string)($b[$col_loja] ?? '')) : '';
+        $departamento     = $col_departamento ? trim((string)($b[$col_departamento] ?? '')) : '';
+        $ip               = $col_ip           ? trim((string)($b[$col_ip] ?? '')) : '';
+        $versao_firmware  = $col_versao       ? trim((string)($b[$col_versao] ?? '')) : '';
+        $carga_atual      = $col_carga_atual  ? (int)($b[$col_carga_atual] ?? 0) : 0;
+        $carga_programada = $col_carga_prog   ? (int)($b[$col_carga_prog] ?? 0) : 0;
+        $ultima_cx        = $col_ultima_cx    ? trim((string)($b[$col_ultima_cx] ?? '')) : '';
+        $lote             = $col_lote         ? trim((string)($b[$col_lote] ?? '')) : '';
 
-        // Upsert (identificação única por servidor)
         $check = $pdo->prepare("SELECT id FROM portal_balancas WHERE servidor_id=? AND identificacao=?");
         $check->execute([$servidor_id, $ident]);
         $existing = $check->fetch();
 
         if ($existing) {
-            $upd = $pdo->prepare("UPDATE portal_balancas SET modelo=?, serie=?, loja=?, departamento=? WHERE id=?");
-            $upd->execute([$modelo, $serie, $loja, $departamento, $existing['id']]);
+            $pdo->prepare("UPDATE portal_balancas SET modelo=?, serie=?, loja=?, departamento=?, ip=?, versao_firmware=?, carga_atual=?, carga_programada=?, ultima_comunicacao=?, lote_fabricacao=? WHERE id=?")
+                ->execute([$modelo, $serie, $loja, $departamento, $ip, $versao_firmware, $carga_atual, $carga_programada, $ultima_cx, $lote, $existing['id']]);
             $atualizados++;
         } else {
-            $ins = $pdo->prepare("INSERT INTO portal_balancas (servidor_id, identificacao, modelo, serie, loja, departamento) VALUES (?, ?, ?, ?, ?, ?)");
-            $ins->execute([$servidor_id, $ident, $modelo, $serie, $loja, $departamento]);
+            $pdo->prepare("INSERT INTO portal_balancas (servidor_id, identificacao, modelo, serie, loja, departamento, ip, versao_firmware, carga_atual, carga_programada, ultima_comunicacao, lote_fabricacao) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)")
+                ->execute([$servidor_id, $ident, $modelo, $serie, $loja, $departamento, $ip, $versao_firmware, $carga_atual, $carga_programada, $ultima_cx, $lote]);
             $importados++;
         }
     }
@@ -267,7 +476,7 @@ if ($action === 'sync_mgv') {
     echo json_encode([
         'ok'         => true,
         'tabela'     => $tabela_encontrada,
-        'colunas'    => compact('col_id', 'col_modelo', 'col_serie', 'col_loja', 'col_departamento'),
+        'colunas'    => compact('col_id', 'col_modelo', 'col_serie', 'col_loja', 'col_departamento', 'col_ip', 'col_versao', 'col_carga_atual', 'col_carga_prog', 'col_ultima_cx', 'col_lote'),
         'total_fb'   => count($balancas_firebird),
         'importados' => $importados,
         'atualizados' => $atualizados,
@@ -280,9 +489,14 @@ if ($action === 'sync_mgv') {
 // Firebird dele, e POSTA os dados brutos aqui via HTTP/JSON.
 // Autenticação: servidor_nome + sync_token (cadastrado no CRUD).
 if ($action === 'sync_remoto') {
-    $input = json_decode(file_get_contents('php://input'), true);
+    $input = $HTTP_RAW_JSON;
     if (!$input || empty($input['servidor_nome']) || !isset($input['balancas'])) {
-        echo json_encode(['ok' => false, 'erro' => 'JSON inválido. Envie {servidor_nome, sync_token?, balancas: [...]}.']);
+        echo json_encode([
+            'ok' => false,
+            'erro' => 'JSON inválido. Envie {servidor_nome, sync_token?, balancas: [...]}.',
+            'recebido' => $input ?: 'null',
+            'input_bruto' => substr($HTTP_RAW_INPUT, 0, 500),
+        ]);
         exit;
     }
 
@@ -292,7 +506,14 @@ if ($action === 'sync_remoto') {
     $sv = $stmt->fetch();
 
     if (!$sv) {
-        echo json_encode(['ok' => false, 'erro' => 'Servidor não encontrado. Cadastre-o primeiro no portal.']);
+        // Debug: retorna os servidores cadastrados para ajudar
+        $todos = $pdo->query("SELECT id, nome, ip FROM portal_servidores_mgv")->fetchAll();
+        echo json_encode([
+            'ok' => false,
+            'erro' => 'Servidor não encontrado.',
+            'nome_procurado' => $input['servidor_nome'],
+            'servidores_cadastrados' => $todos ?: [],
+        ]);
         exit;
     }
 
@@ -311,22 +532,28 @@ if ($action === 'sync_remoto') {
         $ident = trim((string)($b['identificacao'] ?? $b['codigo'] ?? $b['numero'] ?? ''));
         if (!$ident) continue;
 
-        $modelo      = trim((string)($b['modelo'] ?? ''));
-        $serie       = trim((string)($b['serie'] ?? $b['serial'] ?? ''));
-        $loja        = trim((string)($b['loja'] ?? ''));
-        $departamento = trim((string)($b['departamento'] ?? $b['setor'] ?? ''));
+        $modelo           = trim((string)($b['modelo'] ?? ''));
+        $serie            = trim((string)($b['serie'] ?? $b['serial'] ?? ''));
+        $loja             = trim((string)($b['loja'] ?? ''));
+        $departamento     = trim((string)($b['departamento'] ?? $b['setor'] ?? ''));
+        $ip               = trim((string)($b['ip'] ?? ''));
+        $versao_firmware  = trim((string)($b['versao_firmware'] ?? $b['versao'] ?? ''));
+        $carga_atual      = (int)($b['carga_atual'] ?? $b['carga'] ?? 0);
+        $carga_programada = (int)($b['carga_programada'] ?? 0);
+        $ultima_cx        = trim((string)($b['ultima_comunicacao'] ?? $b['ultima_cx_gw'] ?? ''));
+        $lote             = trim((string)($b['lote_fabricacao'] ?? $b['lote'] ?? ''));
 
         $check = $pdo->prepare("SELECT id FROM portal_balancas WHERE servidor_id=? AND identificacao=?");
         $check->execute([$servidor_id, $ident]);
         $existing = $check->fetch();
 
         if ($existing) {
-            $pdo->prepare("UPDATE portal_balancas SET modelo=?, serie=?, loja=?, departamento=? WHERE id=?")
-                ->execute([$modelo, $serie, $loja, $departamento, $existing['id']]);
+            $pdo->prepare("UPDATE portal_balancas SET modelo=?, serie=?, loja=?, departamento=?, ip=?, versao_firmware=?, carga_atual=?, carga_programada=?, ultima_comunicacao=?, lote_fabricacao=? WHERE id=?")
+                ->execute([$modelo, $serie, $loja, $departamento, $ip, $versao_firmware, $carga_atual, $carga_programada, $ultima_cx, $lote, $existing['id']]);
             $atualizados++;
         } else {
-            $pdo->prepare("INSERT INTO portal_balancas (servidor_id, identificacao, modelo, serie, loja, departamento) VALUES (?, ?, ?, ?, ?, ?)")
-                ->execute([$servidor_id, $ident, $modelo, $serie, $loja, $departamento]);
+            $pdo->prepare("INSERT INTO portal_balancas (servidor_id, identificacao, modelo, serie, loja, departamento, ip, versao_firmware, carga_atual, carga_programada, ultima_comunicacao, lote_fabricacao) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)")
+                ->execute([$servidor_id, $ident, $modelo, $serie, $loja, $departamento, $ip, $versao_firmware, $carga_atual, $carga_programada, $ultima_cx, $lote]);
             $importados++;
         }
     }
@@ -343,6 +570,13 @@ if ($action === 'sync_remoto') {
 
 // ── Página HTML ─────────────────────────────────────────────────
 header('Content-Type: text/html; charset=utf-8');
+
+// Conta totais para os stats
+$stmt_sv = $pdo->query("SELECT s.id, s.nome, s.ip, (SELECT COUNT(*) FROM portal_balancas WHERE servidor_id=s.id) AS total_balancas FROM portal_servidores_mgv s ORDER BY s.nome");
+$servidores = $stmt_sv->fetchAll();
+$total_servidores = count($servidores);
+$total_balancas   = 0;
+foreach ($servidores as $sv) $total_balancas += (int)$sv['total_balancas'];
 ?>
 <!DOCTYPE html>
 <html lang="pt-BR">
@@ -354,17 +588,15 @@ header('Content-Type: text/html; charset=utf-8');
   <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.css" rel="stylesheet"/>
   <style>
     :root { --primary:#1a237e; --accent:#558b2f; }
-    * { box-sizing:border-box; }
-    body { background:#f0f4f9; font-family:'Segoe UI',sans-serif; min-height:100vh; }
+    body  { background:#f0f4f9; font-family:'Segoe UI',sans-serif; min-height:100vh; }
 
     .topbar {
       background:linear-gradient(135deg,var(--primary),#2e7d32);
       color:white; padding:.75rem 1.5rem;
-      display:flex; align-items:center; gap:1rem;
+      display:flex; align-items:center; justify-content:space-between;
       box-shadow:0 2px 8px rgba(0,0,0,.25); position:sticky; top:0; z-index:100;
     }
     .topbar .brand { font-weight:700; font-size:1rem; display:flex; align-items:center; gap:.5rem; }
-    .topbar .spacer { flex:1; }
     .topbar a { color:white; text-decoration:none; font-size:.82rem;
                 background:rgba(255,255,255,.15); border-radius:6px; padding:.3rem .75rem;
                 display:flex; align-items:center; gap:.35rem; }
@@ -374,7 +606,7 @@ header('Content-Type: text/html; charset=utf-8');
             padding:2rem 1rem 4.5rem; text-align:center; }
     .hero h1 { font-size:1.5rem; font-weight:700; margin:0; }
 
-    .wrap { max-width:1100px; margin:-3rem auto 3rem; padding:0 1rem; }
+    .wrap { max-width:1200px; margin:-3rem auto 3rem; padding:0 1rem; }
 
     .stats { display:flex; gap:.75rem; flex-wrap:wrap; margin-bottom:1rem; }
     .stat-chip {
@@ -384,6 +616,7 @@ header('Content-Type: text/html; charset=utf-8');
       box-shadow:0 1px 4px rgba(0,0,0,.05);
     }
 
+    /* Accordion servidor */
     .servidor-section { margin-bottom:.75rem; }
     .servidor-header {
       background:linear-gradient(135deg,var(--primary),#2e7d32);
@@ -415,16 +648,51 @@ header('Content-Type: text/html; charset=utf-8');
     .sv-dot.online  { background:#22c55e; box-shadow:0 0 6px #22c55e; }
     .sv-dot.offline { background:#ef4444; }
     .sv-dot.checking { background:#f59e0b; animation:pulse-yellow 1s infinite; }
+
+    @keyframes pulse-green  { 0%,100%{box-shadow:0 0 4px #22c55e} 50%{box-shadow:0 0 10px #22c55e} }
     @keyframes pulse-yellow { 0%,100%{opacity:1} 50%{opacity:.4} }
 
-    .table-balancas { margin:0; font-size:.82rem; }
-    .table-balancas th { background:#f9fafb; font-size:.72rem; text-transform:uppercase;
-                         color:#6b7280; font-weight:700; border-top:none; padding:.5rem .75rem; }
-    .table-balancas td { padding:.5rem .75rem; vertical-align:middle; }
+    /* Card grid de balanças */
+    .bl-grid { padding:.75rem; }
+    .bl-card {
+      border:1px solid #e5e7eb; border-radius:10px;
+      padding:.85rem; cursor:pointer; transition:all .15s;
+      background:#fafafa; position:relative; height:100%;
+    }
+    .bl-card:hover { border-color:var(--accent); background:#f0fff0; transform:translateY(-2px); box-shadow:0 4px 12px rgba(0,0,0,.1); }
+
+    .bl-status {
+      position:absolute; top:.6rem; right:.6rem;
+      width:10px; height:10px; border-radius:50%;
+    }
+    .bl-status.online  { background:#16a34a; box-shadow:0 0 6px #16a34a; animation:pulse-green 2s infinite; }
+    .bl-status.offline { background:#dc2626; }
+    .bl-status.checking { background:#f59e0b; animation:pulse-yellow 1s infinite; }
+
+    .bl-icon { font-size:1.8rem; color:var(--accent); margin-bottom:.4rem; }
+    .bl-nome { font-weight:700; font-size:.88rem; color:#111; margin-bottom:.15rem;
+               white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+    .bl-info { font-size:.72rem; color:#6b7280; }
+    .bl-info span { display:block; }
 
     .badge-online  { background:#dcfce7; color:#16a34a; border:1px solid #bbf7d0; }
     .badge-offline { background:#fee2e2; color:#dc2626; border:1px solid #fecaca; }
     .badge-check   { background:#fef3c7; color:#d97706; border:1px solid #fde68a; }
+
+    .modal-cab {
+      background:linear-gradient(135deg,var(--primary),#2e7d32); color:white;
+    }
+    .modal-cab .btn-close { filter:invert(1); }
+
+    .spec-grid { display:grid; grid-template-columns:1fr 1fr; gap:.5rem; }
+    .spec-item { background:#f9fafb; border-radius:8px; padding:.6rem .85rem; }
+    .spec-label { font-size:.7rem; font-weight:700; color:#9ca3af; text-transform:uppercase; }
+    .spec-val   { font-size:.88rem; font-weight:600; color:#111; margin-top:.1rem; }
+
+    .status-badge {
+      display:inline-flex; align-items:center; gap:.4rem;
+      padding:.35rem .9rem; border-radius:20px; font-size:.8rem; font-weight:700;
+    }
 
     .servidor-actions { display:flex; gap:.35rem; }
     .servidor-actions button { background:rgba(255,255,255,.15); border:none; color:white;
@@ -443,47 +711,39 @@ header('Content-Type: text/html; charset=utf-8');
                             font-size:.82rem; padding:.45rem 1rem; color:#374151; cursor:pointer; }
     .toolbar .btn-outline:hover { background:#f9fafb; }
 
-    .modal-cab {
-      background:linear-gradient(135deg,var(--primary),#2e7d32); color:white;
-    }
-    .modal-cab .btn-close { filter:invert(1); }
-
-    /* Empty state */
     .empty-state { text-align:center; padding:3rem 1rem; color:#9ca3af; }
     .empty-state i { font-size:3rem; margin-bottom:1rem; }
+    .toast-container { position:fixed; bottom:1.5rem; right:1.5rem; z-index:9999; }
 
     @media (max-width:640px) {
+      .topbar { flex-wrap:wrap; gap:.4rem; }
+      .topbar .brand { font-size:.9rem; }
+      .hero { padding:1.5rem 1rem 3.5rem; }
       .hero h1 { font-size:1.2rem; }
       .wrap { margin-top:-2.5rem; }
-      .table-balancas { font-size:.75rem; }
-      .table-balancas td, .table-balancas th { padding:.35rem .5rem; }
-      .servidor-actions { flex-wrap:wrap; }
+      .bl-grid { padding:.5rem; }
     }
-
-    /* Toast */
-    .toast-container { position:fixed; bottom:1.5rem; right:1.5rem; z-index:9999; }
   </style>
 </head>
 <body>
 
 <div class="topbar">
   <div class="brand"><i class="bi bi-speedometer2 me-1"></i> Inventário de Balanças</div>
-  <span class="spacer"></span>
   <a href="inventario.php"><i class="bi bi-arrow-left me-1"></i>Categorias</a>
   <a href="dashboard.php"><i class="bi bi-grid me-1"></i>Início</a>
 </div>
 
 <div class="hero">
   <h1><i class="bi bi-speedometer2 me-2"></i>Inventário de Balanças</h1>
-  <p style="opacity:.8">Servidores MGV 6 e balanças por loja/departamento</p>
+  <p style="opacity:.8">Servidores MGV e balanças por servidor — status, firmware e carga</p>
 </div>
 
 <div class="wrap">
 
   <!-- Stats -->
   <div class="stats">
-    <div class="stat-chip"><i class="bi bi-server text-secondary"></i> Servidores: <strong id="cnt-servidores">—</strong></div>
-    <div class="stat-chip"><i class="bi bi-speedometer2 text-secondary"></i> Balanças: <strong id="cnt-balancas">—</strong></div>
+    <div class="stat-chip"><i class="bi bi-server text-secondary"></i> Servidores: <strong id="cnt-servidores"><?= $total_servidores ?></strong></div>
+    <div class="stat-chip"><i class="bi bi-speedometer2 text-secondary"></i> Balanças: <strong id="cnt-balancas"><?= $total_balancas ?></strong></div>
     <div class="stat-chip"><i class="bi bi-circle-fill text-success" style="font-size:.6rem"></i> Online: <strong id="cnt-online">—</strong></div>
     <div class="stat-chip"><i class="bi bi-circle-fill text-danger" style="font-size:.6rem"></i> Offline: <strong id="cnt-offline">—</strong></div>
   </div>
@@ -496,12 +756,12 @@ header('Content-Type: text/html; charset=utf-8');
     <button class="btn btn-primary" onclick="modalBalanca()">
       <i class="bi bi-plus-lg me-1"></i>Balança
     </button>
-    <button class="btn btn-outline" onclick="location.reload()">
-      <i class="bi bi-arrow-clockwise me-1"></i>Recarregar
+    <button class="btn btn-outline" onclick="verificarTodasBalancas()">
+      <i class="bi bi-wifi me-1"></i>Verificar Status
     </button>
   </div>
 
-  <!-- Servidores list -->
+  <!-- Servidores container (pre-renderizado do PHP) -->
   <div id="servidores-container"></div>
 
 </div>
@@ -530,24 +790,59 @@ header('Content-Type: text/html; charset=utf-8');
         </div>
         <hr/>
         <p class="small fw-bold text-secondary mb-2">
-          <i class="bi bi-database-gear me-1"></i>Conexão Firebird (sync automático)
+          <i class="bi bi-database-gear me-1"></i>Conexão com banco MGV (sync automático)
         </p>
         <div class="mb-2">
-          <label class="form-label small fw-bold">Host Firebird <small class="text-muted">(opcional — padrão = IP)</small></label>
-          <input type="text" id="sv-fb-host" class="form-control" placeholder="Deixe vazio para usar o IP acima"/>
+          <label class="form-label small fw-bold">Tipo de banco</label>
+          <select id="sv-db-type" class="form-select" onchange="toggleDbType()">
+            <option value="sqlserver">SQL Server (MGV6)</option>
+            <option value="firebird">Firebird (MGV legado)</option>
+          </select>
         </div>
-        <div class="mb-2">
-          <label class="form-label small fw-bold">Caminho do .FDB</label>
-          <input type="text" id="sv-fb-db" class="form-control" placeholder="Ex: C:\MGV6\DADOS\MGV6.FDB"/>
-        </div>
-        <div class="row g-2 mb-2">
-          <div class="col">
-            <label class="form-label small fw-bold">Usuário</label>
-            <input type="text" id="sv-fb-user" class="form-control" value="SYSDBA"/>
+        <div id="fb-fields">
+          <div class="mb-2">
+            <label class="form-label small fw-bold">Host Firebird <small class="text-muted">(opcional — padrão = IP)</small></label>
+            <input type="text" id="sv-fb-host" class="form-control" placeholder="Deixe vazio para usar o IP acima"/>
           </div>
-          <div class="col">
-            <label class="form-label small fw-bold">Senha</label>
-            <input type="password" id="sv-fb-pass" class="form-control" value="masterkey"/>
+          <div class="mb-2">
+            <label class="form-label small fw-bold">Caminho do .FDB</label>
+            <input type="text" id="sv-fb-db" class="form-control" placeholder="Ex: C:\MGV6\DADOS\MGV6.FDB"/>
+          </div>
+          <div class="row g-2 mb-2">
+            <div class="col">
+              <label class="form-label small fw-bold">Usuário</label>
+              <input type="text" id="sv-fb-user" class="form-control" value="SYSDBA"/>
+            </div>
+            <div class="col">
+              <label class="form-label small fw-bold">Senha</label>
+              <input type="password" id="sv-fb-pass" class="form-control" value="masterkey"/>
+            </div>
+          </div>
+        </div>
+        <div id="sql-fields" style="display:none">
+          <div class="mb-2">
+            <label class="form-label small fw-bold">Host SQL Server <small class="text-muted">(opcional — padrão = IP)</small></label>
+            <input type="text" id="sv-sql-host" class="form-control" placeholder="Deixe vazio para usar o IP acima"/>
+          </div>
+          <div class="row g-2 mb-2">
+            <div class="col-4">
+              <label class="form-label small fw-bold">Porta</label>
+              <input type="text" id="sv-sql-port" class="form-control" value="1433"/>
+            </div>
+            <div class="col-8">
+              <label class="form-label small fw-bold">Banco de dados</label>
+              <input type="text" id="sv-sql-db" class="form-control" placeholder="Ex: MGV6_0001"/>
+            </div>
+          </div>
+          <div class="row g-2 mb-2">
+            <div class="col">
+              <label class="form-label small fw-bold">Usuário</label>
+              <input type="text" id="sv-sql-user" class="form-control" placeholder="Deixe vazio para auth integrada Windows"/>
+            </div>
+            <div class="col">
+              <label class="form-label small fw-bold">Senha</label>
+              <input type="password" id="sv-sql-pass" class="form-control" placeholder="Deixe vazio para auth integrada Windows"/>
+            </div>
           </div>
         </div>
         <hr/>
@@ -562,7 +857,7 @@ header('Content-Type: text/html; charset=utf-8');
               <i class="bi bi-arrow-repeat"></i>
             </button>
           </div>
-          <div class="form-text small">Deixe vazio para sync sem autenticação (apenas rede interna). Defina um token se quiser que só servidores com o token correto consigam enviar dados.</div>
+          <div class="form-text small">Deixe vazio para sync sem autenticação (apenas rede interna).</div>
         </div>
       </div>
       <div class="modal-footer">
@@ -573,7 +868,7 @@ header('Content-Type: text/html; charset=utf-8');
   </div>
 </div>
 
-<!-- Modal Balança -->
+<!-- Modal Balança (CRUD) -->
 <div class="modal fade" id="modalBalanca" tabindex="-1">
   <div class="modal-dialog modal-dialog-centered">
     <div class="modal-content">
@@ -595,7 +890,7 @@ header('Content-Type: text/html; charset=utf-8');
         <div class="row g-2 mb-2">
           <div class="col">
             <label class="form-label small fw-bold">Modelo</label>
-            <input type="text" id="bl-modelo" class="form-control" placeholder="Ex: Toledo 9201"/>
+            <input type="text" id="bl-modelo" class="form-control" placeholder="Ex: Toledo Prix 5"/>
           </div>
           <div class="col">
             <label class="form-label small fw-bold">Nº Série</label>
@@ -614,7 +909,27 @@ header('Content-Type: text/html; charset=utf-8');
         </div>
         <div class="mb-2">
           <label class="form-label small fw-bold">IP <small class="text-muted">(opcional)</small></label>
-          <input type="text" id="bl-ip" class="form-control" placeholder="IP da balança se tiver rede"/>
+          <input type="text" id="bl-ip" class="form-control" placeholder="IP da balança"/>
+        </div>
+        <div class="row g-2 mb-2">
+          <div class="col">
+            <label class="form-label small fw-bold">Versão Firmware</label>
+            <input type="text" id="bl-versao" class="form-control" placeholder="Ex: 2.1.0"/>
+          </div>
+          <div class="col">
+            <label class="form-label small fw-bold">Carga Atual</label>
+            <input type="number" id="bl-carga-atual" class="form-control" placeholder="0"/>
+          </div>
+        </div>
+        <div class="row g-2 mb-2">
+          <div class="col">
+            <label class="form-label small fw-bold">Carga Programada</label>
+            <input type="number" id="bl-carga-prog" class="form-control" placeholder="0"/>
+          </div>
+          <div class="col">
+            <label class="form-label small fw-bold">Lote Fabricação</label>
+            <input type="text" id="bl-lote" class="form-control" placeholder="Lote"/>
+          </div>
         </div>
         <div class="mb-2">
           <label class="form-label small fw-bold">Observação</label>
@@ -624,6 +939,76 @@ header('Content-Type: text/html; charset=utf-8');
       <div class="modal-footer">
         <button class="btn btn-sm btn-secondary" data-bs-dismiss="modal">Cancelar</button>
         <button class="btn btn-sm btn-primary" onclick="salvarBalanca()"><i class="bi bi-check-lg me-1"></i>Salvar</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Modal Detalhes Balança -->
+<div class="modal fade" id="modalDetalhes" tabindex="-1">
+  <div class="modal-dialog modal-lg modal-dialog-centered">
+    <div class="modal-content">
+      <div class="modal-header modal-cab">
+        <div>
+          <h5 class="modal-title mb-0" id="det-nome">Balança</h5>
+          <small id="det-servidor" style="opacity:.8"></small>
+        </div>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <div class="d-flex align-items-center gap-2 mb-3">
+          <span class="status-badge" id="det-status-badge">
+            <i class="bi bi-circle-fill"></i> Verificando...
+          </span>
+        </div>
+        <div class="spec-grid" id="det-specs">
+          <div class="spec-item">
+            <div class="spec-label">Identificação</div>
+            <div class="spec-val" id="det-identificacao">—</div>
+          </div>
+          <div class="spec-item">
+            <div class="spec-label">Modelo</div>
+            <div class="spec-val" id="det-modelo">—</div>
+          </div>
+          <div class="spec-item">
+            <div class="spec-label">Nº Série</div>
+            <div class="spec-val" id="det-serie">—</div>
+          </div>
+          <div class="spec-item">
+            <div class="spec-label">IP</div>
+            <div class="spec-val" id="det-ip">—</div>
+          </div>
+          <div class="spec-item">
+            <div class="spec-label">Loja</div>
+            <div class="spec-val" id="det-loja">—</div>
+          </div>
+          <div class="spec-item">
+            <div class="spec-label">Departamento</div>
+            <div class="spec-val" id="det-departamento">—</div>
+          </div>
+          <div class="spec-item">
+            <div class="spec-label">Versão Firmware</div>
+            <div class="spec-val" id="det-firmware">—</div>
+          </div>
+          <div class="spec-item">
+            <div class="spec-label">Carga Atual</div>
+            <div class="spec-val" id="det-carga-atual">—</div>
+          </div>
+          <div class="spec-item">
+            <div class="spec-label">Carga Programada</div>
+            <div class="spec-val" id="det-carga-prog">—</div>
+          </div>
+          <div class="spec-item">
+            <div class="spec-label">Lote Fabricação</div>
+            <div class="spec-val" id="det-lote">—</div>
+          </div>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-sm btn-outline-secondary" data-bs-dismiss="modal">Fechar</button>
+        <button class="btn btn-sm btn-primary" id="btn-ping-balanca" onclick="pingBalancaModal()">
+          <i class="bi bi-wifi me-1"></i>Verificar Status
+        </button>
       </div>
     </div>
   </div>
@@ -679,10 +1064,10 @@ function carregarServidores() {
               <small style="font-weight:400;opacity:.7">${escHtml(sv.ip)}</small>
             </span>
             <span class="d-flex align-items-center gap-2">
-              <button class="btn-sync" onclick="event.stopPropagation();syncMGV(${sv.id})" title="Sincronizar com Firebird do MGV">
+              <button class="btn-sync" onclick="event.stopPropagation();syncMGV(${sv.id})" title="Sincronizar com banco MGV">
                 <i class="bi bi-arrow-repeat"></i> Sync
               </button>
-              <button class="btn-sync" onclick="event.stopPropagation();modalBalanca(${sv.id})" title="Adicionar balança neste servidor">
+              <button class="btn-sync" onclick="event.stopPropagation();modalBalanca(${sv.id})" title="Adicionar balança">
                 <i class="bi bi-plus-lg"></i>
               </button>
               <button onclick="event.stopPropagation();modalServidor(${sv.id})" title="Editar servidor" style="background:rgba(255,255,255,.15);border:none;color:white;width:28px;height:28px;border-radius:6px;font-size:.75rem;">
@@ -696,7 +1081,7 @@ function carregarServidores() {
             </span>
           </div>
           <div class="servidor-body">
-            <div class="p-2">
+            <div class="bl-grid">
               <div id="bl-list-${sv.id}">
                 <div class="text-center py-3 text-muted small"><i class="bi bi-arrow-repeat me-1"></i>Carregando balanças...</div>
               </div>
@@ -707,7 +1092,6 @@ function carregarServidores() {
 
       document.getElementById('cnt-balancas').textContent = totalBalancas;
 
-      // Carrega balanças e verifica status de cada servidor
       lista.forEach(sv => {
         carregarBalancas(sv.id);
         pingServidor(sv.id, sv.ip);
@@ -723,7 +1107,6 @@ function pingServidor(id, ip) {
   const dot = document.getElementById('svdot-' + id);
   const st  = document.getElementById('svstatus-' + id);
   if (!dot || !st) return;
-
   fetch('ping.php?ip=' + encodeURIComponent(ip))
     .then(r => r.json())
     .then(d => {
@@ -741,17 +1124,16 @@ function pingServidor(id, ip) {
 }
 
 function atualizarStats() {
-  const dots = document.querySelectorAll('.sv-dot.online, .sv-dot.offline');
-  let online = 0, offline = 0;
-  dots.forEach(d => {
-    if (d.classList.contains('online')) online++;
-    else if (d.classList.contains('offline')) offline++;
-  });
+  const online = document.querySelectorAll('.bl-status.online').length;
+  const offline = document.querySelectorAll('.bl-status.offline').length;
   document.getElementById('cnt-online').textContent  = online;
   document.getElementById('cnt-offline').textContent = offline;
 }
 
-// ── Balanças ────────────────────────────────────────────────────
+// ── Card grid de Balanças ──────────────────────────────────────
+let balancaAtual = null;
+let modalDetalhes = null;
+
 function carregarBalancas(servidorId) {
   fetch('inventario_balancas.php?action=listar_balancas&servidor_id=' + servidorId)
     .then(r => r.json())
@@ -762,34 +1144,156 @@ function carregarBalancas(servidorId) {
         return;
       }
 
-      container.innerHTML = `
-      <table class="table table-balancas">
-        <thead><tr>
-          <th>Identificação</th>
-          <th>Modelo</th>
-          <th>Série</th>
-          <th>Loja</th>
-          <th>Departamento</th>
-          <th style="width:90px">Ações</th>
-        </tr></thead>
-        <tbody>
-        ${lista.map(b => `
-          <tr>
-            <td><strong>${escHtml(b.identificacao)}</strong></td>
-            <td>${escHtml(b.modelo) || '<span class="text-muted">—</span>'}</td>
-            <td>${escHtml(b.serie) || '<span class="text-muted">—</span>'}</td>
-            <td>${escHtml(b.loja) || '<span class="text-muted">—</span>'}</td>
-            <td>${escHtml(b.departamento) || '<span class="text-muted">—</span>'}</td>
-            <td>
-              <div class="btn-group btn-group-sm">
-                <button class="btn btn-outline-primary btn-sm" onclick="modalBalanca(${b.servidor_id}, ${b.id})" title="Editar"><i class="bi bi-pencil"></i></button>
-                <button class="btn btn-outline-danger btn-sm" onclick="excluirBalanca(${b.id})" title="Excluir"><i class="bi bi-trash"></i></button>
-              </div>
-            </td>
-          </tr>
-        `).join('')}
-        </tbody>
-      </table>`;
+      container.innerHTML = '<div class="row g-2">' + lista.map(b => `
+        <div class="col-6 col-md-4 col-lg-3">
+          <div class="bl-card"
+               data-id="${b.id}"
+               data-servidor-id="${b.servidor_id}"
+               data-identificacao="${escHtml(b.identificacao)}"
+               data-modelo="${escHtml(b.modelo)}"
+               data-serie="${escHtml(b.serie)}"
+               data-loja="${escHtml(b.loja)}"
+               data-departamento="${escHtml(b.departamento)}"
+               data-ip="${escHtml(b.ip)}"
+               data-firmware="${escHtml(b.versao_firmware)}"
+               data-carga-atual="${b.carga_atual || 0}"
+               data-carga-prog="${b.carga_programada || 0}"
+               data-lote="${escHtml(b.lote_fabricacao)}"
+               data-status="checking"
+               onclick="abrirDetalhes(this)">
+            <div class="bl-status checking" id="blstatus-${b.id}"></div>
+            <div class="bl-icon"><i class="bi bi-speedometer2"></i></div>
+            <div class="bl-nome" title="${escHtml(b.identificacao)}">${escHtml(b.identificacao)}</div>
+            <div class="bl-info">
+              ${b.modelo ? '<span><i class="bi bi-tag me-1"></i>' + escHtml(b.modelo) + '</span>' : ''}
+              ${b.departamento ? '<span><i class="bi bi-shop me-1"></i>' + escHtml(b.departamento) + '</span>' : ''}
+              ${b.ip ? '<span><i class="bi bi-ethernet me-1"></i>' + escHtml(b.ip) + '</span>' : ''}
+              ${b.versao_firmware ? '<span><i class="bi bi-cpu me-1"></i>FW: ' + escHtml(b.versao_firmware) + '</span>' : ''}
+            </div>
+            <div class="mt-2 d-flex align-items-center gap-2" style="min-width:0">
+              <span class="badge badge-check flex-shrink-0" id="blbadge-${b.id}">
+                <i class="bi bi-hourglass-split me-1"></i>Verificando...
+              </span>
+              ${b.carga_atual > 0 ? '<span style="font-size:.65rem;color:#9ca3af;white-space:nowrap"><i class="bi bi-database"></i> ' + b.carga_atual + '</span>' : ''}
+            </div>
+          </div>
+        </div>
+      `).join('') + '</div>';
+
+      // Ping em cada balança com IP
+      lista.forEach(b => {
+        if (b.ip) {
+          setTimeout(() => pingBalanca(b.ip, b.id), Math.random() * 1500);
+        } else {
+          setBalancaStatus(b.id, 'offline');
+        }
+      });
+    });
+}
+
+function pingBalanca(ip, balId) {
+  fetch('ping.php?ip=' + encodeURIComponent(ip))
+    .then(r => r.json())
+    .then(d => setBalancaStatus(balId, d.online ? 'online' : 'offline'))
+    .catch(() => setBalancaStatus(balId, 'offline'));
+}
+
+function setBalancaStatus(balId, status) {
+  const dot   = document.getElementById('blstatus-' + balId);
+  const badge = document.getElementById('blbadge-' + balId);
+  const card  = document.querySelector(`.bl-card[data-id="${balId}"]`);
+  if (!dot) return;
+  dot.className = 'bl-status ' + status;
+  if (card) card.dataset.status = status;
+  if (status === 'online') {
+    if (badge) { badge.className = 'badge badge-online'; badge.innerHTML = '<i class="bi bi-circle-fill me-1"></i>Online'; }
+  } else {
+    if (badge) { badge.className = 'badge badge-offline'; badge.innerHTML = '<i class="bi bi-circle-fill me-1"></i>Offline'; }
+  }
+  atualizarStats();
+}
+
+function verificarTodasBalancas() {
+  document.querySelectorAll('.bl-card').forEach(c => {
+    const ip = c.dataset.ip;
+    const id = c.dataset.id;
+    const dot = document.getElementById('blstatus-' + id);
+    const badge = document.getElementById('blbadge-' + id);
+    if (dot) dot.className = 'bl-status checking';
+    if (badge) { badge.className = 'badge badge-check'; badge.innerHTML = '<i class="bi bi-hourglass-split me-1"></i>Verificando...'; }
+    if (ip) {
+      setTimeout(() => pingBalanca(ip, id), Math.random() * 2000);
+    } else {
+      setBalancaStatus(id, 'offline');
+    }
+  });
+}
+
+// ── Modal Detalhes ─────────────────────────────────────────────
+function abrirDetalhes(card) {
+  balancaAtual = card;
+  const d = card.dataset;
+
+  document.getElementById('det-nome').textContent        = d.identificacao || 'Balança';
+  document.getElementById('det-servidor').textContent    = '';
+  document.getElementById('det-identificacao').textContent = d.identificacao || '—';
+  document.getElementById('det-modelo').textContent      = d.modelo || '—';
+  document.getElementById('det-serie').textContent       = d.serie || '—';
+  document.getElementById('det-ip').textContent          = d.ip || '—';
+  document.getElementById('det-loja').textContent        = d.loja || '—';
+  document.getElementById('det-departamento').textContent = d.departamento || '—';
+  document.getElementById('det-firmware').textContent    = d.firmware || '—';
+  document.getElementById('det-carga-atual').textContent = d.cargaAtual || '0';
+  document.getElementById('det-carga-prog').textContent  = d.cargaProg || '0';
+  document.getElementById('det-lote').textContent        = d.lote || '—';
+
+  const st = d.status || 'checking';
+  const badge = document.getElementById('det-status-badge');
+  if (st === 'online') {
+    badge.className = 'status-badge bg-success text-white';
+    badge.innerHTML = '<i class="bi bi-circle-fill"></i> Online';
+  } else if (st === 'offline') {
+    badge.className = 'status-badge bg-danger text-white';
+    badge.innerHTML = '<i class="bi bi-circle-fill"></i> Offline';
+  } else {
+    badge.className = 'status-badge bg-warning text-dark';
+    badge.innerHTML = '<i class="bi bi-hourglass-split"></i> Verificando...';
+  }
+
+  if (!modalDetalhes) modalDetalhes = new bootstrap.Modal(document.getElementById('modalDetalhes'));
+  modalDetalhes.show();
+}
+
+function pingBalancaModal() {
+  if (!balancaAtual) return;
+  const ip = balancaAtual.dataset.ip;
+  const id = balancaAtual.dataset.id;
+  const badge = document.getElementById('det-status-badge');
+  badge.className = 'status-badge bg-warning text-dark';
+  badge.innerHTML = '<i class="bi bi-hourglass-split"></i> Verificando...';
+
+  if (!ip) {
+    badge.className = 'status-badge bg-danger text-white';
+    badge.innerHTML = '<i class="bi bi-circle-fill"></i> Offline';
+    return;
+  }
+  fetch('ping.php?ip=' + encodeURIComponent(ip))
+    .then(r => r.json())
+    .then(d => {
+      if (d.online) {
+        badge.className = 'status-badge bg-success text-white';
+        badge.innerHTML = '<i class="bi bi-circle-fill"></i> Online';
+        setBalancaStatus(id, 'online');
+      } else {
+        badge.className = 'status-badge bg-danger text-white';
+        badge.innerHTML = '<i class="bi bi-circle-fill"></i> Offline';
+        setBalancaStatus(id, 'offline');
+      }
+    })
+    .catch(() => {
+      badge.className = 'status-badge bg-danger text-white';
+      badge.innerHTML = '<i class="bi bi-circle-fill"></i> Offline';
+      setBalancaStatus(id, 'offline');
     });
 }
 
@@ -818,7 +1322,14 @@ function modalServidor(id) {
           document.getElementById('sv-fb-db').value   = sv.fb_database || '';
           document.getElementById('sv-fb-user').value = sv.fb_user || 'SYSDBA';
           document.getElementById('sv-fb-pass').value = sv.fb_pass || 'masterkey';
+          document.getElementById('sv-db-type').value = sv.db_type || 'sqlserver';
+          document.getElementById('sv-sql-host').value = sv.sql_host || '';
+          document.getElementById('sv-sql-port').value = sv.sql_port || '1433';
+          document.getElementById('sv-sql-db').value   = sv.sql_database || '';
+          document.getElementById('sv-sql-user').value = sv.sql_user || '';
+          document.getElementById('sv-sql-pass').value = sv.sql_pass || '';
           document.getElementById('sv-sync-token').value = sv.sync_token || '';
+          toggleDbType();
         }
       });
   } else {
@@ -829,7 +1340,14 @@ function modalServidor(id) {
     document.getElementById('sv-fb-db').value = '';
     document.getElementById('sv-fb-user').value = 'SYSDBA';
     document.getElementById('sv-fb-pass').value = 'masterkey';
+    document.getElementById('sv-db-type').value = 'sqlserver';
+    document.getElementById('sv-sql-host').value = '';
+    document.getElementById('sv-sql-port').value = '1433';
+    document.getElementById('sv-sql-db').value   = '';
+    document.getElementById('sv-sql-user').value = '';
+    document.getElementById('sv-sql-pass').value = '';
     document.getElementById('sv-sync-token').value = '';
+    toggleDbType();
   }
   modalSv.show();
 }
@@ -850,10 +1368,16 @@ function salvarServidor() {
   fd.set('nome',    document.getElementById('sv-nome').value);
   fd.set('ip',      document.getElementById('sv-ip').value);
   fd.set('observacao', document.getElementById('sv-obs').value);
+  fd.set('db_type', document.getElementById('sv-db-type').value);
   fd.set('fb_host', document.getElementById('sv-fb-host').value);
   fd.set('fb_database', document.getElementById('sv-fb-db').value);
   fd.set('fb_user', document.getElementById('sv-fb-user').value);
   fd.set('fb_pass', document.getElementById('sv-fb-pass').value);
+  fd.set('sql_host', document.getElementById('sv-sql-host').value);
+  fd.set('sql_port', document.getElementById('sv-sql-port').value);
+  fd.set('sql_database', document.getElementById('sv-sql-db').value);
+  fd.set('sql_user', document.getElementById('sv-sql-user').value);
+  fd.set('sql_pass', document.getElementById('sv-sql-pass').value);
   fd.set('sync_token', document.getElementById('sv-sync-token').value);
 
   fetch('inventario_balancas.php', { method:'POST', body:fd })
@@ -905,6 +1429,10 @@ function modalBalanca(servidorId, balancaId) {
           document.getElementById('bl-loja').value          = b.loja || '';
           document.getElementById('bl-departamento').value  = b.departamento || '';
           document.getElementById('bl-ip').value            = b.ip || '';
+          document.getElementById('bl-versao').value        = b.versao_firmware || '';
+          document.getElementById('bl-carga-atual').value   = b.carga_atual || 0;
+          document.getElementById('bl-carga-prog').value    = b.carga_programada || 0;
+          document.getElementById('bl-lote').value          = b.lote_fabricacao || '';
           document.getElementById('bl-obs').value           = b.observacao || '';
         }
       });
@@ -915,6 +1443,10 @@ function modalBalanca(servidorId, balancaId) {
     document.getElementById('bl-loja').value = '';
     document.getElementById('bl-departamento').value = '';
     document.getElementById('bl-ip').value = '';
+    document.getElementById('bl-versao').value = '';
+    document.getElementById('bl-carga-atual').value = 0;
+    document.getElementById('bl-carga-prog').value = 0;
+    document.getElementById('bl-lote').value = '';
     document.getElementById('bl-obs').value = '';
     if (servidorId) document.getElementById('bl-servidor').value = servidorId;
   }
@@ -932,6 +1464,10 @@ function salvarBalanca() {
   fd.set('loja',          document.getElementById('bl-loja').value);
   fd.set('departamento',  document.getElementById('bl-departamento').value);
   fd.set('ip',            document.getElementById('bl-ip').value);
+  fd.set('versao_firmware',  document.getElementById('bl-versao').value);
+  fd.set('carga_atual',      document.getElementById('bl-carga-atual').value);
+  fd.set('carga_programada', document.getElementById('bl-carga-prog').value);
+  fd.set('lote_fabricacao',  document.getElementById('bl-lote').value);
   fd.set('observacao',    document.getElementById('bl-obs').value);
 
   fetch('inventario_balancas.php', { method:'POST', body:fd })
@@ -957,7 +1493,7 @@ function excluirBalanca(id) {
 
 // ── Sync MGV Firebird ──────────────────────────────────────────
 function syncMGV(servidorId) {
-  if (!confirm('Sincronizar balanças com o Firebird do MGV?\n\nAs balanças existentes serão atualizadas e novas serão importadas.')) return;
+  if (!confirm('Sincronizar balanças com o banco do MGV?\n\nAs balanças existentes serão atualizadas e novas serão importadas.')) return;
 
   const btn = event?.target?.closest?.('.btn-sync') || document.querySelector('.btn-sync');
   if (btn) { btn.disabled = true; btn.innerHTML = '<i class="bi bi-arrow-repeat me-1"></i>Sincronizando...'; }
@@ -980,6 +1516,12 @@ function syncMGV(servidorId) {
       if (btn) { btn.disabled = false; btn.innerHTML = '<i class="bi bi-arrow-repeat me-1"></i> Sync'; }
       carregarServidores();
     });
+}
+
+function toggleDbType() {
+  const type = document.getElementById('sv-db-type').value;
+  document.getElementById('fb-fields').style.display = type === 'firebird' ? '' : 'none';
+  document.getElementById('sql-fields').style.display = type === 'sqlserver' ? '' : 'none';
 }
 
 function escHtml(s) {
