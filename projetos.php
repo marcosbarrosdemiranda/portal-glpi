@@ -143,21 +143,124 @@ function esc(string $s): string {
 // ── Carrega todos os projetos ──────────────────────────────────────────────
 $pastaProj = __DIR__ . '/Docs/wiki/projects';
 $projetos  = [];
-if (is_dir($pastaProj)) {
-    // 1. Arquivos .md na raiz (legado — compatibilidade)
-    foreach (glob($pastaProj . '/*.md') as $arq) {
-        $p = parseProjeto($arq);
-        if ($p) { $p['arquivo'] = basename($arq); $p['pasta'] = ''; $projetos[] = $p; }
+
+// Helper para ler projetos de uma pasta
+/**
+ * Carrega projetos da pasta — UMA subpasta = UM card
+ * Todos os .md dentro de uma subpasta são mesclados em um único projeto
+ */
+function carregarProjetosDaPasta(string $pasta): array {
+    $result = [];
+    if (!is_dir($pasta)) return $result;
+
+    // Subpastas = UM card por pasta (com todos .md recursivos)
+    foreach (glob($pasta . '/*', GLOB_ONLYDIR) as $subPasta) {
+        $nomeProj = basename($subPasta);
+
+        // Busca recursiva por .md
+        $mdFiles = [];
+        $rdi = new RecursiveDirectoryIterator($subPasta, RecursiveDirectoryIterator::SKIP_DOTS);
+        $rit = new RecursiveIteratorIterator($rdi);
+        foreach ($rit as $file) {
+            if ($file->getExtension() === 'md') $mdFiles[] = $file->getPathname();
+        }
+        sort($mdFiles);
+        if (empty($mdFiles)) continue;
+
+        // Separa o .md principal (nome parecido com a pasta, README, index, ou o primeiro)
+        $mainMd = null;
+        $extraMds = [];
+        $pastaNorm = mb_strtolower(str_replace(['-', '_', ' '], '', $nomeProj));
+        foreach ($mdFiles as $md) {
+            $base = mb_strtolower(basename($md, '.md'));
+            $baseNorm = str_replace(['-', '_', ' '], '', $base);
+            if ($mainMd === null && (str_contains($baseNorm, $pastaNorm) || $base === 'readme' || $base === 'index')) {
+                $mainMd = $md;
+            } else {
+                $extraMds[] = $md;
+            }
+        }
+        if (!$mainMd) {
+            $mainMd = $mdFiles[0];
+            $extraMds = array_slice($mdFiles, 1);
+        }
+
+        // Parse principal
+        $proj = parseProjeto($mainMd);
+        if (!$proj) continue;
+
+        // Título = nome da pasta (consistência)
+        $proj['titulo'] = $nomeProj;
+
+        // Mescla módulos de .md extras
+        foreach ($extraMds as $extraMd) {
+            $extra = parseProjeto($extraMd);
+            if ($extra && !empty($extra['modulos'])) {
+                $proj['modulos'] = array_merge($proj['modulos'], $extra['modulos']);
+            }
+            // Aproveita campos que o principal não tem
+            if (!$proj['objetivo'] && !empty($extra['objetivo'])) $proj['objetivo'] = $extra['objetivo'];
+            if (!$proj['prazo']    && !empty($extra['prazo']))    $proj['prazo']    = $extra['prazo'];
+            if (!$proj['equipe']   && !empty($extra['equipe']))   $proj['equipe']   = $extra['equipe'];
+            if (!$proj['repo']     && !empty($extra['repo']))     $proj['repo']     = $extra['repo'];
+        }
+
+        // Recalcula percentuais
+        $tot = $done = 0;
+        foreach ($proj['modulos'] as &$mod) {
+            $mt = count($mod['tarefas']);
+            $md = count(array_filter($mod['tarefas'], fn($t) => $t['done']));
+            $mod['pct']  = $mt > 0 ? round($md / $mt * 100) : 0;
+            $mod['done'] = $md;
+            $mod['tot']  = $mt;
+            $tot  += $mt;
+            $done += $md;
+        }
+        unset($mod);
+        $proj['pct']   = $tot > 0 ? round($done / $tot * 100) : 0;
+        $proj['done']  = $done;
+        $proj['total'] = $tot;
+
+        $proj['arquivo']  = $nomeProj . '/' . basename($mainMd);
+        $proj['pasta']    = $nomeProj;
+        $proj['filepath'] = $mainMd;
+        $proj['md_files'] = $mdFiles; // todos os .md para merge no download
+        $result[] = $proj;
     }
-    // 2. Arquivos .md dentro de subpastas (cada subpasta = um projeto)
-    foreach (glob($pastaProj . '/*', GLOB_ONLYDIR) as $subPasta) {
-        $nomePasta = basename($subPasta);
-        foreach (glob($subPasta . '/*.md') as $arq) {
-            $p = parseProjeto($arq);
-            if ($p) {
-                $p['arquivo'] = $nomePasta . '/' . basename($arq);
-                $p['pasta']   = $nomePasta;
-                $projetos[] = $p;
+
+    // .md na raiz (legado) — só inclui se não tiver subpasta correspondente
+    $pastas = array_map('basename', glob($pasta . '/*', GLOB_ONLYDIR));
+    foreach (glob($pasta . '/*.md') as $arq) {
+        $base = basename($arq, '.md');
+        if (in_array($base, $pastas)) continue; // já tem subpasta → pula duplicata
+
+        $p = parseProjeto($arq);
+        if ($p) {
+            $p['arquivo']  = basename($arq);
+            $p['pasta']    = '';
+            $p['filepath'] = $arq;
+            $p['md_files'] = [$arq];
+            $result[] = $p;
+        }
+    }
+
+    return $result;
+}
+
+// 1. Lê da pasta local (sempre disponível)
+$projetos = carregarProjetosDaPasta($pastaProj);
+
+// 2. Lê também direto da rede, se configurado (aparece instantaneamente)
+$configLocal = __DIR__ . '/config_projetos.local.php';
+if (file_exists($configLocal)) {
+    require_once $configLocal;
+    if (defined('ORIGEM_PROJETOS') && ORIGEM_PROJETOS && is_dir(ORIGEM_PROJETOS)) {
+        $projetosRede = carregarProjetosDaPasta(ORIGEM_PROJETOS);
+        // Mescla com os locais (evita duplicatas pelo nome do arquivo relativo)
+        $locais = array_column($projetos, 'arquivo');
+        foreach ($projetosRede as $pr) {
+            if (!in_array($pr['arquivo'], $locais)) {
+                $projetos[] = $pr;
             }
         }
     }
@@ -166,6 +269,32 @@ if (is_dir($pastaProj)) {
 // ── Modo: lista (padrão) ou detalhe (?proj=arquivo.md) ────────────────────
 $selArq  = $_GET['proj'] ?? null;
 $projeto = null;
+
+// ── Ação: sincronizar projetos da rede ───────────────────────────
+$mensagemSync = '';
+if (isset($_GET['sync']) && $_GET['sync'] === '1') {
+    $syncScript = __DIR__ . '/sync_projetos.php';
+    if (file_exists($syncScript)) {
+        $output = @shell_exec('php "' . $syncScript . '" 2>&1');
+        $mensagemSync = 'Projetos sincronizados da rede!';
+        // Recarrega os projetos após sync
+        $projetos = carregarProjetosDaPasta($pastaProj);
+        $configLocal = __DIR__ . '/config_projetos.local.php';
+        if (file_exists($configLocal)) {
+            require_once $configLocal;
+            if (defined('ORIGEM_PROJETOS') && ORIGEM_PROJETOS && is_dir(ORIGEM_PROJETOS)) {
+                $projetosRede = carregarProjetosDaPasta(ORIGEM_PROJETOS);
+                $locais = array_column($projetos, 'arquivo');
+                foreach ($projetosRede as $pr) {
+                    if (!in_array($pr['arquivo'], $locais)) $projetos[] = $pr;
+                }
+            }
+        }
+    } else {
+        $mensagemSync = 'Script de sync não encontrado.';
+    }
+}
+
 if ($selArq) {
     foreach ($projetos as $p) {
         if ($p['arquivo'] === $selArq) { $projeto = $p; break; }
@@ -239,19 +368,19 @@ if ($modoDetalhe) {
 
 // ── Action: download .md com seções selecionadas ────────────────
 if ($modoDetalhe && ($_GET['action'] ?? '') === 'download' && isset($_GET['sections'])) {
-    // Suporte a subpastas: $selArq pode ser "pasta/arquivo.md"
-    $filepath = __DIR__ . '/Docs/wiki/projects/' . $selArq;
-    // Segurança: só permite .md dentro de Docs/wiki/projects/
-    $realBase = realpath(__DIR__ . '/Docs/wiki/projects');
-    $realPath = realpath($filepath);
-    if (!$realPath || !str_starts_with($realPath, $realBase) || !str_ends_with($filepath, '.md')) {
-        http_response_code(403); echo 'Acesso negado.'; exit;
+    // Lê de TODOS os .md do projeto (merge para multi-arquivo)
+    $mdFiles = $projeto['md_files'] ?? [$projeto['filepath']];
+    $rawAll  = '';
+    foreach ($mdFiles as $md) {
+        if (file_exists($md)) {
+            $rawAll .= "\n" . @file_get_contents($md);
+        }
     }
-    $raw = @file_get_contents($filepath);
-    if (!$raw) { http_response_code(404); echo 'Arquivo não encontrado.'; exit; }
+    $rawAll = trim($rawAll);
+    if (!$rawAll) { http_response_code(404); echo 'Conteúdo não encontrado.'; exit; }
 
     $selected = array_filter(explode(',', $_GET['sections']), 'trim');
-    $lines = explode("\n", str_replace("\r", '', $raw));
+    $lines = explode("\n", str_replace("\r", '', $rawAll));
 
     // Separa seções do markdown por heading ##
     $secMarkdown = [];
@@ -485,6 +614,19 @@ body  { background:#f0f4f9; font-family:'Segoe UI',sans-serif; font-size:.9rem; 
 
 <div class="wrap">
 
+<?php if ($mensagemSync): ?>
+  <div class="sync-toast" style="background:#1b6d4a;color:#fff;padding:8px 16px;border-radius:8px;margin-bottom:1rem;display:inline-flex;align-items:center;gap:8px;font-size:.9rem">
+    <i class="bi bi-check-circle-fill"></i> <?= esc($mensagemSync) ?>
+  </div>
+<?php endif; ?>
+
+<div style="display:flex;gap:8px;margin-bottom:1rem;flex-wrap:wrap">
+  <input type="text" id="searchProj" class="form-control" placeholder="Filtrar projetos..." style="max-width:300px;background:var(--bg2);border:1px solid var(--border);color:var(--fg)">
+  <a href="?sync=1" class="btn btn-sm" style="background:#2d3748;color:#e2e8f0;border:1px solid #4a5568;display:flex;align-items:center;gap:6px">
+    <i class="bi bi-arrow-repeat"></i> Sincronizar da Rede
+  </a>
+</div>
+
 <?php if (!$projetos): ?>
   <div class="card-box text-center py-5 text-muted">
     <i class="bi bi-folder-x fs-1 d-block mb-2"></i>
@@ -614,7 +756,7 @@ body  { background:#f0f4f9; font-family:'Segoe UI',sans-serif; font-size:.9rem; 
       </span>
     </div>
     <div style="font-size:.75rem;color:#9ca3af">
-      <?= $projeto['done'] ?> / <?= $projeto['total'] ?> tarefas · <?= count($projeto['modulos']) ?> módulos
+      <?= $projeto['done'] ?> / <?= $projeto['total'] ?> tarefas · <?= count(array_filter($projeto['modulos'], fn($m) => $m['tot'] > 0)) ?> módulos
     </div>
   </div>
 
@@ -826,7 +968,7 @@ body  { background:#f0f4f9; font-family:'Segoe UI',sans-serif; font-size:.9rem; 
 
   <div style="text-align:center;margin-top:1.5rem;font-size:.75rem;color:#9ca3af">
     <i class="bi bi-journal-bookmark me-1"></i>
-    <code>Docs/wiki/projects/<?= esc($projeto['arquivo']) ?></code>
+    <code title="<?= esc($projeto['filepath'] ?? '') ?>"><?= esc($projeto['arquivo'] ?? '') ?></code>
     · Edite no Obsidian e recarregue · <?= date('d/m/Y H:i') ?>
     <?php
     $lastSyncFile = __DIR__ . '/Docs/wiki/projects/.last_sync';
@@ -965,5 +1107,21 @@ function exportarPrint() {
 }
 <?php endif; ?>
 </script>
+
+<?php if (!$modoDetalhe): ?>
+<script>
+// ── Filtro de projetos ──────────────────────────────────────────
+document.getElementById('searchProj')?.addEventListener('input', function() {
+  const q = this.value.toLowerCase().trim();
+  document.querySelectorAll('.proj-card').forEach(card => {
+    const cardWrap = card.closest('.col-md-6');
+    if (!cardWrap) return;
+    const txt = card.textContent.toLowerCase();
+    cardWrap.style.display = (!q || txt.includes(q)) ? '' : 'none';
+  });
+});
+</script>
+<?php endif; ?>
+
 </body>
 </html>

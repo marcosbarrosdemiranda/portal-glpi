@@ -16,35 +16,33 @@
  */
 
 // ── Config ──────────────────────────────────────────────────────────
-// PADRÃO: pasta compartilhada no próprio servidor do portal
-// Se quiser apontar para outra máquina, crie um config_local.php com:
-//   define('ORIGEM_PROJETOS', '\\\MAQUINA\TI\PROJETOS E DOCUMENTAÇÕES');
 $ORIGEM_PADRAO = __DIR__ . '/Docs/projetos-compartilhados';
-
-// Carrega config local se existir (ignorado pelo git)
-$configLocal = __DIR__ . '/config_projetos.local.php';
-if (file_exists($configLocal)) {
-    require_once $configLocal;
-}
-
-if (!defined('ORIGEM_PROJETOS')) {
-    define('ORIGEM_PROJETOS', $ORIGEM_PADRAO);
-}
-
 $DESTINO = __DIR__ . '/Docs/wiki/projects';
 $LOG_DIR = __DIR__ . '/Portal-Glpi/Logs';
+$ORIGEM_PROJETOS = $ORIGEM_PADRAO;
 
-// ── CLI args ────────────────────────────────────────────────────────
+// ── CLI args (antes de carregar config, pra permitir override) ─────
 if (PHP_SAPI === 'cli' && $argc > 1) {
     foreach ($argv as $arg) {
         if (preg_match('/^--origem=(.+)$/', $arg, $m)) {
-            define('ORIGEM_PROJETOS', $m[1]);
+            $ORIGEM_PROJETOS = $m[1];
         }
         if ($arg === '--help') {
             echo "Uso: php sync_projetos.php [--origem=\"\\\\SERVER\\Path\"]\n";
             echo "  --origem   Caminho da pasta de projetos na rede\n";
             echo "  --help     Mostra esta ajuda\n";
             exit(0);
+        }
+    }
+}
+
+// Carrega config local se existir (só se não veio --origem do CLI)
+if (!isset($argv) || !preg_grep('/^--origem=/', $argv)) {
+    $configLocal = __DIR__ . '/config_projetos.local.php';
+    if (file_exists($configLocal)) {
+        require_once $configLocal;
+        if (defined('ORIGEM_PROJETOS')) {
+            $ORIGEM_PROJETOS = ORIGEM_PROJETOS;
         }
     }
 }
@@ -61,7 +59,7 @@ function logSync(string $msg): void {
 }
 
 // ── Sync ────────────────────────────────────────────────────────────
-$origem  = ORIGEM_PROJETOS;
+$origem  = $ORIGEM_PROJETOS;
 $destino = $DESTINO;
 
 logSync("=== INICIANDO SYNC DE PROJETOS ===");
@@ -86,7 +84,18 @@ $totalProjetos = 0;
 
 foreach ($pastas as $pasta) {
     $nomeProjeto = basename($pasta);
-    $arqs = glob($pasta . '/*.md');
+
+    // Busca recursiva por .md dentro da pasta do projeto
+    $arqs = [];
+    $rdi = new RecursiveDirectoryIterator($pasta, RecursiveDirectoryIterator::SKIP_DOTS);
+    $rit = new RecursiveIteratorIterator($rdi);
+    foreach ($rit as $file) {
+        if ($file->getExtension() === 'md') {
+            $arqs[] = $file->getPathname();
+        }
+    }
+    // Ordena para manter consistência
+    sort($arqs);
 
     if (empty($arqs)) {
         logSync("  ↺ Pasta '$nomeProjeto' — sem .md, ignorada");
