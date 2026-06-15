@@ -323,6 +323,25 @@
 > Portal acessível em celulares e tablets Android/iOS via navegador, sem instalação.
 > **Prazo:** 03/07/2026
 
+### Estratégia — Fase 1: PWA (Prioritário)
+> Decisão registrada em ADR-004 — o PWA será implementado primeiro por ser mais rápido,
+> não depender de loja e funcionar em Android e iOS simultaneamente.
+> O APK nativo fica como Fase 2 para funcionalidades avançadas.
+
+#### Fase 1 — PWA (Progressive Web App)
+- [ ] Criar `manifest.json` (nome, ícone, cor, modo standalone)
+- [ ] Ícone do portal para tela inicial do celular
+- [ ] Service worker básico (cache offline das páginas principais)
+- [ ] Botão "Instalar app" no banner do portal
+- [ ] Notificações push para novos chamados
+
+#### Fase 2 — APK (via Capacitor / PWA2APK)
+> Planejado após PWA consolidado. O mesmo PWA será empacotado como APK.
+- [ ] Compilar APK com Capacitor
+- [ ] Biometria (digital/face) para desbloqueio do cofre
+- [ ] QR Code para escanear equipamentos no inventário
+- [ ] Publicação interna (fora da Play Store)
+
 ### Acesso na Rede
 - [ ] Documentar IP do servidor para acesso via Wi-Fi interno
 - [ ] Testar acesso em Android (Chrome) e iOS (Safari) na rede local
@@ -339,12 +358,6 @@
 - [ ] Visualização mensal funcional no touch
 - [ ] Botão "Novo Chamado" acessível no mobile
 - [ ] Drag & drop desativado no touch (substituir por tap para mover)
-
-### PWA (Portal como App)
-- [ ] Criar `manifest.json` (nome, ícone, cor, modo standalone)
-- [ ] Ícone do portal para tela inicial do celular
-- [ ] Service worker básico (cache offline das páginas principais)
-- [ ] Botão "Instalar app" no banner do portal
 
 ---
 
