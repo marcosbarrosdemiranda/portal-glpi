@@ -101,3 +101,30 @@ if (sta === 'em_atendimento') {
 ### Ações no servidor
 - [x] Dropdown corrigido (value + label)
 - [x] Função `filtrarTickets` atualizada com tratamento de `em_atendimento`
+
+---
+
+## Terceiro problema — Ordenação da sidebar (Novos primeiro)
+
+### Relatado
+Ao selecionar "Todos" no filtro, os chamados "Em atendimento" apareciam antes dos "Novos". O esperado é Novos → Em atendimento → Pendentes.
+
+### Correções
+- **`glpi_api.php`**: Adicionado campo `status_n` (status numérico) no retorno dos tickets
+- **`tickets.php`**: Ordenação refeita com 3 critérios:
+  1. Não-agendados primeiro
+  2. Prioridade de status: Novo (0) → Atribuído/Planejado (1) → Pendente (2)
+  3. Data de modificação como desempate
+
+```php
+$status_priority = [1=>0, 2=>1, 3=>1, 4=>2];
+```
+
+### Arquivos alterados
+| Arquivo | Alteração |
+|---------|-----------|
+| `agenda/glpi_api.php` | Adicionado `status_n` ao array de retorno |
+| `agenda/tickets.php` | `usort` com 3 critérios (agendado, status, date_mod) |
+
+### Commits
+- `555aa29` — fix: ordenação da sidebar prioriza Novos primeiro, depois Em atendimento
