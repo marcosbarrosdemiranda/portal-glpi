@@ -1811,7 +1811,7 @@ function filtrarTickets() {
     let ok_sta = !sta || t.status === sta;
     // "Em atendimento" no filtro cobre Atribuído (status 2) e Planejado (status 3) da API
     if (sta === 'em_atendimento') {
-      ok_sta = t.status === 'Atribuído' || t.status === 'Planejado';
+      ok_sta = t.status_n === 2 || t.status_n === 3;
     }
     return ok_txt && ok_urg && ok_sta;
   });
