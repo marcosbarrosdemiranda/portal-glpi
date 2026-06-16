@@ -546,8 +546,8 @@ $user_id_sessao = (int)($_SESSION['user_id'] ?? 0);
       <select id="filtro-status" onchange="filtrarTickets()">
         <option value="">Todos os status</option>
         <option value="Novo">Novo</option>
-        <option value="Em atendimento">Em atendimento</option>
-        <option value="Em espera">Em espera</option>
+        <option value="em_atendimento">Em atendimento</option>
+        <option value="Pendente">Em espera</option>
       </select>
       <label style="display:flex;align-items:center;gap:.35rem;font-size:.78rem;color:#555;cursor:pointer;margin-top:.35rem;padding:.2rem .5rem;background:#f0f4ff;border-radius:6px;border:1px solid #d0e0ff">
         <input type="checkbox" id="ordenar-abertura" onchange="filtrarTickets()" style="cursor:pointer;flex-shrink:0;width:14px;height:14px"/>
@@ -1808,7 +1808,11 @@ function filtrarTickets() {
   let filtrados = todosTickets.filter(t => {
     const ok_txt = !txt || t.titulo.toLowerCase().includes(txt) || String(t.id).includes(txt);
     const ok_urg = !urg || t.urgencia === urg;
-    const ok_sta = !sta || t.status === sta;
+    let ok_sta = !sta || t.status === sta;
+    // "Em atendimento" no filtro cobre Atribuído (status 2) e Planejado (status 3) da API
+    if (sta === 'em_atendimento') {
+      ok_sta = t.status === 'Atribuído' || t.status === 'Planejado';
+    }
     return ok_txt && ok_urg && ok_sta;
   });
 
