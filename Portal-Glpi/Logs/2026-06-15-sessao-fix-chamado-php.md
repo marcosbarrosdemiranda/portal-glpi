@@ -128,3 +128,27 @@ $status_priority = [1=>0, 2=>1, 3=>1, 4=>2];
 
 ### Commits
 - `555aa29` — fix: ordenação da sidebar prioriza Novos primeiro, depois Em atendimento
+
+---
+
+## Quarto problema — Reordenamento client-side ao trocar filtro
+
+### Relatado
+Ao selecionar "Em atendimento" e depois voltar para "Todos", os chamados em atendimento apareciam primeiro. A ordenação por `date_mod` no JavaScript colocava os recentemente modificados no topo.
+
+### Correção
+A função `filtrarTickets()` agora reordena sempre que a lista é filtrada, com a mesma lógica do backend:
+
+```js
+const prioridadeStatus = {1:0, 2:1, 3:1, 4:2};
+// 1º: não-agendados primeiro
+// 2º: prioridade de status (Novo → Atendimento → Pendente)
+// 3º: data de modificação como desempate
+```
+
+| Arquivo | Alteração |
+|---------|-----------|
+| `agenda/index.php` | Sort JS refatorado com 3 critérios |
+
+### Commits
+- `606bae3` — fix: ordenação client-side da sidebar prioriza status sobre data
