@@ -89,6 +89,7 @@ function glpi_get_tickets(): array {
             'id'         => $t['id'],
             'titulo'     => $t['name'] ?? 'Sem título',
             'status'     => $status_map[$t['status']] ?? 'Desconhecido',
+            'status_n'   => (int)($t['status'] ?? 1),
             'urgencia'   => $urgency_map[$t['urgency']] ?? 'média',
             'urgencia_n' => $t['urgency'] ?? 3,
             'setor'       => apelido_entidade($t['entities_id'] ?? ''),

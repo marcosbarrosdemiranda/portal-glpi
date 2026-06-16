@@ -20,7 +20,20 @@ $tickets = array_map(function($t) use ($agendados) {
     return $t;
 }, $tickets);
 
-// Não-agendados primeiro, depois os em andamento
-usort($tickets, fn($a, $b) => $a['agendado'] <=> $b['agendado']);
+// Ordenação: não-agendados primeiro, depois por prioridade de status (Novo → Atendimento → Pendente)
+// Status 1=Novo, 2=Atribuído, 3=Planejado, 4=Pendente
+$status_priority = [1=>0, 2=>1, 3=>1, 4=>2]; // 0=primeiro, 2=último
+usort($tickets, function($a, $b) use ($status_priority) {
+    // 1º critério: não-agendados primeiro
+    if ($a['agendado'] !== $b['agendado']) {
+        return $a['agendado'] <=> $b['agendado'];
+    }
+    // 2º critério: prioridade de status (Novo=1 primeiro, Atribuído=2 e Planejado=3 depois, Pendente=4 último)
+    $pa = $status_priority[$a['status_n']] ?? 2;
+    $pb = $status_priority[$b['status_n']] ?? 2;
+    if ($pa !== $pb) return $pa <=> $pb;
+    // 3º critério: data de modificação (mais recente primeiro)
+    return strcmp($b['date_mod'], $a['date_mod']);
+});
 
 echo json_encode(array_values($tickets));
