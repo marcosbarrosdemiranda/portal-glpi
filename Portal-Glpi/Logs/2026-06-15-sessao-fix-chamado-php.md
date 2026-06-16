@@ -56,4 +56,48 @@ Agora resolve para `chamado.php` na raiz, onde o arquivo já existe completo.
   - Mantidos: todos os arquivos originais do XAMPP
   - Mantidos: `portal/`, `hotspot/` (projetos separados)
   - Mantido: `projetos-ti/` (pasta de sync de projetos)
-- [ ] O usuário precisa testar se o link "Abrir chamado" no preview da sidebar agora funciona corretamente
+- [x] Link "Abrir chamado" no preview — funcionando
+
+---
+
+## Segundo problema — Filtro de status "Em atendimento" no sidebar
+
+### Relatado
+Ao selecionar "Em atendimento" no filtro de status do sidebar da agenda, nenhum chamado aparecia.
+
+### Causa
+O `glpi_api.php` mapeia os status numéricos do GLPI para nomes:
+```
+1 → 'Novo', 2 → 'Atribuído', 3 → 'Planejado', 4 → 'Pendente'
+```
+
+Mas o filtro `<select>` usava valores diferentes:
+| Filtro (value) | API retorna | Match? |
+|---------------|-------------|--------|
+| `Novo` | `Novo` | ✅ |
+| `Em atendimento` | `Atribuído` ou `Planejado` | ❌ |
+| `Em espera` | `Pendente` | ❌ |
+
+### Correções
+1. **Dropdown**: `value="Em atendimento"` → `value="em_atendimento"`, `value="Em espera"` → `value="Pendente"`
+2. **Função `filtrarTickets()`**: Adicionada lógica para que `em_atendimento` corresponda a ambos `Atribuído` e `Planejado`:
+
+```js
+if (sta === 'em_atendimento') {
+  ok_sta = t.status === 'Atribuído' || t.status === 'Planejado';
+}
+```
+
+### Arquivos alterados
+| Arquivo | Alteração |
+|---------|-----------|
+| `agenda/index.php:549` | Value do select: `Em atendimento` → `em_atendimento` |
+| `agenda/index.php:550` | Value do select: `Em espera` → `Pendente` |
+| `agenda/index.php:1811-1816` | Função de filtro trata `em_atendimento` como Atribuído ou Planejado |
+
+### Commits
+- `2d7d1b1` — fix: filtro de status no sidebar agora funciona corretamente
+
+### Ações no servidor
+- [x] Dropdown corrigido (value + label)
+- [x] Função `filtrarTickets` atualizada com tratamento de `em_atendimento`
