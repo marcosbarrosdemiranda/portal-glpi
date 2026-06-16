@@ -1816,12 +1816,21 @@ function filtrarTickets() {
     return ok_txt && ok_urg && ok_sta;
   });
 
-  // Ordena: por data de abertura ou por última atualização (padrão)
-  if (porAbertura) {
-    filtrados = [...filtrados].sort((a, b) => (b.data || '').localeCompare(a.data || ''));
-  } else {
-    filtrados = [...filtrados].sort((a, b) => (b.date_mod || '').localeCompare(a.date_mod || ''));
-  }
+  // Ordena: não-agendados primeiro, prioridade de status, depois data
+  const prioridadeStatus = {1:0, 2:1, 3:1, 4:2};
+  filtrados = [...filtrados].sort((a, b) => {
+    if (porAbertura) {
+      return (b.data || '').localeCompare(a.data || '');
+    }
+    // 1º: não-agendados primeiro
+    if (a.agendado !== b.agendado) return a.agendado ? 1 : -1;
+    // 2º: prioridade de status (Novo → Atendimento → Pendente)
+    const pa = prioridadeStatus[a.status_n] ?? 2;
+    const pb = prioridadeStatus[b.status_n] ?? 2;
+    if (pa !== pb) return pa - pb;
+    // 3º: data de modificação (mais recente primeiro)
+    return (b.date_mod || '').localeCompare(a.date_mod || '');
+  });
 
   renderTickets(filtrados);
 }
