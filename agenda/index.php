@@ -1785,7 +1785,7 @@ function mostrarPreview(event, el) {
   document.getElementById('tpMeta').innerHTML = `
     <span class="badge bg-${urgCor}"><i class="bi bi-exclamation-triangle me-1"></i>${urgNome}</span>
     ${setor ? `<span class="badge bg-secondary"><i class="bi bi-building me-1"></i>${setor}</span>` : ''}
-    <span onclick="event.stopPropagation();window.open('chamado.php?id=${id}','_blank')" class="badge bg-dark" style="cursor:pointer">
+    <span onclick="event.stopPropagation();window.open('../chamado.php?id=${id}','_blank')" class="badge bg-dark" style="cursor:pointer">
       <i class="bi bi-box-arrow-up-right me-1"></i>Abrir chamado
     </span>`;
 
