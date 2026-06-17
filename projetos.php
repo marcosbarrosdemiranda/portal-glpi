@@ -144,10 +144,10 @@ function esc(string $s): string {
 $pastaProj = __DIR__ . '/Docs/wiki/projects';
 $projetos  = [];
 
-// Helper para ler projetos de uma pasta
 /**
  * Carrega projetos da pasta — UMA subpasta = UM card
  * Todos os .md dentro de uma subpasta são mesclados em um único projeto
+ * Pastas iniciadas com _ (underscore) são ignoradas (ex: _Documentação)
  */
 function carregarProjetosDaPasta(string $pasta): array {
     $result = [];
@@ -156,6 +156,9 @@ function carregarProjetosDaPasta(string $pasta): array {
     // Subpastas = UM card por pasta (com todos .md recursivos)
     foreach (glob($pasta . '/*', GLOB_ONLYDIR) as $subPasta) {
         $nomeProj = basename($subPasta);
+
+        // Ignora pastas iniciadas com _ (documentação, arquivos auxiliares)
+        if (str_starts_with($nomeProj, '_')) continue;
 
         // Busca recursiva por .md
         $mdFiles = [];
@@ -247,23 +250,20 @@ function carregarProjetosDaPasta(string $pasta): array {
     return $result;
 }
 
-// 1. Lê da pasta local (sempre disponível)
-$projetos = carregarProjetosDaPasta($pastaProj);
-
-// 2. Lê também direto da rede, se configurado (aparece instantaneamente)
+// 1. Tenta carregar da rede primeiro (fonte única — contém projetos de todos os técnicos)
 $configLocal = __DIR__ . '/config_projetos.local.php';
+$origemUsada = 'local';
 if (file_exists($configLocal)) {
     require_once $configLocal;
     if (defined('ORIGEM_PROJETOS') && ORIGEM_PROJETOS && is_dir(ORIGEM_PROJETOS)) {
-        $projetosRede = carregarProjetosDaPasta(ORIGEM_PROJETOS);
-        // Mescla com os locais (evita duplicatas pelo nome do arquivo relativo)
-        $locais = array_column($projetos, 'arquivo');
-        foreach ($projetosRede as $pr) {
-            if (!in_array($pr['arquivo'], $locais)) {
-                $projetos[] = $pr;
-            }
-        }
+        $projetos = carregarProjetosDaPasta(ORIGEM_PROJETOS);
+        $origemUsada = 'rede';
     }
+}
+
+// 2. Fallback: local se rede não estiver disponível
+if ($origemUsada === 'local') {
+    $projetos = carregarProjetosDaPasta($pastaProj);
 }
 
 // ── Modo: lista (padrão) ou detalhe (?proj=arquivo.md) ────────────────────
@@ -277,18 +277,18 @@ if (isset($_GET['sync']) && $_GET['sync'] === '1') {
     if (file_exists($syncScript)) {
         $output = @shell_exec('php "' . $syncScript . '" 2>&1');
         $mensagemSync = 'Projetos sincronizados da rede!';
-        // Recarrega os projetos após sync
-        $projetos = carregarProjetosDaPasta($pastaProj);
+        // Recarrega os projetos após sync (sempre da rede se disponível)
         $configLocal = __DIR__ . '/config_projetos.local.php';
+        $origemSync = 'local';
         if (file_exists($configLocal)) {
             require_once $configLocal;
             if (defined('ORIGEM_PROJETOS') && ORIGEM_PROJETOS && is_dir(ORIGEM_PROJETOS)) {
-                $projetosRede = carregarProjetosDaPasta(ORIGEM_PROJETOS);
-                $locais = array_column($projetos, 'arquivo');
-                foreach ($projetosRede as $pr) {
-                    if (!in_array($pr['arquivo'], $locais)) $projetos[] = $pr;
-                }
+                $projetos = carregarProjetosDaPasta(ORIGEM_PROJETOS);
+                $origemSync = 'rede';
             }
+        }
+        if ($origemSync === 'local') {
+            $projetos = carregarProjetosDaPasta($pastaProj);
         }
     } else {
         $mensagemSync = 'Script de sync não encontrado.';

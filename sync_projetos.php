@@ -85,6 +85,12 @@ $totalProjetos = 0;
 foreach ($pastas as $pasta) {
     $nomeProjeto = basename($pasta);
 
+    // Ignora pastas iniciadas com _ (documentação, arquivos auxiliares)
+    if (str_starts_with($nomeProjeto, '_')) {
+        logSync("  ↺ Pasta '$nomeProjeto' — _prefixada, ignorada");
+        continue;
+    }
+
     // Busca recursiva por .md dentro da pasta do projeto
     $arqs = [];
     $rdi = new RecursiveDirectoryIterator($pasta, RecursiveDirectoryIterator::SKIP_DOTS);
