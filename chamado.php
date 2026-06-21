@@ -240,6 +240,7 @@ $atribuidos  = array_filter($users_req, fn($u) => ($u['type'] ?? 0) == 2);
     #lista-arquivos-responder { display:flex; flex-wrap:wrap; gap:.5rem; }
     .btn-enviar-resposta { background:#d93025; border:none; }
     .btn-enviar-resposta:hover { background:#b71c1c; }
+    .resp-label { font-size:.8rem; font-weight:600; color:#374151; margin-bottom:.2rem; }
   </style>
 </head>
 <body>
@@ -402,6 +403,30 @@ $atribuidos  = array_filter($users_req, fn($u) => ($u['type'] ?? 0) == 2);
   </div>
 
   <!-- ── Responder Chamado ── -->
+  <?php
+  // Carrega atendentes do GLPI para o select
+  $atendentes_lista = [];
+  $auth_u = base64_encode(GLPI_USER . ':' . GLPI_PASS);
+  $ch_u = curl_init(GLPI_URL . '/apirest.php/initSession');
+  curl_setopt_array($ch_u, [CURLOPT_RETURNTRANSFER=>true, CURLOPT_HTTPHEADER=>['Authorization: Basic '.$auth_u,'App-Token: '.GLPI_APP_TOKEN]]);
+  $r_u = json_decode(curl_exec($ch_u), true); curl_close($ch_u);
+  $token_u = $r_u['session_token'] ?? '';
+  if ($token_u) {
+      $h_u = ['Session-Token: '.$token_u, 'App-Token: '.GLPI_APP_TOKEN];
+      $ch_u2 = curl_init(GLPI_URL . '/apirest.php/User?range=0-200&expand_dropdowns=true');
+      curl_setopt_array($ch_u2, [CURLOPT_RETURNTRANSFER=>true, CURLOPT_HTTPHEADER=>$h_u]);
+      $users_raw = json_decode(curl_exec($ch_u2), true) ?? [];
+      curl_close($ch_u2);
+      foreach ($users_raw as $u) {
+          if (!empty($u['id']) && !empty($u['name'])) {
+              $atendentes_lista[] = ['id'=>$u['id'], 'nome'=>$u['name'], 'cor'=>'#1a73e8'];
+          }
+      }
+      $ch_kill = curl_init(GLPI_URL . '/apirest.php/killSession');
+      curl_setopt_array($ch_kill, [CURLOPT_RETURNTRANSFER=>true, CURLOPT_HTTPHEADER=>$h_u]);
+      curl_exec($ch_kill); curl_close($ch_kill);
+  }
+  ?>
   <div class="card-glpi">
     <div class="card-header-glpi" style="border-bottom:3px solid #d93025;">
       <i class="bi bi-reply-fill text-danger"></i> Responder Chamado
@@ -410,10 +435,41 @@ $atribuidos  = array_filter($users_req, fn($u) => ($u['type'] ?? 0) == 2);
       <form id="formResponder" enctype="multipart/form-data">
         <input type="hidden" name="ticket_id" value="<?= $ticket_id ?>"/>
 
+        <div class="row g-2 mb-3">
+          <!-- Atendente -->
+          <div class="col-md-4">
+            <div class="resp-label">Atendente <span class="text-danger">*</span></div>
+            <select class="form-select form-select-sm" id="resp-atendente">
+              <option value="">Selecione o atendente...</option>
+              <?php foreach ($atendentes_lista as $a):
+                $selected = ($a['id'] == $user_id) ? 'selected' : '';
+              ?>
+              <option value="<?= $a['id'] ?>" data-nome="<?= htmlspecialchars($a['nome']) ?>" <?= $selected ?>>
+                <?= htmlspecialchars($a['nome']) ?>
+              </option>
+              <?php endforeach; ?>
+            </select>
+          </div>
+
+          <!-- Data início -->
+          <div class="col-md-4">
+            <div class="resp-label">Data / Início <span class="text-danger">*</span></div>
+            <input type="datetime-local" class="form-control form-control-sm" id="resp-start"
+                   value="<?= date('Y-m-d') . 'T08:00' ?>"/>
+          </div>
+
+          <!-- Data fim -->
+          <div class="col-md-4">
+            <div class="resp-label">Fim <span class="text-danger">*</span></div>
+            <input type="datetime-local" class="form-control form-control-sm" id="resp-end"
+                   value="<?= date('Y-m-d') . 'T09:00' ?>"/>
+          </div>
+        </div>
+
         <!-- Mensagem -->
         <div class="mb-3">
           <label class="form-label fw-semibold">Mensagem <span class="text-danger">*</span></label>
-          <textarea name="resposta" id="resp-texto" class="form-control" rows="5"
+          <textarea name="resposta" id="resp-texto" class="form-control" rows="4"
             placeholder="Descreva o que foi feito, orientações ao usuário, próximos passos..."></textarea>
         </div>
 
@@ -431,12 +487,19 @@ $atribuidos  = array_filter($users_req, fn($u) => ($u['type'] ?? 0) == 2);
           <div id="lista-arquivos-responder" class="mt-2"></div>
         </div>
 
-        <!-- Enviar -->
-        <div class="d-flex align-items-center gap-2">
-          <button type="submit" class="btn btn-danger btn-enviar-resposta" id="btnEnviarResposta">
-            <i class="bi bi-send-fill me-2"></i>Enviar Resposta
-          </button>
-          <div id="resp-status" class="small text-muted"></div>
+        <!-- Opções finais -->
+        <div class="d-flex flex-wrap align-items-center gap-3">
+          <label class="d-flex align-items-center gap-2 text-danger fw-semibold" style="cursor:pointer">
+            <input type="checkbox" id="resp-fechar" checked/>
+            🔒 Fechar chamado no GLPI
+          </label>
+
+          <div class="ms-auto d-flex align-items-center gap-2">
+            <button type="submit" class="btn btn-danger btn-enviar-resposta" id="btnEnviarResposta">
+              <i class="bi bi-send-fill me-2"></i>Enviar Resposta
+            </button>
+            <div id="resp-status" class="small text-muted"></div>
+          </div>
         </div>
       </form>
     </div>
@@ -468,6 +531,7 @@ document.addEventListener('keydown', e => { if (e.key === 'Escape') fecharLb(); 
 
 // ── Responder Chamado ──
 let _arquivosAnexos = [];
+const TICKET_ID = <?= $ticket_id ?>;
 
 function listarArquivos() {
   adicionarArquivos(document.getElementById('resp-arquivos').files);
@@ -535,8 +599,6 @@ function escHtml(s) {
 
 // Ctrl+V colar imagem
 document.addEventListener('paste', function(e) {
-  const textarea = document.getElementById('resp-texto');
-  // Só captura se o foco estiver na página (não em input externo)
   const ativo = document.activeElement;
   if (ativo && ativo.closest && !ativo.closest('#formResponder')) return;
 
@@ -575,42 +637,122 @@ dropZone.addEventListener('drop', e => {
 document.getElementById('formResponder').addEventListener('submit', async function(e) {
   e.preventDefault();
 
-  const resposta = document.getElementById('resp-texto').value.trim();
-  if (!resposta) {
-    document.getElementById('resp-texto').focus();
-    document.getElementById('resp-status').textContent = '⚠️ Digite uma mensagem.';
+  // ── Valida campos ──
+  const atendenteId   = document.getElementById('resp-atendente').value;
+  const atendenteNome = document.getElementById('resp-atendente').selectedOptions[0]?.getAttribute('data-nome') || '';
+  const startRaw      = document.getElementById('resp-start').value;
+  const endRaw        = document.getElementById('resp-end').value;
+  const resposta      = document.getElementById('resp-texto').value.trim();
+  const fechar        = document.getElementById('resp-fechar').checked;
+
+  if (!atendenteId) {
+    document.getElementById('resp-atendente').focus();
+    setStatus('⚠️ Selecione um atendente.', 'warning');
     return;
   }
+  if (!startRaw || !endRaw) {
+    setStatus('⚠️ Preencha data/hora de início e fim.', 'warning');
+    return;
+  }
+  if (!resposta) {
+    document.getElementById('resp-texto').focus();
+    setStatus('⚠️ Digite uma mensagem.', 'warning');
+    return;
+  }
+
+  const start = startRaw.replace('T', ' ') + ':00';
+  const end   = endRaw.replace('T', ' ') + ':00';
 
   const btn = document.getElementById('btnEnviarResposta');
   const status = document.getElementById('resp-status');
   btn.disabled = true;
   btn.innerHTML = '<span class="spinner-border spinner-border-sm me-2"></span>Enviando...';
-  status.textContent = '';
-
-  const fd = new FormData();
-  fd.append('ticket_id', '<?= $ticket_id ?>');
-  fd.append('resposta', resposta);
-  _arquivosAnexos.forEach(f => fd.append('arquivos[]', f));
+  setStatus('', '');
 
   try {
-    const res = await fetch('agenda/responder_ticket.php', { method: 'POST', body: fd });
-    const data = await res.json();
-
-    if (data.ok) {
-      status.innerHTML = '<i class="bi bi-check-circle-fill text-success"></i> Resposta enviada! Recarregando...';
-      setTimeout(() => location.reload(), 1200);
-    } else {
-      status.innerHTML = '<i class="bi bi-x-circle-fill text-danger"></i> ' + (data.msg || 'Erro ao enviar resposta');
+    // 1️⃣ Atribuir chamado ao atendente
+    setStatus('⏳ Atribuindo chamado...', '');
+    const resAtrib = await fetch('agenda/atribuir_ticket.php', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ticket_id: TICKET_ID, atendente_id: parseInt(atendenteId) }),
+    });
+    const dataAtrib = await resAtrib.json();
+    if (!dataAtrib.ok) {
+      setStatus('❌ Erro ao atribuir: ' + (dataAtrib.msg || 'Falha'), 'danger');
       btn.disabled = false;
       btn.innerHTML = '<i class="bi bi-send-fill me-2"></i>Enviar Resposta';
+      return;
     }
+
+    // 2️⃣ Enviar resposta
+    setStatus('⏳ Enviando resposta...', '');
+    const fd = new FormData();
+    fd.append('ticket_id', TICKET_ID);
+    fd.append('resposta', resposta);
+    _arquivosAnexos.forEach(f => fd.append('arquivos[]', f));
+
+    const resResp = await fetch('agenda/responder_ticket.php', { method: 'POST', body: fd });
+    const dataResp = await resResp.json();
+    if (!dataResp.ok) {
+      setStatus('❌ Erro ao enviar resposta: ' + (dataResp.msg || 'Falha'), 'danger');
+      btn.disabled = false;
+      btn.innerHTML = '<i class="bi bi-send-fill me-2"></i>Enviar Resposta';
+      return;
+    }
+
+    // 3️⃣ Criar evento na agenda do atendente
+    setStatus('⏳ Inserindo na agenda...', '');
+    const resAgenda = await fetch('agenda/eventos.php?action=save', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        titulo: '#' + TICKET_ID + ' — ' + (document.querySelector('.ticket-title')?.textContent?.trim() || 'Chamado'),
+        descricao: resposta,
+        start: start,
+        end: end,
+        atendente: atendenteNome,
+        atendente_id: parseInt(atendenteId),
+        atendente_cor: '#1a73e8',
+        tipo: 'chamado',
+        ticket_id: TICKET_ID,
+        concluido: fechar ? 1 : 0,
+      }),
+    });
+    const dataAgenda = await resAgenda.json();
+
+    // 4️⃣ Se marcado, fechar chamado no GLPI
+    if (fechar) {
+      setStatus('⏳ Fechando chamado...', '');
+      await fetch('agenda/fechar_ticket.php', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ticket_id: TICKET_ID }),
+      });
+    }
+
+    // ✅ Sucesso!
+    const msgFinal = fechar
+      ? '✅ Resposta enviada, chamado fechado e agendado!'
+      : '✅ Resposta enviada e agendada!';
+    setStatus('<i class="bi bi-check-circle-fill text-success"></i> ' + msgFinal + ' Recarregando...', 'success');
+    setTimeout(() => location.reload(), 1500);
+
   } catch (err) {
-    status.innerHTML = '<i class="bi bi-x-circle-fill text-danger"></i> Erro de conexão: ' + err.message;
+    setStatus('❌ Erro de conexão: ' + err.message, 'danger');
     btn.disabled = false;
     btn.innerHTML = '<i class="bi bi-send-fill me-2"></i>Enviar Resposta';
   }
 });
+
+function setStatus(html, type) {
+  const el = document.getElementById('resp-status');
+  if (type === 'warning') el.style.color = '#d97706';
+  else if (type === 'danger') el.style.color = '#dc2626';
+  else if (type === 'success') el.style.color = '#16a34a';
+  else el.style.color = '#6b7280';
+  el.innerHTML = html;
+}
 </script>
 </body>
 </html>

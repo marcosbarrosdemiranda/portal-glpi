@@ -1,38 +1,54 @@
 # Log de Sessão — 22/06/2026
 
 ## Resumo
-Adicionado formulário de "Responder Chamado" inline na página de visualização do chamado (`chamado.php`), reutilizando o `responder_ticket.php` da agenda.
+Implementação completa do formulário "Responder Chamado" na página de visualização do chamado (`chamado.php`), seguindo o mesmo padrão da agenda.
 
 ---
 
-## Funcionalidade
+## O que foi implementado
 
-### O que foi implementado
-Card "Responder Chamado" ao final da página de detalhes do chamado, com:
-1. **Textarea** para digitar a mensagem de acompanhamento
-2. **Drop zone** para anexar arquivos (clique ou arraste)
-3. **Ctrl+V** para colar imagem diretamente da área de transferência
-4. **Preview** de imagens anexadas com miniatura
-5. **Lista de arquivos** com nome e botão de remover
-6. **Envio via fetch** para `agenda/responder_ticket.php` (mesmo endpoint da agenda)
-7. **Recarregamento automático** da página após sucesso (mostra o followup novo)
+Card "Responder Chamado" ao final da página de detalhes, com:
 
-### Arquivos alterados
+### Campos do formulário
+| Campo | Tipo | Descrição |
+|-------|------|-----------|
+| **Atendente** | Select | Carregado do GLPI, pré-seleciona o usuário logado |
+| **Data / Início** | datetime-local | Data e hora de início do atendimento (padrão: hoje 08:00) |
+| **Fim** | datetime-local | Data e hora de fim (padrão: hoje 09:00) |
+| **Mensagem** | Textarea | Resposta/acompanhamento do chamado |
+| **Anexos** | Drop zone + Ctrl+V | Upload, arraste ou cole imagens |
+| **Fechar chamado** | Checkbox | Marca para fechar o chamado no GLPI (padrão: marcado) |
+
+### Fluxo de execução (sequencial)
+1. **Atribuir** → `agenda/atribuir_ticket.php` — atribui ao atendente selecionado
+2. **Responder** → `agenda/responder_ticket.php` — cria followup com anexos no GLPI
+3. **Agendar** → `agenda/eventos.php?action=save` — cria evento na agenda do atendente
+4. **Fechar** → `agenda/fechar_ticket.php` — se marcado, fecha chamado (PUT status=6)
+
+### Status visual
+- Indicador de progresso (⏳ Atribuindo... ⏳ Enviando resposta... ⏳ Inserindo na agenda...)
+- Mensagens de erro/sucesso com cores
+- Recarregamento automático após sucesso (1.5s)
+
+## Arquivos alterados
 | Arquivo | Alteração |
 |---------|-----------|
-| `chamado.php` | CSS: `.drop-zone-responder`, `.arquivo-chip`, `.btn-enviar-resposta` |
-| `chamado.php` | HTML: card "Responder Chamado" com form, textarea, drop zone |
-| `chamado.php` | JS: `_arquivosAnexos[]`, `listarArquivos()`, `adicionarArquivos()`, `renderizarArquivos()`, `removerArquivo()`, paste handler, drag & drop, submit |
+| `chamado.php` | PHP: carregamento de atendentes via API GLPI para o select |
+| `chamado.php` | HTML: formulário completo com atendente, datas, texto, anexos, fechar |
+| `chamado.php` | JS: submit com 4 etapas sequenciais + `setStatus()` para feedback |
+| `chamado.php` | CSS: `.resp-label` e estilos auxiliares |
 
 ## Commits
-- Pendente (junto com ordenação do histórico)
+- Pendente
 
 ## Status
-- [x] Responder inline na página do chamado
-- [x] Upload de múltiplos arquivos
-- [x] Ctrl+V colar imagem
-- [x] Preview de imagens
-- [x] Envio para `responder_ticket.php`
+- [x] Select atendente carregado do GLPI
+- [x] Data/hora início e fim
+- [x] Texto de resposta
+- [x] Anexos (clique, arraste, Ctrl+V, preview)
+- [x] Fechar chamado (checkbox marcado por padrão)
+- [x] Fluxo: atribuir → responder → agendar → fechar
+- [x] Status de progresso na tela
 - [x] Recarga automática após sucesso
 - [x] Copiado para servidor 192.168.1.198
-- [ ] Copiado para servidor 192.168.1.51 (pendente — servidor sem resposta)
+- [ ] Copiado para servidor 192.168.1.51 (pendente)
