@@ -129,6 +129,7 @@ function glpi_tickets(array $filtros = [], int $pagina = 1, int $por_pagina = 0)
             'tipo'       => $t_display ?: ($t_num == 1 ? 'Incidente' : 'Requisição'),
             'tipo_n'     => $t_num,
             'urgencia'   => $urg_map[$u_num] ?? 'Média',
+            'urg_n'      => $u_num,
             'urg_cor'    => $urg_cor[$u_num] ?? 'warning',
             'entidade'   => apelido_entidade($row[80] ?? ''),
             'entidade_id'=> (int)($row[80] ?? 0),
@@ -301,6 +302,19 @@ $entidades = carregarEntidades();
       .tabela-card { overflow-x:auto; }
       .filtros-card { flex-direction:column; }
     }
+
+    /* Sortable headers */
+    th.sortable {
+      cursor:pointer; user-select:none; white-space:nowrap;
+      transition:color .15s;
+    }
+    th.sortable:hover { color:var(--accent)!important; }
+    th.sortable::after {
+      content:''; display:inline-block; width:.7rem; margin-left:.25rem;
+      opacity:.35; font-size:.7rem;
+    }
+    th.sortable.sort-asc::after { content:'▲'; opacity:1; }
+    th.sortable.sort-desc::after { content:'▼'; opacity:1; color:var(--accent); }
   </style>
 </head>
 <body>
@@ -404,30 +418,30 @@ $entidades = carregarEntidades();
     <table class="table table-hover">
       <thead>
         <tr>
-          <th>#</th>
-          <th>Título</th>
-          <th>Tipo</th>
-          <th>Status</th>
-          <th>Urgência</th>
-          <th>Entidade</th>
-          <th>Abertura</th>
-          <th>Atualização</th>
+          <th data-col="0" class="sortable">#</th>
+          <th data-col="1" class="sortable">Título</th>
+          <th data-col="2" class="sortable">Tipo</th>
+          <th data-col="3" class="sortable">Status</th>
+          <th data-col="4" class="sortable">Urgência</th>
+          <th data-col="5" class="sortable">Entidade</th>
+          <th data-col="6" class="sortable">Abertura</th>
+          <th data-col="7" class="sortable sort-desc">Atualização</th>
         </tr>
       </thead>
       <tbody>
         <?php foreach ($chamados as $c): ?>
         <tr style="cursor:pointer" onclick="window.location.href='chamado.php?id=<?= $c['id'] ?>'">
-          <td class="ticket-id"><?= $c['id'] ?></td>
-          <td class="ticket-titulo"><?= htmlspecialchars($c['titulo']) ?></td>
-          <td><span class="badge <?= $c['tipo_n']==1 ? 'bg-danger' : 'bg-warning text-dark' ?>"><?= $c['tipo'] ?></span></td>
-          <td><span class="badge bg-<?= $c['status_cor'] ?>"><?= $c['status'] ?></span></td>
-          <td>
+          <td class="ticket-id" data-sort="<?= $c['id'] ?>"><?= $c['id'] ?></td>
+          <td class="ticket-titulo" data-sort="<?= htmlspecialchars(mb_strtolower($c['titulo'])) ?>"><?= htmlspecialchars($c['titulo']) ?></td>
+          <td data-sort="<?= $c['tipo_n'] ?>"><span class="badge <?= $c['tipo_n']==1 ? 'bg-danger' : 'bg-warning text-dark' ?>"><?= $c['tipo'] ?></span></td>
+          <td data-sort="<?= $c['status_n'] ?>"><span class="badge bg-<?= $c['status_cor'] ?>"><?= $c['status'] ?></span></td>
+          <td data-sort="<?= $c['urg_n'] ?>">
             <span class="urg-dot urg-<?= $c['urg_cor'] ?>"></span>
             <?= $c['urgencia'] ?>
           </td>
-          <td class="text-muted" style="font-size:.78rem"><?= htmlspecialchars($c['entidade']) ?></td>
-          <td class="text-muted" style="font-size:.78rem"><?= $c['data'] ?></td>
-          <td class="text-muted" style="font-size:.78rem"><?= $c['atualizado'] ?></td>
+          <td class="text-muted" style="font-size:.78rem" data-sort="<?= htmlspecialchars(mb_strtolower($c['entidade'])) ?>"><?= htmlspecialchars($c['entidade']) ?></td>
+          <td class="text-muted" style="font-size:.78rem" data-sort="<?= $c['data'] ?>"><?= $c['data'] ?></td>
+          <td class="text-muted" style="font-size:.78rem" data-sort="<?= $c['atualizado'] ?>"><?= $c['atualizado'] ?></td>
         </tr>
         <?php endforeach; ?>
       </tbody>
@@ -483,5 +497,73 @@ $entidades = carregarEntidades();
 
 </div>
 <script src="assets/notificacoes.js"></script>
+<script>
+(function() {
+  'use strict';
+
+  const tabela = document.querySelector('.tabela-card table');
+  if (!tabela) return;
+  const tbody = tabela.querySelector('tbody');
+  if (!tbody) return;
+  const linhas = Array.from(tbody.querySelectorAll('tr'));
+
+  // Guarda dados originais
+  const dados = linhas.map(tr => Array.from(tr.children).map(td => td.getAttribute('data-sort') ?? td.textContent.trim()));
+
+  function valorComparacao(val) {
+    if (!val || val === '') return ''; // vazio no final
+    // Se parece com data ISO (YYYY-MM-DD), converte pra timestamp
+    if (/^\d{4}-\d{2}-\d{2}( \d{2}:\d{2})?$/.test(val)) return new Date(val.replace(' ', 'T')).getTime();
+    // Numérico
+    const n = parseFloat(val);
+    if (!isNaN(n)) return n;
+    // String (case insensitive)
+    return val.toLowerCase();
+  }
+
+  function ordenar(colIdx, direcao) {
+    const indices = Array.from({length: dados.length}, (_, i) => i);
+    indices.sort((a, b) => {
+      const va = valorComparacao(dados[a][colIdx]);
+      const vb = valorComparacao(dados[b][colIdx]);
+      if (typeof va === 'number' && typeof vb === 'number') return direcao === 'asc' ? va - vb : vb - va;
+      if (va < vb) return direcao === 'asc' ? -1 : 1;
+      if (va > vb) return direcao === 'asc' ? 1 : -1;
+      return 0;
+    });
+
+    // Reordena DOM
+    const fragment = document.createDocumentFragment();
+    indices.forEach(i => fragment.appendChild(linhas[i]));
+    tbody.appendChild(fragment);
+  }
+
+  // Atualiza classes nos headers
+  function setActiveHeader(colIdx, dir) {
+    tabela.querySelectorAll('th.sortable').forEach(th => {
+      th.classList.remove('sort-asc', 'sort-desc', 'text-primary');
+    });
+    const th = tabela.querySelector(`th.sortable[data-col="${colIdx}"]`);
+    if (th) {
+      th.classList.add(dir === 'asc' ? 'sort-asc' : 'sort-desc', 'text-primary');
+    }
+  }
+
+  // Click nos headers
+  tabela.querySelectorAll('th.sortable').forEach(th => {
+    th.addEventListener('click', function() {
+      const col = parseInt(this.dataset.col);
+      const isDesc = this.classList.contains('sort-desc');
+      const dir = isDesc ? 'asc' : 'desc';
+      ordenar(col, dir);
+      setActiveHeader(col, dir);
+    });
+  });
+
+  // Padrão: ordenar por Atualização (col 7) DESC
+  ordenar(7, 'desc');
+  setActiveHeader(7, 'desc');
+})();
+</script>
 </body>
 </html>
