@@ -211,6 +211,35 @@ $atribuidos  = array_filter($users_req, fn($u) => ($u['type'] ?? 0) == 2);
 
     /* Sem conteúdo */
     .empty-msg { color:#9ca3af; font-size:.85rem; font-style:italic; }
+
+    /* ── Responder ── */
+    .drop-zone-responder {
+      border:2px dashed #d1d5db; border-radius:10px;
+      padding:1rem 1.5rem; text-align:center; cursor:pointer;
+      transition:all .2s; background:#fafbfc;
+    }
+    .drop-zone-responder:hover,
+    .drop-zone-responder.dragover {
+      border-color:var(--accent); background:#e8f0fe;
+    }
+    .arquivo-chip {
+      display:inline-flex; align-items:center; gap:.4rem;
+      background:#f3f4f6; border:1px solid #e5e7eb;
+      border-radius:8px; padding:.3rem .6rem;
+      font-size:.78rem;
+    }
+    .arquivo-chip .rm {
+      cursor:pointer; color:#9ca3af; margin-left:.2rem;
+    }
+    .arquivo-chip .rm:hover { color:#dc2626; }
+    .arquivo-chip.chip-img { flex-direction:column; padding:.4rem; }
+    .arquivo-chip .chip-thumb {
+      width:60px; height:45px; object-fit:cover;
+      border-radius:4px; cursor:zoom-in;
+    }
+    #lista-arquivos-responder { display:flex; flex-wrap:wrap; gap:.5rem; }
+    .btn-enviar-resposta { background:#d93025; border:none; }
+    .btn-enviar-resposta:hover { background:#b71c1c; }
   </style>
 </head>
 <body>
@@ -372,6 +401,47 @@ $atribuidos  = array_filter($users_req, fn($u) => ($u['type'] ?? 0) == 2);
     </div>
   </div>
 
+  <!-- ── Responder Chamado ── -->
+  <div class="card-glpi">
+    <div class="card-header-glpi" style="border-bottom:3px solid #d93025;">
+      <i class="bi bi-reply-fill text-danger"></i> Responder Chamado
+    </div>
+    <div class="card-body-glpi">
+      <form id="formResponder" enctype="multipart/form-data">
+        <input type="hidden" name="ticket_id" value="<?= $ticket_id ?>"/>
+
+        <!-- Mensagem -->
+        <div class="mb-3">
+          <label class="form-label fw-semibold">Mensagem <span class="text-danger">*</span></label>
+          <textarea name="resposta" id="resp-texto" class="form-control" rows="5"
+            placeholder="Descreva o que foi feito, orientações ao usuário, próximos passos..."></textarea>
+        </div>
+
+        <!-- Anexos -->
+        <div class="mb-3">
+          <label class="form-label fw-semibold">Anexar arquivos (imagens, docs, prints)</label>
+          <div class="drop-zone-responder" id="dropZone" onclick="document.getElementById('resp-arquivos').click()">
+            <i class="bi bi-cloud-upload fs-4 text-muted"></i>
+            <p class="mb-0 text-muted small">Clique ou arraste arquivos aqui</p>
+            <p class="mb-0 text-muted" style="font-size:.75rem"><kbd>Ctrl+V</kbd> para colar imagem da área de transferência</p>
+            <input type="file" id="resp-arquivos" name="arquivos[]" multiple
+                   accept="image/*,.pdf,.doc,.docx,.txt,.zip,.xls,.xlsx" class="d-none"
+                   onchange="listarArquivos()"/>
+          </div>
+          <div id="lista-arquivos-responder" class="mt-2"></div>
+        </div>
+
+        <!-- Enviar -->
+        <div class="d-flex align-items-center gap-2">
+          <button type="submit" class="btn btn-danger btn-enviar-resposta" id="btnEnviarResposta">
+            <i class="bi bi-send-fill me-2"></i>Enviar Resposta
+          </button>
+          <div id="resp-status" class="small text-muted"></div>
+        </div>
+      </form>
+    </div>
+  </div>
+
 </div>
 
 <!-- Lightbox -->
@@ -395,6 +465,152 @@ document.querySelectorAll('.doc-img-thumb').forEach(img => {
 });
 // Fecha com Esc
 document.addEventListener('keydown', e => { if (e.key === 'Escape') fecharLb(); });
+
+// ── Responder Chamado ──
+let _arquivosAnexos = [];
+
+function listarArquivos() {
+  adicionarArquivos(document.getElementById('resp-arquivos').files);
+}
+
+function adicionarArquivos(files) {
+  for (const f of files) {
+    if (_arquivosAnexos.find(a => a.name === f.name && a.size === f.size)) continue;
+    _arquivosAnexos.push(f);
+  }
+  renderizarArquivos();
+}
+
+function renderizarArquivos() {
+  const lista = document.getElementById('lista-arquivos-responder');
+  lista.innerHTML = '';
+  _arquivosAnexos.forEach((f, i) => {
+    const isImg = f.type.startsWith('image/');
+    const chip = document.createElement('div');
+    const nome = f.name.length > 20 ? f.name.slice(0, 18) + '…' : f.name;
+
+    if (isImg) {
+      chip.className = 'arquivo-chip chip-img';
+      const thumb = document.createElement('img');
+      thumb.className = 'chip-thumb';
+      thumb.title = f.name;
+      const reader = new FileReader();
+      reader.onload = ev => { thumb.src = ev.target.result; };
+      reader.readAsDataURL(f);
+
+      const footer = document.createElement('div');
+      footer.className = 'chip-footer d-flex align-items-center gap-1 w-100';
+      const span = document.createElement('span');
+      span.title = f.name;
+      span.style.cssText = 'flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:.75rem';
+      span.textContent = nome;
+      const rm = document.createElement('i');
+      rm.className = 'bi bi-x rm';
+      rm.onclick = () => removerArquivo(i);
+      footer.appendChild(span);
+      footer.appendChild(rm);
+      chip.appendChild(thumb);
+      chip.appendChild(footer);
+    } else {
+      chip.className = 'arquivo-chip';
+      chip.innerHTML = `
+        <i class="bi bi-file-earmark text-secondary"></i>
+        <span title="${escHtml(f.name)}">${escHtml(nome)}</span>
+        <i class="bi bi-x rm" onclick="removerArquivo(${i})"></i>`;
+    }
+    lista.appendChild(chip);
+  });
+}
+
+function removerArquivo(i) {
+  _arquivosAnexos.splice(i, 1);
+  renderizarArquivos();
+}
+
+function escHtml(s) {
+  const d = document.createElement('div');
+  d.textContent = s;
+  return d.innerHTML;
+}
+
+// Ctrl+V colar imagem
+document.addEventListener('paste', function(e) {
+  const textarea = document.getElementById('resp-texto');
+  // Só captura se o foco estiver na página (não em input externo)
+  const ativo = document.activeElement;
+  if (ativo && ativo.closest && !ativo.closest('#formResponder')) return;
+
+  const items = (e.clipboardData || e.originalEvent?.clipboardData)?.items;
+  if (!items) return;
+  const imagens = [];
+  for (const item of items) {
+    if (!item.type.startsWith('image/')) continue;
+    const blob = item.getAsFile();
+    if (!blob) continue;
+    const ext = item.type.split('/')[1] || 'png';
+    imagens.push(new File([blob], `print_${Date.now()}.${ext}`, { type: item.type }));
+  }
+  if (!imagens.length) return;
+  e.preventDefault();
+  adicionarArquivos(imagens);
+  const dz = document.getElementById('dropZone');
+  dz.classList.add('dragover');
+  setTimeout(() => dz.classList.remove('dragover'), 600);
+});
+
+// Drag & drop na drop zone
+const dropZone = document.getElementById('dropZone');
+['dragenter','dragover'].forEach(ev => {
+  dropZone.addEventListener(ev, e => { e.preventDefault(); dropZone.classList.add('dragover'); });
+});
+['dragleave','drop'].forEach(ev => {
+  dropZone.addEventListener(ev, e => { e.preventDefault(); dropZone.classList.remove('dragover'); });
+});
+dropZone.addEventListener('drop', e => {
+  e.preventDefault();
+  if (e.dataTransfer.files.length) adicionarArquivos(e.dataTransfer.files);
+});
+
+// Submit do formulário
+document.getElementById('formResponder').addEventListener('submit', async function(e) {
+  e.preventDefault();
+
+  const resposta = document.getElementById('resp-texto').value.trim();
+  if (!resposta) {
+    document.getElementById('resp-texto').focus();
+    document.getElementById('resp-status').textContent = '⚠️ Digite uma mensagem.';
+    return;
+  }
+
+  const btn = document.getElementById('btnEnviarResposta');
+  const status = document.getElementById('resp-status');
+  btn.disabled = true;
+  btn.innerHTML = '<span class="spinner-border spinner-border-sm me-2"></span>Enviando...';
+  status.textContent = '';
+
+  const fd = new FormData();
+  fd.append('ticket_id', '<?= $ticket_id ?>');
+  fd.append('resposta', resposta);
+  _arquivosAnexos.forEach(f => fd.append('arquivos[]', f));
+
+  try {
+    const res = await fetch('agenda/responder_ticket.php', { method: 'POST', body: fd });
+    const data = await res.json();
+
+    if (data.ok) {
+      status.innerHTML = '<i class="bi bi-check-circle-fill text-success"></i> Resposta enviada! Recarregando...';
+      setTimeout(() => location.reload(), 1200);
+    } else {
+      status.innerHTML = '<i class="bi bi-x-circle-fill text-danger"></i> ' + (data.msg || 'Erro ao enviar resposta');
+      btn.disabled = false;
+      btn.innerHTML = '<i class="bi bi-send-fill me-2"></i>Enviar Resposta';
+    }
+  } catch (err) {
+    status.innerHTML = '<i class="bi bi-x-circle-fill text-danger"></i> Erro de conexão: ' + err.message;
+    btn.disabled = false;
+    btn.innerHTML = '<i class="bi bi-send-fill me-2"></i>Enviar Resposta';
+  }
+});
 </script>
 </body>
 </html>
