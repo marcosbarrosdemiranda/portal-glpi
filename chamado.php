@@ -8,6 +8,92 @@ if (!$ticket_id) { header('Location: historico.php'); exit; }
 require_once __DIR__ . '/agenda/config.php';
 require_once __DIR__ . '/entidade_alias.php';
 
+$user_id = (int)($_SESSION['user_id'] ?? 0);
+
+// ── Handler para editar entidade/categoria/atendente via AJAX ──
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'editar_campos') {
+    header('Content-Type: application/json');
+    $tid = (int)($_POST['ticket_id'] ?? 0);
+    $entidade_id  = isset($_POST['entidade_id']) && $_POST['entidade_id'] !== '' ? (int)$_POST['entidade_id'] : null;
+    $categoria_id = isset($_POST['categoria_id']) && $_POST['categoria_id'] !== '' ? (int)$_POST['categoria_id'] : null;
+    $atendente_id = isset($_POST['atendente_id']) && $_POST['atendente_id'] !== '' ? (int)$_POST['atendente_id'] : null;
+
+    if (!$tid) { echo json_encode(['ok'=>false,'msg'=>'ticket_id inválido']); exit; }
+
+    $auth = base64_encode(GLPI_USER . ':' . GLPI_PASS);
+    $ch = curl_init(GLPI_URL . '/apirest.php/initSession');
+    curl_setopt_array($ch, [CURLOPT_RETURNTRANSFER=>true, CURLOPT_HTTPHEADER=>['Authorization: Basic '.$auth,'App-Token: '.GLPI_APP_TOKEN]]);
+    $r = json_decode(curl_exec($ch), true); curl_close($ch);
+    $token_s = $r['session_token'] ?? '';
+    if (!$token_s) { echo json_encode(['ok'=>false,'msg'=>'Falha na autenticação GLPI']); exit; }
+
+    $h = ['Content-Type: application/json','Session-Token: '.$token_s,'App-Token: '.GLPI_APP_TOKEN];
+    $erros = [];
+
+    // 1️⃣ Atualiza entidade / categoria no ticket
+    $input = [];
+    if ($entidade_id)  $input['entities_id']       = $entidade_id;
+    if ($categoria_id) $input['itilcategories_id'] = $categoria_id;
+    if (!empty($input)) {
+        $ch2 = curl_init(GLPI_URL . '/apirest.php/Ticket/' . $tid);
+        curl_setopt_array($ch2, [
+            CURLOPT_RETURNTRANSFER=>true, CURLOPT_CUSTOMREQUEST=>'PUT',
+            CURLOPT_POSTFIELDS=>json_encode(['input'=>$input]), CURLOPT_HTTPHEADER=>$h
+        ]);
+        $resTicket = json_decode(curl_exec($ch2), true);
+        $errTicket = curl_error($ch2);
+        curl_close($ch2);
+        if ($errTicket || empty($resTicket['id'])) {
+            $erros[] = 'Falha ao atualizar ticket: ' . ($errTicket ?: json_encode($resTicket));
+        }
+    }
+
+    // 2️⃣ Reatribui técnico se informado
+    if ($atendente_id) {
+        // Remove técnicos existentes (type=2)
+        $ch_tu = curl_init(GLPI_URL . '/apirest.php/Ticket/' . $tid . '/Ticket_User?searchText[type]=2');
+        curl_setopt_array($ch_tu, [CURLOPT_RETURNTRANSFER=>true, CURLOPT_HTTPHEADER=>$h]);
+        $atuais = json_decode(curl_exec($ch_tu), true) ?? [];
+        curl_close($ch_tu);
+        foreach ($atuais as $tu) {
+            if (!isset($tu['id'])) continue;
+            $ch_d = curl_init(GLPI_URL . '/apirest.php/Ticket_User/' . $tu['id']);
+            curl_setopt_array($ch_d, [CURLOPT_RETURNTRANSFER=>true, CURLOPT_CUSTOMREQUEST=>'DELETE', CURLOPT_HTTPHEADER=>$h]);
+            curl_exec($ch_d); curl_close($ch_d);
+        }
+        // Atribui novo técnico
+        $ch_a = curl_init(GLPI_URL . '/apirest.php/Ticket_User');
+        curl_setopt_array($ch_a, [CURLOPT_RETURNTRANSFER=>true, CURLOPT_POST=>true,
+            CURLOPT_POSTFIELDS=>json_encode(['input'=>['tickets_id'=>$tid,'users_id'=>$atendente_id,'type'=>2]]),
+            CURLOPT_HTTPHEADER=>$h]);
+        $resTec = json_decode(curl_exec($ch_a), true);
+        $errTec = curl_error($ch_a);
+        curl_close($ch_a);
+        if ($errTec || empty($resTec['id'])) {
+            $erros[] = 'Falha ao atribuir técnico: ' . ($errTec ?: json_encode($resTec));
+        }
+
+        // Seta status para Atribuído (2) se conseguiu atribuir
+        if (empty($erros)) {
+            $ch_st = curl_init(GLPI_URL . '/apirest.php/Ticket/' . $tid);
+            curl_setopt_array($ch_st, [CURLOPT_RETURNTRANSFER=>true, CURLOPT_CUSTOMREQUEST=>'PUT',
+                CURLOPT_POSTFIELDS=>json_encode(['input'=>['status'=>2]]), CURLOPT_HTTPHEADER=>$h]);
+            curl_exec($ch_st); curl_close($ch_st);
+        }
+    }
+
+    $ch3 = curl_init(GLPI_URL . '/apirest.php/killSession');
+    curl_setopt_array($ch3, [CURLOPT_RETURNTRANSFER=>true, CURLOPT_HTTPHEADER=>$h]);
+    curl_exec($ch3); curl_close($ch3);
+
+    if (empty($erros)) {
+        echo json_encode(['ok'=>true,'msg'=>'Campos atualizados com sucesso!']);
+    } else {
+        echo json_encode(['ok'=>false,'msg'=>implode(' | ', $erros)]);
+    }
+    exit;
+}
+
 function glpi_req(string $url, string $token): array {
     $ch = curl_init($url);
     curl_setopt_array($ch, [
@@ -31,7 +117,24 @@ if (!$token) { echo 'Erro de autenticação GLPI'; exit; }
 // Dados do ticket
 $ticket    = glpi_req(GLPI_URL.'/apirest.php/Ticket/'.$ticket_id.'?expand_dropdowns=true', $token);
 $followups = glpi_req(GLPI_URL.'/apirest.php/Ticket/'.$ticket_id.'/ITILFollowup?expand_dropdowns=true', $token);
-$users_req = glpi_req(GLPI_URL.'/apirest.php/Ticket/'.$ticket_id.'/Ticket_User?expand_dropdowns=true', $token);
+$users_req = glpi_req(GLPI_URL.'/apirest.php/Ticket/'.$ticket_id.'/Ticket_User', $token);
+// NOTA: Ticket_User SEM expand_dropdowns para que users_id seja NUMÉRICO.
+// Os nomes são resolvidos via $user_nomes abaixo.
+
+// Mapa de IDs → nomes dos usuários (para exibir nomes nos atores)
+$user_nomes = [];
+if ($token) {
+    $raw_users = glpi_req(GLPI_URL.'/apirest.php/User?range=0-500&expand_dropdowns=true', $token);
+    foreach ($raw_users as $u) {
+        if (!isset($u['id'])) continue;
+        $nome = trim(($u['realname'] ?? '') . ' ' . ($u['firstname'] ?? ''));
+        if (!$nome) $nome = $u['name'] ?? 'ID ' . $u['id'];
+        $user_nomes[(int)$u['id']] = $nome;
+    }
+}
+function nome_user(int $id, array $map): string {
+    return $map[$id] ?? 'ID ' . $id;
+}
 
 // Documentos ligados diretamente ao Ticket (raramente usados)
 $doc_items_ticket = glpi_req(GLPI_URL.'/apirest.php/Ticket/'.$ticket_id.'/Document_Item', $token);
@@ -104,6 +207,13 @@ $tipo    = $tipo_map[$ticket['type'] ?? 1] ?? 'Incidente';
 // Separa atores por tipo
 $requerentes = array_filter($users_req, fn($u) => ($u['type'] ?? 0) == 1);
 $atribuidos  = array_filter($users_req, fn($u) => ($u['type'] ?? 0) == 2);
+
+// Pega o ID do primeiro técnico atribuído (para o edit mode)
+$primeiro_atendente_id = 0;
+foreach ($atribuidos as $a) {
+    $uid = (int)($a['users_id'] ?? 0);
+    if ($uid) { $primeiro_atendente_id = $uid; break; }
+}
 ?>
 <!DOCTYPE html>
 <html lang="pt-BR">
@@ -113,6 +223,7 @@ $atribuidos  = array_filter($users_req, fn($u) => ($u['type'] ?? 0) == 2);
   <title>Chamado #<?= $ticket_id ?> — <?= htmlspecialchars($ticket['name'] ?? '') ?></title>
   <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet"/>
   <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.css" rel="stylesheet"/>
+  <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js" defer></script>
   <style>
     :root { --primary:#1a237e; --accent:#1a73e8; }
     body  { background:#f0f4f9; font-family:'Segoe UI',sans-serif; }
@@ -241,6 +352,12 @@ $atribuidos  = array_filter($users_req, fn($u) => ($u['type'] ?? 0) == 2);
     .btn-enviar-resposta { background:#d93025; border:none; }
     .btn-enviar-resposta:hover { background:#b71c1c; }
     .resp-label { font-size:.8rem; font-weight:600; color:#374151; margin-bottom:.2rem; }
+    .edit-field { margin-top:.15rem; }
+    .edit-field select { max-width:100%; }
+    .edit-mode .meta-item .val { display:none; }
+    .edit-mode .edit-field { display:block !important; }
+    .btn-excluir-chamado { border-color:#dc3545; color:#dc3545; }
+    .btn-excluir-chamado:hover { background:#dc3545; color:#fff; }
   </style>
 </head>
 <body>
@@ -264,12 +381,46 @@ $atribuidos  = array_filter($users_req, fn($u) => ($u['type'] ?? 0) == 2);
       <span class="badge bg-<?= $st_cor ?>"><?= $status ?></span>
       <span class="badge <?= ($ticket['type']??1)==1 ? 'bg-danger' : 'bg-warning text-dark' ?>"><?= $tipo ?></span>
       <span class="badge bg-secondary"><?= $urgencia ?></span>
+      <button class="btn btn-sm btn-outline-primary ms-auto" id="btnEditarCampos" onclick="ativarEdicao()">
+        <i class="bi bi-pencil-fill me-1"></i>Editar
+      </button>
+      <button class="btn btn-sm btn-outline-danger btn-excluir-chamado" onclick="abrirModalExcluir()">
+        <i class="bi bi-trash3 me-1"></i>Excluir
+      </button>
     </div>
 
-    <div class="meta-grid">
+    <div class="meta-grid" id="metaGrid">
       <div class="meta-item">
         <div class="label">Entidade</div>
-        <div class="val"><?= htmlspecialchars(apelido_entidade($ticket['entities_id'] ?? '')) ?></div>
+        <div class="val" id="view-entidade"><?= htmlspecialchars(apelido_entidade($ticket['entities_id'] ?? '')) ?></div>
+        <div class="edit-field" id="edit-entidade" style="display:none">
+          <select class="form-select form-select-sm" id="edit-entidade-select">
+            <option value="">Carregando...</option>
+          </select>
+        </div>
+      </div>
+      <div class="meta-item">
+        <div class="label">Categoria</div>
+        <div class="val" id="view-categoria"><?php $cat = $ticket['itilcategories_id'] ?? '—'; if (is_array($cat)) $cat = $cat['name'] ?? $cat['completename'] ?? '—'; echo htmlspecialchars($cat); ?></div>
+        <div class="edit-field" id="edit-categoria" style="display:none">
+          <select class="form-select form-select-sm" id="edit-categoria-select">
+            <option value="">Carregando...</option>
+          </select>
+        </div>
+      </div>
+      <div class="meta-item">
+        <div class="label">Atribuído</div>
+        <div class="val" id="view-atribuido"><?php
+          $nomes_tecnicos = array_map(function($u) use ($user_nomes) {
+            return htmlspecialchars(nome_user((int)($u['users_id'] ?? 0), $user_nomes));
+          }, $atribuidos);
+          echo $nomes_tecnicos ? implode(', ', $nomes_tecnicos) : '—';
+        ?></div>
+        <div class="edit-field" id="edit-atribuido" style="display:none">
+          <select class="form-select form-select-sm" id="edit-atendente-select">
+            <option value="">Carregando...</option>
+          </select>
+        </div>
       </div>
       <div class="meta-item">
         <div class="label">Abertura</div>
@@ -287,13 +438,20 @@ $atribuidos  = array_filter($users_req, fn($u) => ($u['type'] ?? 0) == 2);
       <?php endif; ?>
     </div>
 
+    <!-- Botões Salvar/Cancelar edição -->
+    <div id="edit-acoes" class="mt-2 mb-0" style="display:none">
+      <button class="btn btn-sm btn-primary" onclick="salvarEdicao()"><i class="bi bi-check-lg me-1"></i>Salvar</button>
+      <button class="btn btn-sm btn-outline-secondary ms-1" onclick="cancelarEdicao()"><i class="bi bi-x-lg me-1"></i>Cancelar</button>
+      <span id="edit-status" class="small ms-2"></span>
+    </div>
+
     <!-- Atores -->
     <div class="mt-3 d-flex flex-wrap gap-3">
       <?php if (!empty($requerentes)): ?>
       <div>
         <div style="font-size:.72rem;font-weight:700;color:#9ca3af;text-transform:uppercase;margin-bottom:.2rem">Requerente</div>
         <?php foreach ($requerentes as $u): ?>
-          <span class="ator-chip"><i class="bi bi-person-fill"></i><?= htmlspecialchars($u['users_id'] ?? '') ?></span>
+          <span class="ator-chip"><i class="bi bi-person-fill"></i><?= htmlspecialchars(nome_user((int)($u['users_id'] ?? 0), $user_nomes)) ?></span>
         <?php endforeach; ?>
       </div>
       <?php endif; ?>
@@ -301,7 +459,7 @@ $atribuidos  = array_filter($users_req, fn($u) => ($u['type'] ?? 0) == 2);
       <div>
         <div style="font-size:.72rem;font-weight:700;color:#9ca3af;text-transform:uppercase;margin-bottom:.2rem">Atribuído</div>
         <?php foreach ($atribuidos as $u): ?>
-          <span class="ator-chip"><i class="bi bi-headset"></i><?= htmlspecialchars($u['users_id'] ?? '') ?></span>
+          <span class="ator-chip"><i class="bi bi-headset"></i><?= htmlspecialchars(nome_user((int)($u['users_id'] ?? 0), $user_nomes)) ?></span>
         <?php endforeach; ?>
       </div>
       <?php endif; ?>
@@ -403,30 +561,6 @@ $atribuidos  = array_filter($users_req, fn($u) => ($u['type'] ?? 0) == 2);
   </div>
 
   <!-- ── Responder Chamado ── -->
-  <?php
-  // Carrega atendentes do GLPI para o select
-  $atendentes_lista = [];
-  $auth_u = base64_encode(GLPI_USER . ':' . GLPI_PASS);
-  $ch_u = curl_init(GLPI_URL . '/apirest.php/initSession');
-  curl_setopt_array($ch_u, [CURLOPT_RETURNTRANSFER=>true, CURLOPT_HTTPHEADER=>['Authorization: Basic '.$auth_u,'App-Token: '.GLPI_APP_TOKEN]]);
-  $r_u = json_decode(curl_exec($ch_u), true); curl_close($ch_u);
-  $token_u = $r_u['session_token'] ?? '';
-  if ($token_u) {
-      $h_u = ['Session-Token: '.$token_u, 'App-Token: '.GLPI_APP_TOKEN];
-      $ch_u2 = curl_init(GLPI_URL . '/apirest.php/User?range=0-200&expand_dropdowns=true');
-      curl_setopt_array($ch_u2, [CURLOPT_RETURNTRANSFER=>true, CURLOPT_HTTPHEADER=>$h_u]);
-      $users_raw = json_decode(curl_exec($ch_u2), true) ?? [];
-      curl_close($ch_u2);
-      foreach ($users_raw as $u) {
-          if (!empty($u['id']) && !empty($u['name'])) {
-              $atendentes_lista[] = ['id'=>$u['id'], 'nome'=>$u['name'], 'cor'=>'#1a73e8'];
-          }
-      }
-      $ch_kill = curl_init(GLPI_URL . '/apirest.php/killSession');
-      curl_setopt_array($ch_kill, [CURLOPT_RETURNTRANSFER=>true, CURLOPT_HTTPHEADER=>$h_u]);
-      curl_exec($ch_kill); curl_close($ch_kill);
-  }
-  ?>
   <div class="card-glpi">
     <div class="card-header-glpi" style="border-bottom:3px solid #d93025;">
       <i class="bi bi-reply-fill text-danger"></i> Responder Chamado
@@ -436,30 +570,15 @@ $atribuidos  = array_filter($users_req, fn($u) => ($u['type'] ?? 0) == 2);
         <input type="hidden" name="ticket_id" value="<?= $ticket_id ?>"/>
 
         <div class="row g-2 mb-3">
-          <!-- Atendente -->
-          <div class="col-md-4">
-            <div class="resp-label">Atendente <span class="text-danger">*</span></div>
-            <select class="form-select form-select-sm" id="resp-atendente">
-              <option value="">Selecione o atendente...</option>
-              <?php foreach ($atendentes_lista as $a):
-                $selected = ($a['id'] == $user_id) ? 'selected' : '';
-              ?>
-              <option value="<?= $a['id'] ?>" data-nome="<?= htmlspecialchars($a['nome']) ?>" <?= $selected ?>>
-                <?= htmlspecialchars($a['nome']) ?>
-              </option>
-              <?php endforeach; ?>
-            </select>
-          </div>
-
           <!-- Data início -->
-          <div class="col-md-4">
+          <div class="col-md-6">
             <div class="resp-label">Data / Início <span class="text-danger">*</span></div>
             <input type="datetime-local" class="form-control form-control-sm" id="resp-start"
                    value="<?= date('Y-m-d') . 'T08:00' ?>"/>
           </div>
 
           <!-- Data fim -->
-          <div class="col-md-4">
+          <div class="col-md-6">
             <div class="resp-label">Fim <span class="text-danger">*</span></div>
             <input type="datetime-local" class="form-control form-control-sm" id="resp-end"
                    value="<?= date('Y-m-d') . 'T09:00' ?>"/>
@@ -490,7 +609,7 @@ $atribuidos  = array_filter($users_req, fn($u) => ($u['type'] ?? 0) == 2);
         <!-- Opções finais -->
         <div class="d-flex flex-wrap align-items-center gap-3">
           <label class="d-flex align-items-center gap-2 text-danger fw-semibold" style="cursor:pointer">
-            <input type="checkbox" id="resp-fechar" checked/>
+            <input type="checkbox" id="resp-fechar"/>
             🔒 Fechar chamado no GLPI
           </label>
 
@@ -505,6 +624,29 @@ $atribuidos  = array_filter($users_req, fn($u) => ($u['type'] ?? 0) == 2);
     </div>
   </div>
 
+</div>
+
+<!-- Modal Excluir Chamado -->
+<div class="modal fade" id="modalExcluir" tabindex="-1">
+  <div class="modal-dialog modal-sm modal-dialog-centered">
+    <div class="modal-content">
+      <div class="modal-header border-0 pb-0">
+        <h6 class="modal-title text-danger fw-bold"><i class="bi bi-exclamation-triangle-fill me-2"></i>Excluir chamado?</h6>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <p class="mb-1 small">Tem certeza que deseja excluir o chamado <strong>#<?= $ticket_id ?></strong>?</p>
+        <p class="mb-0 text-muted small">Ele será movido para a lixeira do GLPI.</p>
+        <div id="excluir-status" class="small mt-2"></div>
+      </div>
+      <div class="modal-footer border-0 pt-0">
+        <button type="button" class="btn btn-sm btn-outline-secondary" data-bs-dismiss="modal">Cancelar</button>
+        <button type="button" class="btn btn-sm btn-danger" id="btnConfirmarExcluir" onclick="confirmarExcluir()">
+          <i class="bi bi-trash3 me-1"></i>Excluir
+        </button>
+      </div>
+    </div>
+  </div>
 </div>
 
 <!-- Lightbox -->
@@ -532,6 +674,19 @@ document.addEventListener('keydown', e => { if (e.key === 'Escape') fecharLb(); 
 // ── Responder Chamado ──
 let _arquivosAnexos = [];
 const TICKET_ID = <?= $ticket_id ?>;
+
+// ── Constantes para edição ──
+const CURRENT_ENTIDADE = <?php $eid = $ticket['entities_id'] ?? 0; if (is_array($eid)) $eid = $eid['id'] ?? 0; echo (int)$eid; ?>;
+const CURRENT_CATEGORIA = <?php $cid = $ticket['itilcategories_id'] ?? 0; if (is_array($cid)) $cid = $cid['id'] ?? 0; echo (int)$cid; ?>;
+const CURRENT_ATENDENTE_ID = <?= $primeiro_atendente_id ?>;
+const CURRENT_ATENDENTE_NOME = <?php
+  $primeiro_nome_tecnico = '';
+  foreach ($atribuidos as $a) {
+    $uid = (int)($a['users_id'] ?? 0);
+    if ($uid) { $primeiro_nome_tecnico = nome_user($uid, $user_nomes); break; }
+  }
+  echo json_encode($primeiro_nome_tecnico);
+?>;
 
 function listarArquivos() {
   adicionarArquivos(document.getElementById('resp-arquivos').files);
@@ -638,18 +793,11 @@ document.getElementById('formResponder').addEventListener('submit', async functi
   e.preventDefault();
 
   // ── Valida campos ──
-  const atendenteId   = document.getElementById('resp-atendente').value;
-  const atendenteNome = document.getElementById('resp-atendente').selectedOptions[0]?.getAttribute('data-nome') || '';
   const startRaw      = document.getElementById('resp-start').value;
   const endRaw        = document.getElementById('resp-end').value;
   const resposta      = document.getElementById('resp-texto').value.trim();
   const fechar        = document.getElementById('resp-fechar').checked;
 
-  if (!atendenteId) {
-    document.getElementById('resp-atendente').focus();
-    setStatus('⚠️ Selecione um atendente.', 'warning');
-    return;
-  }
   if (!startRaw || !endRaw) {
     setStatus('⚠️ Preencha data/hora de início e fim.', 'warning');
     return;
@@ -670,22 +818,7 @@ document.getElementById('formResponder').addEventListener('submit', async functi
   setStatus('', '');
 
   try {
-    // 1️⃣ Atribuir chamado ao atendente
-    setStatus('⏳ Atribuindo chamado...', '');
-    const resAtrib = await fetch('agenda/atribuir_ticket.php', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ ticket_id: TICKET_ID, atendente_id: parseInt(atendenteId) }),
-    });
-    const dataAtrib = await resAtrib.json();
-    if (!dataAtrib.ok) {
-      setStatus('❌ Erro ao atribuir: ' + (dataAtrib.msg || 'Falha'), 'danger');
-      btn.disabled = false;
-      btn.innerHTML = '<i class="bi bi-send-fill me-2"></i>Enviar Resposta';
-      return;
-    }
-
-    // 2️⃣ Enviar resposta
+    // 1️⃣ Enviar resposta
     setStatus('⏳ Enviando resposta...', '');
     const fd = new FormData();
     fd.append('ticket_id', TICKET_ID);
@@ -695,13 +828,13 @@ document.getElementById('formResponder').addEventListener('submit', async functi
     const resResp = await fetch('agenda/responder_ticket.php', { method: 'POST', body: fd });
     const dataResp = await resResp.json();
     if (!dataResp.ok) {
-      setStatus('❌ Erro ao enviar resposta: ' + (dataResp.msg || 'Falha'), 'danger');
+      setStatus('❌ ' + (dataResp.msg || 'Falha ao enviar resposta'), 'danger');
       btn.disabled = false;
       btn.innerHTML = '<i class="bi bi-send-fill me-2"></i>Enviar Resposta';
       return;
     }
 
-    // 3️⃣ Criar evento na agenda do atendente
+    // 2️⃣ Criar evento na agenda do atendente
     setStatus('⏳ Inserindo na agenda...', '');
     const resAgenda = await fetch('agenda/eventos.php?action=save', {
       method: 'POST',
@@ -711,8 +844,8 @@ document.getElementById('formResponder').addEventListener('submit', async functi
         descricao: resposta,
         start: start,
         end: end,
-        atendente: atendenteNome,
-        atendente_id: parseInt(atendenteId),
+        atendente: CURRENT_ATENDENTE_NOME,
+        atendente_id: CURRENT_ATENDENTE_ID,
         atendente_cor: '#1a73e8',
         tipo: 'chamado',
         ticket_id: TICKET_ID,
@@ -720,8 +853,11 @@ document.getElementById('formResponder').addEventListener('submit', async functi
       }),
     });
     const dataAgenda = await resAgenda.json();
+    if (!dataAgenda.ok) {
+      console.warn('Agenda não atualizada:', dataAgenda.msg);
+    }
 
-    // 4️⃣ Se marcado, fechar chamado no GLPI
+    // 3️⃣ Se marcado, fechar chamado no GLPI
     if (fechar) {
       setStatus('⏳ Fechando chamado...', '');
       await fetch('agenda/fechar_ticket.php', {
@@ -752,6 +888,159 @@ function setStatus(html, type) {
   else if (type === 'success') el.style.color = '#16a34a';
   else el.style.color = '#6b7280';
   el.innerHTML = html;
+}
+
+function ativarEdicao() {
+  document.getElementById('metaGrid').classList.add('edit-mode');
+  document.getElementById('edit-acoes').style.display = 'block';
+  document.getElementById('btnEditarCampos').style.display = 'none';
+  document.getElementById('edit-status').textContent = '';
+  carregarSelectsEdicao();
+}
+
+function carregarSelectsEdicao() {
+  // Carrega entidades
+  fetch('agenda/entidades.php')
+    .then(r => r.json())
+    .then(lista => {
+      const sel = document.getElementById('edit-entidade-select');
+      sel.innerHTML = '<option value="">— Selecione —</option>';
+      lista.forEach(e => {
+        const opt = document.createElement('option');
+        opt.value = e.id;
+        opt.textContent = e.nome;
+        if (parseInt(e.id) === CURRENT_ENTIDADE) opt.selected = true;
+        sel.appendChild(opt);
+      });
+    })
+    .catch(() => {
+      document.getElementById('edit-entidade-select').innerHTML = '<option value="">Erro ao carregar</option>';
+    });
+
+  // Carrega categorias
+  fetch('agenda/categorias.php')
+    .then(r => r.json())
+    .then(lista => {
+      const sel = document.getElementById('edit-categoria-select');
+      sel.innerHTML = '<option value="">— Selecione —</option>';
+      lista.forEach(c => {
+        const opt = document.createElement('option');
+        opt.value = c.id;
+        opt.textContent = c.nome;
+        if (parseInt(c.id) === CURRENT_CATEGORIA) opt.selected = true;
+        sel.appendChild(opt);
+      });
+    })
+    .catch(() => {
+      document.getElementById('edit-categoria-select').innerHTML = '<option value="">Erro ao carregar</option>';
+    });
+
+  // Carrega atendentes (técnicos)
+  fetch('agenda/users.php')
+    .then(r => r.json())
+    .then(lista => {
+      const sel = document.getElementById('edit-atendente-select');
+      sel.innerHTML = '<option value="">— Sem técnico —</option>';
+      lista.forEach(u => {
+        const opt = document.createElement('option');
+        opt.value = u.id;
+        opt.textContent = u.nome;
+        if (parseInt(u.id) === CURRENT_ATENDENTE_ID) opt.selected = true;
+        sel.appendChild(opt);
+      });
+    })
+    .catch(() => {
+      document.getElementById('edit-atendente-select').innerHTML = '<option value="">Erro ao carregar</option>';
+    });
+}
+
+function salvarEdicao() {
+  const entidadeId  = document.getElementById('edit-entidade-select').value;
+  const categoriaId = document.getElementById('edit-categoria-select').value;
+  const atendenteId = document.getElementById('edit-atendente-select').value;
+  const status = document.getElementById('edit-status');
+
+  status.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span>Salvando...';
+  status.style.color = '#6b7280';
+
+  const body = new URLSearchParams();
+  body.append('action', 'editar_campos');
+  body.append('ticket_id', TICKET_ID);
+  body.append('entidade_id', entidadeId || '');
+  body.append('categoria_id', categoriaId || '');
+  body.append('atendente_id', atendenteId || '');
+
+  fetch('chamado.php?id=' + TICKET_ID, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+    body: body.toString(),
+  })
+    .then(r => r.json())
+    .then(data => {
+      if (data.ok) {
+        status.innerHTML = '<i class="bi bi-check-circle-fill text-success me-1"></i> Atualizado! Recarregando...';
+        status.style.color = '#16a34a';
+        setTimeout(() => location.reload(), 1000);
+      } else {
+        status.innerHTML = '<i class="bi bi-x-circle-fill text-danger me-1"></i> ' + (data.msg || 'Erro');
+        status.style.color = '#dc2626';
+      }
+    })
+    .catch(err => {
+      status.innerHTML = '<i class="bi bi-x-circle-fill text-danger me-1"></i> Erro de conexão';
+      status.style.color = '#dc2626';
+    });
+}
+
+function cancelarEdicao() {
+  document.getElementById('metaGrid').classList.remove('edit-mode');
+  document.getElementById('edit-acoes').style.display = 'none';
+  document.getElementById('btnEditarCampos').style.display = '';
+  document.getElementById('edit-status').textContent = '';
+}
+
+// ── Excluir Chamado ──
+function abrirModalExcluir() {
+  const modal = new bootstrap.Modal(document.getElementById('modalExcluir'));
+  document.getElementById('excluir-status').textContent = '';
+  document.getElementById('btnConfirmarExcluir').disabled = false;
+  document.getElementById('btnConfirmarExcluir').innerHTML = '<i class="bi bi-trash3 me-1"></i>Excluir';
+  modal.show();
+}
+
+function confirmarExcluir() {
+  const btn = document.getElementById('btnConfirmarExcluir');
+  const status = document.getElementById('excluir-status');
+  btn.disabled = true;
+  btn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span>Excluindo...';
+  status.innerHTML = '';
+  status.className = 'small mt-2';
+
+  fetch('agenda/excluir_ticket_glpi.php', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ ticket_id: TICKET_ID }),
+  })
+    .then(r => r.json())
+    .then(data => {
+      if (data.ok) {
+        status.className = 'small mt-2 text-success';
+        status.innerHTML = '<i class="bi bi-check-circle-fill me-1"></i> Chamado excluído! Redirecionando...';
+        btn.innerHTML = '<i class="bi bi-check-lg me-1"></i>Excluído';
+        setTimeout(() => { window.location.href = 'historico.php'; }, 1200);
+      } else {
+        status.className = 'small mt-2 text-danger';
+        status.innerHTML = '<i class="bi bi-x-circle-fill me-1"></i> ' + (data.msg || 'Erro ao excluir');
+        btn.disabled = false;
+        btn.innerHTML = '<i class="bi bi-trash3 me-1"></i>Excluir';
+      }
+    })
+    .catch(err => {
+      status.className = 'small mt-2 text-danger';
+      status.innerHTML = '<i class="bi bi-x-circle-fill me-1"></i> Erro de conexão';
+      btn.disabled = false;
+      btn.innerHTML = '<i class="bi bi-trash3 me-1"></i>Excluir';
+    });
 }
 </script>
 </body>
