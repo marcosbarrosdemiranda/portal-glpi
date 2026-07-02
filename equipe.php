@@ -59,15 +59,16 @@ try {
 			'Session-Token: ' . $token,
 		];
 
-		// Buscar usuários com perfil técnico (profiles_id=4)
+		// Buscar usuários ativos com perfil técnico (profiles_id=4)
 		$users = glpi_request('GET',
-			'User?range=0-100&expand_dropdowns=true&searchText[profiles_id]=4',
+			'User?range=0-100&expand_dropdowns=true&is_active=1&searchText[profiles_id]=4',
 			$hdrs
 		);
 
 		if (!empty($users['data']) && is_array($users['data'])) {
 			foreach ($users['data'] as $u) {
 					if (!isset($u['id'])) continue;
+					if (isset($u['is_active']) && !$u['is_active']) continue; // ignora técnicos desativados
 				$primeiro_nome = $u['firstname'] ?? $u['name'] ?? 'Técnico';
 									$nome_comp = trim(($u['firstname'] ?? '') . ' ' . ($u['realname'] ?? ''));
 									if (!$nome_comp) $nome_comp = $primeiro_nome;

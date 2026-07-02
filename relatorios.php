@@ -208,7 +208,7 @@ body {
   background: var(--bg-card);
   border: 1px solid var(--border);
   border-radius: var(--radius);
-  padding: 1rem 1.25rem;
+  padding: 1.1rem 1.4rem;
   position: relative; overflow: hidden;
   transition: var(--transition);
 }
@@ -218,21 +218,26 @@ body {
   font-size: 1.8rem; opacity: .15;
 }
 .kpi-card .kpi-label {
-  font-size: .65rem; color: var(--text-dim); text-transform: uppercase;
-  letter-spacing: .08em; font-weight: 700; margin-bottom: .3rem;
+  font-size: .82rem; color: var(--text-dim); text-transform: uppercase;
+  letter-spacing: .06em; font-weight: 700; margin-bottom: .4rem;
 }
 .kpi-card .kpi-val {
-  font-size: 2.2rem; font-weight: 900; line-height: 1.1;
+  font-size: 1.9rem; font-weight: 900; line-height: 1.1;
   color: var(--text-bright); font-variant-numeric: tabular-nums;
 }
 .kpi-card .kpi-sub {
-  font-size: .7rem; color: var(--text-dim); margin-top: .2rem;
+  font-size: .8rem; color: var(--text-dim); margin-top: .25rem; font-weight: 500;
 }
-.kpi-card.accent-cyan   { border-top: 3px solid var(--cyan); }
-.kpi-card.accent-green  { border-top: 3px solid var(--green); }
-.kpi-card.accent-gold   { border-top: 3px solid var(--gold); }
-.kpi-card.accent-red    { border-top: 3px solid var(--red); }
-.kpi-card.accent-purple { border-top: 3px solid var(--purple); }
+.kpi-card.accent-cyan   { border-top: 4px solid var(--cyan); }
+.kpi-card.accent-cyan   .kpi-val { color: var(--cyan); }
+.kpi-card.accent-green  { border-top: 4px solid var(--green); }
+.kpi-card.accent-green  .kpi-val { color: var(--green); }
+.kpi-card.accent-gold   { border-top: 4px solid var(--gold); }
+.kpi-card.accent-gold   .kpi-val { color: var(--gold); }
+.kpi-card.accent-red    { border-top: 4px solid var(--red); }
+.kpi-card.accent-red    .kpi-val { color: var(--red); }
+.kpi-card.accent-purple { border-top: 4px solid var(--purple); }
+.kpi-card.accent-purple .kpi-val { color: var(--purple); }
 
 /* ═══ Charts grid ═══════════════════════════════════════════ */
 .chart-grid-2 {
@@ -253,6 +258,19 @@ body {
 }
 .chart-card .chart-wrap { width: 100%; }
 .chart-card.full-width { grid-column: 1 / -1; }
+
+/* ═══ Heatmap customizado ═══════════════════════════════════ */
+.hm-wrap { overflow-x: auto; padding-bottom: .5rem; }
+.hm-col-labels { display: flex; margin-left: 100px; margin-bottom: 4px; }
+.hm-col-labels span { flex: 1; min-width: 26px; text-align: center; color: #7a8aaa; font-size: 10px; }
+.hm-row { display: flex; align-items: center; gap: 3px; margin-bottom: 3px; }
+.hm-day { min-width: 97px; color: #fbbf24; font-weight: 700; font-size: 12px; padding-right: 4px; }
+.hm-cells { display: flex; gap: 3px; flex: 1; }
+.hm-cell { flex: 1; min-width: 26px; height: 32px; border-radius: 4px; display: flex; align-items: center; justify-content: center; font-size: 10px; font-weight: 700; color: rgba(255,255,255,.75); cursor: default; transition: transform .1s, opacity .1s; }
+.hm-cell:hover { transform: scale(1.15); opacity: .9; z-index: 1; position: relative; }
+.hm-legend { display: flex; align-items: center; gap: 6px; margin-top: 10px; justify-content: flex-end; font-size: 11px; color: #7a8aaa; }
+.hm-legend-bar { display: flex; gap: 2px; }
+.hm-legend-bar span { width: 18px; height: 12px; border-radius: 2px; display: inline-block; }
 
 /* ═══ Tables ════════════════════════════════════════════════ */
 .tabela-bi {
@@ -358,6 +376,7 @@ body {
   <button class="tab-btn" data-tab="sla"><i class="bi bi-shield-exclamation"></i> SLA</button>
   <button class="tab-btn" data-tab="rotinas"><i class="bi bi-arrow-repeat"></i> Rotinas</button>
   <button class="tab-btn" data-tab="projetos"><i class="bi bi-folder"></i> Projetos</button>
+  <button class="tab-btn" data-tab="impressoes"><i class="bi bi-printer"></i> Impressões</button>
 </div>
 
 <!-- ═══════════════════ Content ══════════════════════════ -->
@@ -388,6 +407,7 @@ body {
       <div class="kpi-card accent-green"><div class="kpi-label">✅ Total Fechados</div><div class="kpi-val" id="kpi-fechados">—</div><div class="kpi-sub">fechados no período</div></div>
       <div class="kpi-card accent-gold"><div class="kpi-label">⚡ Em Andamento</div><div class="kpi-val" id="kpi-andamento">—</div><div class="kpi-sub">carga atual</div></div>
       <div class="kpi-card accent-purple"><div class="kpi-label">⏱ Tempo Médio</div><div class="kpi-val" id="kpi-tempomedio">—</div><div class="kpi-sub">horas para fechamento</div></div>
+      <div class="kpi-card accent-green" id="kpi-card-resolucao"><div class="kpi-label">🎯 Taxa de Resolução</div><div class="kpi-val" id="kpi-resolucao">—</div><div class="kpi-sub" id="kpi-resolucao-sub">fechados / abertos</div></div>
     </div>
     <div class="chart-card full-width">
       <h3>📊 Produtividade — Fechados vs Em Andamento por Atendente</h3>
@@ -403,10 +423,7 @@ body {
     <div class="chart-grid-2">
       <div class="chart-card"><h3>Distribuição por Loja</h3><div class="chart-wrap" id="chart-lojas-donut"></div></div>
       <div class="chart-card"><h3>Ranking — Chamados por Loja</h3>
-        <div style="overflow-x:auto"><table class="tabela-bi" id="tabela-lojas">
-          <thead><tr><th>Loja</th><th>Chamados</th><th>%</th></tr></thead>
-          <tbody id="tbody-lojas"></tbody>
-        </table></div>
+        <div id="ranking-lojas" style="display:flex;flex-direction:column;gap:.55rem;max-height:560px;overflow-y:auto;padding-right:4px"></div>
       </div>
     </div>
   </div>
@@ -432,6 +449,11 @@ body {
   <!-- ════════════════════════════════════════════════════ -->
   <div class="painel" id="painel-horario">
     <div class="painel-title"><i class="bi bi-clock"></i>Chamados por Horário</div>
+    <div class="kpi-row" id="kpi-horario">
+      <div class="kpi-card accent-cyan"><div class="kpi-label">⚡ Hora de Pico</div><div class="kpi-val" id="kpi-hora-pico">—</div><div class="kpi-sub">hora com mais chamados</div></div>
+      <div class="kpi-card accent-gold"><div class="kpi-label">📅 Dia Mais Movimentado</div><div class="kpi-val" id="kpi-dia-pico">—</div><div class="kpi-sub">dia da semana com mais chamados</div></div>
+      <div class="kpi-card accent-green"><div class="kpi-label">🌙 Hora Mais Tranquila</div><div class="kpi-val" id="kpi-hora-calma">—</div><div class="kpi-sub">menor volume — ideal para manutenções</div></div>
+    </div>
     <div class="chart-grid-2">
       <div class="chart-card"><h3>Chamados por Hora do Dia</h3><div class="chart-wrap" id="chart-hora"></div></div>
       <div class="chart-card"><h3>Chamados por Dia da Semana</h3><div class="chart-wrap" id="chart-dia"></div></div>
@@ -490,15 +512,17 @@ body {
   <!-- ════════════════════════════════════════════════════ -->
   <div class="painel" id="painel-rotinas">
     <div class="painel-title"><i class="bi bi-arrow-repeat"></i>Rotinas — Entidade Raiz</div>
-    <div class="kpi-row" id="kpi-rotinas">
-      <div class="kpi-card accent-cyan"><div class="kpi-label">📋 Total Rotinas</div><div class="kpi-val" id="kpi-rot-total">—</div><div class="kpi-sub">abertas no período</div></div>
-      <div class="kpi-card accent-green"><div class="kpi-label">✅ Concluídas</div><div class="kpi-val" id="kpi-rot-fechados">—</div><div class="kpi-sub">fechadas no período</div></div>
-      <div class="kpi-card accent-gold"><div class="kpi-label">⚡ Em andamento</div><div class="kpi-val" id="kpi-rot-andamento">—</div><div class="kpi-sub">carga atual</div></div>
-      <div class="kpi-card accent-purple"><div class="kpi-label">📊 % Cumprimento</div><div class="kpi-val" id="kpi-rot-prazo">—</div><div class="kpi-sub">concluídas em ≤24h</div></div>
-    </div>
     <div class="chart-grid-2">
       <div class="chart-card"><h3>📋 Rotinas por Tipo</h3><div class="chart-wrap" id="chart-rot-nome"></div></div>
-      <div class="chart-card"><h3>✅ Concluídas por Atendente</h3><div class="chart-wrap" id="chart-rot-atendente"></div></div>
+      <div style="display:flex;flex-direction:column;gap:.75rem">
+        <div class="kpi-row" id="kpi-rotinas" style="grid-template-columns:repeat(2,1fr);margin-bottom:0">
+          <div class="kpi-card accent-cyan"><div class="kpi-label">📋 Total Rotinas</div><div class="kpi-val" id="kpi-rot-total">—</div><div class="kpi-sub">abertas no período</div></div>
+          <div class="kpi-card accent-green"><div class="kpi-label">✅ Concluídas</div><div class="kpi-val" id="kpi-rot-fechados">—</div><div class="kpi-sub">fechadas no período</div></div>
+          <div class="kpi-card accent-gold"><div class="kpi-label">⚡ Em andamento</div><div class="kpi-val" id="kpi-rot-andamento">—</div><div class="kpi-sub">carga atual</div></div>
+          <div class="kpi-card accent-purple"><div class="kpi-label">📊 % Cumprimento</div><div class="kpi-val" id="kpi-rot-prazo">—</div><div class="kpi-sub">concluídas em ≤24h</div></div>
+        </div>
+        <div class="chart-card"><h3>✅ Concluídas por Atendente</h3><div class="chart-wrap" id="chart-rot-atendente"></div></div>
+      </div>
     </div>
     <div class="chart-card full-width" style="margin-top:.5rem">
       <h3>📈 Evolução Mensal — Rotinas</h3>
@@ -514,6 +538,63 @@ body {
     <div id="projetos-content" style="text-align:center;padding:2rem;color:var(--text-dim)">
       <i class="bi bi-hourglass-split" style="font-size:2.5rem;display:block;margin-bottom:.75rem;color:var(--gold)"></i>
       Carregando projetos…
+    </div>
+  </div>
+
+  <!-- PAINEL: Impressões -->
+  <div class="painel" id="painel-impressoes">
+    <div class="painel-title"><i class="bi bi-printer"></i>Volume de Impressões</div>
+
+    <!-- Filtro de entidades -->
+    <div id="imp-ent-filtros" style="display:flex;flex-wrap:wrap;gap:.4rem;margin-bottom:1.25rem"></div>
+
+    <!-- KPIs -->
+    <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:1rem;margin-bottom:1.5rem">
+      <div class="kpi-card accent-cyan">
+        <div class="kpi-label">🖨️ Total Impressões</div>
+        <div class="kpi-val" id="imp-kpi-total">—</div>
+        <div class="kpi-sub">A4 + A3 + outros</div>
+      </div>
+      <div class="kpi-card accent-green">
+        <div class="kpi-label">📄 Total A4</div>
+        <div class="kpi-val" id="imp-kpi-a4">—</div>
+        <div class="kpi-sub">Frente, F/V, Adesivo, Placas</div>
+      </div>
+      <div class="kpi-card accent-purple">
+        <div class="kpi-label">📐 Total A3</div>
+        <div class="kpi-val" id="imp-kpi-a3">—</div>
+        <div class="kpi-sub">Frente, F/V, Placas, Adesivos</div>
+      </div>
+      <div class="kpi-card accent-gold">
+        <div class="kpi-label">🏷️ Etiquetas 5S</div>
+        <div class="kpi-val" id="imp-kpi-etq">—</div>
+        <div class="kpi-sub">etiquetas no período</div>
+      </div>
+    </div>
+
+    <!-- Gráfico + Tabela -->
+    <div class="chart-grid-2">
+      <div class="chart-card">
+        <h3>Distribuição por Tipo</h3>
+        <div class="chart-wrap" id="chart-imp-donut" style="height:420px"></div>
+      </div>
+      <div class="chart-card">
+        <h3>Detalhamento por Tipo</h3>
+        <div id="imp-tabela-wrap"></div>
+      </div>
+    </div>
+
+    <!-- Gráfico por entidade (barras) -->
+    <div class="chart-card full-width" style="margin-top:1rem">
+      <h3>Impressões por Entidade</h3>
+      <div class="chart-wrap" id="chart-imp-entidades" style="min-height:280px"></div>
+    </div>
+
+    <!-- Card acumulado do ano + barras mensais -->
+    <div class="chart-card full-width" style="margin-top:1rem">
+      <h3 id="imp-ano-titulo">Acumulado <span id="imp-ano-label"></span></h3>
+      <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:.75rem;margin-bottom:1.5rem" id="imp-acum-cards"></div>
+      <div class="chart-wrap" id="chart-imp-mensal" style="min-height:300px"></div>
     </div>
   </div>
 
@@ -602,6 +683,14 @@ function renderAtendimentos(d) {
   animarKPI(document.getElementById('kpi-fechados'), k.total_fechados);
   animarKPI(document.getElementById('kpi-andamento'), k.em_andamento);
   document.getElementById('kpi-tempomedio').textContent = k.tempo_medio + 'h';
+  const taxa = k.total_abertos > 0 ? Math.round(k.total_fechados / k.total_abertos * 100) : 0;
+  const elTaxa = document.getElementById('kpi-resolucao');
+  elTaxa.textContent = taxa + '%';
+  const card = document.getElementById('kpi-card-resolucao');
+  card.classList.remove('accent-green','accent-gold','accent-red');
+  card.classList.add(taxa >= 90 ? 'accent-green' : taxa >= 70 ? 'accent-gold' : 'accent-red');
+  elTaxa.style.color = taxa >= 90 ? 'var(--green)' : taxa >= 70 ? 'var(--gold)' : 'var(--red)';
+  document.getElementById('kpi-resolucao-sub').textContent = k.total_fechados + ' / ' + k.total_abertos + ' chamados';
   document.getElementById('badge-fechados').textContent = k.total_fechados;
 
   // Produtividade: barras agrupadas — Fechados vs Em Andamento por Atendente
@@ -614,19 +703,19 @@ function renderAtendimentos(d) {
   if (charts.produtividade) charts.produtividade.destroy();
   charts.produtividade = new ApexCharts(document.getElementById('chart-produtividade'), {
     ...APEX_DARK,
-    chart: { ...APEX_DARK.chart, type: 'bar', height: 220, animations: { enabled: true, speed: 600 }, stacked: false },
+    chart: { ...APEX_DARK.chart, type: 'bar', height: 360, animations: { enabled: true, speed: 600 }, stacked: false },
     series: [
       { name: 'Fechados', data: dataF },
       { name: 'Em andamento', data: dataE },
     ],
     colors: ['#22c55e', '#eab308'],
-    xaxis: { categories: todosAtend },
-    yaxis: { labels: { formatter: v => Math.round(v) } },
+    xaxis: { categories: todosAtend, labels: { style: { fontSize: '13px', colors: '#fbbf24', fontWeight: 700 } } },
+    yaxis: { labels: { formatter: v => Math.round(v), style: { fontSize: '13px', colors: '#7a8aaa' } } },
     plotOptions: { bar: { horizontal: false, columnWidth: '60%', borderRadius: 4 } },
-    dataLabels: { enabled: true, style: { colors: ['#fff'], fontSize: '10px', fontWeight: 700 }, offsetY: -4 },
+    dataLabels: { enabled: true, style: { colors: ['#fff'], fontSize: '12px', fontWeight: 700 }, offsetY: -4 },
     stroke: { show: true, width: 1, colors: ['#0f1525'] },
     tooltip: { ...APEX_DARK.tooltip, y: { formatter: v => v + ' chamados' } },
-    legend: { position: 'top', labels: { colors: '#7a8aaa' } },
+    legend: { position: 'top', labels: { colors: '#7a8aaa' }, fontSize: '15px', markers: { size: 12 } },
   });
   charts.produtividade.render();
 }
@@ -642,22 +731,40 @@ function renderLojas(d) {
   if (charts.lojasDonut) charts.lojasDonut.destroy();
   charts.lojasDonut = new ApexCharts(document.getElementById('chart-lojas-donut'), {
     ...APEX_DARK,
-    chart: { ...APEX_DARK.chart, type: 'donut', animations: { enabled: true, speed: 600 } },
+    chart: { ...APEX_DARK.chart, type: 'donut', height: 530, animations: { enabled: true, speed: 600 } },
     series: lojas.map(x => x.total),
     labels: lojas.map(x => x.nome),
     colors: C,
-    plotOptions: { pie: { donut: { size: '55%', labels: { show: true, total: { show: true, label: 'Total', color: '#f0f4ff', formatter: () => total } } } } },
-    dataLabels: { enabled: true, style: { fontSize: '11px', colors: ['#fff'] }, dropShadow: { enabled: false } },
+    plotOptions: { pie: { donut: { size: '60%', labels: { show: true, total: { show: true, label: 'Total', color: '#7a8aaa', fontSize: '32px', fontWeight: 700, formatter: () => total } } } } },
+    dataLabels: { enabled: false },
     tooltip: { ...APEX_DARK.tooltip, y: { formatter: v => v + ' chamados' } },
-    legend: { position: 'bottom', labels: { colors: '#7a8aaa' }, itemMargin: { horizontal: 8 } },
+    legend: { position: 'bottom', labels: { colors: '#7a8aaa' }, itemMargin: { horizontal: 10, vertical: 5 }, fontSize: '15px', markers: { size: 12 } },
   });
   charts.lojasDonut.render();
 
-  document.getElementById('tbody-lojas').innerHTML = lojas.map(x =>
-    `<tr><td>${x.nome}</td>
-    <td><div class="bar-bg"><div class="bar-fill" style="width:${(x.total/maxL*100).toFixed(0)}%;background:var(--cyan)"></div></div>${x.total}</td>
-    <td style="color:var(--text-dim)">${(x.total/total*100).toFixed(1)}%</td></tr>`
-  ).join('');
+  document.getElementById('ranking-lojas').innerHTML = lojas.map((x, i) => {
+    const pctTotal = (x.total / total * 100).toFixed(1);
+    const pct = pctTotal;
+    // gradiente: vermelho para quem tem mais, amarelo no meio, verde para menos
+    const ratio = x.total / maxL;
+    const r = Math.round(220 * ratio + 34 * (1 - ratio));
+    const g = Math.round(60 * ratio + 197 * (1 - ratio));
+    const b = Math.round(60 * ratio + 94 * (1 - ratio));
+    const barColor = `rgb(${r},${g},${b})`;
+    return `
+    <div style="display:flex;align-items:center;gap:.75rem;padding:.6rem .65rem;border-radius:10px;background:rgba(255,255,255,.03);transition:.15s"
+         onmouseover="this.style.background='rgba(255,255,255,.07)'" onmouseout="this.style.background='rgba(255,255,255,.03)'">
+      <span style="min-width:26px;text-align:center;font-size:.9rem;font-weight:700;color:var(--text-dim)">${i + 1}</span>
+      <div style="flex:1;min-width:0">
+        <div style="font-size:.95rem;font-weight:600;color:var(--text-bright);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin-bottom:.35rem">${x.nome}</div>
+        <div style="background:rgba(255,255,255,.1);border-radius:6px;height:14px;overflow:hidden">
+          <div style="width:${pct}%;height:100%;border-radius:6px;background:${barColor};box-shadow:0 0 8px ${barColor}88"></div>
+        </div>
+      </div>
+      <span style="min-width:32px;text-align:right;font-size:1rem;font-weight:700;color:${barColor}">${x.total}</span>
+      <span style="min-width:48px;text-align:right;font-size:.82rem;font-weight:600;color:#fbbf24">${pctTotal}%</span>
+    </div>`;
+  }).join('');
 }
 
 // ══════════════════════════════════════════════════════════════
@@ -692,11 +799,28 @@ function renderCategorias(d) {
 // RENDER: Horário
 // ══════════════════════════════════════════════════════════════
 function renderHorario(d) {
+  // KPIs de horário
+  const porHora = d.por_hora || [];
+  const porDia  = d.por_dia  || [];
+  if (porHora.length) {
+    const maxH  = Math.max(...porHora);
+    const minH  = Math.min(...porHora.filter(v => v > 0));
+    const idxPH = porHora.indexOf(maxH);
+    const idxCH = porHora.indexOf(minH);
+    document.getElementById('kpi-hora-pico').textContent  = fmtHora(idxPH);
+    document.getElementById('kpi-hora-calma').textContent = fmtHora(idxCH);
+  }
+  if (porDia.length) {
+    const maxD  = Math.max(...porDia);
+    const idxPD = porDia.indexOf(maxD);
+    document.getElementById('kpi-dia-pico').textContent = DIAS_FULL[idxPD] ?? '—';
+  }
+
   // Hora
   if (charts.hora) charts.hora.destroy();
   charts.hora = new ApexCharts(document.getElementById('chart-hora'), {
     ...APEX_DARK,
-    chart: { ...APEX_DARK.chart, type: 'bar', animations: { enabled: true, speed: 500 } },
+    chart: { ...APEX_DARK.chart, type: 'bar', height: 220, animations: { enabled: true, speed: 500 } },
     series: [{ name: 'Chamados', data: d.por_hora }],
     colors: ['#06b6d4'],
     xaxis: { categories: Array.from({length:24}, (_,i) => fmtHora(i)), tickAmount: 12 },
@@ -709,7 +833,7 @@ function renderHorario(d) {
   if (charts.dia) charts.dia.destroy();
   charts.dia = new ApexCharts(document.getElementById('chart-dia'), {
     ...APEX_DARK,
-    chart: { ...APEX_DARK.chart, type: 'bar', animations: { enabled: true, speed: 500 } },
+    chart: { ...APEX_DARK.chart, type: 'bar', height: 220, animations: { enabled: true, speed: 500 } },
     series: [{ name: 'Chamados', data: d.por_dia }],
     colors: ['#22c55e'],
     xaxis: { categories: DIAS_FULL },
@@ -718,36 +842,49 @@ function renderHorario(d) {
   });
   charts.dia.render();
 
-  // Heatmap
-  if (charts.heatmap) charts.heatmap.destroy();
-  const hmData = d.heatmap || [];
-  const hmSeries = DIAS.map((dia, di) => ({
-    name: dia,
-    data: Array.from({length: 24}, (_, hi) => {
-      const item = hmData.find(x => x.hora === hi && x.dia === di);
-      return { x: fmtHora(hi), y: item ? item.total : 0 };
-    }),
-  }));
-  charts.heatmap = new ApexCharts(document.getElementById('chart-heatmap'), {
-    ...APEX_DARK,
-    chart: { ...APEX_DARK.chart, type: 'heatmap', animations: { enabled: true, speed: 600 } },
-    series: hmSeries,
-    colors: ['#0f1525','#0a3d5c','#06b6d4','#22c55e','#eab308','#f97316','#ef4444'],
-    plotOptions: { heatmap: { shadeIntensity: .5, radius: 2, useFillColorAsStroke: true,
-      colorScale: { ranges: [
-        { from: 0, to: 0, color: '#0f1525', name: '0' },
-        { from: 1, to: 3, color: '#0a3d5c', name: '1-3' },
-        { from: 4, to: 8, color: '#06b6d4', name: '4-8' },
-        { from: 9, to: 15, color: '#22c55e', name: '9-15' },
-        { from: 16, to: 25, color: '#eab308', name: '16-25' },
-        { from: 26, to: 50, color: '#f97316', name: '26-50' },
-        { from: 51, to: 999, color: '#ef4444', name: '51+' },
-      ]} } },
-    dataLabels: { enabled: false },
-    xaxis: { tickAmount: 12, labels: { rotate: -45 } },
-    tooltip: { ...APEX_DARK.tooltip, y: { formatter: v => v + ' chamados' } },
-  });
-  charts.heatmap.render();
+  // Heatmap — grid HTML customizado
+  if (charts.heatmap) { charts.heatmap.destroy(); charts.heatmap = null; }
+  (function() {
+    const hmData = d.heatmap || [];
+    const maxVal = Math.max(...hmData.map(x => x.total), 1);
+    function hmColor(val) {
+      if (val === 0) return '#111b2e';
+      const pct = val / maxVal;
+      // azul escuro → ciano → amarelo → vermelho
+      const stops = [
+        [10,45,80], [6,182,212], [234,179,8], [239,68,68]
+      ];
+      const seg = pct * (stops.length - 1);
+      const i = Math.min(Math.floor(seg), stops.length - 2);
+      const t = seg - i;
+      const [r1,g1,b1] = stops[i], [r2,g2,b2] = stops[i+1];
+      return `rgb(${Math.round(r1+(r2-r1)*t)},${Math.round(g1+(g2-g1)*t)},${Math.round(b1+(b2-b1)*t)})`;
+    }
+    let html = '<div class="hm-wrap">';
+    html += '<div class="hm-col-labels">';
+    for (let h = 0; h < 24; h++) html += `<span>${fmtHora(h)}</span>`;
+    html += '</div>';
+    for (let di = 0; di < 7; di++) {
+      html += `<div class="hm-row"><span class="hm-day">${DIAS_FULL[di]}</span><div class="hm-cells">`;
+      for (let h = 0; h < 24; h++) {
+        const item = hmData.find(x => x.hora === h && x.dia === di);
+        const val = item ? item.total : 0;
+        const bg = hmColor(val);
+        const lbl = val > 0 ? val : '';
+        html += `<div class="hm-cell" style="background:${bg}" title="${DIAS_FULL[di]} ${fmtHora(h)}: ${val} chamado${val!==1?'s':''}">${lbl}</div>`;
+      }
+      html += '</div></div>';
+    }
+    // Legenda
+    const legColors = ['#111b2e','#0a2d50','#06b6d4','#eab308','#ef4444'];
+    const legLabels = ['0','baixo','médio','alto','pico'];
+    html += '<div class="hm-legend">Intensidade:&nbsp;<div class="hm-legend-bar">';
+    legColors.forEach(c => html += `<span style="background:${c}"></span>`);
+    html += '</div>';
+    legLabels.forEach(l => html += `<span>${l}</span>`);
+    html += '</div></div>';
+    document.getElementById('chart-heatmap').innerHTML = html;
+  })();
 }
 
 // ══════════════════════════════════════════════════════════════
@@ -893,30 +1030,44 @@ function renderRotinas(d) {
   animarKPI(document.getElementById('kpi-rot-andamento'), k.andamento || 0);
   document.getElementById('kpi-rot-prazo').textContent = (k.pct_prazo || 0) + '%';
 
-  // Rotinas por nome
+  // Rotinas por nome — lista HTML com barra proporcional
   const nomes = rot.por_nome || [];
-  if (charts.rotNome) charts.rotNome.destroy();
-  charts.rotNome = new ApexCharts(document.getElementById('chart-rot-nome'), {
-    ...APEX_DARK,
-    chart: { ...APEX_DARK.chart, type: 'bar', animations: { enabled: true, speed: 600 } },
-    series: [{ name: 'Rotinas', data: nomes.map(x => x.total).reverse() }],
-    colors: ['#06b6d4'],
-    xaxis: { categories: nomes.map(x => x.nome.length > 30 ? x.nome.slice(0,28)+'…' : x.nome).reverse() },
-    plotOptions: { bar: { borderRadius: 4, horizontal: true, barHeight: '65%' } },
-    dataLabels: { enabled: true, style: { colors: ['#fff'], fontSize: '10px', fontWeight: 700 } },
-    tooltip: { ...APEX_DARK.tooltip, y: { formatter: v => v + ' chamados' } },
-  });
-  charts.rotNome.render();
+  if (charts.rotNome) { charts.rotNome.destroy(); charts.rotNome = null; }
+  (function() {
+    const maxN = Math.max(...nomes.map(x => x.total), 1);
+    const totalN = nomes.reduce((s, x) => s + x.total, 0);
+    let html = '<div style="display:flex;flex-direction:column;gap:8px;padding:4px 0;padding-bottom:4px">';
+    nomes.forEach(x => {
+      const pct = Math.round(x.total / totalN * 100);
+      const barW = Math.round(x.total / maxN * 100);
+      const t = x.total / maxN;
+      const r = Math.round(6 + t * (234 - 6));
+      const g = Math.round(182 + t * (179 - 182));
+      const b = Math.round(212 + t * (8 - 212));
+      const barColor = `rgb(${r},${g},${b})`;
+      html += `<div style="display:flex;flex-direction:column;gap:3px">
+        <div style="display:flex;justify-content:space-between;align-items:baseline;gap:8px">
+          <span style="font-size:.88rem;color:#e2e8f0;font-weight:500;flex:1">${x.nome}</span>
+          <span style="font-size:.82rem;font-weight:700;color:#fbbf24;white-space:nowrap">${x.total} <span style="color:#7a8aaa;font-weight:400">(${pct}%)</span></span>
+        </div>
+        <div style="height:8px;border-radius:4px;background:rgba(255,255,255,.08);overflow:hidden">
+          <div style="height:100%;width:${barW}%;background:${barColor};border-radius:4px;transition:width .6s"></div>
+        </div>
+      </div>`;
+    });
+    html += '</div>';
+    document.getElementById('chart-rot-nome').innerHTML = html;
+  })();
 
   // Por atendente
   const atend = rot.por_atendente || [];
   if (charts.rotAtendente) charts.rotAtendente.destroy();
   charts.rotAtendente = new ApexCharts(document.getElementById('chart-rot-atendente'), {
     ...APEX_DARK,
-    chart: { ...APEX_DARK.chart, type: 'bar', animations: { enabled: true, speed: 600 } },
+    chart: { ...APEX_DARK.chart, type: 'bar', height: 300, animations: { enabled: true, speed: 600 } },
     series: [{ name: 'Concluídas', data: atend.map(x => x.total) }],
     colors: ['#22c55e'],
-    xaxis: { categories: atend.map(x => x.nome) },
+    xaxis: { categories: atend.map(x => x.nome), labels: { style: { fontSize: '13px', colors: '#fbbf24', fontWeight: 700 } } },
     plotOptions: { bar: { borderRadius: 4, columnWidth: '60%' } },
     dataLabels: { enabled: true, style: { colors: ['#fff'], fontSize: '11px', fontWeight: 700 } },
     tooltip: { ...APEX_DARK.tooltip, y: { formatter: v => v + ' rotinas' } },
@@ -928,7 +1079,7 @@ function renderRotinas(d) {
   if (charts.rotEvolucao) charts.rotEvolucao.destroy();
   charts.rotEvolucao = new ApexCharts(document.getElementById('chart-rot-evolucao'), {
     ...APEX_DARK,
-    chart: { ...APEX_DARK.chart, type: 'area', animations: { enabled: true, speed: 600 }, zoom: { enabled: true, type: 'x' } },
+    chart: { ...APEX_DARK.chart, type: 'area', height: 220, animations: { enabled: true, speed: 600 }, zoom: { enabled: true, type: 'x' } },
     series: [{ name: 'Rotinas', data: evol.map(x => x.total) }],
     colors: ['#8b5cf6'],
     fill: { type: 'gradient', gradient: { shadeIntensity: 1, opacityFrom: .6, opacityTo: .1,
@@ -941,6 +1092,218 @@ function renderRotinas(d) {
     tooltip: { ...APEX_DARK.tooltip, x: { format: 'yyyy-MM' }, y: { formatter: v => v + ' rotinas' } },
   });
   charts.rotEvolucao.render();
+}
+
+// ══════════════════════════════════════════════════════════════
+// IMPRESSÕES
+// ══════════════════════════════════════════════════════════════
+let _impDados = null;
+let _impEntSel = new Set();
+
+const _IMP_TIPOS = [
+  { key: 'a4fv',  label: 'A4 Frente/Verso',  cor: '#06b6d4' },
+  { key: 'a4f',   label: 'A4 Simples',        cor: '#22c55e' },
+  { key: 'a4plc', label: 'A4 Placas',         cor: '#8b5cf6' },
+  { key: 'a4adv', label: 'A4 Adesivo',        cor: '#f97316' },
+  { key: 'a3fv',  label: 'A3 Frente/Verso',   cor: '#eab308' },
+  { key: 'a3f',   label: 'A3 Simples',        cor: '#ec4899' },
+  { key: 'a3plc', label: 'A3 Placas',         cor: '#14b8a6' },
+  { key: 'a3adv', label: 'A3 Adesivos',       cor: '#f59e0b' },
+  { key: 'etq5s', label: 'Etiqueta 5S',       cor: '#6366f1' },
+];
+
+async function carregarImpressoes() {
+  const params = getParams();
+  try {
+    const res = await fetch('relatorios_impressoes.php?' + params);
+    if (!res.ok) throw new Error('HTTP ' + res.status);
+    const data = await res.json();
+    _impDados = data.entidades || [];
+    _impDados._acumulado = data.acumulado || {};
+    _impDados._por_mes   = data.por_mes   || [];
+    _impDados._ano       = data.ano       || new Date().getFullYear();
+    // Seleciona todas por padrão
+    _impEntSel = new Set(_impDados.map(e => e.entities_id));
+    _renderImpFiltros();
+    _renderImp();
+  } catch (e) {
+    document.getElementById('painel-impressoes').innerHTML +=
+      `<p style="color:var(--red);text-align:center">Erro ao carregar impressões: ${e.message}</p>`;
+  }
+}
+
+function _renderImpFiltros() {
+  const wrap = document.getElementById('imp-ent-filtros');
+  if (!wrap || !_impDados) return;
+  const btnStyle = (ativo) =>
+    `cursor:pointer;border:1px solid ${ativo ? 'var(--cyan)' : 'var(--border)'};background:${ativo ? 'rgba(6,182,212,.15)' : 'var(--bg-card)'};color:${ativo ? 'var(--cyan)' : 'var(--text-dim)'};border-radius:6px;padding:.25rem .65rem;font-size:.78rem;font-weight:600;transition:.2s`;
+
+  let html = `<button style="${btnStyle(_impEntSel.size === _impDados.length)}" onclick="_impToggleTodos()">Selecionar tudo</button>`;
+  _impDados.forEach(e => {
+    const ativo = _impEntSel.has(e.entities_id);
+    html += `<button style="${btnStyle(ativo)}" onclick="_impToggleEnt(${e.entities_id})">${escHtml(e.entidade_nome || 'Sem entidade')}</button>`;
+  });
+  wrap.innerHTML = html;
+}
+
+function _impToggleTodos() {
+  if (_impEntSel.size === _impDados.length) _impEntSel.clear();
+  else _impEntSel = new Set(_impDados.map(e => e.entities_id));
+  _renderImpFiltros();
+  _renderImp();
+}
+
+function _impToggleEnt(id) {
+  if (_impEntSel.has(id)) _impEntSel.delete(id); else _impEntSel.add(id);
+  _renderImpFiltros();
+  _renderImp();
+}
+
+function _renderImp() {
+  if (!_impDados) return;
+  const sel = _impDados.filter(e => _impEntSel.has(e.entities_id));
+
+  // Agrega totais por tipo
+  const totTipo = {};
+  _IMP_TIPOS.forEach(t => { totTipo[t.key] = sel.reduce((s, e) => s + (e[t.key] || 0), 0); });
+
+  const totalGeral = Object.values(totTipo).reduce((s, v) => s + v, 0);
+  const totalA4 = (totTipo.a4fv||0) + (totTipo.a4f||0) + (totTipo.a4plc||0) + (totTipo.a4adv||0);
+  const totalA3 = (totTipo.a3fv||0) + (totTipo.a3f||0) + (totTipo.a3plc||0) + (totTipo.a3adv||0);
+  const totalEtq = totTipo.etq5s || 0;
+
+  animarKPI(document.getElementById('imp-kpi-total'), totalGeral);
+  animarKPI(document.getElementById('imp-kpi-a4'), totalA4);
+  animarKPI(document.getElementById('imp-kpi-a3'), totalA3);
+  animarKPI(document.getElementById('imp-kpi-etq'), totalEtq);
+
+  // Donut — só tipos com valor > 0
+  const tiposAtivos = _IMP_TIPOS.filter(t => totTipo[t.key] > 0);
+  if (charts.impDonut) { charts.impDonut.destroy(); charts.impDonut = null; }
+  if (tiposAtivos.length > 0) {
+    charts.impDonut = new ApexCharts(document.getElementById('chart-imp-donut'), {
+      ...APEX_DARK,
+      chart: { ...APEX_DARK.chart, type: 'pie', height: 420, animations: { enabled: true, speed: 800,
+        dynamicAnimation: { enabled: true, speed: 400 } } },
+      series: tiposAtivos.map(t => totTipo[t.key]),
+      labels: tiposAtivos.map(t => t.label),
+      colors: tiposAtivos.map(t => t.cor),
+      fill: { type: 'solid' },
+      stroke: { width: 2, colors: ['#0a1020'] },
+      plotOptions: { pie: { expandOnClick: true, dataLabels: { offset: -10 } } },
+      dataLabels: {
+        enabled: true,
+        style: { fontSize: '12px', fontWeight: 700, colors: ['#fff'] },
+        dropShadow: { enabled: true, top: 2, left: 2, blur: 4, color: '#000', opacity: 0.6 },
+        formatter: (val, opts) => {
+          const v = opts.w.globals.series[opts.seriesIndex];
+          return v > 0 ? [v.toLocaleString('pt-BR'), '(' + val.toFixed(1) + '%)'] : '';
+        },
+      },
+      tooltip: { ...APEX_DARK.tooltip, y: { formatter: v => v.toLocaleString('pt-BR') + ' un.' } },
+      legend: { position: 'left', labels: { colors: '#c4cfdd' }, fontSize: '12px',
+        markers: { size: 10 }, itemMargin: { vertical: 4 } },
+    });
+    charts.impDonut.render();
+  } else {
+    document.getElementById('chart-imp-donut').innerHTML =
+      '<div style="text-align:center;padding:3rem;color:var(--text-dim)">Nenhum dado no período.</div>';
+  }
+
+  // Tabela detalhamento
+  const total = totalGeral || 1;
+  let tbl = '<table class="tabela-bi" style="font-size:.95rem"><thead><tr><th style="font-size:.8rem">Tipo</th><th style="text-align:right;font-size:.8rem">Total</th><th style="text-align:right;font-size:.8rem">%</th><th style="width:35%;font-size:.8rem">Barra</th></tr></thead><tbody>';
+  const maxVal = Math.max(..._IMP_TIPOS.map(t => totTipo[t.key] || 0), 1);
+  _IMP_TIPOS.forEach(t => {
+    const v = totTipo[t.key] || 0;
+    const pct = totalGeral > 0 ? (v / totalGeral * 100).toFixed(1) : '0.0';
+    const barW = Math.round(v / maxVal * 100);
+    tbl += `<tr>
+      <td style="font-size:.95rem;padding:.55rem .75rem"><span style="color:${t.cor};margin-right:.4rem;font-size:1rem">●</span><strong>${t.label}</strong></td>
+      <td style="text-align:right;font-weight:700;font-size:1.05rem;color:var(--text-bright);padding:.55rem .75rem">${v.toLocaleString('pt-BR')}</td>
+      <td style="text-align:right;color:var(--text-dim);font-size:.88rem;padding:.55rem .75rem">${pct}%</td>
+      <td style="padding:.55rem .75rem"><div style="height:10px;border-radius:5px;background:rgba(255,255,255,.08)"><div style="height:100%;width:${barW}%;background:linear-gradient(90deg,${t.cor}cc,${t.cor});border-radius:5px;transition:.6s;box-shadow:0 0 6px ${t.cor}66"></div></div></td>
+    </tr>`;
+  });
+  tbl += `<tfoot><tr><td style="font-weight:700;font-size:1rem;color:var(--text-bright)">TOTAL</td><td style="text-align:right;font-weight:700;font-size:1.1rem;color:var(--cyan)">${totalGeral.toLocaleString('pt-BR')}</td><td></td><td></td></tr></tfoot>`;
+  tbl += '</tbody></table>';
+  document.getElementById('imp-tabela-wrap').innerHTML = tbl;
+
+  // Acumulado do ano
+  const acum = _impDados._acumulado || {};
+  const ano  = _impDados._ano || new Date().getFullYear();
+  document.getElementById('imp-ano-label').textContent = ano;
+  const acumTotal = Object.values(acum).reduce((s, v) => s + v, 0);
+  const acumA4 = (acum.a4fv||0)+(acum.a4f||0)+(acum.a4plc||0)+(acum.a4adv||0);
+  const acumA3 = (acum.a3fv||0)+(acum.a3f||0)+(acum.a3plc||0)+(acum.a3adv||0);
+  const acumCards = [
+    { label: '🖨️ Total Ano',  val: acumTotal, cor: 'var(--cyan)'   },
+    { label: '📄 A4 Total',   val: acumA4,    cor: 'var(--green)'  },
+    { label: '📐 A3 Total',   val: acumA3,    cor: 'var(--purple)' },
+    { label: '🏷️ Etiquetas',  val: acum.etq5s||0, cor: 'var(--gold)' },
+  ];
+  document.getElementById('imp-acum-cards').innerHTML = acumCards.map(c =>
+    `<div style="background:var(--bg-card);border:1px solid var(--border);border-radius:10px;padding:.85rem 1rem;border-top:3px solid ${c.cor}">
+       <div style="font-size:.75rem;color:var(--text-dim);margin-bottom:.3rem">${c.label}</div>
+       <div style="font-size:1.6rem;font-weight:800;color:${c.cor}">${c.val.toLocaleString('pt-BR')}</div>
+     </div>`
+  ).join('');
+
+  // Gráfico mensal (barras agrupadas por tipo principal)
+  const porMes = _impDados._por_mes || [];
+  const mesesLabels = ['Jan','Fev','Mar','Abr','Mai','Jun','Jul','Ago','Set','Out','Nov','Dez'];
+  const seriesMes = [
+    { name:'A4 F/V',    data: porMes.map(m => m.a4fv  || 0), cor:'#06b6d4' },
+    { name:'A4 Simples',data: porMes.map(m => m.a4f   || 0), cor:'#22c55e' },
+    { name:'A4 Placas', data: porMes.map(m => m.a4plc || 0), cor:'#8b5cf6' },
+    { name:'A4 Adesivo',data: porMes.map(m => m.a4adv || 0), cor:'#f97316' },
+    { name:'A3 F/V',    data: porMes.map(m => m.a3fv  || 0), cor:'#eab308' },
+    { name:'A3 Simples',data: porMes.map(m => m.a3f   || 0), cor:'#ec4899' },
+    { name:'A3 Placas', data: porMes.map(m => m.a3plc || 0), cor:'#14b8a6' },
+    { name:'A3 Adesivo',data: porMes.map(m => m.a3adv || 0), cor:'#f59e0b' },
+    { name:'Etiqueta 5S',data:porMes.map(m => m.etq5s || 0), cor:'#6366f1' },
+  ].filter(s => s.data.some(v => v > 0));
+
+  if (charts.impMensal) { charts.impMensal.destroy(); charts.impMensal = null; }
+  charts.impMensal = new ApexCharts(document.getElementById('chart-imp-mensal'), {
+    ...APEX_DARK,
+    chart: { ...APEX_DARK.chart, type: 'bar', height: 300, stacked: true,
+      animations: { enabled: true, speed: 600 } },
+    series: seriesMes.map(s => ({ name: s.name, data: s.data })),
+    colors: seriesMes.map(s => s.cor),
+    xaxis: { categories: mesesLabels,
+      labels: { style: { fontSize: '12px', colors: '#fbbf24', fontWeight: 700 } } },
+    yaxis: { labels: { formatter: v => v >= 1000 ? (v/1000).toFixed(1)+'k' : v,
+      style: { colors: '#7a8aaa' } } },
+    plotOptions: { bar: { horizontal: false, columnWidth: '65%', borderRadius: 2 } },
+    dataLabels: { enabled: false },
+    tooltip: { ...APEX_DARK.tooltip, y: { formatter: v => v.toLocaleString('pt-BR') + ' un.' } },
+    legend: { position: 'top', labels: { colors: '#7a8aaa' }, fontSize: '11px',
+      markers: { size: 8 } },
+  });
+  charts.impMensal.render();
+
+  // Barras por entidade
+  const entNomes = sel.map(e => e.entidade_nome || 'S/Entidade');
+  const seriesEnt = _IMP_TIPOS.filter(t => sel.some(e => (e[t.key]||0)>0)).map(t => ({
+    name: t.label,
+    data: sel.map(e => e[t.key] || 0),
+  }));
+  if (charts.impEntidades) { charts.impEntidades.destroy(); charts.impEntidades = null; }
+  if (seriesEnt.length > 0 && sel.length > 0) {
+    charts.impEntidades = new ApexCharts(document.getElementById('chart-imp-entidades'), {
+      ...APEX_DARK,
+      chart: { ...APEX_DARK.chart, type: 'bar', height: 300, stacked: true, animations: { enabled: true, speed: 600 } },
+      series: seriesEnt,
+      colors: _IMP_TIPOS.filter(t => sel.some(e => (e[t.key]||0)>0)).map(t => t.cor),
+      xaxis: { categories: entNomes, labels: { style: { fontSize: '12px', colors: '#fbbf24', fontWeight: 700 } } },
+      plotOptions: { bar: { horizontal: false, columnWidth: '55%', borderRadius: 2 } },
+      dataLabels: { enabled: false },
+      tooltip: { ...APEX_DARK.tooltip, y: { formatter: v => v.toLocaleString('pt-BR') + ' un.' } },
+      legend: { position: 'top', labels: { colors: '#7a8aaa' }, fontSize: '11px' },
+    });
+    charts.impEntidades.render();
+  }
 }
 
 // ══════════════════════════════════════════════════════════════
@@ -971,6 +1334,7 @@ async function carregarDados() {
     renderSLA(data);
     renderRotinas(data);
     carregarProjetos();
+    carregarImpressoes();
   } catch (err) {
     document.getElementById('loading-state').style.display = 'none';
     document.getElementById('painel-erro').classList.add('active');

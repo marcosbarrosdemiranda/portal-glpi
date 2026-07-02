@@ -3,463 +3,394 @@ require_once __DIR__ . '/auth_guard.php';
 if (empty($_SESSION['autenticado'])) { header('Location: auth.php'); exit; }
 if (($_SESSION['perfil'] ?? '') === 'self-service') { header('Location: dashboard.php'); exit; }
 
+$nome    = $_SESSION['nome'] ?? '';
+$user_id = (int)($_SESSION['user_id'] ?? 0);
+
 require_once __DIR__ . '/agenda/config.php';
 
-// ── Buscar tickets abertos via API GLPI ───────────────────────────────────────
-$tickets   = [];
-$glpi_erro = '';
-$ultima_atualizacao = date('H:i:s');
+// ── Helpers de API GLPI ──
+function apiGLPI(string $method, string $endpoint, array $data = []): array {
+    $auth = base64_encode(GLPI_USER . ':' . GLPI_PASS);
+    $ch = curl_init(GLPI_URL . '/apirest.php/initSession');
+    curl_setopt_array($ch, [CURLOPT_RETURNTRANSFER=>true, CURLOPT_HTTPHEADER=>['Authorization: Basic '.$auth,'App-Token: '.GLPI_APP_TOKEN]]);
+    $r = json_decode(curl_exec($ch), true); curl_close($ch);
+    $token = $r['session_token'] ?? '';
+    if (!$token) return ['ok'=>false, 'msg'=>'Falha ao autenticar no GLPI'];
 
-function glpi_api(string $method, string $endpoint, array $headers = []): array {
-    $ch = curl_init(GLPI_URL . '/apirest.php/' . $endpoint);
-    curl_setopt_array($ch, [
-        CURLOPT_RETURNTRANSFER => true,
-        CURLOPT_CUSTOMREQUEST  => $method,
-        CURLOPT_HTTPHEADER     => $headers,
-        CURLOPT_TIMEOUT        => 10,
-        CURLOPT_SSL_VERIFYPEER => false,
-    ]);
-    $resp = curl_exec($ch);
-    $code = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+    $headers = ['Session-Token: '.$token, 'App-Token: '.GLPI_APP_TOKEN];
+    $url = GLPI_URL . '/apirest.php/' . ltrim($endpoint, '/');
+
+    $ch = curl_init($url);
+    $opts = [CURLOPT_RETURNTRANSFER=>true, CURLOPT_HTTPHEADER=>$headers];
+    if ($method === 'GET') {
+        // GET
+    } elseif ($method === 'POST') {
+        $opts[CURLOPT_POST] = true;
+        $opts[CURLOPT_POSTFIELDS] = json_encode($data);
+        $headers[] = 'Content-Type: application/json';
+    } elseif ($method === 'PUT') {
+        $opts[CURLOPT_CUSTOMREQUEST] = 'PUT';
+        $opts[CURLOPT_POSTFIELDS] = json_encode($data);
+        $headers[] = 'Content-Type: application/json';
+    } elseif ($method === 'DELETE') {
+        $opts[CURLOPT_CUSTOMREQUEST] = 'DELETE';
+    }
+    $opts[CURLOPT_HTTPHEADER] = $headers;
+    curl_setopt_array($ch, $opts);
+    $res = curl_exec($ch);
+    $http = curl_getinfo($ch, CURLINFO_HTTP_CODE);
     curl_close($ch);
-    $data = json_decode($resp, true);
-    return ['code' => $code, 'data' => $data];
+
+    // Mata sessão
+    $ch2 = curl_init(GLPI_URL . '/apirest.php/killSession');
+    curl_setopt_array($ch2, [CURLOPT_RETURNTRANSFER=>true, CURLOPT_HTTPHEADER=>$headers]);
+    curl_exec($ch2); curl_close($ch2);
+
+    $json = json_decode($res, true);
+    return ['ok'=> $http >= 200 && $http < 300, 'http'=>$http, 'data'=>$json ?? $res, 'msg'=> $http >= 200 && $http < 300 ? 'OK' : ($json['ERROR'] ?? 'Erro HTTP '.$http)];
 }
 
-try {
-    $init = glpi_api('GET', 'initSession', [
-        'Content-Type: application/json',
-        'App-Token: ' . GLPI_APP_TOKEN,
-        'Authorization: Basic ' . base64_encode(GLPI_USER . ':' . GLPI_PASS),
-    ]);
+function apiGet(string $endpoint): array { return apiGLPI('GET', $endpoint); }
 
-    if (!empty($init['data']['session_token'])) {
-        $token = $init['data']['session_token'];
-        $hdrs  = [
-            'Content-Type: application/json',
-            'App-Token: ' . GLPI_APP_TOKEN,
-            'Session-Token: ' . $token,
+// ── Handlers ──
+$action = $_POST['action'] ?? $_GET['action'] ?? '';
+
+if ($action === 'listar') {
+    header('Content-Type: application/json');
+    $busca = trim($_GET['busca'] ?? '');
+    $endpoint = 'SLA?range=0-500&expand_dropdowns=true';
+    if ($busca) $endpoint .= '&searchText[1]=' . urlencode($busca);
+    $res = apiGet($endpoint);
+    if (!$res['ok'] || !is_array($res['data'])) { echo json_encode([]); exit; }
+    $slas = [];
+    foreach ($res['data'] as $s) {
+        if (!isset($s['id'])) continue;
+        $type = $s['type'] ?? '';
+        if (is_array($type)) $type = $type['name'] ?? $type['id'] ?? '';
+        $slas[] = [
+            'id'              => (int)$s['id'],
+            'name'            => $s['name'] ?? '',
+            'type'            => $type,
+            'number_time'     => $s['number_time'] ?? '',
+            'definition_time' => $s['definition_time'] ?? '',
+            'internal_time'   => $s['internal_time'] ?? '',
+            'internal_type'   => $s['internal_type'] ?? '',
+            'comment'         => $s['comment'] ?? '',
+            'is_active'       => isset($s['is_active']) ? ($s['is_active'] === true || $s['is_active'] === 1 || $s['is_active'] === '1') : true,
         ];
-
-        // Status 1 = Novo, Status 2 = Em atendimento (processando)
-        // Buscamos os dois em uma única chamada com range amplo
-        $resp = glpi_api('GET',
-            'Ticket?range=0-200&expand_dropdowns=true' .
-            '&criteria[0][field]=12&criteria[0][searchtype]=equals&criteria[0][value]=1' .
-            '&criteria[1][link]=OR' .
-            '&criteria[1][field]=12&criteria[1][searchtype]=equals&criteria[1][value]=2',
-            $hdrs
-        );
-
-        // Fallback: busca simples sem critérios de status
-        if (empty($resp['data']) || !is_array($resp['data'])) {
-            $resp = glpi_api('GET', 'Ticket?range=0-200&expand_dropdowns=true&is_deleted=0', $hdrs);
-        }
-
-        if (!empty($resp['data']) && is_array($resp['data'])) {
-            foreach ($resp['data'] as $t) {
-                if (!isset($t['id'])) continue;
-                // Filtrar apenas status 1 e 2
-                $st = (int)($t['status'] ?? 0);
-                if ($st !== 1 && $st !== 2) continue;
-
-                $tickets[] = [
-                    'id'          => $t['id'],
-                    'titulo'      => $t['name'] ?? 'Ticket #' . $t['id'],
-                    'status'      => $st,
-                    'status_nome' => $st === 1 ? 'Novo' : 'Em atendimento',
-                    'urgencia'    => (int)($t['urgency'] ?? 2),
-                    'prioridade'  => (int)($t['priority'] ?? 2),
-                    'abertura'    => $t['date'] ?? $t['date_mod'] ?? null,
-                    'atribuido'   => $t['_users_id_assign'] ?? '—',
-                    'solicitante' => $t['_users_id_requester'] ?? '—',
-                    'categoria'   => $t['itilcategories_id'] ?? '—',
-                ];
-            }
-        }
-
-        glpi_api('GET', 'killSession', $hdrs);
-    } else {
-        $glpi_erro = 'Não foi possível autenticar na API do GLPI. Verifique as credenciais em agenda/config.php.';
     }
-} catch (\Throwable $e) {
-    $glpi_erro = 'Erro ao conectar ao GLPI: ' . htmlspecialchars($e->getMessage());
+    echo json_encode($slas);
+    exit;
 }
 
-// ── Calcular SLA por ticket ───────────────────────────────────────────────────
-// Regras: < 4h = VERDE, 4-8h = AMARELO, > 8h = VERMELHO
-// Ajuste baseado em urgência: alta urgência (4-5) reduz thresholds à metade
-function calcularSLA(array $ticket): array {
-    if (!$ticket['abertura']) {
-        return ['cor' => 'cinza', 'horas' => 0, 'label' => '—'];
-    }
-    $abertura = strtotime($ticket['abertura']);
-    $agora    = time();
-    $segundos = $agora - $abertura;
-    $horas    = $segundos / 3600;
-
-    $urg = $ticket['urgencia'];
-    // Urgência 4 (alto) ou 5 (muito alto): thresholds reduzidos
-    $limVerde    = ($urg >= 4) ? 2  : 4;   // horas
-    $limAmarelo  = ($urg >= 4) ? 4  : 8;
-
-    if ($horas < $limVerde) {
-        $cor = 'verde';
-    } elseif ($horas < $limAmarelo) {
-        $cor = 'amarelo';
-    } else {
-        $cor = 'vermelho';
-    }
-
-    $h = (int)floor($horas);
-    $m = (int)(($horas - $h) * 60);
-    $label = $h > 0 ? "{$h}h{$m}m" : "{$m}m";
-
-    return ['cor' => $cor, 'horas' => $horas, 'label' => $label];
+if ($action === 'detalhes') {
+    header('Content-Type: application/json');
+    $id = (int)($_GET['id'] ?? 0);
+    if ($id < 1) { echo json_encode(['ok'=>false,'msg'=>'ID inválido']); exit; }
+    $res = apiGet("SLA/{$id}?expand_dropdowns=true");
+    if (!$res['ok'] || empty($res['data'])) { echo json_encode(['ok'=>false,'msg'=>'SLA não encontrada']); exit; }
+    $s = $res['data'];
+    $type = $s['type'] ?? '';
+    if (is_array($type)) $type = $type['name'] ?? $type['id'] ?? '';
+    $detail = [
+        'id'              => (int)$s['id'],
+        'name'            => $s['name'] ?? '',
+        'type'            => $type,
+        'number_time'     => $s['number_time'] ?? '',
+        'definition_time' => $s['definition_time'] ?? '',
+        'internal_time'   => $s['internal_time'] ?? '',
+        'internal_type'   => $s['internal_type'] ?? '',
+        'comment'         => $s['comment'] ?? '',
+        'is_active'       => isset($s['is_active']) ? ($s['is_active'] === true || $s['is_active'] === 1 || $s['is_active'] === '1') : true,
+        'fields'          => $res['data'],
+    ];
+    echo json_encode($detail);
+    exit;
 }
 
-foreach ($tickets as &$t) {
-    $t['sla'] = calcularSLA($t);
-}
-unset($t);
-
-// Contagem por semáforo
-$cnt_verde   = count(array_filter($tickets, fn($t) => $t['sla']['cor'] === 'verde'));
-$cnt_amarelo = count(array_filter($tickets, fn($t) => $t['sla']['cor'] === 'amarelo'));
-$cnt_vermelho= count(array_filter($tickets, fn($t) => $t['sla']['cor'] === 'vermelho'));
-
-// Ordenar: vermelho → amarelo → verde
-usort($tickets, function($a, $b) {
-    $ordem = ['vermelho' => 0, 'amarelo' => 1, 'verde' => 2, 'cinza' => 3];
-    return ($ordem[$a['sla']['cor']] ?? 3) <=> ($ordem[$b['sla']['cor']] ?? 3);
-});
-
-$urgLabels = [1 => 'Muito baixa', 2 => 'Baixa', 3 => 'Média', 4 => 'Alta', 5 => 'Muito alta'];
 ?>
 <!DOCTYPE html>
 <html lang="pt-BR">
 <head>
   <meta charset="UTF-8"/>
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
-  <title>Monitor SLA</title>
+  <title>SLAs GLPI</title>
   <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet"/>
   <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.css" rel="stylesheet"/>
   <style>
-    :root { --primary: #1a237e; --mod: #e53935; }
-    body  { background: #f0f4f9; font-family: 'Segoe UI', sans-serif; margin: 0; }
-
+    :root { --primary:#1a237e; --accent:#1a73e8; }
+    body { background:#f0f4f9; font-family:'Segoe UI',sans-serif; min-height:100vh; }
     .topbar {
-      background: linear-gradient(135deg, var(--primary), #1565c0);
-      color: white; padding: .75rem 1.5rem;
-      display: flex; align-items: center; justify-content: space-between;
-      box-shadow: 0 2px 8px rgba(0,0,0,.25);
+      background:linear-gradient(135deg,var(--primary),#1565c0);
+      color:white; padding:.75rem 1.5rem;
+      display:flex; align-items:center; justify-content:space-between;
+      box-shadow:0 2px 8px rgba(0,0,0,.25); position:sticky; top:0; z-index:100;
     }
-    .topbar .brand { font-weight: 700; font-size: 1rem; display: flex; align-items: center; gap: .5rem; }
-    .topbar a {
-      color: white; text-decoration: none; font-size: .82rem;
-      background: rgba(255,255,255,.15); border-radius: 6px; padding: .3rem .75rem;
-    }
-    .topbar a:hover { background: rgba(255,255,255,.25); }
-
+    .topbar .brand { font-weight:700; font-size:1rem; display:flex; align-items:center; gap:.5rem; }
+    .topbar a { color:white; text-decoration:none; font-size:.82rem;
+                background:rgba(255,255,255,.15); border-radius:6px; padding:.3rem .75rem; transition:.2s; }
+    .topbar a:hover { background:rgba(255,255,255,.25); }
     .hero {
-      background: linear-gradient(135deg, var(--primary), #1565c0);
-      color: white; padding: 2rem 1rem 4.5rem; text-align: center;
+      background:linear-gradient(135deg,var(--primary),#1565c0); color:white;
+      padding:2rem 1rem 4.5rem; text-align:center;
     }
-    .hero h1 { font-size: 1.5rem; font-weight: 700; margin: 0; }
-    .hero p  { opacity: .8; margin-top: .5rem; font-size: .95rem; }
+    .hero h1 { font-size:1.5rem; font-weight:700; margin:0; }
+    .hero p  { opacity:.8; margin:.3rem 0 0; }
+    .wrap { max-width:1100px; margin:-3rem auto 3rem; padding:0 1rem; }
 
-    .wrap { max-width: 1100px; margin: -3rem auto 3rem; padding: 0 1rem; }
-
-    /* ── Semáforo Stats ── */
-    .sla-semaforo {
-      display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-      gap: 1rem; margin-bottom: 1.25rem;
-    }
-    .sem-card {
-      background: white; border-radius: 14px; border: 1px solid #e5e7eb;
-      box-shadow: 0 2px 8px rgba(0,0,0,.06); padding: 1.25rem;
-      text-align: center; position: relative; overflow: hidden;
-    }
-    .sem-card::before {
-      content: ''; position: absolute; top: 0; left: 0; right: 0; height: 5px;
-    }
-    .sem-verde::before   { background: #43a047; }
-    .sem-amarelo::before { background: #fb8c00; }
-    .sem-vermelho::before{ background: #e53935; }
-    .sem-total::before   { background: var(--mod); }
-
-    .sem-icon {
-      width: 52px; height: 52px; border-radius: 50%;
-      display: flex; align-items: center; justify-content: center;
-      margin: 0 auto .75rem; font-size: 1.5rem;
-    }
-    .sem-verde   .sem-icon { background: #e8f5e9; color: #2e7d32; }
-    .sem-amarelo .sem-icon { background: #fff8e1; color: #f57f17; }
-    .sem-vermelho .sem-icon { background: #ffebee; color: #c62828; }
-    .sem-total   .sem-icon { background: #ffebee; color: var(--mod); }
-
-    .sem-val  { font-size: 2rem; font-weight: 800; line-height: 1; }
-    .sem-lbl  { font-size: .75rem; color: #9ca3af; text-transform: uppercase; letter-spacing: .05em; margin-top: .25rem; }
-    .sem-sub  { font-size: .72rem; color: #6b7280; margin-top: .2rem; }
-
-    /* ── Barra de ação ── */
-    .acao-bar {
-      background: white; border-radius: 12px; border: 1px solid #e5e7eb;
-      box-shadow: 0 2px 8px rgba(0,0,0,.06); padding: .75rem 1.25rem;
-      display: flex; flex-wrap: wrap; gap: .75rem; align-items: center; margin-bottom: 1rem;
-    }
-    .info-update { font-size: .78rem; color: #9ca3af; display: flex; align-items: center; gap: .4rem; }
-    .btn-atualizar {
-      background: var(--mod); border: none; color: white; border-radius: 8px;
-      padding: .4rem 1.1rem; font-size: .82rem; font-weight: 600; cursor: pointer;
-      text-decoration: none; display: inline-flex; align-items: center; gap: .4rem;
-    }
-    .btn-atualizar:hover { background: #c62828; color: white; }
-    .auto-refresh {
-      font-size: .78rem; color: #6b7280; display: flex; align-items: center; gap: .3rem;
+    .filtros-card {
+      background:white; border-radius:12px; border:1px solid #e5e7eb;
+      box-shadow:0 2px 8px rgba(0,0,0,.06); padding:1rem 1.25rem;
+      margin-bottom:1rem; display:flex; flex-wrap:wrap; gap:.75rem; align-items:center;
     }
 
-    /* ── Tabela ── */
-    .tbl-wrap {
-      background: white; border-radius: 12px; border: 1px solid #e5e7eb;
-      box-shadow: 0 2px 8px rgba(0,0,0,.06); overflow: hidden;
+    .tabela-card {
+      background:white; border-radius:12px; border:1px solid #e5e7eb;
+      box-shadow:0 2px 8px rgba(0,0,0,.06); overflow:hidden;
     }
-    .tbl-header {
-      background: var(--mod); color: white; padding: .75rem 1.25rem;
-      display: flex; align-items: center; justify-content: space-between;
+    .tabela-card table { margin:0; font-size:.84rem; }
+    .tabela-card thead th {
+      background:#f9fafb; font-size:.75rem; font-weight:700;
+      color:#6b7280; text-transform:uppercase; letter-spacing:.04em;
+      border-bottom:2px solid #e5e7eb; padding:.65rem .8rem; white-space:nowrap;
     }
-    .tbl-header .title { font-weight: 700; font-size: .95rem; display: flex; align-items: center; gap: .5rem; }
-    table { width: 100%; border-collapse: collapse; font-size: .85rem; }
-    thead th {
-      background: #f9fafb; padding: .65rem 1rem; text-align: left;
-      font-weight: 700; color: #374151; border-bottom: 2px solid #e5e7eb;
-      font-size: .78rem; text-transform: uppercase; letter-spacing: .04em;
-    }
-    tbody tr { border-bottom: 1px solid #f3f4f6; transition: background .1s; }
-    tbody td { padding: .65rem 1rem; vertical-align: middle; }
+    .tabela-card tbody td { padding:.6rem .8rem; vertical-align:middle; border-color:#f3f4f6; }
+    .tabela-card tbody tr { cursor:pointer; }
+    .tabela-card tbody tr:hover { background:#e8f0fe; }
 
-    /* Linhas coloridas por SLA */
-    tr.sla-verde   { border-left: 4px solid #43a047; }
-    tr.sla-amarelo { border-left: 4px solid #fb8c00; background: #fffde7; }
-    tr.sla-vermelho{ border-left: 4px solid #e53935; background: #fff5f5; }
-    tr.sla-cinza   { border-left: 4px solid #9ca3af; }
+    .badge-ativo { background:#16a34a; color:white; font-size:.7rem; border-radius:20px; padding:.15rem .5rem; display:inline-block; }
+    .badge-inativo { background:#9ca3af; color:white; font-size:.7rem; border-radius:20px; padding:.15rem .5rem; display:inline-block; }
 
-    /* Semáforo badge */
-    .sla-badge {
-      display: inline-flex; align-items: center; gap: .3rem;
-      font-size: .75rem; font-weight: 700; padding: .25rem .6rem; border-radius: 10px;
-    }
-    .sla-badge.verde   { background: #e8f5e9; color: #1b5e20; }
-    .sla-badge.amarelo { background: #fff8e1; color: #e65100; }
-    .sla-badge.vermelho{ background: #ffebee; color: #b71c1c; }
-    .sla-badge.cinza   { background: #f3f4f6; color: #6b7280; }
+    .empty { text-align:center; color:#9ca3af; padding:4rem 1rem; }
+    .spin { animation:spin .8s linear infinite; }
+    @keyframes spin { to{transform:rotate(360deg)} }
 
-    /* Dot semáforo */
-    .sla-dot {
-      width: 10px; height: 10px; border-radius: 50%; display: inline-block;
-    }
-    .dot-verde   { background: #43a047; box-shadow: 0 0 6px #43a047; }
-    .dot-amarelo { background: #fb8c00; box-shadow: 0 0 6px #fb8c00; }
-    .dot-vermelho{ background: #e53935; box-shadow: 0 0 6px #e53935; animation: piscar 1.2s infinite; }
-    .dot-cinza   { background: #9ca3af; }
+    .modal-detalhe dt { color:#6b7280; font-size:.75rem; text-transform:uppercase; letter-spacing:.04em; font-weight:700; margin-top:.75rem; }
+    .modal-detalhe dd { margin-bottom:0; word-break:break-word; }
 
-    @keyframes piscar {
-      0%, 100% { opacity: 1; }
-      50%       { opacity: .3; }
-    }
-
-    /* Status badge */
-    .st-novo     { background: #e8f0fe; color: #1a73e8; font-size:.7rem; padding:.18rem .5rem; border-radius:8px; font-weight:600; }
-    .st-atend    { background: #fff3e0; color: #e65100; font-size:.7rem; padding:.18rem .5rem; border-radius:8px; font-weight:600; }
-
-    /* Urgência */
-    .urg-badge { font-size: .68rem; padding: .18rem .45rem; border-radius: 8px; font-weight: 700; }
-    .urg-5 { background: #ffebee; color: #b71c1c; }
-    .urg-4 { background: #fff3e0; color: #e65100; }
-    .urg-3 { background: #fff9c4; color: #f57f17; }
-    .urg-2 { background: #f3f4f6; color: #4b5563; }
-    .urg-1 { background: #e8f5e9; color: #2e7d32; }
-
-    /* Alerta erro */
-    .alerta-erro {
-      background: #ffebee; border: 1px solid #ef9a9a; border-radius: 10px;
-      padding: 1.5rem; text-align: center; color: #b71c1c;
-    }
-    .alerta-erro .icon { font-size: 2.5rem; display: block; margin-bottom: .75rem; }
-
-    .empty-row td { text-align: center; color: #9ca3af; padding: 2.5rem; }
-
-    footer { text-align: center; color: #bbb; font-size: .78rem; padding: 2rem; }
+    @media(max-width:768px) { .tabela-card { overflow-x:auto; } }
   </style>
 </head>
 <body>
 
-<!-- Topbar -->
 <div class="topbar">
-  <div class="brand"><i class="bi bi-stopwatch-fill"></i> Monitor SLA</div>
+  <div class="brand"><i class="bi bi-clock-fill"></i> SLAs GLPI</div>
   <a href="dashboard.php"><i class="bi bi-grid me-1"></i>Início</a>
 </div>
 
-<!-- Hero -->
 <div class="hero">
-  <h1><i class="bi bi-stopwatch-fill me-2"></i>Monitor SLA em Tempo Real</h1>
-  <p>Chamados abertos — semáforo verde / amarelo / vermelho por tempo de resposta</p>
+  <h1><i class="bi bi-clock-fill me-2"></i>Consultar SLAs</h1>
+  <p>Visualização dos Acordos de Nível de Serviço cadastrados no GLPI</p>
 </div>
 
 <div class="wrap">
 
-  <?php if ($glpi_erro): ?>
-  <div class="alerta-erro">
-    <span class="icon"><i class="bi bi-wifi-off"></i></span>
-    <strong>Não foi possível buscar dados do GLPI</strong><br>
-    <span style="font-size:.88rem"><?= htmlspecialchars($glpi_erro) ?></span><br>
-    <a href="sla.php" class="btn-atualizar d-inline-flex mt-3" style="text-decoration:none">
-      <i class="bi bi-arrow-clockwise"></i>Tentar novamente
-    </a>
-  </div>
-
-  <?php else: ?>
-
-  <!-- Semáforo Stats -->
-  <div class="sla-semaforo">
-    <div class="sem-card sem-total">
-      <div class="sem-icon"><i class="bi bi-ticket-detailed-fill"></i></div>
-      <div class="sem-val" style="color:var(--mod)"><?= count($tickets) ?></div>
-      <div class="sem-lbl">Total de Chamados</div>
-      <div class="sem-sub">abertos (novos + em atend.)</div>
+  <!-- Filtros -->
+  <div class="filtros-card">
+    <div>
+      <input type="text" id="buscaInput" class="form-control form-control-sm" style="width:280px"
+             placeholder="Buscar SLA pelo nome..." onkeyup="if(event.key==='Enter')carregarSLAs()"/>
     </div>
-    <div class="sem-card sem-verde">
-      <div class="sem-icon"><i class="bi bi-check-circle-fill"></i></div>
-      <div class="sem-val" style="color:#2e7d32"><?= $cnt_verde ?></div>
-      <div class="sem-lbl">Dentro do SLA</div>
-      <div class="sem-sub">menos de 4 horas</div>
+    <div>
+      <button class="btn btn-primary btn-sm" onclick="carregarSLAs()"><i class="bi bi-search me-1"></i>Buscar</button>
     </div>
-    <div class="sem-card sem-amarelo">
-      <div class="sem-icon"><i class="bi bi-exclamation-circle-fill"></i></div>
-      <div class="sem-val" style="color:#e65100"><?= $cnt_amarelo ?></div>
-      <div class="sem-lbl">Atenção</div>
-      <div class="sem-sub">entre 4 e 8 horas</div>
-    </div>
-    <div class="sem-card sem-vermelho">
-      <div class="sem-icon"><i class="bi bi-x-circle-fill"></i></div>
-      <div class="sem-val" style="color:#c62828"><?= $cnt_vermelho ?></div>
-      <div class="sem-lbl">SLA Violado</div>
-      <div class="sem-sub">mais de 8 horas</div>
+    <div style="margin-left:auto">
+      <span class="text-muted small" id="totalCount"></span>
     </div>
   </div>
 
-  <!-- Barra ação -->
-  <div class="acao-bar">
-    <div class="info-update">
-      <i class="bi bi-clock"></i>
-      Última atualização: <strong><?= $ultima_atualizacao ?></strong>
-    </div>
-    <div class="auto-refresh">
-      <i class="bi bi-arrow-repeat"></i>
-      Auto-refresh em <strong id="countdown">5:00</strong>
-    </div>
-    <div style="flex:1"></div>
-    <a href="sla.php" class="btn-atualizar">
-      <i class="bi bi-arrow-clockwise"></i>Atualizar agora
-    </a>
-  </div>
-
-  <!-- Tabela de chamados -->
-  <div class="tbl-wrap">
-    <div class="tbl-header">
-      <div class="title"><i class="bi bi-table"></i> Chamados Abertos</div>
-      <span style="font-size:.78rem;opacity:.85"><?= count($tickets) ?> chamado<?= count($tickets) !== 1 ? 's' : '' ?></span>
-    </div>
-    <div class="table-responsive">
-      <table>
-        <thead>
-          <tr>
-            <th style="width:36px">&nbsp;</th>
-            <th>#</th>
-            <th>Título</th>
-            <th>Status</th>
-            <th>Urgência</th>
-            <th>Abertura</th>
-            <th>Tempo Decorrido</th>
-            <th>SLA</th>
-            <th>Atribuído a</th>
-          </tr>
-        </thead>
-        <tbody>
-          <?php if (empty($tickets)): ?>
-          <tr class="empty-row"><td colspan="9"><i class="bi bi-check2-all fs-4 d-block mb-2 text-success"></i>Nenhum chamado aberto ou em atendimento no momento.</td></tr>
-          <?php else: ?>
-          <?php foreach ($tickets as $t):
-            $sla    = $t['sla'];
-            $cor    = $sla['cor'];
-            $urgCls = 'urg-' . $t['urgencia'];
-            $urgLbl = $urgLabels[$t['urgencia']] ?? 'N/D';
-            $stCls  = $t['status'] === 1 ? 'st-novo' : 'st-atend';
-            $abertura_fmt = $t['abertura'] ? date('d/m H:i', strtotime($t['abertura'])) : '—';
-            $atrib  = is_array($t['atribuido']) ? ($t['atribuido']['name'] ?? '—') : ($t['atribuido'] ?: '—');
-          ?>
-          <tr class="sla-<?= $cor ?>">
-            <td style="text-align:center"><span class="sla-dot dot-<?= $cor ?>"></span></td>
-            <td style="font-weight:700;color:#1a73e8"><?= (int)$t['id'] ?></td>
-            <td style="max-width:280px">
-              <span style="font-weight:600;font-size:.85rem"><?= htmlspecialchars(mb_strimwidth($t['titulo'], 0, 70, '…')) ?></span>
-              <?php if ($t['categoria'] && $t['categoria'] !== '—'): ?>
-              <div style="font-size:.7rem;color:#9ca3af"><?= htmlspecialchars(is_array($t['categoria']) ? ($t['categoria']['completename'] ?? '') : $t['categoria']) ?></div>
-              <?php endif; ?>
-            </td>
-            <td><span class="<?= $stCls ?>"><?= htmlspecialchars($t['status_nome']) ?></span></td>
-            <td><span class="urg-badge <?= $urgCls ?>"><?= $urgLbl ?></span></td>
-            <td style="font-size:.8rem;white-space:nowrap"><?= $abertura_fmt ?></td>
-            <td style="font-weight:700;font-size:.88rem;color:<?= $cor === 'verde' ? '#2e7d32' : ($cor === 'amarelo' ? '#e65100' : '#b71c1c') ?>">
-              <?= htmlspecialchars($sla['label']) ?>
-            </td>
-            <td>
-              <span class="sla-badge <?= $cor ?>">
-                <span class="sla-dot dot-<?= $cor ?>" style="width:8px;height:8px"></span>
-                <?= $cor === 'verde' ? 'OK' : ($cor === 'amarelo' ? 'Atenção' : 'Violado') ?>
-              </span>
-            </td>
-            <td style="font-size:.8rem;max-width:120px">
-              <?= htmlspecialchars(is_array($atrib) ? ($atrib['name'] ?? '—') : ($atrib ?: '—')) ?>
-            </td>
-          </tr>
-          <?php endforeach; ?>
-          <?php endif; ?>
-        </tbody>
-      </table>
+  <!-- Tabela -->
+  <div class="tabela-card">
+    <div id="tabelaContainer">
+      <div class="empty"><i class="bi bi-arrow-repeat fs-1 d-block mb-2 spin"></i>Carregando...</div>
     </div>
   </div>
 
-  <?php endif; ?>
+</div>
 
+<!-- Modal Detalhes SLA -->
+<div class="modal fade" id="modalDetalhes" tabindex="-1">
+  <div class="modal-dialog modal-lg modal-dialog-centered modal-dialog-scrollable">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title" id="modalTitle">Detalhes da SLA</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <div id="detalhesConteudo">
+          <div class="text-center py-4 text-muted"><i class="bi bi-arrow-repeat fs-1 d-block mb-2 spin"></i>Carregando...</div>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Fechar</button>
+      </div>
+    </div>
+  </div>
 </div>
 
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
 <script>
-// ── Auto-refresh a cada 5 minutos com contador regressivo ──────────────────
 (function() {
-  const TOTAL = 5 * 60; // segundos
-  let restante = TOTAL;
-  const el = document.getElementById('countdown');
-  if (!el) return;
+  'use strict';
 
-  function atualizar() {
-    const m = Math.floor(restante / 60);
-    const s = restante % 60;
-    el.textContent = m + ':' + String(s).padStart(2, '0');
-    if (restante <= 30) el.style.color = '#e53935';
-    else if (restante <= 60) el.style.color = '#fb8c00';
-    else el.style.color = '';
-    if (restante <= 0) {
-      window.location.reload();
-    } else {
-      restante--;
-      setTimeout(atualizar, 1000);
+  let slaCache = [];
+
+  const modalDetalhes = new bootstrap.Modal(document.getElementById('modalDetalhes'));
+
+  // ── Carregar lista ──
+  window.carregarSLAs = function() {
+    const busca = document.getElementById('buscaInput').value;
+    const params = new URLSearchParams({action:'listar'});
+    if (busca) params.set('busca', busca);
+
+    document.getElementById('tabelaContainer').innerHTML = '<div class="empty"><i class="bi bi-arrow-repeat fs-1 d-block mb-2 spin"></i>Carregando...</div>';
+
+    fetch('sla.php?' + params.toString())
+      .then(r => r.json())
+      .then(dados => {
+        slaCache = dados || [];
+        renderizarTabela();
+      })
+      .catch(() => {
+        document.getElementById('tabelaContainer').innerHTML = '<div class="empty"><i class="bi bi-exclamation-circle fs-1 d-block mb-2"></i>Erro ao carregar.</div>';
+      });
+  };
+
+  // ── Renderizar tabela ──
+  function renderizarTabela() {
+    const container = document.getElementById('tabelaContainer');
+    const totalSpan = document.getElementById('totalCount');
+
+    if (!slaCache.length) {
+      container.innerHTML = '<div class="empty"><i class="bi bi-inbox fs-1 d-block mb-2"></i>Nenhuma SLA encontrada.</div>';
+      totalSpan.textContent = '';
+      return;
     }
+
+    totalSpan.textContent = slaCache.length + ' SLA(s) encontrada(s)';
+
+    let html = '<table class="table table-hover"><thead><tr>' +
+      '<th>ID</th><th>Nome</th><th>Tipo</th><th>Tempo Resolução</th><th>Ativo</th>' +
+      '</tr></thead><tbody>';
+
+    slaCache.forEach(s => {
+      const ativoBadge = s.is_active ? '<span class="badge-ativo">Sim</span>' : '<span class="badge-inativo">Não</span>';
+      const typeLabel = formatarTipoSLA(s.type);
+      const tempo = s.number_time ? formatarTempo(s.number_time) : '-';
+      html += '<tr onclick="abrirDetalhes(' + s.id + ')">';
+      html += '<td class="fw-bold text-muted small">' + s.id + '</td>';
+      html += '<td class="fw-semibold">' + htmlspecialchars(s.name) + '</td>';
+      html += '<td>' + htmlspecialchars(typeLabel) + '</td>';
+      html += '<td>' + htmlspecialchars(tempo) + '</td>';
+      html += '<td>' + ativoBadge + '</td>';
+      html += '</tr>';
+    });
+
+    html += '</tbody></table>';
+    container.innerHTML = html;
   }
-  atualizar();
+
+  // ── Abrir detalhes ──
+  window.abrirDetalhes = function(id) {
+    const s = slaCache.find(x => x.id == id);
+    if (!s) return;
+
+    document.getElementById('modalTitle').textContent = 'SLA: ' + htmlspecialchars(s.name || '#' + s.id);
+    document.getElementById('detalhesConteudo').innerHTML = '<div class="text-center py-4 text-muted"><i class="bi bi-arrow-repeat fs-1 d-block mb-2 spin"></i>Carregando...</div>';
+    modalDetalhes.show();
+
+    // Busca detalhes completos
+    fetch('sla.php?action=detalhes&id=' + id)
+      .then(r => r.json())
+      .then(d => {
+        if (d.ok) {
+          renderizarDetalhes(d);
+        } else {
+          renderizarDetalhes(s);
+        }
+      })
+      .catch(() => {
+        renderizarDetalhes(s);
+      });
+  };
+
+  // ── Renderizar detalhes ──
+  function renderizarDetalhes(d) {
+    const container = document.getElementById('detalhesConteudo');
+    const isActive = d.is_active ? '<span class="badge-ativo">Sim</span>' : '<span class="badge-inativo">Não</span>';
+
+    let html = '<dl class="modal-detalhe row">';
+
+    html += '<div class="col-sm-6"><dt>ID</dt><dd>' + d.id + '</dd></div>';
+    html += '<div class="col-sm-6"><dt>Nome</dt><dd>' + htmlspecialchars(d.name || '-') + '</dd></div>';
+    html += '<div class="col-sm-6"><dt>Tipo</dt><dd>' + htmlspecialchars(formatarTipoSLA(d.type)) + '</dd></div>';
+    html += '<div class="col-sm-6"><dt>Ativo</dt><dd>' + isActive + '</dd></div>';
+
+    html += '<div class="col-12"><hr class="my-2"></div>';
+
+    html += '<div class="col-sm-6"><dt>Tempo de Resolução</dt><dd>' + htmlspecialchars(formatarTempo(d.number_time)) + '</dd></div>';
+    html += '<div class="col-sm-6"><dt>Tempo de Definição</dt><dd>' + htmlspecialchars(formatarTempo(d.definition_time)) + '</dd></div>';
+    html += '<div class="col-sm-6"><dt>Tempo de Resposta Interna</dt><dd>' + htmlspecialchars(formatarTempo(d.internal_time)) + '</dd></div>';
+    html += '<div class="col-sm-6"><dt>Tipo Interno</dt><dd>' + htmlspecialchars(formatarTipoInterno(d.internal_type)) + '</dd></div>';
+
+    if (d.comment) {
+      html += '<div class="col-12"><hr class="my-2"></div>';
+      html += '<div class="col-12"><dt>Descrição / Comentário</dt><dd style="white-space:pre-wrap">' + htmlspecialchars(d.comment) + '</dd></div>';
+    }
+
+    // Mostrar campos adicionais (dados brutos)
+    if (d.fields) {
+      const extras = [];
+      Object.entries(d.fields).forEach(([key, val]) => {
+        if (['id','name','type','number_time','definition_time','internal_time','internal_type','comment','is_active'].includes(key)) return;
+        if (val === null || val === '' || val === undefined) return;
+        if (key.startsWith('_')) return;
+        let label = key.replace(/_/g, ' ');
+        label = label.charAt(0).toUpperCase() + label.slice(1);
+        let value = val;
+        if (typeof value === 'object' && value !== null) value = value.name ?? value.id ?? JSON.stringify(value);
+        extras.push('<div class="col-sm-6"><dt>' + htmlspecialchars(label) + '</dt><dd>' + htmlspecialchars(String(value)) + '</dd></div>');
+      });
+      if (extras.length) {
+        html += '<div class="col-12"><hr class="my-2"></div>';
+        html += '<div class="col-12"><dt class="mb-2">Campos Adicionais</dt></div>';
+        html += extras.join('');
+      }
+    }
+
+    html += '</dl>';
+    container.innerHTML = html;
+  }
+
+  // ── Utilitários ──
+  function formatarTipoSLA(type) {
+    if (!type || type === '0') return '-';
+    const tipos = { '1': 'Incidente', '2': 'Requisição', '3': 'Ambos' };
+    return tipos[String(type)] || type;
+  }
+
+  function formatarTempo(tempo) {
+    if (!tempo || tempo === '0' || tempo === '0:00') return '-';
+    return tempo;
+  }
+
+  function formatarTipoInterno(type) {
+    if (!type || type === '0') return '-';
+    const tipos = { '1': 'Minutos', '2': 'Horas', '3': 'Dias' };
+    return tipos[String(type)] || type;
+  }
+
+  function htmlspecialchars(str) {
+    if (str === null || str === undefined) return '';
+    const div = document.createElement('div');
+    div.appendChild(document.createTextNode(String(str)));
+    return div.innerHTML;
+  }
+
+  // ── Init ──
+  carregarSLAs();
+
 })();
 </script>
-<footer><i class="bi bi-shield-lock me-1"></i>Central de TI — Monitor SLA — Integrado com GLPI</footer>
 </body>
 </html>

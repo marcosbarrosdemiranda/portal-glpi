@@ -1,20 +1,52 @@
 <?php
 require_once __DIR__ . '/auth_guard.php';
+require_once __DIR__ . '/entidade_alias.php';
 if (empty($_SESSION['autenticado'])) {
     header('Location: auth.php');
     exit;
 }
-$nome    = $_SESSION['nome']   ?? $_SESSION['usuario'] ?? 'Atendente';
-$perfil  = $_SESSION['perfil'] ?? 'tecnico';
-$is_self = ($perfil === 'self-service');
-$hora    = (int)date('H');
-$saudacao = $hora < 12 ? 'Bom dia' : ($hora < 18 ? 'Boa tarde' : 'Boa noite');
+$nome       = $_SESSION['nome']   ?? $_SESSION['usuario'] ?? 'Atendente';
+$perfil     = $_SESSION['perfil'] ?? 'tecnico';
+$is_self    = ($perfil === 'self-service');
+// 'portal' só é atribuído pelo auth_guard quando self-service tem perfil de portal
+$is_self_glpi = ($perfil === 'self-service' || $perfil === 'portal');
+$hora       = (int)date('H');
+$saudacao   = $hora < 12 ? 'Bom dia' : ($hora < 18 ? 'Boa tarde' : 'Boa noite');
 
 // Logout
 if (isset($_GET['logout'])) {
     session_destroy();
     header('Location: auth.php');
     exit;
+}
+
+// ── Permissões de perfil ──────────────────────────────────────────────────
+// Carrega quais cards o usuário pode ver (null = sem restrição, vê tudo)
+$perfil_cards = null;
+$user_id_dash = (int)($_SESSION['user_id'] ?? 0);
+if ($user_id_dash) {
+    try {
+        require_once __DIR__ . '/agenda/db.php';
+        $stPerfil = $pdo->prepare("
+            SELECT pp.cards FROM portal_perfil_usuarios pu
+            JOIN portal_perfis pp ON pp.id = pu.perfil_id
+            WHERE pu.user_id = ?
+        ");
+        $stPerfil->execute([$user_id_dash]);
+        $rowPerfil = $stPerfil->fetch();
+        if ($rowPerfil) {
+            $perfil_cards = json_decode($rowPerfil['cards'] ?? '{}', true) ?: [];
+        }
+    } catch (Exception $e) { /* tabelas ainda não existem — ignora */ }
+}
+
+// Perfil do portal atribuído sobrepõe a detecção self-service do GLPI
+if ($perfil_cards !== null) $is_self = false;
+
+// Helper: verifica se card está liberado para o usuário
+function pode_ver(string $key, ?array $cards): bool {
+    if ($cards === null) return true; // sem perfil = vê tudo
+    return isset($cards[$key]);
 }
 ?>
 <!DOCTYPE html>
@@ -119,6 +151,9 @@ if (isset($_GET['logout'])) {
     .card-historico { border-top-color: #7b1fa2; }
     .card-historico .card-icon { background: #f3e5f5; color: #7b1fa2; }
 
+    .card-pendencias { border-top-color: #e65100; }
+    .card-pendencias .card-icon { background: #fff3e0; color: #e65100; }
+
     .card-relatorio { border-top-color: #00bfff; }
     .card-relatorio .card-icon { background: #e0f7ff; color: #0077aa; }
 
@@ -148,6 +183,24 @@ if (isset($_GET['logout'])) {
 
     .card-cofre       { border-top-color: #37474f; }
     .card-cofre       .card-icon { background: #eceff1; color: #37474f; }
+
+    .card-usuarios    { border-top-color: #f9a825; }
+    .card-usuarios    .card-icon { background: #fff8e1; color: #f9a825; }
+
+    .card-categorias  { border-top-color: #6a1b9a; }
+    .card-categorias  .card-icon { background: #f3e5f5; color: #6a1b9a; }
+
+    .card-gerenciar-entidades { border-top-color: #00838f; }
+    .card-gerenciar-entidades .card-icon { background: #e0f7fa; color: #00838f; }
+
+    .card-sla-config  { border-top-color: #ef6c00; }
+    .card-sla-config  .card-icon { background: #fff3e0; color: #ef6c00; }
+
+    .card-logs        { border-top-color: #546e7a; }
+    .card-logs        .card-icon { background: #eceff1; color: #546e7a; }
+
+    .card-manutencao  { border-top-color: #c62828; }
+    .card-manutencao  .card-icon { background: #ffebee; color: #c62828; }
 
     .card-acesso-remoto { border-top-color: #1d4ed8; }
     .card-acesso-remoto .card-icon { background: #dbeafe; color: #1d4ed8; }
@@ -195,15 +248,15 @@ if (isset($_GET['logout'])) {
 
 <!-- Hero -->
 <div class="hero">
-  <h2><?= $saudacao ?>, <strong><?= htmlspecialchars(explode(' ', $nome)[0]) ?></strong>!</h2>
+  <h2><?= $saudacao ?>, <strong><?= htmlspecialchars(primeiro_nome($nome)) ?></strong>!</h2>
   <p>O que você deseja fazer hoje?</p>
 </div>
 
 <!-- Cards -->
 <div class="cards-wrap">
 
-<?php if ($is_self): ?>
-  <!-- Self-Service: apenas abrir chamado e meus chamados -->
+<?php if ($is_self_glpi): ?>
+  <!-- Cards básicos do self-service — sempre aparecem no topo -->
   <a href="portal/atendente.php" class="dash-card card-usuario">
     <div class="card-icon"><i class="bi bi-person-raised-hand"></i></div>
     <h5>Abrir Chamado</h5>
@@ -222,113 +275,224 @@ if (isset($_GET['logout'])) {
     <p>Acesse artigos, tutoriais e documentações da equipe de TI.</p>
   </a>
 
-<?php else: ?>
+<?php endif; ?>
+
+<?php if (!$is_self): /* perfil portal ou técnico — mostra cards do perfil */ ?>
 
   <!-- ── ATENDIMENTO ── -->
+  <?php if (pode_ver('agenda',$perfil_cards) || (pode_ver('abrir_chamado',$perfil_cards) && !$is_self_glpi) || pode_ver('historico',$perfil_cards) || pode_ver('pendencias',$perfil_cards)): ?>
   <div class="section-label"><i class="bi bi-headset me-2"></i>Atendimento</div>
+  <?php endif; ?>
 
+  <?php if (pode_ver('agenda', $perfil_cards)): ?>
   <a href="agenda/" class="dash-card card-agenda">
     <div class="card-icon"><i class="bi bi-calendar3"></i></div>
     <h5>Agenda de Atendimentos</h5>
     <p>Visualize e gerencie os chamados agendados, crie eventos e acompanhe sua equipe.</p>
   </a>
+  <?php endif; ?>
 
+  <?php if (pode_ver('abrir_chamado', $perfil_cards) && !$is_self_glpi): ?>
   <a href="portal/" class="dash-card card-atendente">
     <div class="card-icon"><i class="bi bi-headset"></i></div>
     <h5>Abrir Chamado</h5>
     <p class="text-muted small mb-1">Por atendente</p>
     <p>Formulário completo para técnicos de TI registrarem chamados com todos os detalhes.</p>
   </a>
+  <?php endif; ?>
 
+  <?php if (pode_ver('historico', $perfil_cards)): ?>
   <a href="historico.php" class="dash-card card-historico">
     <div class="card-icon"><i class="bi bi-clock-history"></i></div>
     <h5>Histórico de Chamados</h5>
     <p>Liste, filtre e acompanhe todos os chamados registrados no GLPI.</p>
   </a>
+  <?php endif; ?>
+
+  <?php if (pode_ver('pendencias', $perfil_cards)): ?>
+  <a href="pendencias.php" class="dash-card card-pendencias">
+    <div class="card-icon"><i class="bi bi-sticky-fill"></i></div>
+    <h5>Pendências e Anotações</h5>
+    <p>Anotações por loja: lembretes de visita, itens pendentes — converta em chamado quando necessário.</p>
+  </a>
+  <?php endif; ?>
 
   <!-- ── KPIs ── -->
+  <?php if (pode_ver('relatorios',$perfil_cards) || pode_ver('inventario',$perfil_cards)): ?>
   <div class="section-label"><i class="bi bi-bar-chart-line me-2"></i>KPIs</div>
+  <?php endif; ?>
 
+  <?php if (pode_ver('relatorios', $perfil_cards)): ?>
   <a href="relatorios.php" class="dash-card card-relatorio">
     <div class="card-icon"><i class="bi bi-bar-chart-fill"></i></div>
     <h5>Painel de Relatórios</h5>
     <p>Dashboards com gráficos de chamados por atendente, loja, categoria e Monitor SLA.</p>
   </a>
+  <?php endif; ?>
 
+  <?php if (pode_ver('inventario', $perfil_cards)): ?>
   <a href="inventario.php" class="dash-card card-inventario">
     <div class="card-icon"><i class="bi bi-pc-display"></i></div>
     <h5>Inventário</h5>
     <p>Monitore máquinas por loja — status online/offline e configurações.</p>
   </a>
+  <?php endif; ?>
 
   <!-- ── RECURSOS ── -->
+  <?php if ((pode_ver('conhecimento',$perfil_cards) && !$is_self_glpi) || pode_ver('cofre',$perfil_cards)): ?>
   <div class="section-label"><i class="bi bi-collection-fill me-2"></i>Recursos</div>
+  <?php endif; ?>
 
+  <?php if (pode_ver('conhecimento', $perfil_cards) && !$is_self_glpi): ?>
   <a href="conhecimento.php" class="dash-card card-conhecimento">
     <div class="card-icon"><i class="bi bi-book-fill"></i></div>
     <h5>Área do Conhecimento</h5>
     <p>Acesse artigos, tutoriais e documentações da equipe de TI.</p>
   </a>
+  <?php endif; ?>
 
+  <?php if (pode_ver('cofre', $perfil_cards)): ?>
   <a href="cofre.php" class="dash-card card-cofre">
     <div class="card-icon"><i class="bi bi-safe2-fill"></i></div>
     <h5>Cofre TI</h5>
     <p>Senhas, comandos e documentação interna da equipe — seguro e com busca rápida.</p>
   </a>
+  <?php endif; ?>
 
   <!-- ── ACESSOS ── -->
+  <?php if (pode_ver('acesso_remoto',$perfil_cards) || pode_ver('infra',$perfil_cards) || pode_ver('erp',$perfil_cards)): ?>
   <div class="section-label"><i class="bi bi-grid-3x3-gap-fill me-2"></i>Acessos</div>
+  <?php endif; ?>
 
+  <?php if (pode_ver('acesso_remoto', $perfil_cards)): ?>
   <a href="acessos.php#remoto" class="dash-card card-acesso-remoto">
     <div class="card-icon"><i class="bi bi-display-fill"></i></div>
     <h5>Acesso Remoto</h5>
     <p>Remote Desktop (RDP), VNC e AnyDesk para suporte e acesso a servidores.</p>
   </a>
+  <?php endif; ?>
 
+  <?php if (pode_ver('infra', $perfil_cards)): ?>
   <a href="acessos.php#infra" class="dash-card card-infra">
     <div class="card-icon"><i class="bi bi-hdd-network-fill"></i></div>
     <h5>Infraestrutura</h5>
     <p>pfSense, VMware, Mikrotik e UniFi — gerenciamento da rede e servidores.</p>
   </a>
+  <?php endif; ?>
 
+  <?php if (pode_ver('erp', $perfil_cards)): ?>
   <a href="acessos.php#erp" class="dash-card card-erp">
     <div class="card-icon"><i class="bi bi-building-fill-gear"></i></div>
     <h5>Ferramentas ERP</h5>
     <p>Sistemas de gestão e ferramentas corporativas da empresa.</p>
   </a>
+  <?php endif; ?>
 
   <!-- ── GESTÃO DE TI ── -->
+  <?php if (pode_ver('projetos',$perfil_cards)||pode_ver('equipe',$perfil_cards)||pode_ver('orcamento',$perfil_cards)||pode_ver('contratos',$perfil_cards)||pode_ver('licencas',$perfil_cards)): ?>
   <div class="section-label"><i class="bi bi-briefcase me-2"></i>Gestão de TI</div>
+  <?php endif; ?>
 
+  <?php if (pode_ver('projetos', $perfil_cards)): ?>
   <a href="projetos.php" class="dash-card card-projetos">
     <div class="card-icon"><i class="bi bi-kanban-fill"></i></div>
     <h5>Projetos</h5>
     <p>Gerencie projetos de TI — implantações, migrações e upgrades com prazo e progresso.</p>
   </a>
+  <?php endif; ?>
 
+  <?php if (pode_ver('equipe', $perfil_cards)): ?>
   <a href="equipe.php" class="dash-card card-equipe">
     <div class="card-icon"><i class="bi bi-people-fill"></i></div>
     <h5>Equipe</h5>
     <p>Visão da equipe: carga de chamados por técnico, disponibilidade e desempenho.</p>
   </a>
+  <?php endif; ?>
 
+  <?php if (pode_ver('orcamento', $perfil_cards)): ?>
   <a href="orcamento.php" class="dash-card card-orcamento">
     <div class="card-icon"><i class="bi bi-cash-coin"></i></div>
     <h5>Orçamento</h5>
     <p>Controle de gastos de TI por categoria — planejado vs realizado por período.</p>
   </a>
+  <?php endif; ?>
 
+  <?php if (pode_ver('contratos', $perfil_cards)): ?>
   <a href="contratos.php" class="dash-card card-contratos">
     <div class="card-icon"><i class="bi bi-file-earmark-text-fill"></i></div>
     <h5>Contratos</h5>
     <p>Contratos ativos de TI — manutenção, ISP, licenças — com alertas de vencimento.</p>
   </a>
+  <?php endif; ?>
 
+  <?php if (pode_ver('licencas', $perfil_cards)): ?>
   <a href="licencas.php" class="dash-card card-licencas">
     <div class="card-icon"><i class="bi bi-key-fill"></i></div>
     <h5>Licenças de Software</h5>
     <p>Controle de licenças: quantidade usada vs disponível, vencimentos e compliance.</p>
   </a>
+  <?php endif; ?>
+
+  <!-- ── CONFIGURAÇÃO ── -->
+  <?php if (pode_ver('usuarios',$perfil_cards)||pode_ver('categorias',$perfil_cards)||pode_ver('entidades',$perfil_cards)||pode_ver('sla',$perfil_cards)||pode_ver('logs',$perfil_cards)||pode_ver('manutencao',$perfil_cards)||pode_ver('perfis',$perfil_cards)): ?>
+  <div class="section-label"><i class="bi bi-gear-wide-connected me-2"></i>Configuração</div>
+  <?php endif; ?>
+
+  <?php if (pode_ver('usuarios', $perfil_cards)): ?>
+  <a href="usuarios.php" class="dash-card card-usuarios">
+    <div class="card-icon"><i class="bi bi-people-fill"></i></div>
+    <h5>Gestão de Usuários</h5>
+    <p>Cadastre, edite e gerencie usuários do GLPI — perfis, e-mail, loja e acesso.</p>
+  </a>
+  <?php endif; ?>
+
+  <?php if (pode_ver('perfis', $perfil_cards)): ?>
+  <a href="perfis.php" class="dash-card card-usuarios" style="--card-accent:#7b1fa2;">
+    <div class="card-icon" style="background:#f3e5f5;color:#7b1fa2;"><i class="bi bi-shield-person-fill"></i></div>
+    <h5>Perfis de Usuário</h5>
+    <p>Defina quais cards cada perfil pode ver e o nível de acesso — ouvinte ou interagir.</p>
+  </a>
+  <?php endif; ?>
+
+  <?php if (pode_ver('categorias', $perfil_cards)): ?>
+  <a href="categorias.php" class="dash-card card-categorias">
+    <div class="card-icon"><i class="bi bi-tags-fill"></i></div>
+    <h5>Categorias</h5>
+    <p>Gerencie categorias de chamados — crie, edite e organize o catálogo de serviços.</p>
+  </a>
+  <?php endif; ?>
+
+  <?php if (pode_ver('entidades', $perfil_cards)): ?>
+  <a href="gerenciar_entidades.php" class="dash-card card-gerenciar-entidades">
+    <div class="card-icon"><i class="bi bi-shop"></i></div>
+    <h5>Lojas</h5>
+    <p>Visualize e gerencie as lojas/entidades cadastradas no GLPI.</p>
+  </a>
+  <?php endif; ?>
+
+  <?php if (pode_ver('sla', $perfil_cards)): ?>
+  <a href="sla.php" class="dash-card card-sla-config">
+    <div class="card-icon"><i class="bi bi-clock-fill"></i></div>
+    <h5>SLAs</h5>
+    <p>Consulte os acordos de nível de serviço — prazos, prioridades e regras.</p>
+  </a>
+  <?php endif; ?>
+
+  <?php if (pode_ver('logs', $perfil_cards)): ?>
+  <a href="logs_portal.php" class="dash-card card-logs">
+    <div class="card-icon"><i class="bi bi-journal-text"></i></div>
+    <h5>Logs do Portal</h5>
+    <p>Registros de sessão, erros e sincronia do portal para auditoria.</p>
+  </a>
+  <?php endif; ?>
+
+  <?php if (pode_ver('manutencao', $perfil_cards)): ?>
+  <a href="manutencao.php" class="dash-card card-manutencao">
+    <div class="card-icon"><i class="bi bi-tools"></i></div>
+    <h5>Manutenção</h5>
+    <p>Limpeza de cache, sincronia manual e diagnósticos do sistema.</p>
+  </a>
+  <?php endif; ?>
 
 <?php endif; ?>
 

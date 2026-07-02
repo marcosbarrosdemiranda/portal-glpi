@@ -83,14 +83,19 @@ $pastaProj = __DIR__ . '/Docs/wiki/projects';
 $projetos = [];
 
 if (is_dir($pastaProj)) {
-    $arquivos = glob($pastaProj . '/*.md');
-    if ($arquivos === false) $arquivos = [];
+    // Busca apenas arquivos PRD (principal de cada projeto)
+    $arquivos = array_merge(
+        glob($pastaProj . '/*prd*.md')   ?: [],
+        glob($pastaProj . '/*/*prd*.md') ?: []
+    );
+    sort($arquivos);
     sort($arquivos);
     $hoje  = time();
 
     foreach ($arquivos as $arq) {
         $p = parseProjetoDetalhe($arq);
-        if (!$p) continue;
+        // Ignora arquivos sem metadados de projeto (prazo ou equipe obrigatórios)
+        if (!$p || (!$p['prazo'] && !$p['equipe'])) continue;
 
         $pct = $p['pct'];
         $prazo = $p['prazo'] ? parsePrazoRapido($p['prazo']) : 0;

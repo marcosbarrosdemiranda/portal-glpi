@@ -571,6 +571,9 @@ if ($action === 'sync_remoto') {
 // ── Página HTML ─────────────────────────────────────────────────
 header('Content-Type: text/html; charset=utf-8');
 
+$_cards_inv  = $_SESSION['portal_perfil_cards'] ?? null;
+$inv_ouvinte = ($_cards_inv !== null) && (($_cards_inv['inventario'] ?? 'ouvinte') === 'ouvinte');
+
 // Conta totais para os stats
 $stmt_sv = $pdo->query("SELECT s.id, s.nome, s.ip, (SELECT COUNT(*) FROM portal_balancas WHERE servidor_id=s.id) AS total_balancas FROM portal_servidores_mgv s ORDER BY s.nome");
 $servidores = $stmt_sv->fetchAll();
@@ -750,12 +753,14 @@ foreach ($servidores as $sv) $total_balancas += (int)$sv['total_balancas'];
 
   <!-- Toolbar -->
   <div class="toolbar">
+    <?php if (!$inv_ouvinte): ?>
     <button class="btn btn-primary" onclick="modalServidor()">
       <i class="bi bi-plus-lg me-1"></i>Servidor MGV
     </button>
     <button class="btn btn-primary" onclick="modalBalanca()">
       <i class="bi bi-plus-lg me-1"></i>Balança
     </button>
+    <?php endif; ?>
     <button class="btn btn-outline" onclick="verificarTodasBalancas()">
       <i class="bi bi-wifi me-1"></i>Verificar Status
     </button>
@@ -1026,6 +1031,7 @@ foreach ($servidores as $sv) $total_balancas += (int)$sv['total_balancas'];
 
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
 <script>
+const MODO_OUVINTE_INV = <?= $inv_ouvinte ? 'true' : 'false' ?>;
 const toast = new bootstrap.Toast(document.getElementById('toast'));
 const _t = document.getElementById('toast');
 
@@ -1067,6 +1073,7 @@ function carregarServidores() {
               <button class="btn-sync" onclick="event.stopPropagation();syncMGV(${sv.id})" title="Sincronizar com banco MGV">
                 <i class="bi bi-arrow-repeat"></i> Sync
               </button>
+              ${MODO_OUVINTE_INV ? '' : `
               <button class="btn-sync" onclick="event.stopPropagation();modalBalanca(${sv.id})" title="Adicionar balança">
                 <i class="bi bi-plus-lg"></i>
               </button>
@@ -1076,6 +1083,7 @@ function carregarServidores() {
               <button onclick="event.stopPropagation();excluirServidor(${sv.id})" title="Excluir servidor" style="background:rgba(255,255,255,.15);border:none;color:#fca5a5;width:28px;height:28px;border-radius:6px;font-size:.75rem;">
                 <i class="bi bi-trash"></i>
               </button>
+              `}
               <span class="badge bg-light text-dark">${sv.total_balancas} balança(s)</span>
               <i class="bi bi-chevron-down chevron"></i>
             </span>

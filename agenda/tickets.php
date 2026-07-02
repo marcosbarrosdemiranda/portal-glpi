@@ -5,18 +5,28 @@ require_once 'db.php';
 
 $tickets = glpi_get_tickets();
 
-// Busca ticket_ids já agendados no banco
+// Busca ticket_ids já agendados no banco + start do próximo evento
 $agendados = [];
 try {
-    $rows = $pdo->query("SELECT DISTINCT ticket_id FROM glpi_plugin_agenda_events WHERE ticket_id IS NOT NULL")->fetchAll();
+    $rows = $pdo->query("
+        SELECT ticket_id, start
+        FROM glpi_plugin_agenda_events
+        WHERE ticket_id IS NOT NULL AND concluido = 0
+        ORDER BY start ASC
+    ")->fetchAll();
     foreach ($rows as $r) {
-        $agendados[(string)$r['ticket_id']] = true;
+        $tid = (string)$r['ticket_id'];
+        if (!isset($agendados[$tid])) {
+            $agendados[$tid] = $r['start']; // guarda o start do primeiro evento encontrado
+        }
     }
 } catch (Exception $e) { /* ignora se tabela ainda não existir */ }
 
 // Marca tickets já agendados (em vez de remover — permitem novo período)
 $tickets = array_map(function($t) use ($agendados) {
-    $t['agendado'] = isset($agendados[(string)$t['id']]);
+    $tid = (string)$t['id'];
+    $t['agendado']      = isset($agendados[$tid]);
+    $t['agenda_start']  = $agendados[$tid] ?? null;
     return $t;
 }, $tickets);
 

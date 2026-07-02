@@ -141,6 +141,17 @@ foreach (array_merge($docs_por_ticket, $docs_por_fu) as $d) {
     $docs[] = $d;
 }
 
+// Campos adicionais de impressão (categoria 181)
+$campos_impressao = null;
+try {
+    require_once __DIR__ . '/db.php';
+    $stImp = $pdo->prepare(
+        "SELECT * FROM glpi_plugin_fields_ticketqtdimpressesafourfrenteversos WHERE items_id = ? LIMIT 1"
+    );
+    $stImp->execute([$id]);
+    $campos_impressao = $stImp->fetch(PDO::FETCH_ASSOC) ?: null;
+} catch (\Throwable $e) { /* silencioso */ }
+
 echo json_encode([
     'descricao'    => $descricao,
     'entidade'     => html_entity_decode($t['entities_id'] ?? '', ENT_QUOTES | ENT_HTML5, 'UTF-8'),
@@ -149,6 +160,7 @@ echo json_encode([
     'categoria_id' => (int)($t_raw['itilcategories_id'] ?? 0),
     'requerente'   => $requerente,
     'requerente_id'=> $requerente_id,
-    'followups'    => $followups,
-    'docs'         => $docs,
+    'followups'       => $followups,
+    'docs'            => $docs,
+    'campos_impressao'=> $campos_impressao,
 ]);

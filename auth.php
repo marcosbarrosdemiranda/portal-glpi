@@ -191,7 +191,7 @@ if (!empty($_SESSION['autenticado'])) {
     }
 
     .input-icon { position: relative; }
-    .input-icon .bi {
+    .input-icon .bi:not(.toggle-senha) {
       position: absolute; left: 14px; top: 50%; transform: translateY(-50%);
       color: #aaa; font-size: 1.1rem; z-index: 5;
     }
@@ -270,6 +270,11 @@ if (!empty($_SESSION['autenticado'])) {
 </div>
 
 <script>
+// Enter no campo usuário vai para senha
+document.querySelector('input[name="usuario"]').addEventListener('keydown', function(e) {
+  if (e.key === 'Enter') { e.preventDefault(); document.getElementById('inputSenha').focus(); }
+});
+
 function toggleVer() {
   const input = document.getElementById('inputSenha');
   const icon  = document.getElementById('toggleSenha');

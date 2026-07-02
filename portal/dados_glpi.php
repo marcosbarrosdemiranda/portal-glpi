@@ -7,6 +7,7 @@ header('Content-Type: application/json');
 ob_start(); error_reporting(0);
 require_once __DIR__ . '/../auth_guard.php';
 if (empty($_SESSION['autenticado'])) { ob_end_clean(); echo json_encode(['error'=>'não autenticado']); exit; }
+require_once __DIR__ . '/../entidade_alias.php';
 
 require_once __DIR__ . '/../agenda/config.php';
 
@@ -61,7 +62,7 @@ $cats = array_map(fn($c) => [
 $users = array_filter($usuarios, fn($u) => isset($u['id']));
 $users = array_map(function($u) {
     $nome = trim(($u['realname']??'').' '.($u['firstname']??'')) ?: ($u['name']??'');
-    return ['id'=>$u['id'],'nome'=>$nome,'login'=>$u['name']??''];
+    return ['id'=>$u['id'],'nome'=>nome_requerente($nome),'nome_completo'=>$nome,'login'=>$u['name']??''];
 }, array_values($users));
 usort($users, fn($a,$b) => strcmp($a['nome'],$b['nome']));
 

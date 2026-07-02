@@ -6,6 +6,9 @@ if (($_SESSION['perfil'] ?? '') === 'self-service') { header('Location: dashboar
 $nome    = $_SESSION['nome']    ?? '';
 $user_id = (int)($_SESSION['user_id'] ?? 0);
 
+$_cards_hist  = $_SESSION['portal_perfil_cards'] ?? null;
+$hist_ouvinte = ($_cards_hist !== null) && (($_cards_hist['historico'] ?? 'ouvinte') === 'ouvinte');
+
 require_once __DIR__ . '/agenda/config.php';
 require_once __DIR__ . '/entidade_alias.php';
 
@@ -31,6 +34,7 @@ function glpi_tickets(array $filtros = [], int $pagina = 1, int $por_pagina = 0)
     $status_rev = array_flip($status_map); // ['Novo'=>1, 'Atribuído'=>2, …]
     $urg_map    = [1=>'Muito baixa',2=>'Baixa',3=>'Média',4=>'Alta',5=>'Muito alta'];
     $urg_cor    = [1=>'success',2=>'info',3=>'warning',4=>'danger',5=>'purple'];
+    $type_map   = [1=>'Incidente', 2=>'Requisição'];
     $type_rev   = ['Incidente'=>1, 'Requisição'=>2];
 
     // ── Monta criteria para /search/Ticket ──
@@ -114,9 +118,11 @@ function glpi_tickets(array $filtros = [], int $pagina = 1, int $por_pagina = 0)
         if (!$tid) continue;
 
         $s_display = $row[12] ?? 'Novo';
-        $s_num     = $status_rev[$s_display] ?? 1;
+        $s_num     = is_numeric($s_display) ? (int)$s_display : ($status_rev[$s_display] ?? 1);
+        $s_display = $status_map[$s_num] ?? 'Novo';
         $t_display = $row[14] ?? '';
-        $t_num     = $type_rev[$t_display] ?? ($t_display == '2' ? 2 : 1);
+        $t_num     = is_numeric($t_display) ? (int)$t_display : ($type_rev[$t_display] ?? 1);
+        $t_display = $type_map[$t_num] ?? 'Incidente';
         $u_raw     = $row[3] ?? 3;
         $u_num     = is_numeric($u_raw) ? (int)$u_raw : (array_flip($urg_map)[$u_raw] ?? 3);
 
@@ -131,11 +137,11 @@ function glpi_tickets(array $filtros = [], int $pagina = 1, int $por_pagina = 0)
             'urgencia'   => $urg_map[$u_num] ?? 'Média',
             'urg_n'      => $u_num,
             'urg_cor'    => $urg_cor[$u_num] ?? 'warning',
-            'entidade'   => apelido_entidade($row[80] ?? ''),
-            'entidade_id'=> (int)($row[80] ?? 0),
+            'entidade'   => apelido_entidade(is_array($v80=$row[80]??'') ? ($v80['completename']??$v80['name']??'') : $v80),
+            'entidade_id'=> (int)(is_array($v80=$row[80]??'') ? ($v80['id']??0) : $v80),
             'data'       => substr($row[15] ?? '', 0, 16),
             'atualizado' => substr($row[19] ?? '', 0, 16),
-            'requerente' => $row[4] ?? '',
+            'requerente' => nome_requerente(is_array($v4=$row[4]??'') ? ($v4['name']??$v4['firstname']??'') : $v4),
         ];
     }
 
@@ -206,7 +212,7 @@ if ($export === 'csv') {
     header('Content-Disposition: attachment; filename="historico_chamados_'.date('Y-m-d').'.csv"');
     $out = fopen('php://output', 'w');
     fprintf($out, chr(0xEF).chr(0xBB).chr(0xBF)); // BOM UTF-8
-    fputcsv($out, ['#','Título','Tipo','Status','Urgência','Entidade','Abertura','Atualização','Requerente'], ';');
+    fputcsv($out, ['ID','Título','Tipo','Status','Urgência','Entidade','Abertura','Atualização','Requerente'], ';');
     foreach ($export_dados as $c) {
         fputcsv($out, [$c['id'],$c['titulo'],$c['tipo'],$c['status'],$c['urgencia'],$c['entidade'],$c['data'],$c['atualizado'],$c['requerente']], ';');
     }
@@ -298,6 +304,12 @@ $entidades = carregarEntidades();
 
     .empty { text-align:center; color:#9ca3af; padding:4rem 1rem; }
 
+    .btn-ticket-trash {
+      background:none; border:none; color:#d1d5db; cursor:pointer;
+      padding:4px 6px; border-radius:4px; transition:all .15s; line-height:1;
+    }
+    .btn-ticket-trash:hover { color:#dc2626; background:#fee2e2; }
+
     @media(max-width:768px) {
       .tabela-card { overflow-x:auto; }
       .filtros-card { flex-direction:column; }
@@ -321,7 +333,10 @@ $entidades = carregarEntidades();
 
 <div class="topbar">
   <div class="brand"><i class="bi bi-clock-history"></i> Histórico de Chamados</div>
-  <a href="dashboard.php"><i class="bi bi-grid me-1"></i>Início</a>
+  <div style="display:flex;gap:.5rem">
+    <a href="agenda/index.php"><i class="bi bi-calendar3 me-1"></i>Agenda TI</a>
+    <a href="dashboard.php"><i class="bi bi-grid me-1"></i>Início</a>
+  </div>
 </div>
 
 <div class="hero">
@@ -418,7 +433,7 @@ $entidades = carregarEntidades();
     <table class="table table-hover">
       <thead>
         <tr>
-          <th data-col="0" class="sortable">#</th>
+          <th data-col="0" class="sortable">ID</th>
           <th data-col="1" class="sortable">Título</th>
           <th data-col="2" class="sortable">Tipo</th>
           <th data-col="3" class="sortable">Status</th>
@@ -426,6 +441,7 @@ $entidades = carregarEntidades();
           <th data-col="5" class="sortable">Entidade</th>
           <th data-col="6" class="sortable">Abertura</th>
           <th data-col="7" class="sortable sort-desc">Atualização</th>
+          <?php if (!$hist_ouvinte): ?><th style="width:38px"></th><?php endif; ?>
         </tr>
       </thead>
       <tbody>
@@ -442,6 +458,11 @@ $entidades = carregarEntidades();
           <td class="text-muted" style="font-size:.78rem" data-sort="<?= htmlspecialchars(mb_strtolower($c['entidade'])) ?>"><?= htmlspecialchars($c['entidade']) ?></td>
           <td class="text-muted" style="font-size:.78rem" data-sort="<?= $c['data'] ?>"><?= $c['data'] ?></td>
           <td class="text-muted" style="font-size:.78rem" data-sort="<?= $c['atualizado'] ?>"><?= $c['atualizado'] ?></td>
+          <?php if (!$hist_ouvinte): ?>
+          <td style="text-align:center">
+            <button class="btn-ticket-trash" onclick="event.stopPropagation();excluirChamado(<?= $c['id'] ?>,this)" title="Excluir chamado"><i class="bi bi-trash"></i></button>
+          </td>
+          <?php endif; ?>
         </tr>
         <?php endforeach; ?>
       </tbody>
@@ -498,6 +519,43 @@ $entidades = carregarEntidades();
 </div>
 <script src="assets/notificacoes.js"></script>
 <script>
+function toastFallback(msg) {
+  var el = document.getElementById('toast-excluir');
+  if (!el) { el = document.createElement('div'); el.id='toast-excluir'; el.style.cssText='position:fixed;bottom:20px;right:20px;z-index:9999;background:#1a237e;color:white;padding:12px 20px;border-radius:10px;box-shadow:0 4px 20px rgba(0,0,0,.3);font-size:.95rem;transition:opacity .3s'; document.body.appendChild(el); }
+  el.textContent = msg; el.style.opacity='1';
+  if (window.toastTimer) clearTimeout(window.toastTimer);
+  window.toastTimer = setTimeout(function(){ el.style.opacity='0'; }, 3000);
+}
+function toast(msg) { toastFallback(msg); }
+
+function excluirChamado(id, btn) {
+  if (!confirm('Deseja realmente excluir o chamado #' + id + '? Ele irá para a lixeira do GLPI.')) return;
+  if (btn) { btn.disabled = true; btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span>'; }
+  fetch('agenda/excluir_ticket_glpi.php', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ ticket_id: id }),
+  })
+  .then(function(r) { return r.text(); })
+  .then(function(text) {
+    console.log('🔍 Resposta servidor:', text);
+    var res;
+    try { res = JSON.parse(text); } catch(e) { console.error('❌ JSON inválido:', text); if(btn){btn.disabled=false;btn.innerHTML='<i class="bi bi-trash"></i>';} toast('Erro no servidor. Veja o console (F12).'); return; }
+    if (res.ok) {
+      toast('Chamado #' + id + ' enviado para a lixeira do GLPI.');
+      if (btn) { btn.closest('tr').remove(); }
+    } else {
+      toast(res.msg || 'Erro ao excluir chamado.');
+      if (btn) { btn.disabled = false; btn.innerHTML = '<i class="bi bi-trash"></i>'; }
+    }
+  })
+  .catch(function(err) {
+    console.error('❌ Erro fetch:', err);
+    if(btn){btn.disabled=false;btn.innerHTML='<i class="bi bi-trash"></i>';}
+    toast('Erro de conexão. Veja o console (F12).');
+  });
+}
+
 (function() {
   'use strict';
 

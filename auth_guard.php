@@ -21,7 +21,6 @@ if (!empty($_SESSION['autenticado'])) {
         if (session_status() === PHP_SESSION_ACTIVE) session_destroy();
 
         if (isset($_GET['bg'])) {
-            // Polling em background → sinaliza para o cliente redirecionar
             http_response_code(440);
             header('Content-Type: application/json');
             echo json_encode(['timeout' => true]);
@@ -34,5 +33,34 @@ if (!empty($_SESSION['autenticado'])) {
     // Só atividade real renova (polling em background não conta)
     if (!isset($_GET['bg'])) {
         $_SESSION['last_activity'] = time();
+    }
+
+    // ── Carrega perfil do portal (uma vez por sessão) ──────────────────────
+    if (!array_key_exists('portal_perfil_cards', $_SESSION)) {
+        $_SESSION['portal_perfil_cards'] = null; // null = sem perfil (vê tudo / respeita self-service)
+        $uid_guard = (int)($_SESSION['user_id'] ?? 0);
+        if ($uid_guard) {
+            try {
+                $db_host_g = 'localhost'; $db_user_g = 'root'; $db_pass_g = ''; $db_name_g = 'glpi2';
+                $pdo_guard = new PDO("mysql:host={$db_host_g};dbname={$db_name_g};charset=utf8mb4",
+                    $db_user_g, $db_pass_g, [PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION]);
+                $st = $pdo_guard->prepare("
+                    SELECT pp.cards FROM portal_perfil_usuarios pu
+                    JOIN portal_perfis pp ON pp.id = pu.perfil_id
+                    WHERE pu.user_id = ?
+                ");
+                $st->execute([$uid_guard]);
+                $row = $st->fetch(PDO::FETCH_ASSOC);
+                if ($row) {
+                    $_SESSION['portal_perfil_cards'] = json_decode($row['cards'] ?? '{}', true) ?: [];
+                }
+            } catch (Exception $e) { /* tabelas ainda não existem */ }
+        }
+    }
+
+    // Se tem perfil do portal, não trata como self-service nas outras páginas
+    if ($_SESSION['portal_perfil_cards'] !== null && ($_SESSION['perfil'] ?? '') === 'self-service') {
+        $_SESSION['perfil_glpi'] = 'self-service'; // guarda perfil GLPI original
+        $_SESSION['perfil'] = 'portal';
     }
 }

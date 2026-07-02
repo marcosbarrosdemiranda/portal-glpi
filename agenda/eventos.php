@@ -26,6 +26,8 @@ try { $pdo->exec("CREATE TABLE IF NOT EXISTS agenda_recorrencias (
 try { $pdo->exec("ALTER TABLE agenda_recorrencias CONVERT TO CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci"); } catch (Exception $e) {}
 try { $pdo->exec("ALTER TABLE agenda_recorrencias MODIFY evento_id VARCHAR(50) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL"); } catch (Exception $e) {}
 try { $pdo->exec("ALTER TABLE glpi_plugin_agenda_events ADD COLUMN recorrencia_id INT DEFAULT NULL AFTER concluido"); } catch (Exception $e) {}
+// Coluna para co-atendentes (reunião/evento com múltiplos técnicos)
+try { $pdo->exec("ALTER TABLE glpi_plugin_agenda_events ADD COLUMN co_atendentes TEXT DEFAULT NULL AFTER atendente_cor"); } catch (Exception $e) {}
 
 $action = $_GET['action'] ?? 'list';
 
@@ -203,6 +205,8 @@ try {
         $atendente    = $body['atendente']    ?? null;
         $atendente_id = isset($body['atendente_id']) && $body['atendente_id'] !== '' ? (int)$body['atendente_id'] : null;
         $atendente_cor= $body['atendente_cor']?? '#1a73e8';
+        $co_atendentes = $body['co_atendentes'] ?? null; // JSON array: [{"nome":"...","id":1,"cor":"#..."},...]
+        if ($co_atendentes && is_array($co_atendentes)) $co_atendentes = json_encode($co_atendentes);
         $prioridade   = in_array($body['prioridade'] ?? '', ['baixa','media','alta','critica'])
                         ? $body['prioridade'] : 'media';
         $setor        = $body['setor']        ?? null;
@@ -226,6 +230,7 @@ try {
             ':atendente'    => $atendente,
             ':atendente_id' => $atendente_id,
             ':atendente_cor'=> $atendente_cor,
+            ':co_atendentes'=> $co_atendentes,
             ':prioridade'   => $prioridade,
             ':setor'        => $setor,
             ':ticket_id'    => $ticket_id,
@@ -235,9 +240,9 @@ try {
 
         $insert_sql = "
             INSERT INTO glpi_plugin_agenda_events
-                (id, titulo, descricao, start, end, atendente, atendente_id, atendente_cor, prioridade, setor, ticket_id, tipo, concluido)
+                (id, titulo, descricao, start, end, atendente, atendente_id, atendente_cor, co_atendentes, prioridade, setor, ticket_id, tipo, concluido)
             VALUES
-                (:id,:titulo,:descricao,:start,:end,:atendente,:atendente_id,:atendente_cor,:prioridade,:setor,:ticket_id,:tipo,:concluido)
+                (:id,:titulo,:descricao,:start,:end,:atendente,:atendente_id,:atendente_cor,:co_atendentes,:prioridade,:setor,:ticket_id,:tipo,:concluido)
         ";
 
         if ($is_edit) {
@@ -246,6 +251,7 @@ try {
                 UPDATE glpi_plugin_agenda_events SET
                     titulo=:titulo, descricao=:descricao, start=:start, end=:end,
                     atendente=:atendente, atendente_id=:atendente_id, atendente_cor=:atendente_cor,
+                    co_atendentes=:co_atendentes,
                     prioridade=:prioridade, setor=:setor, ticket_id=:ticket_id,
                     tipo=:tipo, concluido=:concluido
                 WHERE id = :id
@@ -281,6 +287,45 @@ try {
                 ':orig2'     => $orig_start . ':00',
             ]);
         }
+
+        // ── Campos adicionais de impressão ───────────────────────────────────
+        if (!empty($body['campos_impressao']) && $ticket_id) {
+            try {
+                $ci = $body['campos_impressao'];
+                $imp_fields = [
+                    'qtdimpressesafourfvfield','qtdimpressesafourffield',
+                    'qtdimpressesathreefvfield','qtdimpressesathreeffield',
+                    'qtdimpafouradesivofield','qtdimpafourplacasfield',
+                    'qtdetiquetafivefield','qtdimpathreeplacafield','qtdimpathreeadesivofield',
+                ];
+                $vals = [];
+                foreach ($imp_fields as $f) $vals[$f] = (int)($ci[$f] ?? 0);
+
+                $chkImp = $pdo->prepare(
+                    "SELECT id FROM glpi_plugin_fields_ticketqtdimpressesafourfrenteversos WHERE items_id = ?"
+                );
+                $chkImp->execute([$ticket_id]);
+
+                if ($chkImp->fetchColumn()) {
+                    $sets = implode(',', array_map(fn($f) => "`$f`=:$f", $imp_fields));
+                    $pdo->prepare(
+                        "UPDATE glpi_plugin_fields_ticketqtdimpressesafourfrenteversos SET $sets WHERE items_id=:items_id"
+                    )->execute(array_merge($vals, ['items_id' => $ticket_id]));
+                } else {
+                    $entRow = $pdo->prepare("SELECT entities_id FROM glpi_tickets WHERE id = ? LIMIT 1");
+                    $entRow->execute([$ticket_id]);
+                    $entities_id = (int)($entRow->fetchColumn() ?: 0);
+                    $cols = implode(',', array_map(fn($f) => "`$f`", $imp_fields));
+                    $phs  = implode(',', array_map(fn($f) => ":$f", $imp_fields));
+                    $pdo->prepare(
+                        "INSERT INTO glpi_plugin_fields_ticketqtdimpressesafourfrenteversos
+                         (items_id,itemtype,plugin_fields_containers_id,entities_id,$cols)
+                         VALUES (:items_id,'Ticket',1,:entities_id,$phs)"
+                    )->execute(array_merge($vals, ['items_id' => $ticket_id, 'entities_id' => $entities_id]));
+                }
+            } catch (\Throwable $e) { /* silencioso */ }
+        }
+        // ─────────────────────────────────────────────────────────────────────
 
         // Se o evento foi marcado como concluído, conclui TODOS os períodos do mesmo ticket
         if ($concluido && $ticket_id) {

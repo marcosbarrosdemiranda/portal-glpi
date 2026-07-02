@@ -44,3 +44,7 @@ config_projetos.local.php
 # ── Dependências (se vier a usar composer/npm) ─────────────────
 /vendor/
 /node_modules/
+
+# Spec-Driven Agent
+.claude/sda/hooks/state.json
+.claude/sda/hooks/state.history.log

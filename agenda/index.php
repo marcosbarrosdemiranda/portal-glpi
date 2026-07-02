@@ -1,8 +1,11 @@
 <?php
 require_once __DIR__ . '/../auth_guard.php';
 if (empty($_SESSION['autenticado'])) { header('Location: ../auth.php'); exit; }
-$nome_usuario  = $_SESSION['nome']    ?? $_SESSION['usuario'] ?? 'Atendente';
+$nome_usuario   = $_SESSION['nome']    ?? $_SESSION['usuario'] ?? 'Atendente';
 $user_id_sessao = (int)($_SESSION['user_id'] ?? 0);
+$cards_portal   = $_SESSION['portal_perfil_cards'] ?? null;
+$agenda_modo    = ($cards_portal !== null) ? ($cards_portal['agenda'] ?? 'ouvinte') : 'interagir';
+$is_ouvinte     = ($agenda_modo === 'ouvinte');
 ?>
 <!DOCTYPE html>
 <html lang="pt-BR">
@@ -16,6 +19,8 @@ $user_id_sessao = (int)($_SESSION['user_id'] ?? 0);
   <!-- Bootstrap 5 -->
   <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet"/>
   <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.css" rel="stylesheet"/>
+  <!-- Tom Select -->
+  <link href="https://cdn.jsdelivr.net/npm/tom-select@2.3.1/dist/css/tom-select.bootstrap5.min.css" rel="stylesheet"/>
   <!-- FullCalendar -->
   <link href="https://cdn.jsdelivr.net/npm/fullcalendar@6.1.11/index.global.min.css" rel="stylesheet"/>
   <style>
@@ -402,6 +407,7 @@ $user_id_sessao = (int)($_SESSION['user_id'] ?? 0);
 
     /* ── Modal ── */
     .modal-header { border-bottom: 3px solid var(--primary); }
+    .ts-wrapper.is-invalid .ts-control { border-color: #dc3545 !important; box-shadow: 0 0 0 .2rem rgba(220,53,69,.25) !important; }
     .form-label { font-size: .85rem; font-weight: 600; }
     .form-control, .form-select { font-size: .85rem; }
 
@@ -501,9 +507,11 @@ $user_id_sessao = (int)($_SESSION['user_id'] ?? 0);
       </span>
     </div>
   </div>
+  <?php if (!$is_ouvinte): ?>
   <button class="nav-btn ms-2" style="background:#1a73e8;" onclick="abrirModalEvento()">
     <i class="bi bi-plus-lg me-1"></i>Novo Evento
   </button>
+  <?php endif; ?>
   <!-- Menu hamburguer -->
   <div style="position:relative;margin-left:.25rem" id="menu-wrap">
     <button class="nav-btn" onclick="toggleMenu()" id="btn-menu" title="Mais opções">
@@ -607,9 +615,11 @@ $user_id_sessao = (int)($_SESSION['user_id'] ?? 0);
           <div class="col-md-6 d-flex align-items-center" id="banner-readonly" style="display:none!important">
             <div class="d-flex align-items-center justify-content-between w-100 px-3 py-2 rounded" style="background:#fff8e1;border:1px solid #ffc107;font-size:.82rem;">
               <span><i class="bi bi-lock-fill text-warning me-1"></i>Modo leitura</span>
+              <?php if (!$is_ouvinte): ?>
               <button class="btn btn-sm btn-warning fw-bold py-0 px-2" onclick="habilitarEdicao()">
                 <i class="bi bi-pencil-fill me-1"></i>Editar
               </button>
+              <?php endif; ?>
             </div>
           </div>
           <div class="col-12 col-inline">
@@ -631,6 +641,7 @@ $user_id_sessao = (int)($_SESSION['user_id'] ?? 0);
               <option value="10800000">3 horas</option>
               <option value="14400000">4 horas</option>
               <option value="28800000">8 horas</option>
+              <option value="36000000">Dia Inteiro (07h-17h)</option>
               <option value="0">Personalizado</option>
             </select>
           </div>
@@ -684,9 +695,24 @@ $user_id_sessao = (int)($_SESSION['user_id'] ?? 0);
             </select>
           </div>
           <input type="hidden" id="ev-setor"/>
+          <!-- Campos adicionais: Impressões (visíveis quando categoria = Impressões/Placas/Tabloides) -->
+          <div class="col-12" id="campo-impressao" style="display:none">
+            <label class="form-label fw-semibold"><i class="bi bi-printer me-1"></i>Impressões / Placas</label>
+            <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(148px,1fr));gap:.5rem">
+              <div><label class="form-label mb-1" style="font-size:.74rem;color:#6b7280">A4 Frente/Verso</label><input type="number" class="form-control form-control-sm" id="imp-a4fv" min="0" value="0"></div>
+              <div><label class="form-label mb-1" style="font-size:.74rem;color:#6b7280">A4 Simples</label><input type="number" class="form-control form-control-sm" id="imp-a4f" min="0" value="0"></div>
+              <div><label class="form-label mb-1" style="font-size:.74rem;color:#6b7280">A3 Frente/Verso</label><input type="number" class="form-control form-control-sm" id="imp-a3fv" min="0" value="0"></div>
+              <div><label class="form-label mb-1" style="font-size:.74rem;color:#6b7280">A3 Simples</label><input type="number" class="form-control form-control-sm" id="imp-a3f" min="0" value="0"></div>
+              <div><label class="form-label mb-1" style="font-size:.74rem;color:#6b7280">A4 Adesivo</label><input type="number" class="form-control form-control-sm" id="imp-a4adv" min="0" value="0"></div>
+              <div><label class="form-label mb-1" style="font-size:.74rem;color:#6b7280">A4 Placas</label><input type="number" class="form-control form-control-sm" id="imp-a4plc" min="0" value="0"></div>
+              <div><label class="form-label mb-1" style="font-size:.74rem;color:#6b7280">Etiqueta 5S</label><input type="number" class="form-control form-control-sm" id="imp-etq5s" min="0" value="0"></div>
+              <div><label class="form-label mb-1" style="font-size:.74rem;color:#6b7280">A3 Placas</label><input type="number" class="form-control form-control-sm" id="imp-a3plc" min="0" value="0"></div>
+              <div><label class="form-label mb-1" style="font-size:.74rem;color:#6b7280">A3 Adesivos</label><input type="number" class="form-control form-control-sm" id="imp-a3adv" min="0" value="0"></div>
+            </div>
+          </div>
           <div class="col-12 col-descricao">
             <label class="form-label" id="label-descricao">Descrição <span class="text-danger" id="star-descricao">*</span></label>
-            <textarea class="form-control" id="ev-descricao" rows="3" placeholder="Detalhes do evento..."></textarea>
+            <textarea class="form-control" id="ev-descricao" rows="5" placeholder="Detalhes do evento..." style="max-height:180px;overflow-y:auto;resize:vertical"></textarea>
           </div>
           <div class="col-12" id="campo-followups" style="display:none">
             <label class="form-label d-flex align-items-center gap-2">
@@ -786,9 +812,14 @@ $user_id_sessao = (int)($_SESSION['user_id'] ?? 0);
         </div>
       </div>
       <div class="modal-footer">
-        <button class="btn btn-danger me-auto" id="btnDeletar" onclick="deletarEvento()" style="display:none">
-          <i class="bi bi-trash me-1"></i>Excluir
-        </button>
+        <div class="d-flex flex-column gap-1 me-auto">
+          <button class="btn btn-danger" id="btnDeletar" onclick="deletarEvento()" style="display:none">
+            <i class="bi bi-calendar-x me-1"></i>Excluir da agenda
+          </button>
+          <button class="btn btn-outline-danger" id="btnExcluirGlpi" onclick="excluirChamadoModal()" style="display:none">
+            <i class="bi bi-trash3 me-1"></i>Excluir Chamado
+          </button>
+        </div>
         <button class="btn btn-outline-danger" id="btnResponder" onclick="abrirModalResposta()" style="display:none">
           <i class="bi bi-reply-fill me-1"></i>Responder Chamado
         </button>
@@ -823,9 +854,15 @@ $user_id_sessao = (int)($_SESSION['user_id'] ?? 0);
           <span id="resp-chamado-label" class="fw-semibold"></span>
         </div>
 
+        <!-- Checklist rotina (visível apenas para chamados recorrentes com checklist) -->
+        <div id="resp-checklist" style="display:none" class="mb-3">
+          <label class="form-label fw-semibold">✅ Itens verificados</label>
+          <div id="resp-checklist-itens" class="d-flex flex-column gap-2 p-3 border rounded" style="background:#f8fafc"></div>
+        </div>
+
         <!-- Resposta -->
         <div class="mb-3">
-          <label class="form-label fw-semibold">Resposta / Acompanhamento <span class="text-danger">*</span></label>
+          <label class="form-label fw-semibold" id="resp-texto-label">Resposta / Acompanhamento <span class="text-danger">*</span></label>
           <textarea id="resp-texto" class="form-control" rows="6"
             placeholder="Descreva o que foi feito, orientações ao usuário, próximos passos..."></textarea>
         </div>
@@ -887,6 +924,7 @@ $user_id_sessao = (int)($_SESSION['user_id'] ?? 0);
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/fullcalendar@6.1.11/index.global.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/fullcalendar@6.1.11/locales/pt-br.global.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/tom-select@2.3.1/dist/js/tom-select.complete.min.js"></script>
 
 <script>
 // Dados do usuário logado (via PHP session)
@@ -952,6 +990,8 @@ let todosTickets    = [];
 let todosEventos    = [];
 let modalEvento;
 let modalAtendentes;
+let tsEntidade = null, tsRequerente = null, tsCategoria = null;
+let _previewTicket = null;
 let atendentes      = [];
 let filtroAtendente = '';
 let nomeAtendenteLogado = ''; // nome do usuário logado COMO a agenda o conhece (a.nome)
@@ -959,6 +999,67 @@ let filtroTipo = '';
 let _dropPendente   = null; // dados do drop aguardando seleção de atendente
 let _inEventReceive = false; // bloqueia eventChange durante mutações do eventReceive
 let _dropCache      = {};   // id → dados do drop; fallback de extendedProps no eventChange
+let _ticketFetchCtrl = null; // AbortController para cancelar fetch anterior de ticket_descricao
+
+// Checklists pré-definidos para chamados recorrentes (título → itens)
+const ROTINA_CHECKLISTS = {
+  'TVs, Radios e Consulta Preços - Rotina Diária': [
+    { label: 'TVs' },
+    { label: 'Rádios' },
+    { label: 'Consulta Preço' },
+  ],
+  'Importação de Vendas - Rotina Diária': [
+    { label: 'Automática' },
+    { label: 'Manual', filhos: ['Lj 001', 'Lj 003', 'Lj 010', 'Lj 030'] },
+  ],
+  'Servidores - Rotina Diária': [
+    { label: 'Server Unidades/Matriz' },
+    { label: 'Server Gunnebo' },
+    { label: 'Server TS' },
+    { label: 'Server Integração' },
+    { label: 'Server ArquiFunc' },
+    { label: 'Server Backup' },
+    { label: 'Server Dominio' },
+    { label: 'Server Delphos' },
+  ],
+  'Verificar Microfones Câmeras': [
+    { label: 'Câmeras PDVs (Gunnebo)' },
+    { label: 'Câmeras Salas Prevenção' },
+    { label: 'Câmeras Gerencias' },
+    { label: 'Câmeras Tesourarias' },
+    { label: 'Câmera Sala de Reunião' },
+  ],
+  'DVRs e Câmeras - Rotina Diária': [
+    { label: 'DVRs' },
+    { label: 'Câmeras' },
+  ],
+  'Carga Geral / PDVs Ligados - Rotina Diária': [
+    { label: 'Carga geral' },
+    { label: 'PDVs ligados' },
+  ],
+  'Carga de Balança - Rotina Diária': [
+    { label: 'Loja 001' },
+    { label: 'Loja 003' },
+    { label: 'Loja 010' },
+    { label: 'Loja 030' },
+  ],
+  'Manutenção Preventiva Konica': [
+    { label: 'Recarga' },
+    { label: 'Limpeza lixeira' },
+    { label: 'Verificação das unidades de imagem' },
+    { label: 'Belt' },
+    { label: 'Revelador' },
+    { label: 'Limpeza geral' },
+  ],
+};
+
+// Verifica sessão a cada 3 minutos — redireciona para login se expirada
+setInterval(function() {
+  fetch('ping.php?bg=1')
+    .then(r => { if (r.status === 440) { window.location = '../auth.php?timeout=1'; } return r.json().catch(() => {}); })
+    .then(d => { if (d && d.timeout) window.location = '../auth.php?timeout=1'; })
+    .catch(() => {});
+}, 3 * 60 * 1000);
 
 // ──────────────────────────────────────────
 // Cores por prioridade
@@ -1050,12 +1151,13 @@ document.addEventListener('DOMContentLoaded', function() {
     slotLabelFormat: { hour: '2-digit', minute: '2-digit', hour12: false },
     snapDuration: '00:15:00',
     allDaySlot: true,
-    editable: true,
-    droppable: true,
+    editable: <?= $is_ouvinte ? 'false' : 'true' ?>,
+    droppable: <?= $is_ouvinte ? 'false' : 'true' ?>,
 
     // âš ï¸ REGRA PROTEGIDA — N?ƒO ALTERAR SEM PERMISS?ƒO DO RESPONSÁVEL âš ï¸
     // Criação de eventos só é permitida em datas de hoje em diante.
     dateClick(info) {
+      if (MODO_OUVINTE) return;
       if (dataNoPassado(info.date)) {
         toast('âš ï¸ Não é possível agendar em datas passadas.', 'danger');
         return;
@@ -1335,6 +1437,11 @@ function carregarEventos(info, success) {
         const concluido = !!e.concluido;
         const atrasado  = estaAtrasado(e.end, concluido);
         const cor = corDoEvento(e.tipo, concluido, atrasado);
+        // Parse co_atendentes da reunião/evento
+        let coList = [];
+        if (e.co_atendentes) {
+          try { coList = JSON.parse(e.co_atendentes); } catch(_) {}
+        }
         // FullCalendar 6 exige formato ISO 8601 com 'T' para interpretar como
         // horário LOCAL. Sem o 'T', o parser trata como UTC → end fica errado
         // e o evento colapsa para a altura mínima do slot (parecendo 30 min).
@@ -1355,6 +1462,7 @@ function carregarEventos(info, success) {
             atendente:    e.atendente,
             atendente_id: e.atendente_id,
             atendente_cor:e.atendente_cor,
+            co_atendentes:coList,
             prioridade:   e.prioridade,
             setor:        e.setor,
             ticket_id:    e.ticket_id,
@@ -1393,9 +1501,19 @@ function eventosFiltrados() {
   // ── Mapa multi-atendente (aplicado a TODOS os eventos antes do filtro) ──
   // Mesmo quando filtrado por um técnico, o indicador "multi" deve aparecer
   // se o chamado tiver 2+ técnicos no total (não apenas nos eventos filtrados).
+  // Também marca reuniões/eventos com co_atendentes como multi.
   const multiMap = {}; // "ticket_id|start" → [atendente1, atendente2, ...]
   todosEventos.forEach(ev => {
     const tid = ev.extendedProps.ticket_id;
+    // Para reunião/evento: usa co_atendentes direto
+    if (!tid && ev.extendedProps.co_atendentes && ev.extendedProps.co_atendentes.length > 0) {
+      ev.extendedProps.multi = true;
+      ev.extendedProps.atendentes = [
+        ev.extendedProps.atendente,
+        ...ev.extendedProps.co_atendentes.map(c => c.nome)
+      ].filter(Boolean);
+      return;
+    }
     if (!tid) return;
     const key = tid + '|' + (ev.start || '');
     if (!multiMap[key]) multiMap[key] = [];
@@ -1422,6 +1540,8 @@ function eventosFiltrados() {
   if (filtroAtendente) {
     const filtrados = todosEventos.filter(e => {
       if (e.extendedProps.atendente === filtroAtendente) return true;
+      // Verifica co_atendentes (reunião/evento compartilhado)
+      if (e.extendedProps.co_atendentes && e.extendedProps.co_atendentes.some(c => c.nome === filtroAtendente)) return true;
       if (e.extendedProps.concluido && !e.extendedProps.atendente) {
         return filtroAtendente === USUARIO_LOGADO_NOME;
       }
@@ -1579,6 +1699,14 @@ function confirmWithCode(mensagem) {
   return resposta === String(codigo);
 }
 
+function excluirChamadoModal() {
+  const btn = document.getElementById('btnExcluirGlpi');
+  const ticketId = btn.dataset.ticketId || document.getElementById('ev-ticket-id').value;
+  if (!ticketId) { alert('Este chamado não possui ID do GLPI vinculado.'); return; }
+  modalEvento.hide();
+  setTimeout(() => excluirChamado(ticketId, btn), 300);
+}
+
 function excluirChamado(ticketId, btn) {
   if (btn.disabled) return;
   if (!confirmWithCode('🗑️ EXCLUIR chamado #' + ticketId + ' permanentemente para a lixeira do GLPI?')) return;
@@ -1685,17 +1813,23 @@ function carregarAtendentes() {
     .then(r => r.json())
     .then(data => {
       document.getElementById('ev-entidade').innerHTML =
-        '<option value="">Selecione a entidade...</option>' +
+        '<option value=""></option>' +
         data.map(e => `<option value="${escHtml(e.nome)}" data-id="${e.id}">${escHtml(apelidoEntidade(e.nome))}</option>`).join('');
+      if (tsEntidade) tsEntidade.destroy();
+      tsEntidade = new TomSelect('#ev-entidade', { allowEmptyOption: true, maxOptions: null, placeholder: 'Buscar entidade...' });
     });
+
+      function nomeReq(n) { const p=n.trim().split(' ');return p.length<=1?n:p.pop()+' '+p.join(' '); }
 
   // Carrega requerentes (todos os usuários ativos)
   fetch('users.php?todos=1')
     .then(r => r.json())
     .then(data => {
       document.getElementById('ev-requerente').innerHTML =
-        '<option value="">Selecione o requerente...</option>' +
-        data.map(u => `<option value="${escHtml(u.nome)}" data-id="${u.id}">${escHtml(u.nome)}</option>`).join('');
+        '<option value=""></option>' +
+        data.map(u => `<option value="${escHtml(u.nome)}" data-id="${u.id}">${escHtml(nomeReq(u.nome))}</option>`).join('');
+      if (tsRequerente) tsRequerente.destroy();
+      tsRequerente = new TomSelect('#ev-requerente', { allowEmptyOption: true, maxOptions: null, placeholder: 'Buscar requerente...' });
     });
 
   // Carrega categorias
@@ -1703,8 +1837,11 @@ function carregarAtendentes() {
     .then(r => r.json())
     .then(data => {
       document.getElementById('ev-categoria').innerHTML =
-        '<option value="">-- Sem categoria --</option>' +
+        '<option value=""></option>' +
         data.map(c => `<option value="${c.id}">${escHtml(c.nome)}</option>`).join('');
+      if (tsCategoria) tsCategoria.destroy();
+      tsCategoria = new TomSelect('#ev-categoria', { allowEmptyOption: true, maxOptions: null, placeholder: 'Sem categoria',
+        onChange: (val) => toggleCamposImpressao(parseInt(val) || 0) });
     });
 }
 
@@ -1753,12 +1890,23 @@ function renderTickets(tickets) {
         <span class="badge-urg ${COR_URG[t.urgencia] || 'urg-3'}">${urgLabel[t.urgencia] || t.urgencia}</span>
         <span class="badge-status">${t.status}</span>
         ${t.setor ? `<span class="badge-status"><i class="bi bi-building me-1"></i>${escHtml(t.setor)}</span>` : ''}
-        ${t.agendado ? `<span class="badge-andamento"><i class="bi bi-clock-history me-1"></i>Em andamento</span>` : ''}
+        ${t.agendado ? `<span class="badge-andamento"><i class="bi bi-clock-history me-1"></i>Em andamento</span>${t.agenda_start ? `<span class="badge-andamento" style="background:#d0e4ff;color:#1a4fa8;"><i class="bi bi-calendar-event me-1"></i>${formatAgendaStart(t.agenda_start)}</span>` : ''}` : ''}
       </div>
     </div>
   `).join('');
 
   iniciarDrag();
+}
+
+function formatAgendaStart(start) {
+  const d = new Date(start);
+  if (isNaN(d)) return '';
+  const hoje = new Date();
+  const amanha = new Date(hoje); amanha.setDate(hoje.getDate() + 1);
+  const hora = d.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
+  if (d.toDateString() === hoje.toDateString())   return 'Hoje ' + hora;
+  if (d.toDateString() === amanha.toDateString()) return 'Amanhã ' + hora;
+  return d.toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' }) + ' ' + hora;
 }
 
 /* -- Preview do chamado no sidebar -- */
@@ -1777,6 +1925,8 @@ function mostrarPreview(event, el) {
   const setor     = el.dataset.setor || '';
   const urgencia  = el.dataset.urgencia || 'média';
 
+  _previewTicket = { id, titulo, descricao, setor, urgencia };
+
   const urgNum = PREVIEW_URG[urgencia] || 3;
   const urgCor = PREVIEW_CORES[urgNum] || 'warning';
   const urgNome = PREVIEW_URG_LABEL[urgNum] || urgencia;
@@ -1788,6 +1938,9 @@ function mostrarPreview(event, el) {
   document.getElementById('tpMeta').innerHTML = `
     <span class="badge bg-${urgCor}"><i class="bi bi-exclamation-triangle me-1"></i>${urgNome}</span>
     ${setor ? `<span class="badge bg-secondary"><i class="bi bi-building me-1"></i>${setor}</span>` : ''}
+    <span onclick="event.stopPropagation();verDetalhesSidebar()" class="badge bg-primary" style="cursor:pointer">
+      <i class="bi bi-eye me-1"></i>Detalhes do Evento
+    </span>
     <span onclick="event.stopPropagation();window.open('../chamado.php?id=${id}','_blank')" class="badge bg-dark" style="cursor:pointer">
       <i class="bi bi-box-arrow-up-right me-1"></i>Abrir chamado
     </span>`;
@@ -1800,6 +1953,44 @@ function mostrarPreview(event, el) {
 function fecharPreview() {
   document.getElementById('tpOverlay').classList.remove('show');
   document.getElementById('tpCard').style.display = 'none';
+}
+
+function verDetalhesSidebar() {
+  const { id, titulo, descricao, setor, urgencia } = _previewTicket || {};
+  fecharPreview();
+  limparValidacao();
+
+  const now    = new Date();
+  const startStr = now.toISOString();
+  const endStr   = new Date(now.getTime() + duracaoPadrao('chamado')).toISOString();
+
+  preencherModal({
+    id:               null,
+    titulo:           titulo || '',
+    start:            startStr,
+    end:              endStr,
+    prioridade:       urgToProioridade(urgencia || 'média'),
+    tipo:             'chamado',
+    setor:            setor || '',
+    descricao:        descricao || '',
+    ticket_id:        id || '',
+    concluido:        false,
+    atendentes_lista: [],
+  });
+
+  setModoLeitura(true);
+  const _btnEditarSb = document.getElementById('banner-readonly').querySelector('button');
+  if (_btnEditarSb) _btnEditarSb.style.display = '';
+  document.getElementById('google-info').style.display = 'none';
+  document.getElementById('campos-evento').style.display = '';
+  document.querySelector('#modalEvento .btn-secondary')?.style.removeProperty('display');
+  document.getElementById('btnDeletar').style.display     = 'none';
+  document.getElementById('btnExcluirGlpi').style.display = 'none';
+  document.getElementById('btnResponder').style.display   = (!MODO_OUVINTE && id) ? 'inline-block' : 'none';
+  document.getElementById('btnNovoPeriodo').style.display = (!MODO_OUVINTE && id) ? 'inline-block' : 'none';
+  document.getElementById('modalTitulo').innerHTML = '<i class="bi bi-eye me-2"></i>Detalhes do Evento';
+
+  modalEvento.show();
 }
 
 function filtrarTickets() {
@@ -1843,7 +2034,10 @@ function filtrarTickets() {
 // Registrado uma única vez na inicialização
 // ──────────────────────────────────────────
 let _draggableIniciado = false;
+const MODO_OUVINTE = <?= $is_ouvinte ? 'true' : 'false' ?>;
+
 function iniciarDrag() {
+  if (MODO_OUVINTE) return; // ouvinte não pode arrastar
   if (!_draggableIniciado && FullCalendar.Draggable) {
     new FullCalendar.Draggable(document.getElementById('ticketList'), {
       itemSelector: '.ticket-card',
@@ -2013,9 +2207,9 @@ function abrirModalEvento(dataStr) {
   document.getElementById('ev-prioridade').value = 'media';
   document.getElementById('ev-setor').value = '';
   document.getElementById('ev-tipo').value = 'chamado';
-  document.getElementById('ev-entidade').value   = '';
-  document.getElementById('ev-requerente').value = '';
-  document.getElementById('ev-categoria').value  = '';
+  if (tsEntidade)   tsEntidade.setValue('', true);   else document.getElementById('ev-entidade').value   = '';
+  if (tsRequerente) tsRequerente.setValue('', true); else document.getElementById('ev-requerente').value = '';
+  if (tsCategoria)  tsCategoria.setValue('', true);  else document.getElementById('ev-categoria').value  = '';
   document.getElementById('ev-origem').value     = '';
   document.getElementById('ev-concluido').checked  = false;
   document.getElementById('ev-fechar-glpi').checked = false;
@@ -2036,6 +2230,7 @@ function abrirModalEvento(dataStr) {
   document.getElementById('lista-arquivos-criar').innerHTML = '';
   arquivosAnexosCriar = [];
   document.getElementById('btnDeletar').style.display     = 'none';
+  document.getElementById('btnExcluirGlpi').style.display = 'none';
   document.getElementById('btnResponder').style.display   = 'none';
   document.getElementById('btnNovoPeriodo').style.display = 'none';
   document.getElementById('banner-readonly').style.display = 'none';
@@ -2043,9 +2238,28 @@ function abrirModalEvento(dataStr) {
   ajustarCamposPorTipo();
   setModoLeitura(false); // novo evento sempre em modo edição
 
-  const now = dataStr ? new Date(dataStr) : new Date();
+  const now = dataStr ? (() => {
+    // ⚠️ dataStr vem como "2026-06-23" do slot Dia Inteiro
+    // new Date("2026-06-23") interpreta como UTC → vira dia anterior em GMT-4
+    // Solução: parse manual como data local
+    const p = dataStr.split('-');
+    if (p.length === 3) return new Date(+p[0], +p[1]-1, +p[2]);
+    return new Date(dataStr);
+  })() : new Date();
   document.getElementById('ev-start').value  = toDatetimeLocal(now);
-  document.getElementById('ev-duracao').value = String(duracaoPadrao('chamado')); // 30 min padrão
+
+  // Detecta clique no slot "Dia Inteiro" (dataStr veio sem horário "2026-06-23")
+  if (dataStr && !dataStr.includes('T')) {
+    document.getElementById('ev-tipo').value = 'reuniao';
+    document.getElementById('ev-duracao').value = '36000000';
+    // Ajusta início para 07:00 do dia clicado
+    const p = dataStr.split('-');
+    const inicio = new Date(+p[0], +p[1]-1, +p[2], 7, 0, 0);
+    document.getElementById('ev-start').value = toDatetimeLocal(inicio);
+    ajustarCamposPorTipo();
+  } else {
+    document.getElementById('ev-duracao').value = String(duracaoPadrao('chamado'));
+  }
   aoMudarInicio(); // calcula ev-end = start + duração
 
   modalEvento.show();
@@ -2055,6 +2269,9 @@ function preencherModal(dados) {
   _dadosModal = dados;
   document.getElementById('lista-arquivos-criar').innerHTML = '';
   arquivosAnexosCriar = [];
+  // Reset campos de impressão antes de carregar novo evento
+  _resetCamposImpressao();
+  document.getElementById('campo-impressao').style.display = 'none';
   document.getElementById('ev-id').value        = dados.id || '';
   document.getElementById('ev-ticket-id').value = dados.ticket_id || '';
   document.getElementById('ev-titulo').value    = dados.titulo || '';
@@ -2096,7 +2313,16 @@ function preencherModal(dados) {
 
   // Busca dados completos do ticket no GLPI (descrição, entidade, categoria, requerente)
   if (dados.ticket_id) {
-    fetch('ticket_descricao.php?id=' + dados.ticket_id)
+    // Cancela fetch anterior (evita race condition entre eventos)
+    if (_ticketFetchCtrl) _ticketFetchCtrl.abort();
+    _ticketFetchCtrl = new AbortController();
+    // Limpa campos assíncronos imediatamente para não mostrar dados do evento anterior
+    document.getElementById('ev-descricao').value = '';
+    document.getElementById('ev-setor').value = dados.setor || '';
+    if (tsRequerente) tsRequerente.setValue('', true); else document.getElementById('ev-requerente').value = '';
+    if (tsEntidade)   tsEntidade.setValue('', true);   else document.getElementById('ev-entidade').value   = '';
+    if (tsCategoria)  tsCategoria.setValue('', true);  else document.getElementById('ev-categoria').value  = '';
+    fetch('ticket_descricao.php?id=' + dados.ticket_id, { signal: _ticketFetchCtrl.signal })
       .then(r => r.json())
       .then(d => {
         if (d.descricao) document.getElementById('ev-descricao').value = d.descricao;
@@ -2108,19 +2334,21 @@ function preencherModal(dados) {
         if (selEnt && d.entidade_id !== undefined && d.entidade_id !== null) {
           const opt = selEnt.querySelector(`option[data-id="${d.entidade_id}"]`);
           if (opt) {
-            selEnt.value = opt.value;
+            if (tsEntidade) tsEntidade.setValue(opt.value, true); else selEnt.value = opt.value;
           } else if (d.entidade) {
             const novaOpt = new Option(apelidoEntidade(d.entidade), d.entidade);
             novaOpt.dataset.id = d.entidade_id;
             selEnt.insertBefore(novaOpt, selEnt.options[1]);
-            selEnt.value = d.entidade;
+            if (tsEntidade) { tsEntidade.sync(); tsEntidade.setValue(d.entidade, true); } else selEnt.value = d.entidade;
           }
         }
 
         // Categoria: options têm value=id → usa d.categoria_id (correto)
         if (d.categoria_id) {
           const selCat = document.getElementById('ev-categoria');
-          if (selCat) selCat.value = d.categoria_id;
+          if (selCat) {
+            if (tsCategoria) tsCategoria.setValue(String(d.categoria_id), true); else selCat.value = d.categoria_id;
+          }
         }
 
         // Requerente: options têm value=nome mas há data-id → busca pelo data-id para evitar
@@ -2130,19 +2358,25 @@ function preencherModal(dados) {
           if (selReq) {
             const opt = selReq.querySelector(`option[data-id="${d.requerente_id}"]`);
             if (opt) {
-              selReq.value = opt.value;
+              if (tsRequerente) tsRequerente.setValue(opt.value, true); else selReq.value = opt.value;
             } else if (d.requerente) {
-              // Requerente não está na lista → insere dinamicamente
               const novaOpt = new Option(d.requerente, d.requerente);
               novaOpt.dataset.id = d.requerente_id;
               selReq.insertBefore(novaOpt, selReq.options[1]);
-              selReq.value = d.requerente;
+              if (tsRequerente) { tsRequerente.sync(); tsRequerente.setValue(d.requerente, true); } else selReq.value = d.requerente;
             }
           }
         }
 
         // Atualiza setor interno com nome da entidade
         if (d.entidade) document.getElementById('ev-setor').value = d.entidade;
+
+        // Campos adicionais de impressão
+        if (d.campos_impressao) {
+          _carregarCamposImpressao(d.campos_impressao);
+        } else if (d.categoria_id === _IMP_CATEGORIA_ID) {
+          document.getElementById('campo-impressao').style.display = '';
+        }
 
         // Renderiza followups
         const fw = d.followups || [];
@@ -2193,7 +2427,7 @@ function preencherModal(dados) {
           anexosCampo.style.display = 'none';
         }
       })
-      .catch(() => {});
+      .catch(err => { if (err.name !== 'AbortError') console.warn('ticket_descricao:', err); });
   }
 
   // Atualiza modo single/multi e chips (N?ƒO chama ajustarDuracaoPorTipo aqui —
@@ -2396,6 +2630,47 @@ function abrirModalResposta() {
   document.getElementById('resp-concluido').checked   = false;
   arquivosAnexos = [];
 
+  // Checklist para chamados recorrentes
+  const tituloLimpo = titulo.replace(/^#\d+\s*[-–]\s*/, '').trim();
+  const checklist = Object.entries(ROTINA_CHECKLISTS).find(([k]) => tituloLimpo.includes(k));
+  const checkWrap = document.getElementById('resp-checklist');
+  const checkItens = document.getElementById('resp-checklist-itens');
+  if (checklist) {
+    const itens = checklist[1];
+    checkItens.innerHTML = itens.map((item, i) => {
+      let html = `<div class="form-check">
+        <input class="form-check-input rotina-ck-pai" type="checkbox" id="rotina-ck-${i}" data-label="${item.label}" data-idx="${i}">
+        <label class="form-check-label fw-semibold" for="rotina-ck-${i}">${item.label}</label>
+      </div>`;
+      if (item.filhos) {
+        html += `<div id="rotina-filhos-${i}" style="display:none;padding-left:1.5rem;margin-top:.3rem" class="d-flex flex-column gap-1">`;
+        item.filhos.forEach((f, j) => {
+          html += `<div class="form-check">
+            <input class="form-check-input" type="checkbox" id="rotina-ck-${i}-${j}" data-label="${f}" data-pai="${i}">
+            <label class="form-check-label" for="rotina-ck-${i}-${j}">${f}</label>
+          </div>`;
+        });
+        html += `</div>`;
+      }
+      return html;
+    }).join('');
+    // Toggle filhos ao marcar/desmarcar pai
+    checkItens.querySelectorAll('.rotina-ck-pai').forEach(cb => {
+      const idx = cb.dataset.idx;
+      const filhosDiv = document.getElementById('rotina-filhos-' + idx);
+      if (filhosDiv) cb.addEventListener('change', () => { filhosDiv.style.display = cb.checked ? '' : 'none'; });
+    });
+    checkWrap.style.display = '';
+    document.getElementById('resp-texto-label').innerHTML = 'Observações adicionais (opcional)';
+    document.getElementById('resp-texto').placeholder = 'Alguma observação sobre os itens verificados...';
+    document.getElementById('resp-texto').rows = 3;
+  } else {
+    checkWrap.style.display = 'none';
+    document.getElementById('resp-texto-label').innerHTML = 'Resposta / Acompanhamento <span class="text-danger">*</span>';
+    document.getElementById('resp-texto').placeholder = 'Descreva o que foi feito, orientações ao usuário, próximos passos...';
+    document.getElementById('resp-texto').rows = 6;
+  }
+
   modalEvento.hide();
   setTimeout(() => modalResposta.show(), 300);
 }
@@ -2538,8 +2813,29 @@ function removerArquivoCriar(i) {
 
 async function enviarResposta() {
   const ticketId = document.getElementById('resp-ticket-id').value;
-  const texto    = document.getElementById('resp-texto').value.trim();
-  if (!texto) { alert('Digite uma resposta antes de enviar.'); return; }
+  let texto      = document.getElementById('resp-texto').value.trim();
+
+  // Monta texto do checklist se visível
+  const checkWrap = document.getElementById('resp-checklist');
+  if (checkWrap.style.display !== 'none') {
+    const linhas = [];
+    checkWrap.querySelectorAll('input[type=checkbox]').forEach(cb => {
+      const isPai = cb.classList.contains('rotina-ck-pai');
+      const filhosDiv = isPai ? document.getElementById('rotina-filhos-' + cb.dataset.idx) : null;
+      const prefixo = filhosDiv ? '' : '   '; // sub-item recua
+      if (isPai) {
+        linhas.push((cb.checked ? '✅' : '❌') + ' ' + cb.dataset.label);
+      } else {
+        const paiCb = document.getElementById('rotina-ck-' + cb.dataset.pai);
+        if (paiCb && paiCb.checked) {
+          linhas.push('   ' + (cb.checked ? '✅' : '❌') + ' ' + cb.dataset.label);
+        }
+      }
+    });
+    texto = linhas.join('\n') + (texto ? '\n\n' + texto : '');
+  }
+
+  if (!texto) { alert('Marque ao menos um item ou digite uma resposta antes de enviar.'); return; }
 
   const btn = document.getElementById('btnEnviarResposta');
   btn.disabled = true;
@@ -2630,10 +2926,49 @@ async function enviarResposta() {
 }
 
 function mostrarSalvarSeConcluido() {
-  // Exibe o botão Salvar ao interagir com o checkbox mesmo em modo leitura
+  if (MODO_OUVINTE) return;
   const btnSalvar = document.querySelector('#modalEvento .btn-primary');
   btnSalvar.style.display = '';
 }
+
+// ── Campos adicionais: Impressões ──────────────────────────────────────────
+const _IMP_CATEGORIA_ID = 181;
+const _IMP_MAP = {
+  'qtdimpressesafourfvfield':  'imp-a4fv',
+  'qtdimpressesafourffield':   'imp-a4f',
+  'qtdimpressesathreefvfield': 'imp-a3fv',
+  'qtdimpressesathreeffield':  'imp-a3f',
+  'qtdimpafouradesivofield':   'imp-a4adv',
+  'qtdimpafourplacasfield':    'imp-a4plc',
+  'qtdetiquetafivefield':      'imp-etq5s',
+  'qtdimpathreeplacafield':    'imp-a3plc',
+  'qtdimpathreeadesivofield':  'imp-a3adv',
+};
+function toggleCamposImpressao(catId) {
+  const show = catId === _IMP_CATEGORIA_ID;
+  document.getElementById('campo-impressao').style.display = show ? '' : 'none';
+  if (!show) _resetCamposImpressao();
+}
+function _resetCamposImpressao() {
+  Object.values(_IMP_MAP).forEach(id => { const el = document.getElementById(id); if (el) el.value = '0'; });
+}
+function _carregarCamposImpressao(ci) {
+  if (!ci) return;
+  Object.entries(_IMP_MAP).forEach(([campo, id]) => {
+    const el = document.getElementById(id);
+    if (el) el.value = ci[campo] ?? 0;
+  });
+  document.getElementById('campo-impressao').style.display = '';
+}
+function _getCamposImpressao() {
+  if (document.getElementById('campo-impressao').style.display === 'none') return null;
+  const r = {};
+  Object.entries(_IMP_MAP).forEach(([campo, id]) => {
+    r[campo] = parseInt(document.getElementById(id).value) || 0;
+  });
+  return r;
+}
+// ───────────────────────────────────────────────────────────────────────────
 
 function toggleFecharGlpi() {
   const concluido = document.getElementById('ev-concluido').checked;
@@ -2691,6 +3026,7 @@ function novoPeriodo() {
     ajustarDuracaoPorTipo();
 
     document.getElementById('btnDeletar').style.display     = 'none';
+    document.getElementById('btnExcluirGlpi').style.display = 'none';
     document.getElementById('btnResponder').style.display   = 'none';
     document.getElementById('btnNovoPeriodo').style.display = 'none';
     document.getElementById('banner-readonly').style.display = 'none';
@@ -2717,6 +3053,10 @@ function abrirModalSemLimpar() {
 function editarEvento(ev) {
   limparValidacao();
   const c = _dropCache[ev.id] || {}; // fallback para eventos recém-arrastados (antes do refetch)
+  // co_atendentes: lista de {nome, id, cor}
+  const co = ev.extendedProps.co_atendentes || c.co_atendentes || [];
+  const coNomes = co.map(x => x.nome).filter(Boolean);
+  const atdName = ev.extendedProps.atendente || c.atendente;
   preencherModal({
     id:        ev.id,
     titulo:    ev.title.replace(/^#\d+\s*[-–]\s*/, '').trim(),
@@ -2726,9 +3066,11 @@ function editarEvento(ev) {
     tipo:      ev.extendedProps.tipo       || c.tipo || 'chamado',
     setor:     ev.extendedProps.setor      || c.setor,
     descricao: ev.extendedProps.descricao  || c.descricao,
-    atendente: ev.extendedProps.atendente  || c.atendente,
+    atendente: atdName,
     ticket_id: ev.extendedProps.ticket_id  || c.ticket_id,
     concluido: ev.extendedProps.concluido,
+    // Lista com todos os atendentes (primário + co)
+    atendentes_lista: atdName ? [atdName, ...coNomes] : [...coNomes],
     // Recorrência
     recorrencia_id:         ev.extendedProps.recorrencia_id || c.recorrencia_id,
     recorrencia_dias:       ev.extendedProps.recorrencia_dias || c.recorrencia_dias || '',
@@ -2737,10 +3079,10 @@ function editarEvento(ev) {
   const concluido = ev.extendedProps.concluido;
   const isGoogle = ev.extendedProps.google === true;
 
-  // Abre em modo LEITURA; se concluído esconde o botão Editar
+  // Abre em modo LEITURA; se concluído (ou ouvinte) esconde o botão Editar
   setModoLeitura(true);
-  document.getElementById('banner-readonly').querySelector('button').style.display =
-    concluido ? 'none' : '';
+  const _btnEditar = document.getElementById('banner-readonly').querySelector('button');
+  if (_btnEditar) _btnEditar.style.display = concluido ? 'none' : '';
 
   // ── Google Calendar: modo somente-leitura especial ──
   const googleInfo = document.getElementById('google-info');
@@ -2787,8 +3129,9 @@ function editarEvento(ev) {
     document.getElementById('banner-readonly').style.display = 'none';
 
     // Esconde todos os botões de ação do footer
-    document.getElementById('btnDeletar').style.display = 'none';
-    document.getElementById('btnResponder').style.display = 'none';
+    document.getElementById('btnDeletar').style.display     = 'none';
+    document.getElementById('btnExcluirGlpi').style.display = 'none';
+    document.getElementById('btnResponder').style.display   = 'none';
     document.getElementById('btnNovoPeriodo').style.display = 'none';
     document.querySelector('#modalEvento .btn-secondary')?.style.setProperty('display', 'none');
     document.querySelector('#modalEvento .btn-primary')?.style.setProperty('display', 'none');
@@ -2800,10 +3143,22 @@ function editarEvento(ev) {
     document.getElementById('campos-evento').style.display = '';
     document.querySelector('#modalEvento .btn-secondary')?.style.removeProperty('display');
 
-    // Botões normais (concluído controla visibilidade)
-    document.getElementById('btnDeletar').style.display     = concluido ? 'none' : 'inline-block';
-    document.getElementById('btnResponder').style.display   = (ev.extendedProps.ticket_id && !concluido) ? 'inline-block' : 'none';
-    document.getElementById('btnNovoPeriodo').style.display = (ev.extendedProps.ticket_id && !concluido) ? 'inline-block' : 'none';
+    // Botões de ação (ouvinte não pode agir, apenas visualizar)
+    if (MODO_OUVINTE) {
+      document.getElementById('btnDeletar').style.display     = 'none';
+      document.getElementById('btnExcluirGlpi').style.display = 'none';
+      document.getElementById('btnResponder').style.display   = 'none';
+      document.getElementById('btnNovoPeriodo').style.display = 'none';
+    } else {
+      const _tid   = ev.extendedProps.ticket_id || c.ticket_id || '';
+      const _tipo  = ev.extendedProps.tipo || c.tipo || '';
+      const _isGlpi = _tipo === 'chamado' || _tipo === 'requisicao';
+      document.getElementById('btnDeletar').style.display     = concluido ? 'none' : 'inline-block';
+      document.getElementById('btnExcluirGlpi').style.display = _isGlpi ? 'inline-block' : 'none';
+      document.getElementById('btnExcluirGlpi').dataset.ticketId = _tid;
+      document.getElementById('btnResponder').style.display   = (_tid && !concluido) ? 'inline-block' : 'none';
+      document.getElementById('btnNovoPeriodo').style.display = (_tid && !concluido) ? 'inline-block' : 'none';
+    }
     document.getElementById('modalTitulo').innerHTML = '<i class="bi bi-eye me-2"></i>Detalhes do Evento';
   }
 
@@ -2820,6 +3175,7 @@ function setModoLeitura(ativo) {
     banner.style.removeProperty('display'); // mostra banner
     btnSalvar.style.display = 'none';
     document.getElementById('campo-anexos-criar').style.display = 'none';
+    if (MODO_OUVINTE) document.querySelector('.col-concluido').style.display = 'none';
   } else {
     campos.classList.remove('modo-leitura');
     banner.style.display = 'none';
@@ -2879,7 +3235,10 @@ function limparValidacao() {
 
 function marcarInvalido(id) {
   const el = document.getElementById(id);
-  if (el) el.classList.add('is-invalid');
+  if (!el) return;
+  el.classList.add('is-invalid');
+  const wrapper = el.nextElementSibling;
+  if (wrapper && wrapper.classList.contains('ts-wrapper')) wrapper.classList.add('is-invalid');
 }
 
 function mostrarErroModal(erros) {
@@ -2982,6 +3341,8 @@ function salvarEvento() {
     entidade_id:   entidadeId,
     requerente_id: requerenteId,
     origem_id:     origemId,
+    // Campos adicionais de impressão (categoria 181)
+    campos_impressao: _getCamposImpressao(),
     // Recorrência semanal (apenas para Evento)
     recorrencia_id:         _dadosModal?.recorrencia_id || null,
     recorrencia_ativa:      document.getElementById('ev-recorrencia-ativa').checked ? 1 : 0,
@@ -3010,34 +3371,50 @@ function salvarEvento() {
     btnSalvar2.innerHTML = '<span class="spinner-border spinner-border-sm me-2"></span>Salvando...';
     const reativar = () => { btnSalvar2.disabled = false; btnSalvar2.innerHTML = '<i class="bi bi-check-lg me-1"></i>Salvar'; };
     const finalizarMulti = (ticket_id) => {
-      // Se edição (tem evId) → deleta o evento antigo e recria (só para evento, chamado edita in-line)
-      const mapTech = (a, i) => Object.assign({}, dadosBase, {
-        id:       (!isChamadoOuReq && i === 0 && evId) ? evId : uniqEvId(),
-        atendente:     a.nome,
-        atendente_id:  a.id,
-        atendente_cor: a.cor,
-        ticket_id:     ticket_id || dadosBase.ticket_id,
-        // Chamado criado no GLPI já tem todos os técnicos — pula atribuição extra
-        _skipGlpi:     isChamadoOuReq,
-      });
-      const dadosSalvos = multiSel.map(mapTech);
-      console.log('📊 Multi-tech save:', dadosSalvos.map(d => ({atendente: d.atendente, atendente_id: d.atendente_id, ticket_id: d.ticket_id, id: d.id})));
-      const promises = dadosSalvos.map(d => salvarEventoObj(d));
-      Promise.all(promises).then(() => {
-        modalEvento.hide();
-        calendar.refetchEvents();
-        carregarTickets();
-        reativar();
-        const verb = isChamadoOuReq ? 'Chamado' : 'Evento';
-        toast(`✅ ${verb} salvo para ${multiSel.length} atendente(s).`);
-      }).catch(err => {
-        console.error('âŒ Multi-tech save falhou:', err);
-        // Mesmo com erro, tenta recarregar o que foi salvo
-        calendar.refetchEvents();
-        carregarTickets();
-        reativar();
-        alert('Erro ao salvar para um ou mais atendentes. Verifique o console (F12).');
-      });
+      if (isChamadoOuReq) {
+        // Chamado/Requisição: 1 evento por técnico (cada um tem seu horário)
+        const mapTech = (a, i) => Object.assign({}, dadosBase, {
+          id:       (i === 0 && evId) ? evId : uniqEvId(),
+          atendente:     a.nome,
+          atendente_id:  a.id,
+          atendente_cor: a.cor,
+          ticket_id:     ticket_id || dadosBase.ticket_id,
+          _skipGlpi:     true,
+        });
+        const dadosSalvos = multiSel.map(mapTech);
+        const promises = dadosSalvos.map(d => salvarEventoObj(d));
+        Promise.all(promises).then(() => {
+          modalEvento.hide();
+          calendar.refetchEvents();
+          carregarTickets();
+          reativar();
+          toast(`✅ Chamado salvo para ${multiSel.length} atendente(s).`);
+        }).catch(err => {
+          calendar.refetchEvents();
+          carregarTickets();
+          reativar();
+          alert('Erro ao salvar para um ou mais atendentes.');
+        });
+      } else {
+        // Reunião/Evento: 1 evento com co_atendentes (compartilhado)
+        const primeiro = multiSel[0];
+        const restantes = multiSel.slice(1).map(a => ({nome: a.nome, id: a.id, cor: a.cor}));
+        const evDados = Object.assign({}, dadosBase, {
+          id:            evId || uniqEvId(),
+          atendente:     primeiro.nome,
+          atendente_id:  primeiro.id,
+          atendente_cor: primeiro.cor,
+          co_atendentes: restantes,
+          ticket_id:     ticket_id || dadosBase.ticket_id,
+        });
+        salvarEventoObj(evDados, () => {
+          modalEvento.hide();
+          calendar.refetchEvents();
+          carregarTickets();
+          reativar();
+          toast(`✅ Reunião compartilhada com ${multiSel.length} atendente(s).`);
+        });
+      }
     };
 
     if (isChamadoOuReq && !dadosBase.ticket_id) {
