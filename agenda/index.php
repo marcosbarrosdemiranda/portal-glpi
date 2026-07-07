@@ -475,6 +475,7 @@ $is_ouvinte     = ($agenda_modo === 'ouvinte');
       <option value="requisicao">📋 Requisição</option>
       <option value="reuniao">👥 Reunião</option>
       <option value="evento">📅 Evento</option>
+      <option value="projeto">📁 Projeto</option>
     </select>
   </div>
 
@@ -609,6 +610,7 @@ $is_ouvinte     = ($agenda_modo === 'ouvinte');
               <option value="requisicao">📋 Requisição GLPI</option>
               <option value="reuniao">👥 Reunião</option>
               <option value="evento">📅 Evento</option>
+              <option value="projeto">📁 Projeto</option>
             </select>
           </div>
           <!-- Banner modo leitura — mesma linha que Tipo -->
@@ -668,6 +670,12 @@ $is_ouvinte     = ($agenda_modo === 'ouvinte');
             <label class="form-label">Requerente <span class="text-danger">*</span></label>
             <select class="form-select" id="ev-requerente">
               <option value="">Selecione o requerente...</option>
+            </select>
+          </div>
+          <div class="col-md-6" id="campo-projeto" style="display:none">
+            <label class="form-label">Projeto <span class="text-danger">*</span></label>
+            <select class="form-select" id="ev-projeto">
+              <option value="">Carregando...</option>
             </select>
           </div>
           <div class="col-md-6" id="campo-categoria">
@@ -1012,6 +1020,19 @@ const ROTINA_CHECKLISTS = {
     { label: 'Automática' },
     { label: 'Manual', filhos: ['Lj 001', 'Lj 003', 'Lj 010', 'Lj 030'] },
   ],
+  'Backup, Relatórios e Banco de Dados - Rotina Diária': [
+    { label: 'Backup' },
+    { label: 'Relatórios' },
+    { label: 'Banco de Dados' },
+  ],
+  'Firewal, Unifi e Comunicação Lojas - Rotina Diária': [
+    { label: 'Firewall' },
+    { label: 'Unifi' },
+    { label: 'Comunicação das Lojas' },
+  ],
+  'Programação de Videos Paines de Led': [
+    { label: 'Programação das lojas' },
+  ],
   'Servidores - Rotina Diária': [
     { label: 'Server Unidades/Matriz' },
     { label: 'Server Gunnebo' },
@@ -1070,6 +1091,7 @@ const COR_TIPO = {
   requisicao: { bg: '#e67c00', border: '#b35f00' }, // Laranja
   reuniao:    { bg: '#7b1fa2', border: '#4a148c' }, // Roxo
   chamado:    { bg: '#d93025', border: '#a52218' }, // Vermelho
+  projeto:    { bg: '#00897b', border: '#00695c' }, // Verde-azulado
   concluido:  { bg: '#1e8e3e', border: '#155a2e' }, // Verde
   atrasado:   { bg: '#f9a825', border: '#c6790a' }, // Amarelo (atrasado/não concluído)
 };
@@ -1317,6 +1339,7 @@ document.addEventListener('DOMContentLoaded', function() {
         requisicao: 'bi-clipboard-check',
         reuniao:    'bi-people-fill',
         chamado:    'bi-headset',
+        projeto:    'bi-kanban',
       };
       // Usa sempre o ícone do tipo; o check aparece só no badge da beirada
       const icone = icones[tipo] || 'bi-calendar-event';
@@ -1465,6 +1488,7 @@ function carregarEventos(info, success) {
             co_atendentes:coList,
             prioridade:   e.prioridade,
             setor:        e.setor,
+            projeto:      e.projeto,
             ticket_id:    e.ticket_id,
             tipo:         e.tipo,
             concluido,
@@ -2186,6 +2210,7 @@ function salvarEventoObjAsync(dados) {
 // Duração padrão em ms por tipo
 function duracaoPadrao(tipo) {
   if (tipo === 'reuniao')                              return 60 * 60 * 1000;  // 1 hora
+  if (tipo === 'projeto')                              return 60 * 60 * 1000;  // 1 hora
   if (tipo === 'chamado' || tipo === 'requisicao')     return 30 * 60 * 1000;  // 30 min
   return 30 * 60 * 1000;                                                        // evento: 30 min
 }
@@ -2198,6 +2223,9 @@ let _dadosModal = null;
 function abrirModalEvento(dataStr) {
   _dadosModal = null;
   limparValidacao();
+  // Reset campos de impressão antes de abrir (categoria é limpa em modo silencioso e não dispara o onChange)
+  _resetCamposImpressao();
+  document.getElementById('campo-impressao').style.display = 'none';
   document.getElementById('ev-id').value         = '';
   document.getElementById('ev-ticket-id').value  = '';
   document.getElementById('ev-orig-start').value = '';
@@ -2206,6 +2234,8 @@ function abrirModalEvento(dataStr) {
   document.getElementById('ev-atendente').value = '';
   document.getElementById('ev-prioridade').value = 'media';
   document.getElementById('ev-setor').value = '';
+  document.getElementById('ev-projeto').innerHTML = '<option value="">Selecione o projeto...</option>';
+  document.getElementById('campo-projeto').style.display = 'none';
   document.getElementById('ev-tipo').value = 'chamado';
   if (tsEntidade)   tsEntidade.setValue('', true);   else document.getElementById('ev-entidade').value   = '';
   if (tsRequerente) tsRequerente.setValue('', true); else document.getElementById('ev-requerente').value = '';
@@ -2439,20 +2469,45 @@ function preencherModal(dados) {
   renderAtendentesMulti(selecionados);
 }
 
+// ── Lista de projetos (tipo=projeto) ────────────────────────────────────────
+let _listaProjetosCache = null;
+function carregarListaProjetos(valorSelecionado) {
+  const sel = document.getElementById('ev-projeto');
+  if (_listaProjetosCache) {
+    _popularSelectProjetos(sel, _listaProjetosCache, valorSelecionado);
+    return;
+  }
+  fetch('projetos_lista.php')
+    .then(r => r.json())
+    .then(data => {
+      _listaProjetosCache = (data.ok && data.projetos) ? data.projetos : [];
+      _popularSelectProjetos(sel, _listaProjetosCache, valorSelecionado);
+    })
+    .catch(() => {
+      sel.innerHTML = '<option value="">Erro ao carregar projetos</option>';
+    });
+}
+function _popularSelectProjetos(sel, lista, valorSelecionado) {
+  sel.innerHTML = '<option value="">Selecione o projeto...</option>' +
+    lista.map(p => `<option value="${escHtml(p)}">${escHtml(p)}</option>`).join('');
+  if (valorSelecionado) sel.value = valorSelecionado;
+}
+
 function ajustarCamposPorTipo() {
   const tipo      = document.getElementById('ev-tipo').value;
   const reuniao   = tipo === 'reuniao';
   const evento    = tipo === 'evento';
+  const projeto   = tipo === 'projeto';
   const isChamado = tipo === 'chamado' || tipo === 'requisicao';
 
-  // Prioridade: oculta em reunião e evento
-  document.getElementById('campo-prioridade').style.display  = (reuniao || evento) ? 'none' : '';
+  // Prioridade: oculta em reunião, evento e projeto
+  document.getElementById('campo-prioridade').style.display  = (reuniao || evento || projeto) ? 'none' : '';
   // Atendentes: oculta apenas em evento; ajusta largura por tipo
   const atCampo = document.getElementById('campo-atendentes');
   atCampo.style.display = evento ? 'none' : '';
-  // Chamado/Requisição → col-md-6 (ao lado da Entidade); Reunião → col-12 (linha inteira)
+  // Chamado/Requisição → col-md-6 (ao lado da Entidade); Projeto → col-md-6 (ao lado do Projeto); Reunião → col-12
   atCampo.className = atCampo.className.replace(/\bcol-\S+/g, '').trim()
-    + (isChamado ? ' col-md-6' : ' col-12');
+    + ((isChamado || projeto) ? ' col-md-6' : ' col-12');
   // Chips sempre visíveis, dropdown sempre oculto
   document.getElementById('ev-atendente').style.display        = 'none';
   document.getElementById('ev-atendentes-multi').style.display = '';
@@ -2461,6 +2516,9 @@ function ajustarCamposPorTipo() {
   document.getElementById('campo-requerente').style.display = isChamado ? '' : 'none';
   document.getElementById('campo-categoria').style.display  = isChamado ? '' : 'none';
   document.getElementById('campo-origem').style.display     = isChamado ? '' : 'none';
+  // Projeto: apenas no tipo projeto
+  document.getElementById('campo-projeto').style.display = projeto ? '' : 'none';
+  if (projeto) carregarListaProjetos(_dadosModal?.projeto);
   // Asterisco de Descrição: obrigatório apenas em chamado/requisição
   const starDesc = document.getElementById('star-descricao');
   if (starDesc) starDesc.style.display = isChamado ? '' : 'none';
@@ -3065,6 +3123,7 @@ function editarEvento(ev) {
     prioridade:ev.extendedProps.prioridade || c.prioridade,
     tipo:      ev.extendedProps.tipo       || c.tipo || 'chamado',
     setor:     ev.extendedProps.setor      || c.setor,
+    projeto:   ev.extendedProps.projeto    || c.projeto,
     descricao: ev.extendedProps.descricao  || c.descricao,
     atendente: atdName,
     ticket_id: ev.extendedProps.ticket_id  || c.ticket_id,
@@ -3285,6 +3344,13 @@ function salvarEvento() {
     if (!_reqId)    { errosVal.push('Requerente'); marcarInvalido('ev-requerente'); }
   }
 
+  if (tipo === 'projeto') {
+    const _projeto  = document.getElementById('ev-projeto').value;
+    const _temAtend = multiSel.length > 0;
+    if (!_projeto)  { errosVal.push('Projeto');   marcarInvalido('ev-projeto'); }
+    if (!_temAtend) { errosVal.push('Atendente'); marcarInvalido('lista-atendentes-multi'); }
+  }
+
   if (errosVal.length > 0) { mostrarErroModal(errosVal); return; }
   // ── fim validação ─────────────────────────────────────────────────────
 
@@ -3330,6 +3396,7 @@ function salvarEvento() {
     atendente_cor: primeiroChip ? primeiroChip.cor  : cor,
     prioridade:    document.getElementById('ev-prioridade').value,
     setor:         document.getElementById('ev-setor').value,
+    projeto:       document.getElementById('ev-projeto').value || null,
     descricao:     document.getElementById('ev-descricao').value,
     ticket_id:     document.getElementById('ev-ticket-id').value.trim() || null,
     orig_start:    document.getElementById('ev-orig-start').value || '',
