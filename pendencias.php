@@ -481,6 +481,9 @@ $filtro_status   = $_GET['status'] ?? 'pendente';
   const modalExcluir    = new bootstrap.Modal(document.getElementById('modalExcluir'));
   const modalConverter  = new bootstrap.Modal(document.getElementById('modalConverter'));
   const modalVisualizar = new bootstrap.Modal(document.getElementById('modalVisualizar'));
+  // Exposto no window: os botões do rodapé (onclick inline) rodam em escopo global,
+  // e sem isso "modalVisualizar" resolveria para a <div id="modalVisualizar"> (auto-global do DOM), não o Modal.
+  window.modalVisualizar = modalVisualizar;
 
   // ── Carregar lista ──
   function carregarLista() {
