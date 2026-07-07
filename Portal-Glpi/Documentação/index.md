@@ -7,6 +7,7 @@
 - **Identidade do Agente (Soul):** [[SOUL.md]]
 - **Fatos Criticos e Contexto:** [[CRITICAL_FACTS.md]]
 - **Linha do Tempo:** [[log.md]]
+- **Plano de Migracao XAMPP -> Docker:** [[../Arquitetura/PLANO_MIGRACAO_DOCKER.md]]
 
 ## Visao Geral do Workspace (Wiki)
 - /wiki/projects/: PRDs e escopos de MVPs.
