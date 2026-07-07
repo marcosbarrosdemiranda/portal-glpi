@@ -114,6 +114,337 @@ if ($action === 'testar_mysql') {
     exit;
 }
 
+if ($action === 'tamanho_tabelas') {
+    header('Content-Type: application/json');
+    try {
+        $st = $pdo->query("
+            SELECT table_name AS tabela,
+                   table_rows AS linhas,
+                   ROUND(data_length/1024/1024, 2)  AS dados_mb,
+                   ROUND(index_length/1024/1024, 2) AS indices_mb,
+                   ROUND((data_length+index_length)/1024/1024, 2) AS total_mb
+            FROM information_schema.tables
+            WHERE table_schema = DATABASE()
+            ORDER BY (data_length+index_length) DESC
+            LIMIT 25
+        ");
+        $tabelas = $st->fetchAll(PDO::FETCH_ASSOC);
+
+        $totais = $pdo->query("
+            SELECT ROUND(SUM(data_length+index_length)/1024/1024, 2) AS total_mb,
+                   COUNT(*) AS qtd_tabelas
+            FROM information_schema.tables
+            WHERE table_schema = DATABASE()
+        ")->fetch(PDO::FETCH_ASSOC);
+
+        echo json_encode([
+            'ok'          => true,
+            'tabelas'     => $tabelas,
+            'total_mb'    => $totais['total_mb'] ?? 0,
+            'qtd_tabelas' => $totais['qtd_tabelas'] ?? 0,
+        ]);
+    } catch (Exception $e) {
+        echo json_encode(['ok' => false, 'msg' => $e->getMessage()]);
+    }
+    exit;
+}
+
+if ($action === 'otimizar_tabela') {
+    header('Content-Type: application/json');
+    $tabela = $_GET['tabela'] ?? '';
+    try {
+        // Nome de tabela não pode ser parametrizado via bind — valida contra o schema real antes de interpolar
+        $check = $pdo->prepare("SELECT 1 FROM information_schema.tables WHERE table_schema = DATABASE() AND table_name = ?");
+        $check->execute([$tabela]);
+        if (!$check->fetchColumn()) {
+            echo json_encode(['ok' => false, 'msg' => 'Tabela não encontrada no banco.']);
+            exit;
+        }
+        $st = $pdo->query("OPTIMIZE TABLE `" . $tabela . "`");
+        $resultado = $st->fetchAll(PDO::FETCH_ASSOC);
+        echo json_encode(['ok' => true, 'tabela' => $tabela, 'resultado' => $resultado]);
+    } catch (Exception $e) {
+        echo json_encode(['ok' => false, 'msg' => $e->getMessage()]);
+    }
+    exit;
+}
+
+function glpi_admin_request(string $method, string $endpoint, $body = null): array {
+    $auth = base64_encode(GLPI_USER . ':' . GLPI_PASS);
+    $init = curl_init(GLPI_URL . '/apirest.php/initSession');
+    curl_setopt_array($init, [
+        CURLOPT_RETURNTRANSFER => true,
+        CURLOPT_HTTPHEADER     => ['Authorization: Basic ' . $auth, 'App-Token: ' . GLPI_APP_TOKEN],
+        CURLOPT_TIMEOUT        => 10,
+    ]);
+    $initData = json_decode(curl_exec($init), true);
+    curl_close($init);
+    $token = $initData['session_token'] ?? '';
+    if (!$token) return ['ok' => false, 'msg' => 'Falha ao autenticar na API do GLPI.'];
+
+    $headers = ['Session-Token: ' . $token, 'App-Token: ' . GLPI_APP_TOKEN, 'Content-Type: application/json'];
+    $ch = curl_init(GLPI_URL . '/apirest.php/' . $endpoint);
+    $opts = [
+        CURLOPT_RETURNTRANSFER => true,
+        CURLOPT_CUSTOMREQUEST  => $method,
+        CURLOPT_HTTPHEADER     => $headers,
+        CURLOPT_TIMEOUT        => 15,
+    ];
+    if ($body !== null) $opts[CURLOPT_POSTFIELDS] = json_encode($body);
+    curl_setopt_array($ch, $opts);
+    $resp = curl_exec($ch);
+    $code = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+    curl_close($ch);
+
+    $kill = curl_init(GLPI_URL . '/apirest.php/killSession');
+    curl_setopt_array($kill, [CURLOPT_RETURNTRANSFER => true, CURLOPT_HTTPHEADER => $headers, CURLOPT_TIMEOUT => 5]);
+    curl_exec($kill);
+    curl_close($kill);
+
+    return ['ok' => $code >= 200 && $code < 300, 'code' => $code, 'data' => json_decode($resp, true)];
+}
+
+if ($action === 'purgelogs_status') {
+    header('Content-Type: application/json');
+    $r = glpi_admin_request('GET', 'CronTask/33');
+    if (!$r['ok']) { echo json_encode(['ok' => false, 'msg' => 'Falha ao consultar CronTask.']); exit; }
+    $d = $r['data'];
+    echo json_encode([
+        'ok'        => true,
+        'meses'     => (int)($d['param'] ?? 0),
+        'lastrun'   => $d['lastrun'] ?? null,
+        'frequency' => $d['frequency'] ?? null,
+        'state'     => $d['state'] ?? null,
+    ]);
+    exit;
+}
+
+if ($action === 'purgelogs_salvar') {
+    header('Content-Type: application/json');
+    $meses = (int)($_GET['meses'] ?? 0);
+    if ($meses < 1 || $meses > 120) {
+        echo json_encode(['ok' => false, 'msg' => 'Informe um número de meses entre 1 e 120.']);
+        exit;
+    }
+    $r = glpi_admin_request('PUT', 'CronTask/33', ['input' => ['id' => 33, 'param' => $meses]]);
+    if (!$r['ok']) { echo json_encode(['ok' => false, 'msg' => 'Falha ao atualizar CronTask.']); exit; }
+    echo json_encode(['ok' => true, 'meses' => $meses]);
+    exit;
+}
+
+if ($action === 'purgelogs_preparar') {
+    header('Content-Type: application/json');
+    set_time_limit(0);
+    try {
+        $meses = (int)($_GET['meses'] ?? 0);
+        if ($meses < 1) { echo json_encode(['ok' => false, 'msg' => 'Meses inválido.']); exit; }
+
+        $minId = (int)$pdo->query("SELECT MIN(id) FROM glpi_logs")->fetchColumn();
+        $maxId = (int)$pdo->query("SELECT MAX(id) FROM glpi_logs")->fetchColumn();
+
+        // Busca binária pelo ID cujo date_mod cruza o corte de retenção — evita escanear
+        // a tabela inteira por data_mod (não indexada), já que o ID é ~cronológico.
+        $stmtData = $pdo->prepare("SELECT date_mod FROM glpi_logs WHERE id >= ? ORDER BY id ASC LIMIT 1");
+        $lo = $minId; $hi = $maxId; $cutoffId = $minId;
+        while ($lo <= $hi) {
+            $mid = intdiv($lo + $hi, 2);
+            $stmtData->execute([$mid]);
+            $dataMod = $stmtData->fetchColumn();
+            if ($dataMod === false) { $hi = $mid - 1; continue; }
+            if (strtotime($dataMod) < strtotime("-{$meses} months")) {
+                $cutoffId = $mid;
+                $lo = $mid + 1;
+            } else {
+                $hi = $mid - 1;
+            }
+        }
+
+        $stmtCount = $pdo->prepare("SELECT COUNT(*) FROM glpi_logs WHERE id <= ?");
+        $stmtCount->execute([$cutoffId]);
+        $totalApagar = (int)$stmtCount->fetchColumn();
+
+        $tmpDir = GLPI_ABSPATH . '/files/_tmp';
+        if (!is_dir($tmpDir)) mkdir($tmpDir, 0777, true);
+        file_put_contents($tmpDir . '/purgelogs_cutoff.json', json_encode(['cutoff_id' => $cutoffId, 'meses' => $meses]));
+
+        echo json_encode(['ok' => true, 'cutoff_id' => $cutoffId, 'total_apagar' => $totalApagar]);
+    } catch (Exception $e) {
+        echo json_encode(['ok' => false, 'msg' => $e->getMessage()]);
+    }
+    exit;
+}
+
+if ($action === 'purgelogs_executar_lote') {
+    header('Content-Type: application/json');
+    set_time_limit(0);
+    try {
+        $cutoffPath = GLPI_ABSPATH . '/files/_tmp/purgelogs_cutoff.json';
+        if (!is_file($cutoffPath)) {
+            echo json_encode(['ok' => false, 'msg' => 'Rode purgelogs_preparar primeiro.']);
+            exit;
+        }
+        $cfg = json_decode(file_get_contents($cutoffPath), true);
+        $cutoffId = (int)$cfg['cutoff_id'];
+        $limit = 20000;
+
+        $stmt = $pdo->prepare("DELETE FROM glpi_logs WHERE id <= ? ORDER BY id ASC LIMIT $limit");
+        $stmt->execute([$cutoffId]);
+        $apagados = $stmt->rowCount();
+
+        $restante = $pdo->prepare("SELECT COUNT(*) FROM glpi_logs WHERE id <= ?");
+        $restante->execute([$cutoffId]);
+        $restanteQtd = (int)$restante->fetchColumn();
+
+        echo json_encode(['ok' => true, 'apagados' => $apagados, 'restante' => $restanteQtd, 'concluido' => $restanteQtd === 0]);
+    } catch (Exception $e) {
+        echo json_encode(['ok' => false, 'msg' => $e->getMessage()]);
+    }
+    exit;
+}
+
+if ($action === 'png_backup') {
+    header('Content-Type: application/json');
+    set_time_limit(0);
+    try {
+        $origem = GLPI_ABSPATH . '/files/PNG';
+        if (!is_dir($origem)) {
+            echo json_encode(['ok' => false, 'msg' => 'Pasta files/PNG não encontrada.']);
+            exit;
+        }
+        $destino = GLPI_ABSPATH . '/files/_backup_png_' . date('Ymd_His');
+        mkdir($destino, 0777, true);
+
+        $qtd = 0;
+        $rii = new RecursiveIteratorIterator(new RecursiveDirectoryIterator($origem, FilesystemIterator::SKIP_DOTS));
+        foreach ($rii as $file) {
+            if (!$file->isFile()) continue;
+            $rel = substr($file->getPathname(), strlen($origem) + 1);
+            $destPath = $destino . '/' . $rel;
+            @mkdir(dirname($destPath), 0777, true);
+            copy($file->getPathname(), $destPath);
+            $qtd++;
+        }
+
+        echo json_encode(['ok' => true, 'destino' => $destino, 'qtd' => $qtd]);
+    } catch (Exception $e) {
+        echo json_encode(['ok' => false, 'msg' => $e->getMessage()]);
+    }
+    exit;
+}
+
+if ($action === 'png_listar') {
+    header('Content-Type: application/json');
+    try {
+        $dir = GLPI_ABSPATH . '/files/PNG';
+        if (!is_dir($dir)) {
+            echo json_encode(['ok' => false, 'msg' => 'Pasta files/PNG não encontrada.']);
+            exit;
+        }
+        $tmpDir = GLPI_ABSPATH . '/files/_tmp';
+        if (!is_dir($tmpDir)) mkdir($tmpDir, 0777, true);
+
+        // Incremental: só reprocessa arquivos criados/alterados depois da última execução concluída
+        $marcadorPath = $tmpDir . '/png_ultima_execucao.txt';
+        $ultimaExecucao = is_file($marcadorPath) ? (int)file_get_contents($marcadorPath) : 0;
+        $agora = time();
+
+        $lista = [];
+        $rii = new RecursiveIteratorIterator(new RecursiveDirectoryIterator($dir, FilesystemIterator::SKIP_DOTS));
+        foreach ($rii as $file) {
+            if ($file->isFile() && strtolower($file->getExtension()) === 'png') {
+                if ($ultimaExecucao > 0 && $file->getMTime() <= $ultimaExecucao) continue; // já processado antes
+                $lista[] = substr($file->getPathname(), strlen($dir) + 1); // caminho relativo, ex: 00/hash.PNG
+            }
+        }
+
+        file_put_contents($tmpDir . '/png_lista.json', json_encode(['gerado_em' => $agora, 'arquivos' => $lista]));
+        echo json_encode(['ok' => true, 'total' => count($lista), 'incremental' => $ultimaExecucao > 0]);
+    } catch (Exception $e) {
+        echo json_encode(['ok' => false, 'msg' => $e->getMessage()]);
+    }
+    exit;
+}
+
+if ($action === 'png_otimizar') {
+    header('Content-Type: application/json');
+    set_time_limit(0);
+    try {
+        $offset = max(0, (int)($_GET['offset'] ?? 0));
+        $limit  = max(1, min(200, (int)($_GET['limit'] ?? 50)));
+
+        $listaPath = GLPI_ABSPATH . '/files/_tmp/png_lista.json';
+        if (!is_file($listaPath)) {
+            echo json_encode(['ok' => false, 'msg' => 'Lista não gerada. Rode png_listar primeiro.']);
+            exit;
+        }
+        $listaData = json_decode(file_get_contents($listaPath), true) ?: [];
+        $geradoEm  = $listaData['gerado_em'] ?? time();
+        $lista     = $listaData['arquivos'] ?? [];
+        $total     = count($lista);
+        $fatia     = array_slice($lista, $offset, $limit);
+
+        $dirBase = GLPI_ABSPATH . '/files/PNG';
+        $processados = 0;
+        $otimizados  = 0;
+        $economizado = 0; // bytes
+        $erros = [];
+
+        $stmt = $pdo->prepare("UPDATE glpi_documents SET sha1sum = ? WHERE filepath = ?");
+
+        foreach ($fatia as $rel) {
+            $caminho = $dirBase . '/' . $rel;
+            $processados++;
+            if (!is_file($caminho)) continue;
+
+            $original = file_get_contents($caminho);
+            $tamOriginal = strlen($original);
+            if ($tamOriginal === 0) continue;
+
+            $img = @imagecreatefromstring($original);
+            if (!$img) { $erros[] = $rel; continue; }
+
+            imagepalettetotruecolor($img);
+            imagetruecolortopalette($img, false, 256);
+            ob_start();
+            imagepng($img, null, 9);
+            $novo = ob_get_clean();
+            imagedestroy($img);
+
+            // Só sobrescreve se realmente ficou menor (nunca piora um arquivo)
+            if ($novo !== false && strlen($novo) < $tamOriginal) {
+                file_put_contents($caminho, $novo);
+                $economizado += ($tamOriginal - strlen($novo));
+                $otimizados++;
+
+                // Mantém glpi_documents.sha1sum coerente com o novo conteúdo do arquivo
+                $novoSha1 = sha1($novo);
+                $filepathDb = 'PNG/' . str_replace('\\', '/', $rel);
+                $stmt->execute([$novoSha1, $filepathDb]);
+            }
+        }
+
+        $concluido = ($offset + $limit) >= $total;
+        if ($concluido) {
+            // Marca até quando os arquivos já foram cobertos, pra próxima execução ser incremental
+            file_put_contents(GLPI_ABSPATH . '/files/_tmp/png_ultima_execucao.txt', (string)$geradoEm);
+        }
+
+        echo json_encode([
+            'ok'          => true,
+            'processados' => $processados,
+            'otimizados'  => $otimizados,
+            'economizado' => $economizado,
+            'offset'      => $offset,
+            'total'       => $total,
+            'concluido'   => $concluido,
+            'erros'       => $erros,
+        ]);
+    } catch (Exception $e) {
+        echo json_encode(['ok' => false, 'msg' => $e->getMessage()]);
+    }
+    exit;
+}
+
 if ($action === 'sincronizar') {
     header('Content-Type: application/json');
     try {
@@ -324,6 +655,113 @@ foreach ($dirs as $k => $d) {
     </div>
   </div>
 
+  <!-- Card 3.5: Banco de Dados GLPI -->
+  <div class="card-ferramenta">
+    <div class="card-header"><i class="bi bi-hdd-stack text-warning"></i> Banco de Dados GLPI</div>
+    <div class="card-body">
+      <p class="small text-muted mb-2">
+        Mostra o tamanho das maiores tabelas do banco (somente leitura) e permite rodar <code>OPTIMIZE TABLE</code>
+        pra recuperar espaço em disco depois de exclusões — não apaga nenhum dado, só reorganiza a tabela.
+        Em tabelas grandes isso pode demorar e usar bastante I/O; prefira rodar fora do horário de pico.
+      </p>
+      <button class="btn btn-warning btn-sm" id="btnAnalisarTabelas" onclick="analisarTabelas()">
+        <i class="bi bi-search me-1"></i>Analisar Tamanho das Tabelas
+      </button>
+      <span id="dbResumo" class="small text-muted ms-2"></span>
+
+      <div id="dbTabelasWrap" style="display:none;margin-top:1rem;overflow-x:auto">
+        <table class="table table-sm table-hover align-middle mb-0" style="font-size:.8rem">
+          <thead>
+            <tr>
+              <th>Tabela</th>
+              <th class="text-end">Linhas (~)</th>
+              <th class="text-end">Dados (MB)</th>
+              <th class="text-end">Índices (MB)</th>
+              <th class="text-end">Total (MB)</th>
+              <th class="text-end">Ação</th>
+            </tr>
+          </thead>
+          <tbody id="dbTabelasBody"></tbody>
+        </table>
+      </div>
+    </div>
+    <div class="card-footer">
+      <div id="resultDb" class="result-box"></div>
+    </div>
+  </div>
+
+  <!-- Card 3.55: Retenção de Histórico (glpi_logs) -->
+  <div class="card-ferramenta">
+    <div class="card-header"><i class="bi bi-clock-history text-secondary"></i> Retenção de Histórico (glpi_logs)</div>
+    <div class="card-body">
+      <p class="small text-muted mb-2">
+        Controla por quantos meses o GLPI mantém a aba "Histórico" (auditoria de mudança de campo) de cada item
+        antes de descartar as entradas mais antigas. <strong>Não afeta</strong> o chamado em si — descrição,
+        conversa, anexos e solução continuam intactos pra sempre, só o log granular de "quem mudou o quê e quando".
+        A limpeza roda automaticamente uma vez por semana com o valor configurado aqui.
+      </p>
+      <div class="d-flex align-items-center gap-2 flex-wrap">
+        <span class="small text-muted">Retenção atual:</span>
+        <span id="purgeLogsAtual" class="fw-semibold">carregando...</span>
+        <span class="small text-muted ms-2">Alterar para:</span>
+        <select id="purgeLogsMeses" class="form-select form-select-sm" style="width:auto">
+          <option value="3">3 meses</option>
+          <option value="6">6 meses</option>
+          <option value="12">12 meses</option>
+          <option value="24">24 meses</option>
+          <option value="36">36 meses</option>
+        </select>
+        <button class="btn btn-secondary btn-sm" onclick="purgeLogsSalvar()">
+          <i class="bi bi-save me-1"></i>Salvar
+        </button>
+        <button class="btn btn-outline-danger btn-sm" onclick="purgeLogsExecutarAgora()">
+          <i class="bi bi-play-fill me-1"></i>Rodar Agora
+        </button>
+      </div>
+      <div id="purgeLogsProgressWrap" style="display:none;margin-top:1rem">
+        <div class="progress" style="height:20px">
+          <div id="purgeLogsProgressBar" class="progress-bar bg-danger" style="width:0%">0%</div>
+        </div>
+        <div id="purgeLogsProgressTexto" class="small text-muted mt-1"></div>
+      </div>
+    </div>
+    <div class="card-footer">
+      <div id="resultPurgeLogs" class="result-box"></div>
+    </div>
+  </div>
+
+  <!-- Card 3.6: Otimização de Imagens dos Chamados -->
+  <div class="card-ferramenta">
+    <div class="card-header"><i class="bi bi-file-earmark-image text-primary"></i> Otimização de Imagens (PNG) dos Chamados</div>
+    <div class="card-body">
+      <p class="small text-muted mb-2">
+        Reduz a paleta de cores dos prints de tela anexados nos chamados (256 cores) — em torno de 70-80% menor,
+        geralmente imperceptível visualmente. Cada arquivo só é sobrescrito se ficar realmente menor que o original.
+        Roda de forma <strong>incremental</strong>: depois da primeira execução, só reprocessa imagens novas
+        (anexadas depois da última vez que rodou aqui) — não escaneia tudo de novo.
+        O backup é opcional (útil se quiser uma rede de segurança extra antes de rodar em um lote grande de imagens novas).
+      </p>
+      <div class="d-flex align-items-center gap-2 flex-wrap">
+        <button class="btn btn-outline-primary btn-sm" id="btnPngBackup" onclick="pngBackup()">
+          <i class="bi bi-shield-check me-1"></i>Fazer Backup da Pasta PNG (opcional)
+        </button>
+        <button class="btn btn-primary btn-sm" id="btnPngOtimizar" onclick="pngOtimizarTudo()">
+          <i class="bi bi-magic me-1"></i>Rodar Otimização
+        </button>
+      </div>
+
+      <div id="pngProgressWrap" style="display:none;margin-top:1rem">
+        <div class="progress" style="height:20px">
+          <div id="pngProgressBar" class="progress-bar bg-primary" style="width:0%">0%</div>
+        </div>
+        <div id="pngProgressTexto" class="small text-muted mt-1"></div>
+      </div>
+    </div>
+    <div class="card-footer">
+      <div id="resultPng" class="result-box"></div>
+    </div>
+  </div>
+
   <!-- Card 4: Informações do Sistema -->
   <div class="card-ferramenta">
     <div class="card-header"><i class="bi bi-info-circle text-info"></i> Informações do Sistema</div>
@@ -473,6 +911,310 @@ foreach ($dirs as $k => $d) {
         });
     });
   }
+
+  // ── Banco de Dados GLPI: tamanho das tabelas + OPTIMIZE TABLE ──
+  window.analisarTabelas = function() {
+    var btn      = document.getElementById('btnAnalisarTabelas');
+    var resumo   = document.getElementById('dbResumo');
+    var wrap     = document.getElementById('dbTabelasWrap');
+    var body     = document.getElementById('dbTabelasBody');
+    var resultBox = document.getElementById('resultDb');
+
+    btn.disabled = true;
+    var originalHtml = btn.innerHTML;
+    btn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span> Analisando...';
+    resumo.textContent = '';
+
+    fetch('manutencao.php?action=tamanho_tabelas')
+      .then(function(r) { return r.json(); })
+      .then(function(data) {
+        btn.disabled = false;
+        btn.innerHTML = originalHtml;
+        if (!data.ok) {
+          resultBox.className = 'result-box error';
+          resultBox.textContent = 'Erro: ' + (data.msg || 'Falha ao consultar tabelas');
+          resultBox.style.display = 'block';
+          return;
+        }
+        resumo.textContent = data.qtd_tabelas + ' tabelas · ' + data.total_mb + ' MB no total (banco todo)';
+        body.innerHTML = data.tabelas.map(function(t) {
+          return '<tr id="tr-' + t.tabela + '">' +
+            '<td><code>' + t.tabela + '</code></td>' +
+            '<td class="text-end">' + Number(t.linhas || 0).toLocaleString('pt-BR') + '</td>' +
+            '<td class="text-end">' + t.dados_mb + '</td>' +
+            '<td class="text-end">' + t.indices_mb + '</td>' +
+            '<td class="text-end fw-semibold">' + t.total_mb + '</td>' +
+            '<td class="text-end">' +
+              '<button class="btn btn-outline-warning btn-sm py-0 px-2" style="font-size:.72rem" onclick="otimizarTabela(\'' + t.tabela + '\', this)">Otimizar</button>' +
+            '</td>' +
+          '</tr>';
+        }).join('');
+        wrap.style.display = '';
+      })
+      .catch(function(err) {
+        btn.disabled = false;
+        btn.innerHTML = originalHtml;
+        resultBox.className = 'result-box error';
+        resultBox.textContent = 'Erro de conexão: ' + (err.message || err);
+        resultBox.style.display = 'block';
+      });
+  };
+
+  window.otimizarTabela = function(tabela, btn) {
+    if (!confirm('Rodar OPTIMIZE TABLE em "' + tabela + '"?\n\nIsso reorganiza a tabela para recuperar espaço em disco. Não apaga nenhum dado, mas em tabelas grandes pode demorar e travar acessos a essa tabela por alguns instantes.\n\nContinuar?')) {
+      return;
+    }
+    var originalHtml = btn.innerHTML;
+    btn.disabled = true;
+    btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span>';
+    var resultBox = document.getElementById('resultDb');
+
+    fetch('manutencao.php?action=otimizar_tabela&tabela=' + encodeURIComponent(tabela))
+      .then(function(r) { return r.json(); })
+      .then(function(data) {
+        resultBox.style.display = 'block';
+        if (data.ok) {
+          resultBox.className = 'result-box success';
+          var msgs = (data.resultado || []).map(function(r) { return r.Msg_text || JSON.stringify(r); }).join(' · ');
+          resultBox.textContent = 'OPTIMIZE TABLE ' + tabela + ' concluído: ' + (msgs || 'OK');
+          analisarTabelas(); // atualiza os tamanhos após otimizar
+        } else {
+          btn.disabled = false;
+          btn.innerHTML = originalHtml;
+          resultBox.className = 'result-box error';
+          resultBox.textContent = 'Erro ao otimizar ' + tabela + ': ' + (data.msg || 'falha desconhecida');
+        }
+      })
+      .catch(function(err) {
+        btn.disabled = false;
+        btn.innerHTML = originalHtml;
+        resultBox.className = 'result-box error';
+        resultBox.style.display = 'block';
+        resultBox.textContent = 'Erro de conexão: ' + (err.message || err);
+      });
+  };
+
+  // ── Retenção de histórico (glpi_logs / PurgeLogs) ──
+  function carregarPurgeLogsStatus() {
+    var atualEl = document.getElementById('purgeLogsAtual');
+    fetch('manutencao.php?action=purgelogs_status')
+      .then(function(r) { return r.json(); })
+      .then(function(data) {
+        if (data.ok) {
+          atualEl.textContent = data.meses + ' meses';
+          document.getElementById('purgeLogsMeses').value = String(data.meses);
+        } else {
+          atualEl.textContent = 'erro ao carregar';
+        }
+      })
+      .catch(function() { atualEl.textContent = 'erro ao carregar'; });
+  }
+  document.addEventListener('DOMContentLoaded', carregarPurgeLogsStatus);
+
+  window.purgeLogsSalvar = function() {
+    var meses = document.getElementById('purgeLogsMeses').value;
+    var resultBox = document.getElementById('resultPurgeLogs');
+    if (!confirm('Mudar a retenção do histórico (glpi_logs) para ' + meses + ' meses?\n\nIsso não apaga o chamado nem sua conversa — só limita quanto tempo a aba "Histórico" (auditoria de mudança de campo) fica disponível. A limpeza roda automaticamente uma vez por semana.')) {
+      return;
+    }
+    resultBox.style.display = 'block';
+    resultBox.className = 'result-box info';
+    resultBox.textContent = 'Salvando...';
+
+    fetch('manutencao.php?action=purgelogs_salvar&meses=' + encodeURIComponent(meses))
+      .then(function(r) { return r.json(); })
+      .then(function(data) {
+        if (data.ok) {
+          resultBox.className = 'result-box success';
+          resultBox.textContent = 'Retenção atualizada para ' + data.meses + ' meses. Vale na próxima execução automática (semanal).';
+          document.getElementById('purgeLogsAtual').textContent = data.meses + ' meses';
+        } else {
+          resultBox.className = 'result-box error';
+          resultBox.textContent = 'Erro: ' + (data.msg || 'falha desconhecida');
+        }
+      })
+      .catch(function(err) {
+        resultBox.className = 'result-box error';
+        resultBox.textContent = 'Erro de conexão: ' + (err.message || err);
+      });
+  };
+
+  window.purgeLogsExecutarAgora = function() {
+    var meses = document.getElementById('purgeLogsMeses').value;
+    var resultBox = document.getElementById('resultPurgeLogs');
+    var progressWrap = document.getElementById('purgeLogsProgressWrap');
+    var progressBar = document.getElementById('purgeLogsProgressBar');
+    var progressTexto = document.getElementById('purgeLogsProgressTexto');
+
+    if (!confirm('Isso vai APAGAR agora (sem esperar a execução semanal) as entradas de histórico com mais de ' + meses + ' meses. ' +
+                 'Não afeta o chamado, conversa ou anexos — só a aba "Histórico" de auditoria. Essa ação não tem volta. Continuar?')) {
+      return;
+    }
+
+    resultBox.style.display = 'block';
+    resultBox.className = 'result-box info';
+    resultBox.textContent = 'Calculando o que precisa ser apagado (pode levar um instante)...';
+    progressWrap.style.display = '';
+    progressBar.style.width = '0%';
+    progressBar.textContent = '0%';
+
+    fetch('manutencao.php?action=purgelogs_preparar&meses=' + encodeURIComponent(meses))
+      .then(function(r) { return r.json(); })
+      .then(function(prep) {
+        if (!prep.ok) throw new Error(prep.msg || 'Falha ao preparar');
+        var total = prep.total_apagar;
+        if (total === 0) {
+          resultBox.className = 'result-box success';
+          resultBox.textContent = 'Nada pra apagar — já está tudo dentro da retenção de ' + meses + ' meses.';
+          progressWrap.style.display = 'none';
+          return;
+        }
+        progressTexto.textContent = '0 / ' + total + ' registros';
+        var apagadosTotal = 0;
+
+        function proximoLote() {
+          fetch('manutencao.php?action=purgelogs_executar_lote')
+            .then(function(r) { return r.json(); })
+            .then(function(res) {
+              if (!res.ok) throw new Error(res.msg || 'Falha no lote');
+              apagadosTotal += res.apagados;
+              var pct = total > 0 ? Math.min(100, Math.round((apagadosTotal / total) * 100)) : 100;
+              progressBar.style.width = pct + '%';
+              progressBar.textContent = pct + '%';
+              progressTexto.textContent = apagadosTotal + ' / ' + total + ' registros apagados';
+
+              if (!res.concluido && res.apagados > 0) {
+                proximoLote();
+              } else {
+                resultBox.className = 'result-box success';
+                resultBox.textContent = 'Concluído! ' + apagadosTotal + ' registros de histórico apagados. ' +
+                  'Rode "Analisar Tamanho das Tabelas" e depois "Otimizar" em glpi_logs pra recuperar o espaço em disco.';
+              }
+            })
+            .catch(function(err) {
+              resultBox.className = 'result-box error';
+              resultBox.textContent = 'Erro durante a exclusão (parcial, ' + apagadosTotal + ' já apagados): ' + (err.message || err);
+            });
+        }
+        proximoLote();
+      })
+      .catch(function(err) {
+        resultBox.className = 'result-box error';
+        resultBox.textContent = 'Erro: ' + (err.message || err);
+        progressWrap.style.display = 'none';
+      });
+  };
+
+  // ── Otimização de imagens (PNG) dos chamados ──
+  window.pngBackup = function() {
+    var btn = document.getElementById('btnPngBackup');
+    var resultBox = document.getElementById('resultPng');
+    btn.disabled = true;
+    var originalHtml = btn.innerHTML;
+    btn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span> Copiando (pode demorar alguns minutos)...';
+    resultBox.style.display = 'block';
+    resultBox.className = 'result-box info';
+    resultBox.textContent = 'Fazendo backup da pasta files/PNG...';
+
+    fetch('manutencao.php?action=png_backup')
+      .then(function(r) { return r.json(); })
+      .then(function(data) {
+        btn.disabled = false;
+        btn.innerHTML = originalHtml;
+        if (data.ok) {
+          resultBox.className = 'result-box success';
+          resultBox.textContent = 'Backup criado: ' + data.destino + ' (' + data.qtd + ' arquivos).';
+        } else {
+          resultBox.className = 'result-box error';
+          resultBox.textContent = 'Erro no backup: ' + (data.msg || 'falha desconhecida');
+        }
+      })
+      .catch(function(err) {
+        btn.disabled = false;
+        btn.innerHTML = originalHtml;
+        resultBox.className = 'result-box error';
+        resultBox.textContent = 'Erro de conexão: ' + (err.message || err);
+      });
+  };
+
+  window.pngOtimizarTudo = function() {
+    if (!confirm('Isso vai reprocessar os PNGs novos anexados aos chamados desde a última execução (reduzindo a paleta de cores). ' +
+                 'Só sobrescreve o arquivo se ele ficar menor. Continuar?')) {
+      return;
+    }
+    var btnBackup   = document.getElementById('btnPngBackup');
+    var btnOtimizar = document.getElementById('btnPngOtimizar');
+    var progressWrap = document.getElementById('pngProgressWrap');
+    var progressBar  = document.getElementById('pngProgressBar');
+    var progressTexto = document.getElementById('pngProgressTexto');
+    var resultBox = document.getElementById('resultPng');
+
+    btnBackup.disabled = true;
+    btnOtimizar.disabled = true;
+    progressWrap.style.display = '';
+    progressBar.style.width = '0%';
+    progressBar.textContent = '0%';
+    resultBox.style.display = 'block';
+    resultBox.className = 'result-box info';
+    resultBox.textContent = 'Listando arquivos...';
+
+    var LOTE = 50;
+    var totalOtimizados = 0;
+    var totalEconomizado = 0;
+    var totalErros = [];
+
+    fetch('manutencao.php?action=png_listar')
+      .then(function(r) { return r.json(); })
+      .then(function(data) {
+        if (!data.ok) throw new Error(data.msg || 'Falha ao listar arquivos');
+        var total = data.total;
+        progressTexto.textContent = '0 / ' + total + ' arquivos';
+
+        function processarLote(offset) {
+          fetch('manutencao.php?action=png_otimizar&offset=' + offset + '&limit=' + LOTE)
+            .then(function(r) { return r.json(); })
+            .then(function(res) {
+              if (!res.ok) throw new Error(res.msg || 'Falha ao otimizar lote');
+
+              totalOtimizados  += res.otimizados;
+              totalEconomizado += res.economizado;
+              if (res.erros && res.erros.length) totalErros = totalErros.concat(res.erros);
+
+              var processadosAte = Math.min(offset + LOTE, total);
+              var pct = total > 0 ? Math.round((processadosAte / total) * 100) : 100;
+              progressBar.style.width = pct + '%';
+              progressBar.textContent = pct + '%';
+              progressTexto.textContent = processadosAte + ' / ' + total + ' arquivos · ' +
+                totalOtimizados + ' otimizados · ' + (totalEconomizado / 1024 / 1024).toFixed(1) + ' MB economizados';
+
+              if (!res.concluido) {
+                processarLote(offset + LOTE);
+              } else {
+                btnOtimizar.disabled = false;
+                btnBackup.disabled = false;
+                resultBox.className = 'result-box success';
+                resultBox.textContent = 'Concluído! ' + totalOtimizados + ' de ' + total + ' imagens otimizadas, ' +
+                  (totalEconomizado / 1024 / 1024).toFixed(1) + ' MB economizados.' +
+                  (totalErros.length ? ' (' + totalErros.length + ' arquivo(s) com erro ao processar.)' : '');
+              }
+            })
+            .catch(function(err) {
+              btnOtimizar.disabled = false;
+              btnBackup.disabled = false;
+              resultBox.className = 'result-box error';
+              resultBox.textContent = 'Erro durante otimização (parcial, processados ' + offset + ' de ' + total + '): ' + (err.message || err);
+            });
+        }
+
+        processarLote(0);
+      })
+      .catch(function(err) {
+        btnOtimizar.disabled = false;
+        btnBackup.disabled = false;
+        resultBox.className = 'result-box error';
+        resultBox.textContent = 'Erro de conexão: ' + (err.message || err);
+      });
+  };
 
 })();
 </script>
