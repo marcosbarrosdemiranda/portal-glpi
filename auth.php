@@ -248,7 +248,7 @@ if (!empty($_SESSION['autenticado'])) {
         </div>
       </div>
 
-      <div class="mb-4">
+      <div class="mb-3">
         <label class="form-label fw-semibold text-secondary small">Senha</label>
         <div class="input-icon" style="position:relative">
           <i class="bi bi-lock-fill"></i>
@@ -256,6 +256,11 @@ if (!empty($_SESSION['autenticado'])) {
                  placeholder="Sua senha" autocomplete="current-password" required/>
           <i class="bi bi-eye toggle-senha" id="toggleSenha" onclick="toggleVer()"></i>
         </div>
+      </div>
+
+      <div class="mb-4 form-check">
+        <input type="checkbox" class="form-check-input" id="chkLembrar">
+        <label class="form-check-label small text-secondary" for="chkLembrar">Lembrar meu usuário e senha neste navegador</label>
       </div>
 
       <button type="submit" class="btn-login" id="btnLogin">
@@ -274,6 +279,31 @@ if (!empty($_SESSION['autenticado'])) {
 document.querySelector('input[name="usuario"]').addEventListener('keydown', function(e) {
   if (e.key === 'Enter') { e.preventDefault(); document.getElementById('inputSenha').focus(); }
 });
+
+// Lembrar usuário/senha neste navegador (localStorage)
+(function() {
+  const inpUsuario = document.querySelector('input[name="usuario"]');
+  const inpSenha   = document.getElementById('inputSenha');
+  const chkLembrar = document.getElementById('chkLembrar');
+
+  const usuarioLembrado = localStorage.getItem('glpi_lembrar_usuario');
+  const senhaLembrada   = localStorage.getItem('glpi_lembrar_senha');
+  if (usuarioLembrado && senhaLembrada) {
+    inpUsuario.value  = usuarioLembrado;
+    inpSenha.value    = senhaLembrada;
+    chkLembrar.checked = true;
+  }
+
+  document.getElementById('formLogin').addEventListener('submit', function() {
+    if (chkLembrar.checked) {
+      localStorage.setItem('glpi_lembrar_usuario', inpUsuario.value);
+      localStorage.setItem('glpi_lembrar_senha', inpSenha.value);
+    } else {
+      localStorage.removeItem('glpi_lembrar_usuario');
+      localStorage.removeItem('glpi_lembrar_senha');
+    }
+  });
+})();
 
 function toggleVer() {
   const input = document.getElementById('inputSenha');
