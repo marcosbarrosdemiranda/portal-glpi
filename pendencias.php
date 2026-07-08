@@ -534,7 +534,7 @@ $filtro_status   = $_GET['status'] ?? 'pendente';
 
         // Título
         html += `<div class="titulo">${htmlspecialchars(a.titulo)}`;
-        if (a.ticket_id) html += ` <a href="chamado.php?id=${a.ticket_id}" class="text-decoration-none small" style="color:var(--accent)" target="_blank">#${a.ticket_id}</a>`;
+        if (a.ticket_id) html += ` <a href="chamado.php?id=${a.ticket_id}" class="text-decoration-none small" style="color:var(--accent)" target="_blank" onclick="event.stopPropagation()">#${a.ticket_id}</a>`;
         html += '</div>';
 
         // Descrição
@@ -553,17 +553,17 @@ $filtro_status   = $_GET['status'] ?? 'pendente';
         // Ações
         html += '<span class="acoes ms-auto">';
         if (a.status === 'pendente') {
-          html += `<button class="text-success" onclick="concluirAnotacao(${a.id})" title="Concluir"><i class="bi bi-check-circle"></i></button>`;
-          html += `<button class="text-primary" onclick="abrirModal(${a.id})" title="Editar"><i class="bi bi-pencil"></i></button>`;
-          html += `<button class="text-success" onclick="abrirModalConverter(${a.id})" title="Converter em chamado"><i class="bi bi-ticket"></i></button>`;
-          html += `<button class="text-danger" onclick="abrirModalExcluir(${a.id})" title="Excluir"><i class="bi bi-trash"></i></button>`;
+          html += `<button class="text-success" onclick="event.stopPropagation();concluirAnotacao(${a.id})" title="Concluir"><i class="bi bi-check-circle"></i></button>`;
+          html += `<button class="text-primary" onclick="event.stopPropagation();abrirModal(${a.id})" title="Editar"><i class="bi bi-pencil"></i></button>`;
+          html += `<button class="text-success" onclick="event.stopPropagation();abrirModalConverter(${a.id})" title="Converter em chamado"><i class="bi bi-ticket"></i></button>`;
+          html += `<button class="text-danger" onclick="event.stopPropagation();abrirModalExcluir(${a.id})" title="Excluir"><i class="bi bi-trash"></i></button>`;
         } else if (a.status === 'convertido') {
-          html += `<a href="chamado.php?id=${a.ticket_id}" class="text-info" title="Ver chamado" target="_blank"><i class="bi bi-box-arrow-up-right"></i></a>`;
-          html += `<button class="text-secondary" onclick="reativarAnotacao(${a.id})" title="Reativar"><i class="bi bi-arrow-counterclockwise"></i></button>`;
-          html += `<button class="text-danger" onclick="abrirModalExcluir(${a.id})" title="Excluir"><i class="bi bi-trash"></i></button>`;
+          html += `<a href="chamado.php?id=${a.ticket_id}" class="text-info" title="Ver chamado" target="_blank" onclick="event.stopPropagation()"><i class="bi bi-box-arrow-up-right"></i></a>`;
+          html += `<button class="text-secondary" onclick="event.stopPropagation();reativarAnotacao(${a.id})" title="Reativar"><i class="bi bi-arrow-counterclockwise"></i></button>`;
+          html += `<button class="text-danger" onclick="event.stopPropagation();abrirModalExcluir(${a.id})" title="Excluir"><i class="bi bi-trash"></i></button>`;
         } else {
-          html += `<button class="text-secondary" onclick="reativarAnotacao(${a.id})" title="Reativar"><i class="bi bi-arrow-counterclockwise"></i></button>`;
-          html += `<button class="text-danger" onclick="abrirModalExcluir(${a.id})" title="Excluir"><i class="bi bi-trash"></i></button>`;
+          html += `<button class="text-secondary" onclick="event.stopPropagation();reativarAnotacao(${a.id})" title="Reativar"><i class="bi bi-arrow-counterclockwise"></i></button>`;
+          html += `<button class="text-danger" onclick="event.stopPropagation();abrirModalExcluir(${a.id})" title="Excluir"><i class="bi bi-trash"></i></button>`;
         }
         html += '</span>';
 
