@@ -3059,6 +3059,17 @@ function novoPeriodo() {
   const desc   = document.getElementById('ev-descricao').value;
   const aten   = document.getElementById('ev-atendente').value;
 
+  // Equipe inteira do chamado: um chamado com 2+ técnicos vira um evento por
+  // técnico, todos com o mesmo ticket_id (não usa co_atendentes). Sem isso,
+  // o novo período herdava só o técnico do evento que estava aberto na tela.
+  const equipeNomes = tid
+    ? [...new Set(
+        todosEventos
+          .filter(e => String(e.extendedProps.ticket_id) === String(tid) && e.extendedProps.atendente)
+          .map(e => e.extendedProps.atendente)
+      )]
+    : (aten ? [aten] : []);
+
   modalEvento.hide();
 
   document.getElementById('modalEvento').addEventListener('hidden.bs.modal', function handler() {
@@ -3082,6 +3093,7 @@ function novoPeriodo() {
     arquivosAnexosCriar = [];
     ajustarCamposPorTipo();
     ajustarDuracaoPorTipo();
+    renderAtendentesMulti(equipeNomes); // preserva a equipe inteira no novo período
 
     document.getElementById('btnDeletar').style.display     = 'none';
     document.getElementById('btnExcluirGlpi').style.display = 'none';
@@ -3527,10 +3539,16 @@ function salvarEvento() {
       return;
     }
 
-    // Chamado já existente → deleta eventos antigos antes de recriar
+    // Chamado já existente → deleta eventos antigos do MESMO período antes de recriar.
+    // Usa orig_start (horário original deste período) para não apagar outros
+    // períodos já agendados para o mesmo chamado. Período novo (via "Novo período",
+    // sem orig_start) não tem nada pra apagar — só cria.
     if (isChamadoOuReq && dadosBase.ticket_id) {
-      fetch('eventos.php?action=deleteByTicket&ticket_id=' + dadosBase.ticket_id)
-        .then(r => r.json())
+      const origStart = document.getElementById('ev-orig-start').value;
+      const deleteUrl = origStart
+        ? `eventos.php?action=deleteByTicketPeriodo&ticket_id=${dadosBase.ticket_id}&orig_start=${encodeURIComponent(origStart)}`
+        : null;
+      (deleteUrl ? fetch(deleteUrl).then(r => r.json()) : Promise.resolve())
         .then(() => {
           finalizarMulti(null);
         })

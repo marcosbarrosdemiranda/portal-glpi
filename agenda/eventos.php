@@ -130,6 +130,33 @@ try {
         exit;
     }
 
+    // ── DELETE por ticket_id + PERÍODO (remove só os eventos do horário original
+    // informado, preservando os demais períodos do mesmo chamado) ─────────
+    // Usado ao salvar um chamado de equipe já existente: antes recriava TODOS
+    // os eventos do ticket (deleteByTicket), o que apagava outros períodos
+    // agendados para o mesmo chamado.
+    if ($action === 'deleteByTicketPeriodo') {
+        $ticket_id  = (int)($_GET['ticket_id'] ?? 0);
+        $orig_start = $_GET['orig_start'] ?? '';
+        if (!$ticket_id || !$orig_start) {
+            http_response_code(400);
+            echo json_encode(['error' => 'ticket_id e orig_start são obrigatórios']);
+            exit;
+        }
+        $orig_start = str_replace('T', ' ', substr($orig_start, 0, 19));
+        $stmt = $pdo->prepare(
+            "DELETE FROM glpi_plugin_agenda_events
+             WHERE ticket_id = :ticket_id AND (start = :orig OR start = :orig2)"
+        );
+        $stmt->execute([
+            ':ticket_id' => $ticket_id,
+            ':orig'      => $orig_start,
+            ':orig2'     => $orig_start . ':00',
+        ]);
+        echo json_encode(['ok' => true, 'removidos' => $stmt->rowCount()]);
+        exit;
+    }
+
     // ── CONCLUIR por ticket_id ─────────────────────────────────────────
     // Marca TODOS os eventos do chamado como concluídos (sem filtro concluido=0).
     // Retorna { ok, updated } onde updated = 0 se NENHUM evento existe no DB
