@@ -140,6 +140,74 @@ function esc(string $s): string {
     return htmlspecialchars($s, ENT_QUOTES, 'UTF-8');
 }
 
+// ── Card de projeto (lista) — usado nas seções "Em andamento" e "Concluídos" ──
+function renderProjCard(array $p): void {
+    $modsVisiveis = array_values(array_filter($p['modulos'], fn($m) => $m['tot'] > 0));
+    $exibir = array_slice($modsVisiveis, 0, 5);
+    $extras = max(0, count($modsVisiveis) - 5);
+    ?>
+    <div class="col-md-6 col-xl-4">
+      <a href="projetos.php?proj=<?= urlencode($p['arquivo']) ?>" class="proj-card h-100">
+
+        <!-- Título + % -->
+        <div class="proj-card-title">
+          <span><?= esc($p['titulo']) ?></span>
+          <span style="font-size:1.1rem;font-weight:800;color:<?= corPct($p['pct']) ?>;flex-shrink:0">
+            <?= $p['pct'] ?>%
+          </span>
+        </div>
+
+        <!-- Descrição -->
+        <?php if ($p['objetivo']): ?>
+          <div class="proj-card-desc"><?= esc($p['objetivo']) ?></div>
+        <?php endif; ?>
+
+        <!-- Barra geral -->
+        <div class="d-flex align-items-center gap-2">
+          <div class="prog-bar flex-grow-1">
+            <div class="prog-fill" style="width:<?= $p['pct'] ?>%;background:<?= corPct($p['pct']) ?>"></div>
+          </div>
+          <span class="prog-label" style="color:<?= corPct($p['pct']) ?>">
+            <?= $p['done'] ?>/<?= $p['total'] ?>
+          </span>
+        </div>
+
+        <!-- Mini módulos -->
+        <?php if ($exibir): ?>
+        <div class="mod-mini">
+          <?php foreach ($exibir as $mod): ?>
+            <div class="mod-mini-row">
+              <span class="mod-mini-name"><?= esc($mod['nome']) ?></span>
+              <div class="mod-mini-bar">
+                <div class="mod-mini-fill" style="width:<?= $mod['pct'] ?>%;background:<?= corPct($mod['pct']) ?>"></div>
+              </div>
+              <span class="mod-mini-pct" style="color:<?= corPct($mod['pct']) ?>"><?= $mod['pct'] ?>%</span>
+            </div>
+          <?php endforeach; ?>
+          <?php if ($extras > 0): ?>
+            <div class="mod-mais">+ <?= $extras ?> módulos</div>
+          <?php endif; ?>
+        </div>
+        <?php endif; ?>
+
+        <!-- Meta info + botão -->
+        <div class="card-meta">
+          <?php if ($p['equipe']): ?>
+            <span class="meta-pill"><i class="bi bi-people"></i><?= esc($p['equipe']) ?></span>
+          <?php endif; ?>
+          <?php if ($p['prazo']): ?>
+            <span class="meta-pill"><i class="bi bi-calendar-check"></i><?= esc($p['prazo']) ?></span>
+          <?php endif; ?>
+          <span class="btn-detalhe">
+            Ver detalhes <i class="bi bi-arrow-right"></i>
+          </span>
+        </div>
+
+      </a>
+    </div>
+    <?php
+}
+
 // ── Carrega todos os projetos ──────────────────────────────────────────────
 $pastaProj = __DIR__ . '/Docs/wiki/projects';
 $projetos  = [];
@@ -636,74 +704,50 @@ body  { background:#f0f4f9; font-family:'Segoe UI',sans-serif; font-size:.9rem; 
 
 <?php elseif (!$modoDetalhe): ?>
   <!-- ═══════════════ LISTA DE CARDS ═══════════════ -->
-  <div class="row g-3">
-  <?php foreach ($projetos as $p):
-      $modsVisiveis = array_filter($p['modulos'], fn($m) => $m['tot'] > 0);
-      $modsVisiveis = array_values($modsVisiveis);
-      $exibir = array_slice($modsVisiveis, 0, 5);
-      $extras  = max(0, count($modsVisiveis) - 5);
+  <?php
+  $projetosAndamento = array_values(array_filter($projetos, fn($p) => $p['pct'] < 100));
+  $projetosConcluidos = array_values(array_filter($projetos, fn($p) => $p['pct'] >= 100));
   ?>
-    <div class="col-md-6 col-xl-4">
-      <a href="projetos.php?proj=<?= urlencode($p['arquivo']) ?>" class="proj-card h-100">
 
-        <!-- Título + % -->
-        <div class="proj-card-title">
-          <span><?= esc($p['titulo']) ?></span>
-          <span style="font-size:1.1rem;font-weight:800;color:<?= corPct($p['pct']) ?>;flex-shrink:0">
-            <?= $p['pct'] ?>%
-          </span>
-        </div>
-
-        <!-- Descrição -->
-        <?php if ($p['objetivo']): ?>
-          <div class="proj-card-desc"><?= esc($p['objetivo']) ?></div>
-        <?php endif; ?>
-
-        <!-- Barra geral -->
-        <div class="d-flex align-items-center gap-2">
-          <div class="prog-bar flex-grow-1">
-            <div class="prog-fill" style="width:<?= $p['pct'] ?>%;background:<?= corPct($p['pct']) ?>"></div>
-          </div>
-          <span class="prog-label" style="color:<?= corPct($p['pct']) ?>">
-            <?= $p['done'] ?>/<?= $p['total'] ?>
-          </span>
-        </div>
-
-        <!-- Mini módulos -->
-        <?php if ($exibir): ?>
-        <div class="mod-mini">
-          <?php foreach ($exibir as $mod): ?>
-            <div class="mod-mini-row">
-              <span class="mod-mini-name"><?= esc($mod['nome']) ?></span>
-              <div class="mod-mini-bar">
-                <div class="mod-mini-fill" style="width:<?= $mod['pct'] ?>%;background:<?= corPct($mod['pct']) ?>"></div>
-              </div>
-              <span class="mod-mini-pct" style="color:<?= corPct($mod['pct']) ?>"><?= $mod['pct'] ?>%</span>
-            </div>
-          <?php endforeach; ?>
-          <?php if ($extras > 0): ?>
-            <div class="mod-mais">+ <?= $extras ?> módulos</div>
-          <?php endif; ?>
-        </div>
-        <?php endif; ?>
-
-        <!-- Meta info + botão -->
-        <div class="card-meta">
-          <?php if ($p['equipe']): ?>
-            <span class="meta-pill"><i class="bi bi-people"></i><?= esc($p['equipe']) ?></span>
-          <?php endif; ?>
-          <?php if ($p['prazo']): ?>
-            <span class="meta-pill"><i class="bi bi-calendar-check"></i><?= esc($p['prazo']) ?></span>
-          <?php endif; ?>
-          <span class="btn-detalhe">
-            Ver detalhes <i class="bi bi-arrow-right"></i>
-          </span>
-        </div>
-
-      </a>
-    </div>
-  <?php endforeach; ?>
+  <div id="secAndamento">
+    <h6 class="fw-bold mb-2" style="color:#374151">
+      <i class="bi bi-hourglass-split me-2 text-primary"></i>Em andamento
+      <span class="text-muted fw-normal">(<?= count($projetosAndamento) ?>)</span>
+    </h6>
+    <?php if ($projetosAndamento): ?>
+      <div class="row g-3 mb-4">
+        <?php foreach ($projetosAndamento as $p) renderProjCard($p); ?>
+      </div>
+    <?php else: ?>
+      <p class="text-muted small mb-4">Nenhum projeto em andamento.</p>
+    <?php endif; ?>
   </div>
+
+  <div id="secConcluidos">
+    <h6 class="fw-bold mb-2" style="color:#374151;cursor:pointer" onclick="toggleConcluidos()">
+      <i class="bi bi-check-circle-fill me-2 text-success"></i>Concluídos
+      <span class="text-muted fw-normal">(<?= count($projetosConcluidos) ?>)</span>
+      <i class="bi bi-chevron-down ms-1" id="chvConcluidos" style="font-size:.75rem;transition:transform .2s"></i>
+    </h6>
+    <?php if ($projetosConcluidos): ?>
+      <div class="row g-3" id="gridConcluidos" style="display:none">
+        <?php foreach ($projetosConcluidos as $p) renderProjCard($p); ?>
+      </div>
+    <?php else: ?>
+      <p class="text-muted small">Nenhum projeto concluído ainda.</p>
+    <?php endif; ?>
+  </div>
+
+  <script>
+  function toggleConcluidos() {
+    const grid = document.getElementById('gridConcluidos');
+    const chv  = document.getElementById('chvConcluidos');
+    if (!grid) return;
+    const aberto = grid.style.display !== 'none';
+    grid.style.display = aberto ? 'none' : '';
+    chv.style.transform = aberto ? '' : 'rotate(-180deg)';
+  }
+  </script>
 
 <?php else: ?>
   <!-- ═══════════════ DETALHE DO PROJETO ═══════════════ -->
