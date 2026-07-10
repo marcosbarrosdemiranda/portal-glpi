@@ -624,7 +624,7 @@ $is_ouvinte     = ($agenda_modo === 'ouvinte');
               <?php endif; ?>
             </div>
           </div>
-          <div class="col-12 col-inline">
+          <div class="col-12 col-inline" id="campo-titulo">
             <label class="form-label">Título <span class="text-danger">*</span></label>
             <input type="text" class="form-control" id="ev-titulo" placeholder="Ex: Atendimento servidor"/>
           </div>
@@ -674,7 +674,7 @@ $is_ouvinte     = ($agenda_modo === 'ouvinte');
           </div>
           <div class="col-md-6" id="campo-projeto" style="display:none">
             <label class="form-label">Projeto <span class="text-danger">*</span></label>
-            <select class="form-select" id="ev-projeto">
+            <select class="form-select" id="ev-projeto" onchange="document.getElementById('ev-titulo').value = this.value;">
               <option value="">Carregando...</option>
             </select>
           </div>
@@ -1310,7 +1310,16 @@ document.addEventListener('DOMContentLoaded', function() {
         tipo:          ev.extendedProps.tipo          || c.tipo          || 'chamado',
         concluido:     ev.extendedProps.concluido     ? 1 : (c.concluido ?? 0),
         _only_reposition: true, // não cria followup no GLPI ao reposicionar (ticket pode estar fechado)
-      }, () => carregarTickets());
+      }, () => {
+        // Recarrega a fonte oficial do calendário após salvar o reposicionamento.
+        // O drag já move o evento visualmente na hora, mas sem esse refetch
+        // qualquer dessincronia entre o objeto do FullCalendar e o estado
+        // salvo no banco (ex: evento com múltiplos atendentes sincronizado
+        // no backend) só se resolve com F5 — o evento fica "duplicado"
+        // (aparece na posição antiga e na nova) até recarregar a página.
+        calendar.refetchEvents();
+        carregarTickets();
+      });
     },
 
     events: carregarEventos,
@@ -2005,9 +2014,7 @@ function verDetalhesSidebar() {
   setModoLeitura(true);
   const _btnEditarSb = document.getElementById('banner-readonly').querySelector('button');
   if (_btnEditarSb) _btnEditarSb.style.display = '';
-  document.getElementById('google-info').style.display = 'none';
-  document.getElementById('campos-evento').style.display = '';
-  document.querySelector('#modalEvento .btn-secondary')?.style.removeProperty('display');
+  fecharPainelGoogle();
   document.getElementById('btnDeletar').style.display     = 'none';
   document.getElementById('btnExcluirGlpi').style.display = 'none';
   document.getElementById('btnResponder').style.display   = (!MODO_OUVINTE && id) ? 'inline-block' : 'none';
@@ -2223,6 +2230,7 @@ let _dadosModal = null;
 function abrirModalEvento(dataStr) {
   _dadosModal = null;
   limparValidacao();
+  fecharPainelGoogle();
   // Reset campos de impressão antes de abrir (categoria é limpa em modo silencioso e não dispara o onChange)
   _resetCamposImpressao();
   document.getElementById('campo-impressao').style.display = 'none';
@@ -2341,12 +2349,23 @@ function preencherModal(dados) {
   // Data limite
   document.getElementById('ev-recorrencia-data-limite').value = dados.recorrencia_data_limite || '';
 
+  // Cancela fetch pendente do evento anterior SEMPRE — mesmo quando o evento
+  // atual não tem ticket_id (ex: tipo=projeto). Sem isso, um fetch em voo de
+  // um chamado ainda resolve depois e sobrescreve anexos/descrição do modal
+  // atual, que já está mostrando outro evento (só corrigia com F5).
+  if (_ticketFetchCtrl) _ticketFetchCtrl.abort();
+  _ticketFetchCtrl = null;
+
+  // Limpa campos assíncronos (descrição/anexos/followups) imediatamente para
+  // não mostrar dados do evento anterior enquanto o fetch (se houver) carrega.
+  document.getElementById('ev-followups').innerHTML = '';
+  document.getElementById('campo-followups').style.display = 'none';
+  document.getElementById('ev-anexos').innerHTML = '';
+  document.getElementById('campo-anexos').style.display = 'none';
+
   // Busca dados completos do ticket no GLPI (descrição, entidade, categoria, requerente)
   if (dados.ticket_id) {
-    // Cancela fetch anterior (evita race condition entre eventos)
-    if (_ticketFetchCtrl) _ticketFetchCtrl.abort();
     _ticketFetchCtrl = new AbortController();
-    // Limpa campos assíncronos imediatamente para não mostrar dados do evento anterior
     document.getElementById('ev-descricao').value = '';
     document.getElementById('ev-setor').value = dados.setor || '';
     if (tsRequerente) tsRequerente.setValue('', true); else document.getElementById('ev-requerente').value = '';
@@ -2516,8 +2535,9 @@ function ajustarCamposPorTipo() {
   document.getElementById('campo-requerente').style.display = isChamado ? '' : 'none';
   document.getElementById('campo-categoria').style.display  = isChamado ? '' : 'none';
   document.getElementById('campo-origem').style.display     = isChamado ? '' : 'none';
-  // Projeto: apenas no tipo projeto
+  // Projeto: apenas no tipo projeto — título vira o nome do projeto (campo some, sem digitação duplicada)
   document.getElementById('campo-projeto').style.display = projeto ? '' : 'none';
+  document.getElementById('campo-titulo').style.display  = projeto ? 'none' : '';
   if (projeto) carregarListaProjetos(_dadosModal?.projeto);
   // Asterisco de Descrição: obrigatório apenas em chamado/requisição
   const starDesc = document.getElementById('star-descricao');
@@ -3110,6 +3130,7 @@ function novoPeriodo() {
 }
 
 function abrirModalSemLimpar() {
+  fecharPainelGoogle();
   document.getElementById('btnDeletar').style.display     = 'none';
   document.getElementById('btnResponder').style.display   = 'none';
   document.getElementById('btnNovoPeriodo').style.display = 'none';
@@ -3118,6 +3139,17 @@ function abrirModalSemLimpar() {
   arquivosAnexosCriar = [];
   setModoLeitura(false);
   modalEvento.show();
+}
+
+// Restaura o modal do estado somente-leitura do painel do Google Calendar
+// (usado por editarEvento ao abrir um evento normal, e por todo fluxo que
+// abre o modalEvento após um evento do Google ter sido exibido — sem isso o
+// painel roxo e a ausência do botão Salvar ficam grudados até o F5).
+function fecharPainelGoogle() {
+  document.getElementById('google-info').style.display = 'none';
+  document.getElementById('campos-evento').style.display = '';
+  document.querySelector('#modalEvento .btn-secondary')?.style.removeProperty('display');
+  document.querySelector('#modalEvento .btn-primary')?.style.removeProperty('display');
 }
 
 function editarEvento(ev) {
@@ -3210,9 +3242,7 @@ function editarEvento(ev) {
     document.getElementById('modalTitulo').innerHTML = '<i class="bi bi-google me-2" style="color:#7b2d8e;"></i>Google Calendar';
   } else {
     // Restaura visibilidade para eventos normais
-    googleInfo.style.display = 'none';
-    document.getElementById('campos-evento').style.display = '';
-    document.querySelector('#modalEvento .btn-secondary')?.style.removeProperty('display');
+    fecharPainelGoogle();
 
     // Botões de ação (ouvinte não pode agir, apenas visualizar)
     if (MODO_OUVINTE) {
@@ -3326,10 +3356,15 @@ function mostrarErroModal(erros) {
 }
 
 function salvarEvento() {
-  const titulo   = document.getElementById('ev-titulo').value.trim();
   const start    = document.getElementById('ev-start').value;
   const tipo     = document.getElementById('ev-tipo').value;
   const multiSel = getAtendentesMultiSelecionados();
+
+  // Projeto: título é o próprio nome do projeto (campo fica oculto)
+  if (tipo === 'projeto') {
+    document.getElementById('ev-titulo').value = document.getElementById('ev-projeto').value;
+  }
+  const titulo = document.getElementById('ev-titulo').value.trim();
 
   // Garante que o ev-end esteja atualizado com a duração selecionada antes de qualquer leitura
   aoMudarInicio();
@@ -3340,7 +3375,7 @@ function salvarEvento() {
   const errosVal = [];
   const isChamadoOuReq = (tipo === 'chamado' || tipo === 'requisicao');
 
-  if (!titulo) { errosVal.push('Título');  marcarInvalido('ev-titulo'); }
+  if (!titulo && tipo !== 'projeto') { errosVal.push('Título');  marcarInvalido('ev-titulo'); }
   if (!start)    errosVal.push('Início');
   if (!end)      errosVal.push('Fim');
 
