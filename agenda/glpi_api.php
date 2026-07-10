@@ -70,6 +70,19 @@ function glpi_get_tickets(): array {
 
     glpi_kill($token);
 
+    // Dedup por ID: a busca acima faz 4 chamadas sequenciais à API (uma por
+    // status). Se o status de um chamado mudar entre uma chamada e outra
+    // (ex: alguém atribuiu um técnico enquanto o loop rodava), o mesmo
+    // chamado pode ser capturado em dois buckets e aparecer duplicado na
+    // sidebar. Mantém a primeira ocorrência.
+    $vistos = [];
+    $tickets = array_values(array_filter($tickets, function($t) use (&$vistos) {
+        $id = $t['id'] ?? null;
+        if ($id === null || isset($vistos[$id])) return false;
+        $vistos[$id] = true;
+        return true;
+    }));
+
     // Mapeamento correto dos status do GLPI:
     // 1=Novo, 2=Em atendimento (atribuído), 3=Em atendimento (planejado),
     // 4=Pendente, 5=Solucionado, 6=Fechado
