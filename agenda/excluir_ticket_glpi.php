@@ -88,8 +88,18 @@ curl_setopt_array($ch, [
 curl_exec($ch);
 curl_close($ch);
 
-if ($httpCode >= 200 && $httpCode < 300) {
+// A API do GLPI responde HTTP 200 mesmo quando a atualização do campo é
+// rejeitada internamente (regra de negócio, direito específico do campo etc).
+// O resultado real vem no corpo: [{"<id>": true|false, "message": "..."}].
+// Sem checar isso, a exclusão "silenciosamente" não acontece e o front
+// mostra sucesso mesmo com o chamado intacto no GLPI.
+$corpo = json_decode($res, true);
+$item  = is_array($corpo) ? ($corpo[0] ?? $corpo) : null;
+$confirmado = is_array($item) && ($item[(string)$ticket_id] ?? false) === true;
+
+if ($httpCode >= 200 && $httpCode < 300 && $confirmado) {
     json_sair(['ok' => true, 'msg' => "Chamado #{$ticket_id} movido para a lixeira do GLPI."]);
 } else {
-    json_sair(['ok' => false, 'msg' => "Falha ao mover chamado #{$ticket_id} para a lixeira (HTTP {$httpCode})."]);
+    $msgGlpi = is_array($item) ? ($item['message'] ?? '') : '';
+    json_sair(['ok' => false, 'msg' => "Falha ao mover chamado #{$ticket_id} para a lixeira" . ($msgGlpi ? ": {$msgGlpi}" : " (HTTP {$httpCode}).")]);
 }
