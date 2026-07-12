@@ -1929,8 +1929,7 @@ function renderTickets(tickets) {
     let cardClass = `pr-${urgToProioridade(t.urgencia)}`;
     if (t.agendado && t.agenda_start) {
       const agendaStart = new Date(t.agenda_start);
-      const agora = new Date();
-      if (agendaStart < agora) {
+      if (!isNaN(agendaStart) && agendaStart < new Date()) {
         cardClass += ' agendado-atrasado';
       } else {
         cardClass += ' agendado-pendente';

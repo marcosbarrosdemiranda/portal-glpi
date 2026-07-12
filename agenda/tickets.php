@@ -17,8 +17,9 @@ try {
     foreach ($rows as $r) {
         $tid = (string)$r['ticket_id'];
         if (!isset($agendados[$tid])) {
-            // Converte para ISO 8601 (YYYY-MM-DDTHH:MM:SS) para compatibilidade com JS Date
-            $agendados[$tid] = str_replace(' ', 'T', $r['start']);
+            // Converte para ISO 8601 (YYYY-MM-DDTHH:MM:SS) via DateTime — robusto contra formatos
+            $dt = new DateTime($r['start']);
+            $agendados[$tid] = $dt->format('c');
         }
     }
 } catch (Exception $e) { /* ignora se tabela ainda não existir */ }
