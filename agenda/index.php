@@ -197,6 +197,22 @@ $is_ouvinte     = ($agenda_modo === 'ouvinte');
     .ticket-card.dragging { opacity: .6; cursor: grabbing; }
     .ticket-card.em-andamento { background:#f0f4ff; border-left-color:#1a73e8; }
 
+/* Cores para chamados agendados */
+.ticket-card.agendado-atrasado {
+  background: #fff0f0;
+  border-left-color: #dc3545;
+}
+.ticket-card.agendado-atrasado:hover {
+  background: #ffe0e0;
+}
+.ticket-card.agendado-pendente {
+  background: #fff8e1;
+  border-left-color: #fd7e14;
+}
+.ticket-card.agendado-pendente:hover {
+  background: #fff3d0;
+}
+
     /* Preview popup do chamado no sidebar */
     .ticket-preview-overlay {
       display:none; position:fixed; inset:0; z-index:5000;
@@ -1908,8 +1924,22 @@ function renderTickets(tickets) {
   const urgLabel = {
     'muito baixa':'Muito Baixa','baixa':'Baixa','média':'Média','alta':'Alta','muito alta':'Muito Alta'
   };
-  list.innerHTML = tickets.map(t => `
-    <div class="ticket-card pr-${urgToProioridade(t.urgencia)}${t.agendado ? ' em-andamento' : ''}"
+  list.innerHTML = tickets.map(t => {
+    // Determina classe de cor para chamados agendados
+    let cardClass = `pr-${urgToProioridade(t.urgencia)}`;
+    if (t.agendado && t.agenda_start) {
+      const agendaStart = new Date(t.agenda_start);
+      const agora = new Date();
+      if (agendaStart < agora) {
+        cardClass += ' agendado-atrasado';
+      } else {
+        cardClass += ' agendado-pendente';
+      }
+    } else if (t.agendado) {
+      cardClass += ' agendado-pendente';
+    }
+    return `
+    <div class="ticket-card ${cardClass}"
          draggable="true"
          data-id="${t.id}"
          data-titulo="${escHtml(t.titulo)}"
@@ -1925,8 +1955,8 @@ function renderTickets(tickets) {
         ${t.setor ? `<span class="badge-status"><i class="bi bi-building me-1"></i>${escHtml(t.setor)}</span>` : ''}
         ${t.agendado ? `<span class="badge-andamento"><i class="bi bi-clock-history me-1"></i>Em andamento</span>${t.agenda_start ? `<span class="badge-andamento" style="background:#d0e4ff;color:#1a4fa8;"><i class="bi bi-calendar-event me-1"></i>${formatAgendaStart(t.agenda_start)}</span>` : ''}` : ''}
       </div>
-    </div>
-  `).join('');
+    </div>`;
+  }).join('');
 
   iniciarDrag();
 }
