@@ -17,7 +17,8 @@ try {
     foreach ($rows as $r) {
         $tid = (string)$r['ticket_id'];
         if (!isset($agendados[$tid])) {
-            $agendados[$tid] = $r['start']; // guarda o start do primeiro evento encontrado
+            // Converte para ISO 8601 (YYYY-MM-DDTHH:MM:SS) para compatibilidade com JS Date
+            $agendados[$tid] = str_replace(' ', 'T', $r['start']);
         }
     }
 } catch (Exception $e) { /* ignora se tabela ainda não existir */ }
