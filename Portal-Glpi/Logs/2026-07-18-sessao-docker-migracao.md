@@ -55,3 +55,27 @@ XAMPP **não é desligado** até tudo estar validado no Docker e ordem explícit
 ## Próximos passos
 - Subir `glpi-web` na porta 8091 e testar (login, chamados, agenda, anexos, API)
 - Só depois planejar a janela de corte definitiva
+
+---
+
+## 3. Corte final (19/07/2026)
+
+Usuário validou o teste na porta 8091 e decidiu cortar direto pra produção na mesma sessão.
+
+- **Porta final: 7412** (não 80 — reservada pro pfSense/DNS que será configurado depois; 8091 também já em uso no pfSense)
+- Dump final fresco tirado (`glpi2_final.sql`) antes do XAMPP parar, pra não perder nada feito durante o teste
+- Usuário parou Apache + MySQL do XAMPP (processos do `xampp-control.exe`, não serviço do Windows)
+- Config da pasta **viva** (`C:\xampp\htdocs\glpi2`) ajustada (mesmo ajuste da cópia de teste): `config_db.php`, `agenda/db.php` → `glpi-db`/`root_password`; `agenda/config.php` → `GLPI_ABSPATH` `/var/www/html/glpi2`
+- `docker-compose.yml`: bind mount trocado da cópia de teste pra pasta viva (sync automático existente continua funcionando sem mudança) + porta 8091→7412
+- Dump final restaurado por cima do banco de teste
+- Tarefa Agendada antiga do cron (`\Automatizações Gmais\Cron`) desativada — `glpi-cron` (container) é o único rodando `front/cron.php` agora
+- Testado HTTP 200 em GLPI e portal na porta 7412
+- XAMPP **não foi desinstalado** — fica como rede de segurança por alguns dias
+
+### Acesso atual
+- GLPI: `http://192.168.1.198:7412/glpi2/`
+- Portal: `http://192.168.1.198:7412/glpi2/portal-glpi/`
+
+## Próximos passos (atualizados)
+- Validar uso do dia a dia por alguns dias
+- Se estável, desinstalar XAMPP e configurar DNS/proxy reverso no pfSense apontando pra porta 7412

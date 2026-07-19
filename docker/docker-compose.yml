@@ -1,7 +1,8 @@
-# Stack de teste (paralelo ao XAMPP) rodando em 192.168.1.198 — ver Portal-Glpi/Arquitetura/PLANO_MIGRACAO_DOCKER.md
-# Código-fonte (GLPI + portal-glpi) fica numa CÓPIA em D:\docker\glpi-portal\app, não na pasta viva do XAMPP,
-# porque config/config_db.php e agenda/db.php só podem apontar pra um host de banco por vez (localhost OU glpi-db).
-# No corte final, a cópia vira a pasta viva (XAMPP já parado) e os paths abaixo mudam.
+# Stack de produção rodando em 192.168.1.198 — ver Portal-Glpi/Arquitetura/PLANO_MIGRACAO_DOCKER.md
+# Código-fonte (GLPI + portal-glpi) montado direto da pasta viva do XAMPP (C:\xampp\htdocs\glpi2) —
+# o sync automático pro servidor continua funcionando sem mudanças, já que o caminho é o mesmo de sempre.
+# XAMPP (Apache/MySQL) deve estar PARADO antes de subir esse compose.
+# Porta 7412 escolhida a pedido do usuário — 80/8091 já reservadas no pfSense, DNS/proxy será configurado depois.
 services:
   glpi-db:
     image: mariadb:10.4
@@ -22,9 +23,9 @@ services:
     depends_on:
       - glpi-db
     volumes:
-      - D:\docker\glpi-portal\app:/var/www/html/glpi2
+      - C:\xampp\htdocs\glpi2:/var/www/html/glpi2
     ports:
-      - "8091:80"
+      - "7412:80"
     networks:
       - glpi-net
 
@@ -35,7 +36,7 @@ services:
     depends_on:
       - glpi-db
     volumes:
-      - D:\docker\glpi-portal\app:/var/www/html/glpi2
+      - C:\xampp\htdocs\glpi2:/var/www/html/glpi2
     entrypoint: ["sh", "-c", "while true; do php /var/www/html/glpi2/front/cron.php; sleep 60; done"]
     networks:
       - glpi-net
