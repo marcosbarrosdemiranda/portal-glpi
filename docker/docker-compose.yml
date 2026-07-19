@@ -1,0 +1,48 @@
+# Stack de teste (paralelo ao XAMPP) rodando em 192.168.1.198 — ver Portal-Glpi/Arquitetura/PLANO_MIGRACAO_DOCKER.md
+# Código-fonte (GLPI + portal-glpi) fica numa CÓPIA em D:\docker\glpi-portal\app, não na pasta viva do XAMPP,
+# porque config/config_db.php e agenda/db.php só podem apontar pra um host de banco por vez (localhost OU glpi-db).
+# No corte final, a cópia vira a pasta viva (XAMPP já parado) e os paths abaixo mudam.
+services:
+  glpi-db:
+    image: mariadb:10.4
+    container_name: glpi-db
+    restart: unless-stopped
+    environment:
+      MYSQL_ROOT_PASSWORD: root_password
+      MYSQL_DATABASE: glpi2
+    volumes:
+      - glpi_db_data:/var/lib/mysql
+    networks:
+      - glpi-net
+
+  glpi-web:
+    build: .
+    container_name: glpi-web
+    restart: unless-stopped
+    depends_on:
+      - glpi-db
+    volumes:
+      - D:\docker\glpi-portal\app:/var/www/html/glpi2
+    ports:
+      - "8091:80"
+    networks:
+      - glpi-net
+
+  glpi-cron:
+    build: .
+    container_name: glpi-cron
+    restart: unless-stopped
+    depends_on:
+      - glpi-db
+    volumes:
+      - D:\docker\glpi-portal\app:/var/www/html/glpi2
+    entrypoint: ["sh", "-c", "while true; do php /var/www/html/glpi2/front/cron.php; sleep 60; done"]
+    networks:
+      - glpi-net
+
+volumes:
+  glpi_db_data:
+
+networks:
+  glpi-net:
+    driver: bridge

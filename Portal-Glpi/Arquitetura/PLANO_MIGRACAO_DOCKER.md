@@ -1,6 +1,6 @@
 # Plano de Migração — XAMPP → Docker (mesmo servidor)
 
-> **Status:** planejamento, ainda não decidido executar. Ver [[MIGRACAO_PRODUCAO.md]] para o guia de migração de arquivos original (Linux genérico) — este documento é específico para sair do XAMPP e ir para Docker **na mesma máquina** (`192.168.1.198`, hostname `MARCOS`).
+> **Status (2026-07-18):** fase de teste em paralelo em execução — containers rodando na porta 8091, XAMPP intocado na porta 80. Ver seção 8 (Progresso). Ver [[MIGRACAO_PRODUCAO.md]] para o guia de migração de arquivos original (Linux genérico) — este documento é específico para sair do XAMPP e ir para Docker **na mesma máquina** (`192.168.1.198`, hostname `Backup-Arquifunc`).
 
 ---
 
@@ -88,10 +88,29 @@ Recomendo agendar isso fora do horário comercial.
 
 ## 6. Pontos em aberto — investigar antes de migrar
 
-- **Onde está o cron de verdade rodando hoje.** Sabemos que `PurgeLogs` rodou no prazo certo e que chamados recorrentes são gerados diariamente, mas não identificamos o mecanismo exato no servidor `192.168.1.198` (não é a Tarefa Agendada do MARCOS, essa é resquício de testes antigos sem relação). Precisa confirmar isso pra recriar o equivalente em Docker.
-- **Se o Docker Desktop já está instalado no `192.168.1.198`.** A presença do Guacamole em container é um indício forte, mas não confirmado — se já estiver instalado, economiza um passo de setup.
-- **Versão exata do MySQL/MariaDB e extensões PHP** do XAMPP atual, pra evitar incompatibilidade na importação do dump ou erro de extensão faltando.
-- **Certificado/HTTPS**, se houver, e qualquer configuração custom do `httpd.conf`/`.htaccess` do Apache atual que precise ser replicada no Dockerfile.
+- ~~Onde está o cron de verdade rodando hoje~~ **Resolvido (2026-07-18):** Tarefa Agendada `\Automatizações Gmais\Cron` roda `C:\xampp\php\php.exe C:\xampp\htdocs\glpi2\front\cron.php` várias vezes ao dia. Existe também `\Backup\Glpi` (FreeFileSync espelhando `C:\xampp` inteiro pra `D:\Backup Glpi\Xampp` diariamente — não é cron do GLPI, é backup).
+- ~~Se o Docker Desktop já está instalado~~ **Confirmado:** Docker Desktop 29.5.2 + Compose v5.1.4 já instalados. Guacamole roda via `docker run` direto (sem compose, sem bind mounts).
+- ~~Versão exata do MySQL/MariaDB e extensões PHP~~ **Confirmado:** MariaDB **10.4.32**; PHP **8.2.12** com bz2, curl, gd, gettext, intl, mbstring, exif, mysqli, pdo_mysql, pdo_sqlite (zip **não** habilitado no XAMPP — adicionado no Dockerfile por segurança/compatibilidade com marketplace do GLPI, sem downside).
+- ~~Certificado/HTTPS / config custom do Apache~~ **Confirmado:** `.htaccess` do GLPI é o padrão de instalação (rewrite da API comentado, não ativo). Sem vhost custom pra `glpi2`. Limites do `php.ini`: `memory_limit=512M`, `post_max_size=40M`, `upload_max_filesize=40M`, `max_execution_time=120` — replicados no `docker/php-custom.ini`.
+
+---
+
+## 8. Progresso (2026-07-18)
+
+- **Acesso remoto:** OpenSSH Server habilitado no servidor (já estava, de trabalho anterior). Chave dedicada configurada, alias `ssh glpi-server` (ver memória `ssh-servidor-glpi`). Usuário `externo` (Administrador).
+- **Limpeza de disco prévia (mesma sessão):** pasta `xampp` caiu de 100GB+ pra ~15GB (lixo de reparo do MariaDB + backup manual esquecido + log do Apache sem rotação — não relacionado ao Docker, mas destravou espaço em disco pra essa migração).
+- **Armadilha resolvida — credential helper do Docker Desktop via SSH:** `docker pull`/`compose up` falhava com "sessão de logon não existe" porque o Docker Desktop força o `wincred` (Credential Manager), que exige sessão interativa. Corrigido com um credential helper "dummy" (`docker-credential-none.bat` em `resources\bin\`, `credsStore: "none"` no `config.json`) que responde "sem credenciais" e permite pull anônimo. Detalhes na memória `docker-credential-helper-ssh-windows`.
+- **Portas escolhidas pro teste em paralelo:** `glpi-web` → **8091** (host `80`/`443` já são do XAMPP; `8080`/`8443`/`8843`/`8880` já são do Guacamole/outros). Banco `glpi-db` não exposto ao host (só rede interna do compose).
+- **Estrutura no servidor:** `D:\docker\glpi-portal\` (movido de `C:\` a pedido — D: tem ~11TB livres vs ~123GB no C:). Cópia do código em `app\` (não bind mount da pasta viva do XAMPP — ver nota no `docker/docker-compose.yml`).
+- **Config ajustado só na cópia de teste** (produção/XAMPP intocada):
+  - `config/config_db.php`: `dbhost` `localhost`→`glpi-db`, senha `''`→`root_password`
+  - `portal-glpi/agenda/db.php`: mesmo ajuste de host/senha
+  - `portal-glpi/agenda/config.php`: `GLPI_ABSPATH` `C:/xampp/htdocs/glpi2`→`/var/www/html/glpi2` (`GLPI_URL` não precisou mudar — continua `http://localhost/glpi2`, resolve corretamente dentro do próprio container)
+- **Banco:** dump completo (`mysqldump --single-transaction --routines --triggers --events`, 5,78GB) do `glpi2` de produção restaurado no container `glpi-db`.
+- **Imagem `glpi-web`/`glpi-cron`:** buildada com sucesso (`php:8.2-apache` + extensões).
+- **Regra confirmada com o usuário:** XAMPP **não é desligado** em nenhuma hipótese até tudo estar validado no Docker e ele dar a ordem explícita do corte.
+
+Próximos passos: subir `glpi-web` na porta 8091, testar login/chamados/agenda/anexos/API, só então planejar a janela de corte (seção 5).
 
 ---
 
