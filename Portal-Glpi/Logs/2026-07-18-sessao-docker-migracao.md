@@ -79,3 +79,18 @@ Usuário validou o teste na porta 8091 e decidiu cortar direto pra produção na
 ## Próximos passos (atualizados)
 - Validar uso do dia a dia por alguns dias
 - Se estável, desinstalar XAMPP e configurar DNS/proxy reverso no pfSense apontando pra porta 7412
+
+---
+
+## 4. Saída da pasta do XAMPP + backups (19/07/2026, mesmo dia)
+
+Usuário quis resolver na hora: descobriu que ia apagar `C:\xampp` (achando que era só resíduo) e percebeu a tempo que `htdocs\glpi2` (código + anexos) ainda estava lá dentro, sendo usado pelo bind mount do Docker.
+
+- **Movido** `C:\xampp\htdocs\glpi2` → `D:\docker\glpi-portal\glpi2` (1,36GB, containers parados durante a mudança pra evitar corrupção)
+- **`docker-compose.yml`** atualizado pro novo caminho; testado HTTP 200 depois da mudança
+- **Descoberta:** o backup diário antigo (FreeFileSync, `C:\xampp` → `D:\Backup Glpi\Xampp`) parou de fazer sentido pro banco desde a migração pro Docker (banco vive num volume interno do Docker, não em arquivo no `C:\xampp\mysql\data` mais) — e agora também não cobre mais os anexos, já que a pasta saiu do XAMPP
+- **Backup do banco:** script novo (`docker/scripts/backup-db.ps1`) faz dump diário comprimido (GZipStream, evita bug do `Compress-Archive` com arquivos >4GB) — 5,5GB descomprimido vira **~200MB** comprimido. Retenção 5 dias. Tarefa Agendada `\Backup\Glpi-Docker-DB`, 05:00.
+- **Backup de anexos:** script novo (`docker/scripts/backup-files.ps1`), espelho incremental (`robocopy /MIR`) da pasta `files/`. Tarefa Agendada `\Backup\Glpi-Docker-Files`, 05:30.
+- Ambos em `D:\Backup Glpi\` (mesma pasta-mãe do backup antigo, a pedido do usuário)
+- Usuário vai implementar depois uma rotina própria de subir esses backups pra nuvem
+- **XAMPP inteiro agora pode ser desinstalado** sem risco — nada de importante ficou nele

@@ -120,7 +120,18 @@ Recomendo agendar isso fora do horário comercial.
 - Containers recriados apontando pra config nova, testado HTTP 200 em GLPI e portal na porta 7412.
 - XAMPP **não foi desinstalado** — continua no disco como rede de segurança pra rollback rápido (ver seção 4, passo 16).
 
-Próximos passos: usuário validar o dia a dia (chamados, agenda, anexos, API) por alguns dias; se estável, desinstalar o XAMPP (seção 4, passo 17) e configurar DNS/proxy reverso no pfSense apontando pra porta 7412.
+## 10. Saída definitiva da pasta do XAMPP + backups (2026-07-19, mesmo dia)
+
+Usuário decidiu não esperar — pediu pra já tirar o `glpi2` de dentro de `C:\xampp` (pra poder desinstalar o XAMPP sem depender mais daquela pasta) e resolver o backup do banco (que passou a viver só dentro do volume Docker, sem cobertura do backup antigo baseado em FreeFileSync).
+
+- **Pasta movida:** `C:\xampp\htdocs\glpi2` → `D:\docker\glpi-portal\glpi2` (código GLPI + portal-glpi + `files/` de anexos, 1,36GB). `docker-compose.yml` atualizado pro novo bind mount. XAMPP inteiro (`apache/`, `mysql/`, `php/`) agora pode ser desinstalado sem risco — não sobrou nada importante lá.
+- **Sync automático pro servidor:** deixou de usar a pasta `\\192.168.1.198\xampp\htdocs\glpi2\portal-glpi\` (não existe mais) — passa a usar `scp` direto pra `D:\docker\glpi-portal\glpi2\portal-glpi\` via `ssh glpi-server` (ver memória `ssh-servidor-glpi`).
+- **Backup do banco** (`docker/scripts/backup-db.ps1`): dump diário do `glpi2` via `docker exec ... mysqldump`, comprimido com `GZipStream` direto do stream de saída (sem nunca gravar o `.sql` descomprimido em disco) — necessário porque `Compress-Archive` do PowerShell 5.1 quebra ("Fluxo muito longo") em arquivos >4GB. Resultado: **~200MB comprimido** (dump cru tem 5,5GB — ~27x de compressão). Retenção: **5 dias**. Salvo em `D:\Backup Glpi\Docker-DB\`. Tarefa Agendada `\Backup\Glpi-Docker-DB`, diária às 05:00, roda como usuário `externo`.
+- **Backup de anexos/imagens** (`docker/scripts/backup-files.ps1`): espelho incremental (`robocopy /MIR`, só copia o que mudou) de `D:\docker\glpi-portal\glpi2\files` pra `D:\Backup Glpi\Docker-Files\` — substitui a cobertura que o FreeFileSync antigo dava (esse mirava `C:\xampp` inteiro, que não existe mais). Tarefa Agendada `\Backup\Glpi-Docker-Files`, diária às 05:30.
+- **Pendência do próprio usuário:** rotina pra subir esses backups (banco + imagens) pra nuvem — ainda não implementada, fica como próximo passo dele.
+- **Nota de risco:** os dois backups ficam no mesmo servidor físico (discos `C:`/`D:` diferentes, mas mesma máquina) — protege contra falha de um disco só, não contra o equipamento inteiro (incêndio, roubo, etc.). A rotina de nuvem mencionada acima resolve isso quando implementada.
+
+Próximos passos: usuário validar o dia a dia (chamados, agenda, anexos, API) por alguns dias; se estável, desinstalar o resto do XAMPP; configurar DNS/proxy reverso no pfSense apontando pra porta 7412; implementar upload dos backups pra nuvem.
 
 ---
 
