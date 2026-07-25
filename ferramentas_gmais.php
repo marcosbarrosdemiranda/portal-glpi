@@ -67,8 +67,9 @@ if ($action) {
     }
 
     // Excluir item (não exclui os 2 defaults — id 1 e 2)
-    if ($action === 'delete' && isset($_GET['id'])) {
-        $id = (int)$_GET['id'];
+    if ($action === 'delete') {
+        $body = json_decode(file_get_contents('php://input'), true) ?? [];
+        $id = (int)($body['id'] ?? 0);
         if ($id > 2) {
             $pdo->prepare("DELETE FROM portal_ferramentas_gmais WHERE id=?")->execute([$id]);
         }
@@ -226,15 +227,15 @@ $itens = $pdo->query("SELECT * FROM portal_ferramentas_gmais WHERE ativo=1 ORDER
         <span class="badge-config">Configurar</span>
         <?php endif; ?>
 
-        <div class="ac-icon" style="background:<?= $item['cor_bg'] ?>;color:<?= $item['cor_text'] ?>">
-          <i class="bi <?= $item['icone'] ?>"></i>
+        <div class="ac-icon" style="background:<?= htmlspecialchars($item['cor_bg']) ?>;color:<?= htmlspecialchars($item['cor_text']) ?>">
+          <i class="bi <?= htmlspecialchars($item['icone']) ?>"></i>
         </div>
         <div class="ac-nome"><?= htmlspecialchars($item['nome']) ?></div>
         <div class="ac-desc"><?= htmlspecialchars($item['descricao']) ?></div>
 
-        <button class="btn-acessar"
-                style="background:<?= $item['cor_text'] ?>;color:white"
-                <?= $sem_url ? 'disabled title="Configure a URL primeiro"' : "onclick=\"abrirUrl('".htmlspecialchars($item['url'],ENT_QUOTES)."')\"" ?>>
+        <button class="btn-acessar" data-url="<?= htmlspecialchars($item['url'], ENT_QUOTES) ?>"
+                style="background:<?= htmlspecialchars($item['cor_text']) ?>;color:white"
+                <?= $sem_url ? 'disabled title="Configure a URL primeiro"' : 'onclick="abrirUrl(this.dataset.url)"' ?>>
           <i class="bi bi-box-arrow-up-right me-1"></i>Acessar
         </button>
       </div>
@@ -391,7 +392,10 @@ async function salvarConfig() {
 
 async function excluirItem() {
   if (!editandoId || !confirm('Excluir este subsistema?')) return;
-  const r = await fetch(`ferramentas_gmais.php?action=delete&id=${editandoId}`);
+  const r = await fetch('ferramentas_gmais.php?action=delete', {
+    method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({id: editandoId}),
+  });
   const d = await r.json();
   if (d.ok) { modalEditar.hide(); toast('🗑️ Removido.'); setTimeout(()=>location.reload(),800); }
   else alert(d.msg || 'Erro ao excluir');
