@@ -36,6 +36,9 @@ if ($pdo->query("SELECT COUNT(*) FROM portal_ferramentas_gmais")->fetchColumn() 
 $action = $_GET['action'] ?? '';
 if ($action) {
     header('Content-Type: application/json');
+    if (stripos($_SERVER['CONTENT_TYPE'] ?? '', 'application/json') !== 0) {
+        echo json_encode(['ok'=>false,'msg'=>'Requisição inválida']); exit;
+    }
     if (!$is_admin) { echo json_encode(['ok'=>false,'msg'=>'Sem permissão']); exit; }
 
     // Salvar edição de item existente
@@ -43,8 +46,12 @@ if ($action) {
         $body = json_decode(file_get_contents('php://input'), true) ?? [];
         $id   = (int)($body['id'] ?? 0);
         if (!$id) { echo json_encode(['ok'=>false,'msg'=>'ID inválido']); exit; }
+        $url_in = trim($body['url'] ?? '');
+        if ($url_in !== '' && !preg_match('~^https?://~i', $url_in)) {
+            echo json_encode(['ok'=>false,'msg'=>'URL deve começar com http:// ou https://']); exit;
+        }
         $st = $pdo->prepare("UPDATE portal_ferramentas_gmais SET url=?, nome=?, descricao=? WHERE id=?");
-        $st->execute([trim($body['url']??''), trim($body['nome']??''), trim($body['descricao']??''), $id]);
+        $st->execute([$url_in, trim($body['nome']??''), trim($body['descricao']??''), $id]);
         echo json_encode(['ok'=>true]);
         exit;
     }
@@ -54,12 +61,16 @@ if ($action) {
         $body = json_decode(file_get_contents('php://input'), true) ?? [];
         $nome = trim($body['nome'] ?? '');
         if (!$nome) { echo json_encode(['ok'=>false,'msg'=>'Nome obrigatório']); exit; }
+        $url_in = trim($body['url'] ?? '');
+        if ($url_in !== '' && !preg_match('~^https?://~i', $url_in)) {
+            echo json_encode(['ok'=>false,'msg'=>'URL deve começar com http:// ou https://']); exit;
+        }
         $st = $pdo->prepare("INSERT INTO portal_ferramentas_gmais (nome,descricao,url,icone,cor_bg,cor_text,ordem)
                               VALUES (?,?,?,?,?,?,
                               (SELECT COALESCE(MAX(ordem),0)+1 FROM portal_ferramentas_gmais pfg2))");
         $st->execute([
             $nome, trim($body['descricao']??''),
-            trim($body['url']??''),
+            $url_in,
             $body['icone']??'bi-link', $body['cor_bg']??'#f3e5f5', $body['cor_text']??'#ad1457',
         ]);
         echo json_encode(['ok'=>true,'id'=>$pdo->lastInsertId()]);
@@ -258,8 +269,8 @@ $itens = $pdo->query("SELECT * FROM portal_ferramentas_gmais WHERE ativo=1 ORDER
   <div class="modal-dialog modal-dialog-centered">
     <div class="modal-content">
       <div class="modal-header" style="background:linear-gradient(135deg,#880e4f,#ad1457);color:white">
-        <h5 class="modal-title fw-bold" id="modal-edit-titulo">
-          <i class="bi bi-gear-fill me-2"></i>Configurar
+        <h5 class="modal-title fw-bold">
+          <i class="bi bi-gear-fill me-2"></i><span id="modal-edit-titulo-nome">Configurar</span>
         </h5>
         <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
       </div>
@@ -356,10 +367,6 @@ document.addEventListener('DOMContentLoaded', () => {
 
 function abrirUrl(url) {
   if (!url) return;
-  if (!url.startsWith('http://') && !url.startsWith('https://')) {
-    location.href = url;
-    return;
-  }
   window.open(url, '_blank', 'noopener');
 }
 
@@ -370,8 +377,7 @@ function editarItem(id, item) {
   document.getElementById('edit-nome').value       = item.nome;
   document.getElementById('edit-url').value        = item.url || '';
   document.getElementById('edit-descricao').value  = item.descricao || '';
-  document.getElementById('modal-edit-titulo').innerHTML =
-    `<i class="bi bi-gear-fill me-2"></i>${item.nome}`;
+  document.getElementById('modal-edit-titulo-nome').textContent = item.nome;
   document.getElementById('btn-excluir-item').style.display = (id > 2) ? 'inline-block' : 'none';
   modalEditar.show();
 }
