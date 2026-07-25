@@ -48,3 +48,6 @@ config_projetos.local.php
 # Spec-Driven Agent
 .claude/sda/hooks/state.json
 .claude/sda/hooks/state.history.log
+
+# ── Workspace de execução do superpowers (subagent-driven-development) ──
+.superpowers/
