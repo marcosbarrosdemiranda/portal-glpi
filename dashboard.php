@@ -184,6 +184,9 @@ function pode_ver(string $key, ?array $cards): bool {
     .card-cofre       { border-top-color: #37474f; }
     .card-cofre       .card-icon { background: #eceff1; color: #37474f; }
 
+    .card-ferramentas-gmais { border-top-color: #ad1457; }
+    .card-ferramentas-gmais .card-icon { background: #fce4ec; color: #ad1457; }
+
     .card-usuarios    { border-top-color: #f9a825; }
     .card-usuarios    .card-icon { background: #fff8e1; color: #f9a825; }
 
@@ -339,7 +342,7 @@ function pode_ver(string $key, ?array $cards): bool {
   <?php endif; ?>
 
   <!-- ── RECURSOS ── -->
-  <?php if ((pode_ver('conhecimento',$perfil_cards) && !$is_self_glpi) || pode_ver('cofre',$perfil_cards)): ?>
+  <?php if ((pode_ver('conhecimento',$perfil_cards) && !$is_self_glpi) || pode_ver('cofre',$perfil_cards) || pode_ver('ferramentas_gmais',$perfil_cards)): ?>
   <div class="section-label"><i class="bi bi-collection-fill me-2"></i>Recursos</div>
   <?php endif; ?>
 
@@ -356,6 +359,14 @@ function pode_ver(string $key, ?array $cards): bool {
     <div class="card-icon"><i class="bi bi-safe2-fill"></i></div>
     <h5>Cofre TI</h5>
     <p>Senhas, comandos e documentação interna da equipe — seguro e com busca rápida.</p>
+  </a>
+  <?php endif; ?>
+
+  <?php if (pode_ver('ferramentas_gmais', $perfil_cards)): ?>
+  <a href="ferramentas_gmais.php" class="dash-card card-ferramentas-gmais">
+    <div class="card-icon"><i class="bi bi-diagram-3-fill"></i></div>
+    <h5>Ferramentas Gmais</h5>
+    <p>Acesso rápido aos sistemas internos do grupo — Checklist, Ponto e outros.</p>
   </a>
   <?php endif; ?>
 

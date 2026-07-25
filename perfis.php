@@ -36,6 +36,7 @@ $SECOES = [
     'Recursos' => [
         'conhecimento'  => ['label' => 'Área do Conhecimento',   'icon' => 'bi-book-fill',           'css' => 'card-conhecimento'],
         'cofre'         => ['label' => 'Cofre TI',               'icon' => 'bi-safe2-fill',          'css' => 'card-cofre'],
+        'ferramentas_gmais' => ['label' => 'Ferramentas Gmais',  'icon' => 'bi-diagram-3-fill',      'css' => 'card-ferramentas-gmais'],
     ],
     'Acessos' => [
         'acesso_remoto' => ['label' => 'Acesso Remoto',          'icon' => 'bi-display-fill',        'css' => 'card-acesso-remoto'],
