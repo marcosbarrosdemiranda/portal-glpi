@@ -41,7 +41,7 @@ if (!empty($_SESSION['autenticado'])) {
         $uid_guard = (int)($_SESSION['user_id'] ?? 0);
         if ($uid_guard) {
             try {
-                $db_host_g = 'localhost'; $db_user_g = 'root'; $db_pass_g = ''; $db_name_g = 'glpi2';
+                $db_host_g = 'glpi-db'; $db_user_g = 'root'; $db_pass_g = 'root_password'; $db_name_g = 'glpi2';
                 $pdo_guard = new PDO("mysql:host={$db_host_g};dbname={$db_name_g};charset=utf8mb4",
                     $db_user_g, $db_pass_g, [PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION]);
                 $st = $pdo_guard->prepare("

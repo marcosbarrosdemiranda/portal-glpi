@@ -8,6 +8,7 @@ services:
     image: mariadb:10.4
     container_name: glpi-db
     restart: unless-stopped
+    command: --default-time-zone=-04:00
     environment:
       MYSQL_ROOT_PASSWORD: root_password
       MYSQL_DATABASE: glpi2
