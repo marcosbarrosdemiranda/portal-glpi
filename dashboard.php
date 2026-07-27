@@ -272,7 +272,7 @@ function pode_ver(string $key, ?array $cards): bool {
     <p>Acompanhe o status das suas solicitações abertas e resolvidas.</p>
   </a>
 
-  <a href="conhecimento.php" class="dash-card card-conhecimento">
+  <a href="http://192.168.1.246:3000/login" target="_blank" rel="noopener" class="dash-card card-conhecimento">
     <div class="card-icon"><i class="bi bi-book-fill"></i></div>
     <h5>Área do Conhecimento</h5>
     <p>Acesse artigos, tutoriais e documentações da equipe de TI.</p>
@@ -347,7 +347,7 @@ function pode_ver(string $key, ?array $cards): bool {
   <?php endif; ?>
 
   <?php if (pode_ver('conhecimento', $perfil_cards) && !$is_self_glpi): ?>
-  <a href="conhecimento.php" class="dash-card card-conhecimento">
+  <a href="http://192.168.1.246:3000/login" target="_blank" rel="noopener" class="dash-card card-conhecimento">
     <div class="card-icon"><i class="bi bi-book-fill"></i></div>
     <h5>Área do Conhecimento</h5>
     <p>Acesse artigos, tutoriais e documentações da equipe de TI.</p>
