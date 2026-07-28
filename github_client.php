@@ -162,3 +162,27 @@ function github_obter_previsao(string $token, string $owner, string $repo): ?str
 
     return $data[0]['due_on'];
 }
+
+function github_obter_readme_html(string $token, string $owner, string $repo): array {
+    $ch = curl_init('https://api.github.com/repos/' . rawurlencode($owner) . '/' . rawurlencode($repo) . '/readme');
+    curl_setopt_array($ch, [
+        CURLOPT_RETURNTRANSFER => true,
+        CURLOPT_TIMEOUT        => 8,
+        CURLOPT_HTTPHEADER     => [
+            'Authorization: Bearer ' . $token,
+            'Accept: application/vnd.github.html+json',
+            'User-Agent: portal-glpi',
+        ],
+    ]);
+    $body  = curl_exec($ch);
+    $errno = curl_errno($ch);
+    $code  = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+    curl_close($ch);
+
+    if ($errno) return ['erro' => 'Falha de conexão com o GitHub'];
+    if ($code === 404) return ['html' => ''];
+    if ($code !== 200) return ['erro' => 'GitHub retornou HTTP ' . $code];
+
+    // O GitHub já retorna HTML renderizado/sanitizado (mesmo motor usado no site deles)
+    return ['html' => $body];
+}

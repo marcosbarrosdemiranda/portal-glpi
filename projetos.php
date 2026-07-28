@@ -36,7 +36,6 @@ $pdo->exec("
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
 ");
 $pdo->exec("ALTER TABLE portal_projetos_status ADD COLUMN IF NOT EXISTS visivel TINYINT(1) NOT NULL DEFAULT 1");
-$pdo->exec("ALTER TABLE portal_projetos_status ADD COLUMN IF NOT EXISTS doc_url VARCHAR(500) DEFAULT NULL");
 
 // ── AJAX: contas GitHub (cada usuário só mexe nas próprias) ────
 $ghAction = $_GET['gh_action'] ?? '';
@@ -119,29 +118,6 @@ if ($ghAction) {
         exit;
     }
 
-    if ($ghAction === 'doc_url_set') {
-        $body     = json_decode(file_get_contents('php://input'), true) ?? [];
-        $contaId  = (int)($body['conta_id'] ?? 0);
-        $repoNome = trim($body['repo_nome'] ?? '');
-        $docUrl   = trim($body['doc_url'] ?? '');
-        if (!$repoNome) { echo json_encode(['ok'=>false,'msg'=>'Repositório inválido']); exit; }
-        if ($docUrl !== '' && !preg_match('~^https?://~i', $docUrl)) {
-            echo json_encode(['ok'=>false,'msg'=>'URL deve começar com http:// ou https://']); exit;
-        }
-
-        $st = $pdo->prepare("SELECT id FROM portal_github_contas WHERE id=? AND user_id=?");
-        $st->execute([$contaId, $uid]);
-        if (!$st->fetch()) { echo json_encode(['ok'=>false,'msg'=>'Conta não encontrada']); exit; }
-
-        $pdo->prepare("
-            INSERT INTO portal_projetos_status (conta_id, repo_nome, doc_url)
-            VALUES (?,?,?)
-            ON DUPLICATE KEY UPDATE doc_url = VALUES(doc_url)
-        ")->execute([$contaId, $repoNome, $docUrl !== '' ? $docUrl : null]);
-        echo json_encode(['ok'=>true]);
-        exit;
-    }
-
     if ($ghAction === 'conta_repos') {
         $body = json_decode(file_get_contents('php://input'), true) ?? [];
         $id   = (int)($body['id'] ?? 0);
@@ -187,6 +163,28 @@ if ($ghAction) {
             $upsert->execute([$contaId, $nome, $vis]);
         }
         echo json_encode(['ok'=>true]);
+        exit;
+    }
+
+    if ($ghAction === 'readme_html') {
+        $body     = json_decode(file_get_contents('php://input'), true) ?? [];
+        $contaId  = (int)($body['conta_id'] ?? 0);
+        $repoNome = trim($body['repo_nome'] ?? '');
+        if (!$repoNome) { echo json_encode(['ok'=>false,'msg'=>'Repositório inválido']); exit; }
+
+        $st = $pdo->prepare("SELECT * FROM portal_github_contas WHERE id=? AND user_id=?");
+        $st->execute([$contaId, $uid]);
+        $conta = $st->fetch(PDO::FETCH_ASSOC);
+        if (!$conta) { echo json_encode(['ok'=>false,'msg'=>'Conta não encontrada']); exit; }
+
+        $resultado = github_obter_readme_html(vault_decrypt($conta['token_enc']), $conta['usuario_github'], $repoNome);
+        if (isset($resultado['erro'])) { echo json_encode(['ok'=>false,'msg'=>$resultado['erro']]); exit; }
+
+        echo json_encode([
+            'ok'      => true,
+            'html'    => $resultado['html'],
+            'repoUrl' => 'https://github.com/' . rawurlencode($conta['usuario_github']) . '/' . rawurlencode($repoNome),
+        ]);
         exit;
     }
 
@@ -834,7 +832,7 @@ body  { background:#f0f4f9; font-family:'Segoe UI',sans-serif; font-size:.9rem; 
                   padding:.15rem .5rem; border-radius:8px; font-weight:600; }
 
 /* ── Contas GitHub ─────────────────────────────────────────── */
-.gh-contas-section { margin-bottom: 1.5rem; }
+.gh-contas-section { margin-bottom: 1.5rem; margin-top: 2rem; }
 .gh-contas-grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(160px,1fr)); gap:.75rem; }
 .gh-conta-card { background:#fff; border:2px solid #e5e7eb; border-radius:12px;
                  padding:1rem; position:relative; transition:all .15s; }
@@ -883,6 +881,21 @@ body  { background:#f0f4f9; font-family:'Segoe UI',sans-serif; font-size:.9rem; 
 .gh-proj-previsao { font-size:.72rem; color:#6b7280; margin-top:.2rem; }
 .gh-proj-meta { display:flex; flex-wrap:wrap; gap:.6rem; margin-top:auto;
                 padding-top:.6rem; border-top:1px solid #f3f4f6; }
+
+/* ── Conteúdo do README (renderizado pelo GitHub) dentro do modal ── */
+.gh-readme-conteudo { font-size:.88rem; line-height:1.6; color:#1f2328; }
+.gh-readme-conteudo h1, .gh-readme-conteudo h2 { font-size:1.2rem; font-weight:700; margin:1rem 0 .5rem; padding-bottom:.3rem; border-bottom:1px solid #e5e7eb; }
+.gh-readme-conteudo h3, .gh-readme-conteudo h4 { font-size:1rem; font-weight:700; margin:.85rem 0 .4rem; }
+.gh-readme-conteudo p { margin:0 0 .75rem; }
+.gh-readme-conteudo ul, .gh-readme-conteudo ol { margin:0 0 .75rem; padding-left:1.5rem; }
+.gh-readme-conteudo img { max-width:100%; height:auto; }
+.gh-readme-conteudo code { background:#f3f4f6; border-radius:4px; padding:.1rem .35rem; font-size:.85em; }
+.gh-readme-conteudo pre { background:#f6f8fa; border-radius:8px; padding:.75rem 1rem; overflow-x:auto; margin:0 0 .75rem; }
+.gh-readme-conteudo pre code { background:none; padding:0; }
+.gh-readme-conteudo blockquote { border-left:3px solid #d1d5db; color:#6b7280; margin:0 0 .75rem; padding:.1rem 1rem; }
+.gh-readme-conteudo table { border-collapse:collapse; margin:0 0 .75rem; width:100%; }
+.gh-readme-conteudo th, .gh-readme-conteudo td { border:1px solid #e5e7eb; padding:.4rem .6rem; font-size:.85rem; }
+.gh-readme-conteudo a { color:#1a237e; }
 
 /* ── Status e Previsão ─────────────────────────────────────────── */
 .status-badge { display:inline-flex; align-items:center; gap:.35rem;
@@ -1006,15 +1019,13 @@ body  { background:#f0f4f9; font-family:'Segoe UI',sans-serif; font-size:.9rem; 
       $contaIds   = array_column($minhasContas, 'id');
       $statusMap  = [];
       $visivelMap = [];
-      $docUrlMap  = [];
       $ph = implode(',', array_fill(0, count($contaIds), '?'));
-      $st = $pdo->prepare("SELECT conta_id, repo_nome, status, visivel, doc_url FROM portal_projetos_status WHERE conta_id IN ($ph)");
+      $st = $pdo->prepare("SELECT conta_id, repo_nome, status, visivel FROM portal_projetos_status WHERE conta_id IN ($ph)");
       $st->execute($contaIds);
       foreach ($st->fetchAll(PDO::FETCH_ASSOC) as $row) {
           $chaveMap = $row['conta_id'] . ':' . $row['repo_nome'];
           $statusMap[$chaveMap]  = $row['status'];
           $visivelMap[$chaveMap] = (int)$row['visivel'];
-          $docUrlMap[$chaveMap]  = $row['doc_url'];
       }
 
       foreach ($minhasContas as $conta) {
@@ -1036,7 +1047,6 @@ body  { background:#f0f4f9; font-family:'Segoe UI',sans-serif; font-size:.9rem; 
 
               $repo['conta_id']      = $conta['id'];
               $repo['conta_apelido'] = $conta['apelido'];
-              $repo['doc_url']       = $docUrlMap[$chave] ?? null;
 
               $descReadme = github_obter_descricao_readme($token, $conta['usuario_github'], $repo['nome']);
               $repo['descricao'] = $descReadme !== '' ? $descReadme : $repo['descricao'];
@@ -1080,24 +1090,14 @@ body  { background:#f0f4f9; font-family:'Segoe UI',sans-serif; font-size:.9rem; 
         <div class="gh-grupo-body" id="grupoBody-<?= $chaveSecao ?>" style="<?= $abertoPorPadrao ? '' : 'display:none' ?>">
           <?php if ($reposPorSecao[$chaveSecao]): ?>
             <div class="gh-proj-grid">
-              <?php foreach ($reposPorSecao[$chaveSecao] as $repo):
-                $temDoc        = !empty($repo['doc_url']);
-                $linkPrincipal = $temDoc ? $repo['doc_url'] : $repo['url'];
-              ?>
+              <?php foreach ($reposPorSecao[$chaveSecao] as $repo): ?>
                 <div class="gh-proj-card" data-conta="<?= esc($repo['conta_apelido']) ?>">
                   <div class="gh-proj-topo">
-                    <a href="<?= esc($linkPrincipal) ?>" target="_blank" rel="noopener" class="gh-proj-nome">
-                      <i class="bi <?= $temDoc ? 'bi-journal-text' : 'bi-github' ?> me-1"></i><?= esc($repo['nome']) ?>
+                    <a href="#" onclick="abrirDocumentacao(event,<?= (int)$repo['conta_id'] ?>,'<?= esc($repo['nome']) ?>')" class="gh-proj-nome">
+                      <i class="bi bi-journal-text me-1"></i><?= esc($repo['nome']) ?>
                     </a>
                     <div class="gh-proj-acoes">
-                      <?php if ($temDoc): ?>
-                        <a href="<?= esc($repo['url']) ?>" target="_blank" rel="noopener" class="gh-proj-icon-btn" title="Abrir no GitHub"><i class="bi bi-github"></i></a>
-                      <?php endif; ?>
-                      <button type="button" class="gh-proj-icon-btn"
-                              data-conta="<?= (int)$repo['conta_id'] ?>" data-repo="<?= esc($repo['nome']) ?>" data-docurl="<?= esc($repo['doc_url'] ?? '') ?>"
-                              onclick="editarDocUrl(event,this)" title="Link de documentação">
-                        <i class="bi bi-pencil-fill"></i>
-                      </button>
+                      <a href="<?= esc($repo['url']) ?>" target="_blank" rel="noopener" class="gh-proj-icon-btn" title="Abrir no GitHub"><i class="bi bi-github"></i></a>
                       <div class="dropdown">
                         <button type="button" class="gh-proj-menu" data-bs-toggle="dropdown" aria-expanded="false"><i class="bi bi-three-dots-vertical"></i></button>
                         <ul class="dropdown-menu dropdown-menu-end">
@@ -1594,12 +1594,55 @@ document.getElementById('filtroConta')?.addEventListener('change', aplicarFiltro
   </div>
 </div>
 
+<!-- Modal: documentação do projeto (README renderizado do GitHub) -->
+<div class="modal fade" id="modalDoc" tabindex="-1">
+  <div class="modal-dialog modal-dialog-centered modal-lg modal-dialog-scrollable">
+    <div class="modal-content">
+      <div class="modal-header" style="background:linear-gradient(135deg,#1a237e,#1565c0);color:white">
+        <h5 class="modal-title fw-bold" id="modalDocTitulo"><i class="bi bi-journal-text me-2"></i>Documentação</h5>
+        <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body gh-readme-conteudo" id="modalDocCorpo">
+        <div class="text-muted small">Carregando...</div>
+      </div>
+      <div class="modal-footer">
+        <a href="#" target="_blank" rel="noopener" class="btn btn-outline-secondary me-auto" id="modalDocGithub"><i class="bi bi-github me-1"></i>Ver no GitHub</a>
+        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Fechar</button>
+      </div>
+    </div>
+  </div>
+</div>
+
 <script>
 let modalConta;
+let modalDoc;
 document.addEventListener('DOMContentLoaded', () => {
   const elConta = document.getElementById('modalConta');
   if (elConta) modalConta = new bootstrap.Modal(elConta);
+  const elDoc = document.getElementById('modalDoc');
+  if (elDoc) modalDoc = new bootstrap.Modal(elDoc);
 });
+
+async function abrirDocumentacao(ev, contaId, repoNome) {
+  ev.preventDefault();
+  document.getElementById('modalDocTitulo').innerHTML = '<i class="bi bi-journal-text me-2"></i>' + repoNome;
+  document.getElementById('modalDocCorpo').innerHTML = '<div class="text-muted small">Carregando...</div>';
+  document.getElementById('modalDocGithub').href = '#';
+  modalDoc.show();
+
+  const r = await fetch('projetos.php?gh_action=readme_html', {
+    method: 'POST', headers: {'Content-Type':'application/json'},
+    body: JSON.stringify({conta_id: contaId, repo_nome: repoNome}),
+  });
+  const d = await r.json();
+  const corpo = document.getElementById('modalDocCorpo');
+  if (!d.ok) {
+    corpo.innerHTML = `<p class="text-danger small">${d.msg || 'Erro ao carregar documentação'}</p>`;
+    return;
+  }
+  document.getElementById('modalDocGithub').href = d.repoUrl;
+  corpo.innerHTML = d.html || '<p class="text-muted small">Este repositório não tem um README.</p>';
+}
 
 function abrirModalConta() {
   document.getElementById('conta-id').value = '';
@@ -1751,24 +1794,6 @@ async function mudarStatus(ev, contaId, repoNome, status) {
   const d = await r.json();
   if (d.ok) location.reload();
   else alert(d.msg || 'Erro ao mudar status');
-}
-
-async function editarDocUrl(ev, btn) {
-  ev.preventDefault();
-  ev.stopPropagation();
-  const contaId  = parseInt(btn.dataset.conta, 10);
-  const repoNome = btn.dataset.repo;
-  const atual    = btn.dataset.docurl || '';
-  const novo = prompt('URL da documentação (deixe em branco para remover):', atual);
-  if (novo === null) return;
-
-  const r = await fetch('projetos.php?gh_action=doc_url_set', {
-    method: 'POST', headers: {'Content-Type':'application/json'},
-    body: JSON.stringify({conta_id: contaId, repo_nome: repoNome, doc_url: novo.trim()}),
-  });
-  const d = await r.json();
-  if (d.ok) location.reload();
-  else alert(d.msg || 'Erro ao salvar link');
 }
 
 async function excluirConta() {
