@@ -922,10 +922,6 @@ body  { background:#f0f4f9; font-family:'Segoe UI',sans-serif; font-size:.9rem; 
   </div>
 <?php endif; ?>
 
-<div style="display:flex;gap:8px;margin-bottom:1rem;flex-wrap:wrap">
-  <input type="text" id="searchProj" class="form-control" placeholder="Filtrar projetos..." style="max-width:300px;background:var(--bg2);border:1px solid var(--border);color:var(--fg)">
-</div>
-
 <?php if (!$modoDetalhe): ?>
   <!-- ═══════════════ CONTAS GITHUB ═══════════════ -->
   <div class="gh-contas-section">
@@ -957,6 +953,18 @@ body  { background:#f0f4f9; font-family:'Segoe UI',sans-serif; font-size:.9rem; 
   </div>
 
   <!-- ═══════════════ PROJETOS (GitHub, 3 seções) ═══════════════ -->
+  <?php if ($minhasContas): ?>
+  <div style="display:flex;gap:8px;margin-bottom:1rem;flex-wrap:wrap">
+    <input type="text" id="searchProj" class="form-control" placeholder="Buscar por nome, descrição, linguagem..." style="max-width:280px">
+    <select id="filtroConta" class="form-select" style="max-width:220px">
+      <option value="">Todos os técnicos</option>
+      <?php foreach ($minhasContas as $c): ?>
+        <option value="<?= esc($c['apelido']) ?>"><?= esc($c['apelido']) ?></option>
+      <?php endforeach; ?>
+    </select>
+  </div>
+  <?php endif; ?>
+
   <?php
   $reposPorSecao = ['futuro' => [], 'em_execucao' => [], 'concluido' => []];
   $errosContas   = [];
@@ -1029,7 +1037,7 @@ body  { background:#f0f4f9; font-family:'Segoe UI',sans-serif; font-size:.9rem; 
           <?php if ($reposPorSecao[$chaveSecao]): ?>
             <div class="gh-proj-grid">
               <?php foreach ($reposPorSecao[$chaveSecao] as $repo): ?>
-                <div class="gh-proj-card">
+                <div class="gh-proj-card" data-conta="<?= esc($repo['conta_apelido']) ?>">
                   <div class="gh-proj-topo">
                     <a href="<?= esc($repo['url']) ?>" target="_blank" rel="noopener" class="gh-proj-nome">
                       <i class="bi bi-github me-1"></i><?= esc($repo['nome']) ?>
@@ -1468,14 +1476,18 @@ function exportarPrint() {
 
 <?php if (!$modoDetalhe): ?>
 <script>
-// ── Filtro de projetos ──────────────────────────────────────────
-document.getElementById('searchProj')?.addEventListener('input', function() {
-  const q = this.value.toLowerCase().trim();
+// ── Filtro de projetos (texto + técnico) ─────────────────────────
+function aplicarFiltroProjetos() {
+  const q      = (document.getElementById('searchProj')?.value || '').toLowerCase().trim();
+  const conta  = document.getElementById('filtroConta')?.value || '';
   document.querySelectorAll('.gh-proj-card').forEach(card => {
-    const txt = card.textContent.toLowerCase();
-    card.style.display = (!q || txt.includes(q)) ? '' : 'none';
+    const txtOk   = !q || card.textContent.toLowerCase().includes(q);
+    const contaOk = !conta || card.dataset.conta === conta;
+    card.style.display = (txtOk && contaOk) ? '' : 'none';
   });
-});
+}
+document.getElementById('searchProj')?.addEventListener('input', aplicarFiltroProjetos);
+document.getElementById('filtroConta')?.addEventListener('change', aplicarFiltroProjetos);
 </script>
 <?php endif; ?>
 
