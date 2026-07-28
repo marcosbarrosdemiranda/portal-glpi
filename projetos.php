@@ -836,7 +836,7 @@ body  { background:#f0f4f9; font-family:'Segoe UI',sans-serif; font-size:.9rem; 
             <span class="gh-conta-badge <?= $c['ultimo_teste_ok'] ? 'ok' : 'erro' ?>">
               <i class="bi <?= $c['ultimo_teste_ok'] ? 'bi-check-circle-fill' : 'bi-exclamation-triangle-fill' ?>"></i>
             </span>
-            <button type="button" class="gh-conta-cfg" onclick='editarConta(<?= json_encode($c, JSON_HEX_APOS | JSON_HEX_QUOT) ?>)' title="Editar">
+            <button type="button" class="gh-conta-cfg" onclick='editarConta(<?= json_encode(['id'=>$c['id'],'apelido'=>$c['apelido'],'usuario_github'=>$c['usuario_github']], JSON_HEX_APOS | JSON_HEX_QUOT) ?>)' title="Editar">
               <i class="bi bi-gear-fill"></i>
             </button>
           </div>
