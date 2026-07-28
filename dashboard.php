@@ -224,7 +224,7 @@ function pode_ver(string $key, ?array $cards): bool {
       margin-top: 1rem;
       display: flex; align-items: center; gap: .4rem;
     }
-    .section-label:first-child { margin-top: 0; }
+    .section-label:first-child { margin-top: 3rem; }
 
     /* Rodapé */
     footer {
