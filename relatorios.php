@@ -1361,7 +1361,7 @@ async function carregarProjetos() {
     projetos.forEach(p => {
       const pct = p.progresso || 0;
       const cor = pct >= 80 ? 'var(--green)' : pct >= 50 ? 'var(--gold)' : 'var(--red)';
-      const badgeCor = p.status === 'Adiantado' ? 'var(--cyan)' : p.status === 'No prazo' ? 'var(--green)' : p.status === 'Atenção' ? 'var(--gold)' : 'var(--red)';
+      const badgeCor = p.status === 'Concluído' ? 'var(--green)' : p.status === 'Em Execução' ? 'var(--cyan)' : p.status === 'Futuro' ? 'var(--gold)' : 'var(--red)';
       html += `<div class="chart-card" style="display:flex;flex-direction:column;gap:.5rem">
         <div style="display:flex;justify-content:space-between;align-items:center">
           <strong style="color:var(--text-bright);font-size:.9rem">${escHtml(p.nome)}</strong>
@@ -1373,7 +1373,7 @@ async function carregarProjetos() {
         </div>
         <div style="font-size:.72rem;color:var(--text-dim);display:flex;gap:1rem;flex-wrap:wrap">
           <span>📅 ${escHtml(p.prazo || '—')}</span>
-          <span>📦 ${p.modulos || 0} módulos</span>
+          <span>📦 ${p.tarefas || 0} tarefas</span>
           <span>👤 ${escHtml(p.equipe || '—')}</span>
         </div>
       </div>`;
