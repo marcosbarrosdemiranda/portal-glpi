@@ -923,6 +923,17 @@ body  { background:#f0f4f9; font-family:'Segoe UI',sans-serif; font-size:.9rem; 
 <?php endif; ?>
 
 <?php if (!$modoDetalhe): ?>
+  <?php if ($minhasContas): ?>
+  <div style="display:flex;gap:8px;margin-bottom:1rem;flex-wrap:wrap">
+    <select id="filtroConta" class="form-select" style="max-width:220px">
+      <option value="">Todos os técnicos</option>
+      <?php foreach ($minhasContas as $c): ?>
+        <option value="<?= esc($c['apelido']) ?>"><?= esc($c['apelido']) ?></option>
+      <?php endforeach; ?>
+    </select>
+  </div>
+  <?php endif; ?>
+
   <!-- ═══════════════ CONTAS GITHUB ═══════════════ -->
   <div class="gh-contas-section">
     <h6 class="fw-bold mb-2" style="color:#374151;cursor:pointer" onclick="toggleContas()">
@@ -953,17 +964,6 @@ body  { background:#f0f4f9; font-family:'Segoe UI',sans-serif; font-size:.9rem; 
   </div>
 
   <!-- ═══════════════ PROJETOS (GitHub, 3 seções) ═══════════════ -->
-  <?php if ($minhasContas): ?>
-  <div style="display:flex;gap:8px;margin-bottom:1rem;flex-wrap:wrap">
-    <input type="text" id="searchProj" class="form-control" placeholder="Buscar por nome, descrição, linguagem..." style="max-width:280px">
-    <select id="filtroConta" class="form-select" style="max-width:220px">
-      <option value="">Todos os técnicos</option>
-      <?php foreach ($minhasContas as $c): ?>
-        <option value="<?= esc($c['apelido']) ?>"><?= esc($c['apelido']) ?></option>
-      <?php endforeach; ?>
-    </select>
-  </div>
-  <?php endif; ?>
 
   <?php
   $reposPorSecao = ['futuro' => [], 'em_execucao' => [], 'concluido' => []];
@@ -1476,17 +1476,13 @@ function exportarPrint() {
 
 <?php if (!$modoDetalhe): ?>
 <script>
-// ── Filtro de projetos (texto + técnico) ─────────────────────────
+// ── Filtro de projetos por técnico ────────────────────────────────
 function aplicarFiltroProjetos() {
-  const q      = (document.getElementById('searchProj')?.value || '').toLowerCase().trim();
-  const conta  = document.getElementById('filtroConta')?.value || '';
+  const conta = document.getElementById('filtroConta')?.value || '';
   document.querySelectorAll('.gh-proj-card').forEach(card => {
-    const txtOk   = !q || card.textContent.toLowerCase().includes(q);
-    const contaOk = !conta || card.dataset.conta === conta;
-    card.style.display = (txtOk && contaOk) ? '' : 'none';
+    card.style.display = (!conta || card.dataset.conta === conta) ? '' : 'none';
   });
 }
-document.getElementById('searchProj')?.addEventListener('input', aplicarFiltroProjetos);
 document.getElementById('filtroConta')?.addEventListener('change', aplicarFiltroProjetos);
 </script>
 <?php endif; ?>
