@@ -1093,7 +1093,7 @@ const ROTINA_CHECKLISTS = {
 // Verifica sessão a cada 3 minutos — redireciona para login se expirada
 setInterval(function() {
   fetch('ping.php?bg=1')
-    .then(r => { if (r.status === 440) { window.location = '../auth.php?timeout=1'; } return r.json().catch(() => {}); })
+    .then(r => { if (r.status === 440 || r.status === 401) { window.location = '../auth.php?timeout=1'; return null; } return r.json().catch(() => {}); })
     .then(d => { if (d && d.timeout) window.location = '../auth.php?timeout=1'; })
     .catch(() => {});
 }, 3 * 60 * 1000);

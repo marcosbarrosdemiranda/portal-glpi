@@ -219,8 +219,9 @@
     const params = new URLSearchParams({ ultimo: ultimoCheck, bg: 1 });
     fetch(`${BASE_URL}notificacoes.php?${params}`)
       .then(r => {
-        // 440 = sessão expirada por inatividade → vai para o login
-        if (r.status === 440) { window.location.href = (BASE_URL || '') + 'auth.php?timeout=1'; return null; }
+        // 440 = sessão expirada por inatividade (1ª detecção); 401 = sessão já destruída
+        // numa checagem anterior (a inatividade só manda 440 uma vez) → nos dois casos, login
+        if (r.status === 440 || r.status === 401) { window.location.href = (BASE_URL || '') + 'auth.php?timeout=1'; return null; }
         return r.ok ? r.json() : [];
       })
       .then(novos => {
