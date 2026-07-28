@@ -957,24 +957,23 @@ body  { background:#f0f4f9; font-family:'Segoe UI',sans-serif; font-size:.9rem; 
 <?php endif; ?>
 
 <?php if (!$modoDetalhe): ?>
-  <?php if ($minhasContas): ?>
-  <div style="display:flex;gap:8px;margin-bottom:1rem;flex-wrap:wrap">
-    <select id="filtroConta" class="form-select" style="max-width:220px">
-      <option value="">Todos os técnicos</option>
-      <?php foreach ($minhasContas as $c): ?>
-        <option value="<?= esc($c['apelido']) ?>"><?= esc($c['apelido']) ?></option>
-      <?php endforeach; ?>
-    </select>
-  </div>
-  <?php endif; ?>
-
   <!-- ═══════════════ CONTAS GITHUB ═══════════════ -->
   <div class="gh-contas-section">
-    <h6 class="fw-bold mb-2" style="color:#374151;cursor:pointer" onclick="toggleContas()">
-      <i class="bi bi-github me-2"></i>Minhas Contas GitHub
-      <span class="text-muted fw-normal">(<?= count($minhasContas) ?>)</span>
-      <i class="bi bi-chevron-down ms-1" id="chvContas" style="font-size:.75rem;transition:transform .2s"></i>
-    </h6>
+    <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:.5rem;margin-bottom:.5rem">
+      <h6 class="fw-bold mb-0" style="color:#374151;cursor:pointer" onclick="toggleContas()">
+        <i class="bi bi-github me-2"></i>Minhas Contas GitHub
+        <span class="text-muted fw-normal">(<?= count($minhasContas) ?>)</span>
+        <i class="bi bi-chevron-down ms-1" id="chvContas" style="font-size:.75rem;transition:transform .2s"></i>
+      </h6>
+      <?php if ($minhasContas): ?>
+      <select id="filtroConta" class="form-select form-select-sm" style="max-width:200px" onclick="event.stopPropagation()">
+        <option value="">Todos os técnicos</option>
+        <?php foreach ($minhasContas as $c): ?>
+          <option value="<?= esc($c['apelido']) ?>"><?= esc($c['apelido']) ?></option>
+        <?php endforeach; ?>
+      </select>
+      <?php endif; ?>
+    </div>
     <div class="gh-contas-grid" id="gridContas" style="display:none">
       <?php foreach ($minhasContas as $c): ?>
         <div class="gh-conta-card">
