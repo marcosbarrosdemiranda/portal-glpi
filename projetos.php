@@ -3,6 +3,116 @@ require_once __DIR__ . '/auth_guard.php';
 if (empty($_SESSION['autenticado'])) { header('Location: auth.php'); exit; }
 if (($_SESSION['perfil'] ?? '') === 'self-service') { header('Location: dashboard.php'); exit; }
 
+require_once __DIR__ . '/agenda/db.php';
+require_once __DIR__ . '/agenda/config.php';
+require_once __DIR__ . '/vault_crypto.php';
+require_once __DIR__ . '/github_client.php';
+
+$uid = (int)($_SESSION['user_id'] ?? 0);
+
+// ── Tabelas de contas GitHub e status manual dos projetos ──────
+$pdo->exec("
+    CREATE TABLE IF NOT EXISTS portal_github_contas (
+        id                 INT AUTO_INCREMENT PRIMARY KEY,
+        user_id            INT           NOT NULL,
+        apelido            VARCHAR(60)   NOT NULL,
+        usuario_github     VARCHAR(100)  NOT NULL,
+        token_enc          TEXT          NOT NULL,
+        ativo              TINYINT(1)    DEFAULT 1,
+        ultimo_teste_ok    TINYINT(1)    DEFAULT NULL,
+        ultima_verificacao DATETIME      DEFAULT NULL,
+        criado_em          TIMESTAMP     DEFAULT CURRENT_TIMESTAMP
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+");
+$pdo->exec("
+    CREATE TABLE IF NOT EXISTS portal_projetos_status (
+        id            INT AUTO_INCREMENT PRIMARY KEY,
+        conta_id      INT           NOT NULL,
+        repo_nome     VARCHAR(255)  NOT NULL,
+        status        ENUM('futuro','em_execucao','concluido') NOT NULL DEFAULT 'em_execucao',
+        atualizado_em TIMESTAMP     DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+        UNIQUE KEY uk_conta_repo (conta_id, repo_nome),
+        FOREIGN KEY (conta_id) REFERENCES portal_github_contas(id) ON DELETE CASCADE
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+");
+
+// ── AJAX: contas GitHub (cada usuário só mexe nas próprias) ────
+$ghAction = $_GET['gh_action'] ?? '';
+if ($ghAction) {
+    header('Content-Type: application/json');
+    if (stripos($_SERVER['CONTENT_TYPE'] ?? '', 'application/json') !== 0) {
+        echo json_encode(['ok'=>false,'msg'=>'Requisição inválida']); exit;
+    }
+    if (!$uid) { echo json_encode(['ok'=>false,'msg'=>'Sessão inválida']); exit; }
+
+    if ($ghAction === 'conta_add' || $ghAction === 'conta_save') {
+        $body    = json_decode(file_get_contents('php://input'), true) ?? [];
+        $apelido = trim($body['apelido'] ?? '');
+        $usuario = trim($body['usuario_github'] ?? '');
+        $token   = trim($body['token'] ?? '');
+        $id      = (int)($body['id'] ?? 0);
+
+        if (!$apelido || !$usuario) { echo json_encode(['ok'=>false,'msg'=>'Apelido e usuário são obrigatórios']); exit; }
+
+        // Edição sem novo token = mantém o token atual, não re-testa
+        if ($ghAction === 'conta_save' && $id && $token === '') {
+            $st = $pdo->prepare("UPDATE portal_github_contas SET apelido=?, usuario_github=? WHERE id=? AND user_id=?");
+            $st->execute([$apelido, $usuario, $id, $uid]);
+            echo json_encode(['ok'=>true]); exit;
+        }
+
+        if (!$token) { echo json_encode(['ok'=>false,'msg'=>'Token é obrigatório']); exit; }
+        $teste = github_testar_token($token);
+        if (!$teste['ok']) { echo json_encode(['ok'=>false,'msg'=>'Token inválido: '.$teste['msg']]); exit; }
+
+        $tokenEnc = vault_encrypt($token);
+        if ($ghAction === 'conta_add') {
+            $st = $pdo->prepare("INSERT INTO portal_github_contas (user_id,apelido,usuario_github,token_enc,ultimo_teste_ok,ultima_verificacao) VALUES (?,?,?,?,1,NOW())");
+            $st->execute([$uid, $apelido, $usuario, $tokenEnc]);
+            echo json_encode(['ok'=>true,'id'=>$pdo->lastInsertId()]);
+        } else {
+            $st = $pdo->prepare("UPDATE portal_github_contas SET apelido=?, usuario_github=?, token_enc=?, ultimo_teste_ok=1, ultima_verificacao=NOW() WHERE id=? AND user_id=?");
+            $st->execute([$apelido, $usuario, $tokenEnc, $id, $uid]);
+            echo json_encode(['ok'=>true]);
+        }
+        exit;
+    }
+
+    if ($ghAction === 'conta_testar') {
+        $body = json_decode(file_get_contents('php://input'), true) ?? [];
+        $id   = (int)($body['id'] ?? 0);
+        $st = $pdo->prepare("SELECT token_enc FROM portal_github_contas WHERE id=? AND user_id=?");
+        $st->execute([$id, $uid]);
+        $row = $st->fetch(PDO::FETCH_ASSOC);
+        if (!$row) { echo json_encode(['ok'=>false,'msg'=>'Conta não encontrada']); exit; }
+
+        $teste = github_testar_token(vault_decrypt($row['token_enc']));
+        $pdo->prepare("UPDATE portal_github_contas SET ultimo_teste_ok=?, ultima_verificacao=NOW() WHERE id=?")
+            ->execute([$teste['ok'] ? 1 : 0, $id]);
+        echo json_encode($teste);
+        exit;
+    }
+
+    if ($ghAction === 'conta_delete') {
+        $body = json_decode(file_get_contents('php://input'), true) ?? [];
+        $id   = (int)($body['id'] ?? 0);
+        $pdo->prepare("DELETE FROM portal_github_contas WHERE id=? AND user_id=?")->execute([$id, $uid]);
+        echo json_encode(['ok'=>true]);
+        exit;
+    }
+
+    echo json_encode(['ok'=>false,'msg'=>'Ação inválida']);
+    exit;
+}
+
+// ── Minhas contas GitHub (para o painel e, na próxima etapa, a listagem) ──
+$minhasContas = [];
+if ($uid) {
+    $st = $pdo->prepare("SELECT * FROM portal_github_contas WHERE user_id=? ORDER BY criado_em");
+    $st->execute([$uid]);
+    $minhasContas = $st->fetchAll(PDO::FETCH_ASSOC);
+}
+
 // ── Parser de projeto Markdown ─────────────────────────────────────────────
 function parseProjeto(string $filepath): ?array {
     $content = @file_get_contents($filepath);
@@ -615,6 +725,24 @@ body  { background:#f0f4f9; font-family:'Segoe UI',sans-serif; font-size:.9rem; 
 .badge-obsidian { background:#7c3aed; color:#fff; font-size:.65rem;
                   padding:.15rem .5rem; border-radius:8px; font-weight:600; }
 
+/* ── Contas GitHub ─────────────────────────────────────────── */
+.gh-contas-section { margin-bottom: 1.5rem; }
+.gh-contas-grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(160px,1fr)); gap:.75rem; }
+.gh-conta-card { background:#fff; border:2px solid #e5e7eb; border-radius:12px;
+                 padding:1rem; position:relative; transition:all .15s; }
+.gh-conta-card:hover { box-shadow:0 4px 16px rgba(0,0,0,.08); }
+.gh-conta-topo { display:flex; justify-content:space-between; align-items:center; margin-bottom:.5rem; }
+.gh-conta-badge.ok   { color:#1e8e3e; }
+.gh-conta-badge.erro { color:#d93025; }
+.gh-conta-cfg { background:none; border:none; color:#9ca3af; cursor:pointer; padding:0; }
+.gh-conta-cfg:hover { color:#1a237e; }
+.gh-conta-apelido { font-weight:700; font-size:.88rem; }
+.gh-conta-usuario { font-size:.75rem; color:#6b7280; }
+.gh-conta-add { display:flex; flex-direction:column; align-items:center; justify-content:center;
+                gap:.35rem; min-height:64px; border:2px dashed #d1d5db; color:#9ca3af;
+                cursor:pointer; border-radius:12px; }
+.gh-conta-add:hover { border-color:#1a237e; color:#1a237e; }
+
 /* ── Status e Previsão ─────────────────────────────────────────── */
 .status-badge { display:inline-flex; align-items:center; gap:.35rem;
                 padding:.28rem .75rem; border-radius:20px; font-size:.75rem; font-weight:700; }
@@ -695,59 +823,38 @@ body  { background:#f0f4f9; font-family:'Segoe UI',sans-serif; font-size:.9rem; 
   </a>
 </div>
 
-<?php if (!$projetos): ?>
-  <div class="card-box text-center py-5 text-muted">
-    <i class="bi bi-folder-x fs-1 d-block mb-2"></i>
-    <p>Nenhum projeto em <code>Docs/wiki/projects/</code></p>
-    <p class="small">Crie um arquivo <code>.md</code> no Obsidian para aparecer aqui.</p>
-  </div>
-
-<?php elseif (!$modoDetalhe): ?>
-  <!-- ═══════════════ LISTA DE CARDS ═══════════════ -->
-  <?php
-  $projetosAndamento = array_values(array_filter($projetos, fn($p) => $p['pct'] < 100));
-  $projetosConcluidos = array_values(array_filter($projetos, fn($p) => $p['pct'] >= 100));
-  ?>
-
-  <div id="secAndamento">
+<?php if (!$modoDetalhe): ?>
+  <!-- ═══════════════ CONTAS GITHUB ═══════════════ -->
+  <div class="gh-contas-section">
     <h6 class="fw-bold mb-2" style="color:#374151">
-      <i class="bi bi-hourglass-split me-2 text-primary"></i>Em andamento
-      <span class="text-muted fw-normal">(<?= count($projetosAndamento) ?>)</span>
+      <i class="bi bi-github me-2"></i>Minhas Contas GitHub
     </h6>
-    <?php if ($projetosAndamento): ?>
-      <div class="row g-3 mb-4">
-        <?php foreach ($projetosAndamento as $p) renderProjCard($p); ?>
+    <div class="gh-contas-grid">
+      <?php foreach ($minhasContas as $c): ?>
+        <div class="gh-conta-card">
+          <div class="gh-conta-topo">
+            <span class="gh-conta-badge <?= $c['ultimo_teste_ok'] ? 'ok' : 'erro' ?>">
+              <i class="bi <?= $c['ultimo_teste_ok'] ? 'bi-check-circle-fill' : 'bi-exclamation-triangle-fill' ?>"></i>
+            </span>
+            <button type="button" class="gh-conta-cfg" onclick='editarConta(<?= json_encode($c, JSON_HEX_APOS | JSON_HEX_QUOT) ?>)' title="Editar">
+              <i class="bi bi-gear-fill"></i>
+            </button>
+          </div>
+          <div class="gh-conta-apelido"><?= esc($c['apelido']) ?></div>
+          <div class="gh-conta-usuario">@<?= esc($c['usuario_github']) ?></div>
+        </div>
+      <?php endforeach; ?>
+      <div class="gh-conta-card gh-conta-add" onclick="abrirModalConta()">
+        <i class="bi bi-plus-circle" style="font-size:1.5rem"></i>
+        <div class="gh-conta-apelido">Adicionar</div>
       </div>
-    <?php else: ?>
-      <p class="text-muted small mb-4">Nenhum projeto em andamento.</p>
-    <?php endif; ?>
+    </div>
   </div>
 
-  <div id="secConcluidos">
-    <h6 class="fw-bold mb-2" style="color:#374151;cursor:pointer" onclick="toggleConcluidos()">
-      <i class="bi bi-check-circle-fill me-2 text-success"></i>Concluídos
-      <span class="text-muted fw-normal">(<?= count($projetosConcluidos) ?>)</span>
-      <i class="bi bi-chevron-down ms-1" id="chvConcluidos" style="font-size:.75rem;transition:transform .2s"></i>
-    </h6>
-    <?php if ($projetosConcluidos): ?>
-      <div class="row g-3" id="gridConcluidos" style="display:none">
-        <?php foreach ($projetosConcluidos as $p) renderProjCard($p); ?>
-      </div>
-    <?php else: ?>
-      <p class="text-muted small">Nenhum projeto concluído ainda.</p>
-    <?php endif; ?>
+  <!-- ═══════════════ PROJETOS (próxima etapa) ═══════════════ -->
+  <div class="text-muted small mt-4" id="gh-projetos-placeholder">
+    Cadastre uma conta GitHub acima para ver seus projetos aqui.
   </div>
-
-  <script>
-  function toggleConcluidos() {
-    const grid = document.getElementById('gridConcluidos');
-    const chv  = document.getElementById('chvConcluidos');
-    if (!grid) return;
-    const aberto = grid.style.display !== 'none';
-    grid.style.display = aberto ? 'none' : '';
-    chv.style.transform = aberto ? '' : 'rotate(-180deg)';
-  }
-  </script>
 
 <?php else: ?>
   <!-- ═══════════════ DETALHE DO PROJETO ═══════════════ -->
@@ -1166,6 +1273,108 @@ document.getElementById('searchProj')?.addEventListener('input', function() {
 });
 </script>
 <?php endif; ?>
+
+<!-- Modal: adicionar/editar conta GitHub -->
+<div class="modal fade" id="modalConta" tabindex="-1">
+  <div class="modal-dialog modal-dialog-centered">
+    <div class="modal-content">
+      <div class="modal-header" style="background:linear-gradient(135deg,#1a237e,#1565c0);color:white">
+        <h5 class="modal-title fw-bold" id="modalContaTitulo"><i class="bi bi-github me-2"></i>Nova Conta GitHub</h5>
+        <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <input type="hidden" id="conta-id"/>
+        <div class="mb-3">
+          <label class="form-label fw-semibold">Apelido</label>
+          <input type="text" class="form-control" id="conta-apelido" placeholder="Ex: Pessoal"/>
+        </div>
+        <div class="mb-3">
+          <label class="form-label fw-semibold">Usuário GitHub</label>
+          <input type="text" class="form-control" id="conta-usuario" placeholder="ex: joaosilva"/>
+        </div>
+        <div class="mb-2">
+          <label class="form-label fw-semibold">Personal Access Token</label>
+          <input type="password" class="form-control font-monospace" id="conta-token" placeholder="ghp_..." autocomplete="new-password"/>
+          <div class="form-text" id="conta-token-hint">Somente leitura, escopo <code>repo</code>. <a href="https://github.com/settings/tokens?type=beta" target="_blank" rel="noopener">Gerar token</a></div>
+        </div>
+        <div id="conta-erro" class="text-danger small" style="display:none"></div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-outline-danger me-auto" id="btn-excluir-conta" style="display:none" onclick="excluirConta()"><i class="bi bi-trash me-1"></i>Excluir</button>
+        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
+        <button type="button" class="btn btn-primary" onclick="salvarConta()" style="background:#1a237e;border-color:#1a237e"><i class="bi bi-check-lg me-1"></i>Salvar</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+let modalConta;
+document.addEventListener('DOMContentLoaded', () => {
+  const elConta = document.getElementById('modalConta');
+  if (elConta) modalConta = new bootstrap.Modal(elConta);
+});
+
+function abrirModalConta() {
+  document.getElementById('conta-id').value = '';
+  document.getElementById('conta-apelido').value = '';
+  document.getElementById('conta-usuario').value = '';
+  document.getElementById('conta-token').value = '';
+  document.getElementById('conta-token').placeholder = 'ghp_...';
+  document.getElementById('conta-erro').style.display = 'none';
+  document.getElementById('modalContaTitulo').innerHTML = '<i class="bi bi-github me-2"></i>Nova Conta GitHub';
+  document.getElementById('btn-excluir-conta').style.display = 'none';
+  modalConta.show();
+}
+
+function editarConta(c) {
+  document.getElementById('conta-id').value = c.id;
+  document.getElementById('conta-apelido').value = c.apelido;
+  document.getElementById('conta-usuario').value = c.usuario_github;
+  document.getElementById('conta-token').value = '';
+  document.getElementById('conta-token').placeholder = 'Deixe em branco para manter o token atual';
+  document.getElementById('conta-erro').style.display = 'none';
+  document.getElementById('modalContaTitulo').textContent = c.apelido;
+  document.getElementById('btn-excluir-conta').style.display = 'inline-block';
+  modalConta.show();
+}
+
+async function salvarConta() {
+  const id             = document.getElementById('conta-id').value;
+  const apelido        = document.getElementById('conta-apelido').value.trim();
+  const usuario_github = document.getElementById('conta-usuario').value.trim();
+  const token          = document.getElementById('conta-token').value.trim();
+  const erroEl         = document.getElementById('conta-erro');
+  erroEl.style.display = 'none';
+
+  if (!apelido || !usuario_github) {
+    erroEl.textContent = 'Preencha apelido e usuário.';
+    erroEl.style.display = '';
+    return;
+  }
+
+  const action = id ? 'conta_save' : 'conta_add';
+  const r = await fetch(`projetos.php?gh_action=${action}`, {
+    method: 'POST', headers: {'Content-Type':'application/json'},
+    body: JSON.stringify({id, apelido, usuario_github, token}),
+  });
+  const d = await r.json();
+  if (d.ok) { modalConta.hide(); location.reload(); }
+  else { erroEl.textContent = d.msg || 'Erro ao salvar'; erroEl.style.display = ''; }
+}
+
+async function excluirConta() {
+  const id = document.getElementById('conta-id').value;
+  if (!id || !confirm('Excluir esta conta GitHub? Os projetos dela deixarão de aparecer.')) return;
+  const r = await fetch('projetos.php?gh_action=conta_delete', {
+    method: 'POST', headers: {'Content-Type':'application/json'},
+    body: JSON.stringify({id}),
+  });
+  const d = await r.json();
+  if (d.ok) { modalConta.hide(); location.reload(); }
+  else alert(d.msg || 'Erro ao excluir');
+}
+</script>
 
 </body>
 </html>
