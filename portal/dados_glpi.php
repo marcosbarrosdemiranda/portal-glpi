@@ -66,7 +66,7 @@ $users = array_map(function($u) {
 }, array_values($users));
 usort($users, fn($a,$b) => strcmp($a['nome'],$b['nome']));
 
-$ents = array_filter($entidades, fn($e) => isset($e['id']));
+$ents = array_filter($entidades, fn($e) => isset($e['id']) && (int)$e['id'] !== 0); // Exclui entidade raiz (reservada p/ rotinas internas)
 $ents = array_map(fn($e) => ['id'=>$e['id'],'nome'=>$e['completename']??$e['name']??''], array_values($ents));
 
 ob_end_clean();
