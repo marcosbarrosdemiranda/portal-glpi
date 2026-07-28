@@ -861,7 +861,6 @@ body  { background:#f0f4f9; font-family:'Segoe UI',sans-serif; font-size:.9rem; 
       <?= esc($projeto['objetivo']) ?>
     <?php else: ?>
       Acompanhe o progresso de cada projeto
-      <span class="badge-obsidian ms-2"><i class="bi bi-journal-bookmark me-1"></i>Obsidian</span>
     <?php endif; ?>
   </p>
 </div>
@@ -876,9 +875,6 @@ body  { background:#f0f4f9; font-family:'Segoe UI',sans-serif; font-size:.9rem; 
 
 <div style="display:flex;gap:8px;margin-bottom:1rem;flex-wrap:wrap">
   <input type="text" id="searchProj" class="form-control" placeholder="Filtrar projetos..." style="max-width:300px;background:var(--bg2);border:1px solid var(--border);color:var(--fg)">
-  <a href="?sync=1" class="btn btn-sm" style="background:#2d3748;color:#e2e8f0;border:1px solid #4a5568;display:flex;align-items:center;gap:6px">
-    <i class="bi bi-arrow-repeat"></i> Sincronizar da Rede
-  </a>
 </div>
 
 <?php if (!$modoDetalhe): ?>
@@ -894,7 +890,7 @@ body  { background:#f0f4f9; font-family:'Segoe UI',sans-serif; font-size:.9rem; 
             <span class="gh-conta-badge <?= $c['ultimo_teste_ok'] ? 'ok' : 'erro' ?>">
               <i class="bi <?= $c['ultimo_teste_ok'] ? 'bi-check-circle-fill' : 'bi-exclamation-triangle-fill' ?>"></i>
             </span>
-            <button type="button" class="gh-conta-cfg" onclick='editarConta(<?= json_encode(['id'=>$c['id'],'apelido'=>$c['apelido'],'usuario_github'=>$c['usuario_github']], JSON_HEX_APOS | JSON_HEX_QUOT) ?>)' title="Editar">
+            <button type="button" class="gh-conta-cfg" onclick='editarConta(<?= json_encode(['id'=>$c['id'],'apelido'=>$c['apelido'],'usuario_github'=>$c['usuario_github']], JSON_HEX_APOS | JSON_HEX_QUOT | JSON_HEX_AMP | JSON_HEX_TAG) ?>)' title="Editar">
               <i class="bi bi-gear-fill"></i>
             </button>
           </div>
@@ -930,8 +926,12 @@ body  { background:#f0f4f9; font-family:'Segoe UI',sans-serif; font-size:.9rem; 
           $resultado  = github_listar_repos($token);
           if (isset($resultado['erro'])) {
               $errosContas[] = ['apelido' => $conta['apelido'], 'msg' => $resultado['erro']];
+              $pdo->prepare("UPDATE portal_github_contas SET ultimo_teste_ok=0, ultima_verificacao=NOW() WHERE id=?")
+                  ->execute([$conta['id']]);
               continue;
           }
+          $pdo->prepare("UPDATE portal_github_contas SET ultimo_teste_ok=1, ultima_verificacao=NOW() WHERE id=?")
+              ->execute([$conta['id']]);
           foreach ($resultado as $repo) {
               $chave  = $conta['id'] . ':' . $repo['nome'];
               $status = $statusMap[$chave] ?? 'em_execucao';
@@ -1446,6 +1446,7 @@ document.getElementById('searchProj')?.addEventListener('input', function() {
       </div>
       <div class="modal-footer">
         <button type="button" class="btn btn-outline-danger me-auto" id="btn-excluir-conta" style="display:none" onclick="excluirConta()"><i class="bi bi-trash me-1"></i>Excluir</button>
+        <button type="button" class="btn btn-outline-secondary" id="btn-testar-conta" style="display:none" onclick="testarConta()"><i class="bi bi-plug me-1"></i>Testar</button>
         <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
         <button type="button" class="btn btn-primary" onclick="salvarConta()" style="background:#1a237e;border-color:#1a237e"><i class="bi bi-check-lg me-1"></i>Salvar</button>
       </div>
@@ -1466,9 +1467,11 @@ function abrirModalConta() {
   document.getElementById('conta-usuario').value = '';
   document.getElementById('conta-token').value = '';
   document.getElementById('conta-token').placeholder = 'ghp_...';
+  document.getElementById('conta-erro').className = 'text-danger small';
   document.getElementById('conta-erro').style.display = 'none';
   document.getElementById('modalContaTitulo').innerHTML = '<i class="bi bi-github me-2"></i>Nova Conta GitHub';
   document.getElementById('btn-excluir-conta').style.display = 'none';
+  document.getElementById('btn-testar-conta').style.display = 'none';
   modalConta.show();
 }
 
@@ -1478,10 +1481,48 @@ function editarConta(c) {
   document.getElementById('conta-usuario').value = c.usuario_github;
   document.getElementById('conta-token').value = '';
   document.getElementById('conta-token').placeholder = 'Deixe em branco para manter o token atual';
+  document.getElementById('conta-erro').className = 'text-danger small';
   document.getElementById('conta-erro').style.display = 'none';
   document.getElementById('modalContaTitulo').textContent = c.apelido;
   document.getElementById('btn-excluir-conta').style.display = 'inline-block';
+  document.getElementById('btn-testar-conta').style.display = 'inline-block';
   modalConta.show();
+}
+
+async function testarConta() {
+  const id     = document.getElementById('conta-id').value;
+  const erroEl = document.getElementById('conta-erro');
+  erroEl.style.display = 'none';
+  if (!id) return;
+
+  const btn = document.getElementById('btn-testar-conta');
+  const htmlOriginal = btn.innerHTML;
+  btn.disabled = true;
+  btn.innerHTML = '<i class="bi bi-hourglass-split me-1"></i>Testando...';
+
+  try {
+    const r = await fetch('projetos.php?gh_action=conta_testar', {
+      method: 'POST', headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({id}),
+    });
+    const d = await r.json();
+    if (d.ok) {
+      erroEl.className = 'text-success small';
+      erroEl.textContent = 'Token válido — conexão ok.';
+      erroEl.style.display = '';
+    } else {
+      erroEl.className = 'text-danger small';
+      erroEl.textContent = d.msg || 'Falha ao testar token.';
+      erroEl.style.display = '';
+    }
+  } catch (e) {
+    erroEl.className = 'text-danger small';
+    erroEl.textContent = 'Erro ao testar conta.';
+    erroEl.style.display = '';
+  } finally {
+    btn.disabled = false;
+    btn.innerHTML = htmlOriginal;
+  }
 }
 
 async function salvarConta() {
