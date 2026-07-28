@@ -74,3 +74,91 @@ function github_listar_repos(string $token): array {
 
     return $repos;
 }
+
+function github_obter_descricao_readme(string $token, string $owner, string $repo): string {
+    $ch = curl_init('https://api.github.com/repos/' . rawurlencode($owner) . '/' . rawurlencode($repo) . '/readme');
+    curl_setopt_array($ch, [
+        CURLOPT_RETURNTRANSFER => true,
+        CURLOPT_TIMEOUT        => 6,
+        CURLOPT_HTTPHEADER     => [
+            'Authorization: Bearer ' . $token,
+            'Accept: application/vnd.github+json',
+            'User-Agent: portal-glpi',
+        ],
+    ]);
+    $body = curl_exec($ch);
+    $code = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+    curl_close($ch);
+
+    if ($code !== 200) return '';
+
+    $data = json_decode($body, true);
+    if (!is_array($data) || empty($data['content'])) return '';
+
+    $conteudo = base64_decode(str_replace("\n", '', $data['content']));
+    if ($conteudo === false) return '';
+
+    foreach (explode("\n", str_replace("\r", '', $conteudo)) as $linha) {
+        $linha = trim($linha);
+        if ($linha === '') continue;
+        // Pula headers, imagens/badges, HTML solto, separadores e blocos de código
+        if (preg_match('/^(#|!\[|\[!\[|<|---|```)/', $linha)) continue;
+
+        $texto = trim(strip_tags($linha));
+        $texto = preg_replace('/[*_`]/', '', $texto);
+        if (mb_strlen($texto) < 15) continue; // linha curta demais pra ser descrição (ex: link solto)
+
+        return mb_substr($texto, 0, 200);
+    }
+
+    return '';
+}
+
+function github_obter_progresso(string $token, string $owner, string $repo, int $issuesAbertas): array {
+    $ch = curl_init('https://api.github.com/search/issues?q=' . rawurlencode("repo:{$owner}/{$repo} type:issue state:closed") . '&per_page=1');
+    curl_setopt_array($ch, [
+        CURLOPT_RETURNTRANSFER => true,
+        CURLOPT_TIMEOUT        => 6,
+        CURLOPT_HTTPHEADER     => [
+            'Authorization: Bearer ' . $token,
+            'Accept: application/vnd.github+json',
+            'User-Agent: portal-glpi',
+        ],
+    ]);
+    $body = curl_exec($ch);
+    $code = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+    curl_close($ch);
+
+    $fechadas = 0;
+    if ($code === 200) {
+        $data = json_decode($body, true);
+        $fechadas = (int)($data['total_count'] ?? 0);
+    }
+
+    $total = $fechadas + $issuesAbertas;
+    $pct   = $total > 0 ? (int)round($fechadas / $total * 100) : null;
+
+    return ['fechadas' => $fechadas, 'abertas' => $issuesAbertas, 'total' => $total, 'pct' => $pct];
+}
+
+function github_obter_previsao(string $token, string $owner, string $repo): ?string {
+    $ch = curl_init('https://api.github.com/repos/' . rawurlencode($owner) . '/' . rawurlencode($repo) . '/milestones?state=open&sort=due_on&direction=asc&per_page=1');
+    curl_setopt_array($ch, [
+        CURLOPT_RETURNTRANSFER => true,
+        CURLOPT_TIMEOUT        => 6,
+        CURLOPT_HTTPHEADER     => [
+            'Authorization: Bearer ' . $token,
+            'Accept: application/vnd.github+json',
+            'User-Agent: portal-glpi',
+        ],
+    ]);
+    $body = curl_exec($ch);
+    $code = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+    curl_close($ch);
+
+    if ($code !== 200) return null;
+    $data = json_decode($body, true);
+    if (!is_array($data) || empty($data[0]['due_on'])) return null;
+
+    return $data[0]['due_on'];
+}

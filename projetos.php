@@ -36,6 +36,7 @@ $pdo->exec("
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
 ");
 $pdo->exec("ALTER TABLE portal_projetos_status ADD COLUMN IF NOT EXISTS visivel TINYINT(1) NOT NULL DEFAULT 1");
+$pdo->exec("ALTER TABLE portal_projetos_status ADD COLUMN IF NOT EXISTS doc_url VARCHAR(500) DEFAULT NULL");
 
 // ── AJAX: contas GitHub (cada usuário só mexe nas próprias) ────
 $ghAction = $_GET['gh_action'] ?? '';
@@ -114,6 +115,29 @@ if ($ghAction) {
             VALUES (?,?,?)
             ON DUPLICATE KEY UPDATE status = VALUES(status)
         ")->execute([$contaId, $repoNome, $status]);
+        echo json_encode(['ok'=>true]);
+        exit;
+    }
+
+    if ($ghAction === 'doc_url_set') {
+        $body     = json_decode(file_get_contents('php://input'), true) ?? [];
+        $contaId  = (int)($body['conta_id'] ?? 0);
+        $repoNome = trim($body['repo_nome'] ?? '');
+        $docUrl   = trim($body['doc_url'] ?? '');
+        if (!$repoNome) { echo json_encode(['ok'=>false,'msg'=>'Repositório inválido']); exit; }
+        if ($docUrl !== '' && !preg_match('~^https?://~i', $docUrl)) {
+            echo json_encode(['ok'=>false,'msg'=>'URL deve começar com http:// ou https://']); exit;
+        }
+
+        $st = $pdo->prepare("SELECT id FROM portal_github_contas WHERE id=? AND user_id=?");
+        $st->execute([$contaId, $uid]);
+        if (!$st->fetch()) { echo json_encode(['ok'=>false,'msg'=>'Conta não encontrada']); exit; }
+
+        $pdo->prepare("
+            INSERT INTO portal_projetos_status (conta_id, repo_nome, doc_url)
+            VALUES (?,?,?)
+            ON DUPLICATE KEY UPDATE doc_url = VALUES(doc_url)
+        ")->execute([$contaId, $repoNome, $docUrl !== '' ? $docUrl : null]);
         echo json_encode(['ok'=>true]);
         exit;
     }
@@ -837,17 +861,27 @@ body  { background:#f0f4f9; font-family:'Segoe UI',sans-serif; font-size:.9rem; 
 .gh-grupo-count { font-size:.72rem; opacity:.85; font-weight:400; }
 .gh-grupo-body { background:#fff; border:1px solid #e5e7eb; border-top:none;
                  border-radius:0 0 12px 12px; padding:1rem; }
-.gh-proj-grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(240px,1fr)); gap:.85rem; }
-.gh-proj-card { border:1px solid #e5e7eb; border-radius:12px; padding:1rem;
+.gh-proj-grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(260px,1fr)); gap:.85rem; }
+.gh-proj-card { display:flex; flex-direction:column; border:1px solid #e5e7eb; border-radius:12px; padding:1rem;
                 transition:all .15s; background:#fff; }
 .gh-proj-card:hover { box-shadow:0 4px 16px rgba(0,0,0,.08); border-color:#1a237e; }
 .gh-proj-topo { display:flex; align-items:flex-start; justify-content:space-between; gap:.5rem; }
 .gh-proj-nome { font-weight:700; font-size:.9rem; color:#1a237e; text-decoration:none; }
 .gh-proj-nome:hover { text-decoration:underline; }
+.gh-proj-acoes { display:flex; align-items:center; gap:.15rem; flex-shrink:0; }
+.gh-proj-icon-btn { background:none; border:none; color:#9ca3af; cursor:pointer; padding:.15rem .3rem;
+                     text-decoration:none; font-size:.85rem; display:inline-flex; }
+.gh-proj-icon-btn:hover { color:#374151; }
 .gh-proj-menu { background:none; border:none; color:#9ca3af; cursor:pointer; padding:0 .25rem; }
 .gh-proj-menu:hover { color:#374151; }
-.gh-proj-desc { font-size:.78rem; color:#6b7280; margin:.4rem 0; }
-.gh-proj-meta { display:flex; flex-wrap:wrap; gap:.6rem; margin-top:.6rem;
+.gh-proj-desc { font-size:.78rem; color:#6b7280; margin:.4rem 0;
+                display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; overflow:hidden; }
+.gh-proj-progress { margin:.3rem 0; }
+.gh-proj-progress-bar { height:6px; border-radius:3px; background:#e5e7eb; overflow:hidden; }
+.gh-proj-progress-fill { height:100%; border-radius:3px; background:#1a237e; transition:width .4s ease; }
+.gh-proj-progress-label { font-size:.68rem; color:#9ca3af; margin-top:.2rem; display:block; }
+.gh-proj-previsao { font-size:.72rem; color:#6b7280; margin-top:.2rem; }
+.gh-proj-meta { display:flex; flex-wrap:wrap; gap:.6rem; margin-top:auto;
                 padding-top:.6rem; border-top:1px solid #f3f4f6; }
 
 /* ── Status e Previsão ─────────────────────────────────────────── */
@@ -973,13 +1007,15 @@ body  { background:#f0f4f9; font-family:'Segoe UI',sans-serif; font-size:.9rem; 
       $contaIds   = array_column($minhasContas, 'id');
       $statusMap  = [];
       $visivelMap = [];
+      $docUrlMap  = [];
       $ph = implode(',', array_fill(0, count($contaIds), '?'));
-      $st = $pdo->prepare("SELECT conta_id, repo_nome, status, visivel FROM portal_projetos_status WHERE conta_id IN ($ph)");
+      $st = $pdo->prepare("SELECT conta_id, repo_nome, status, visivel, doc_url FROM portal_projetos_status WHERE conta_id IN ($ph)");
       $st->execute($contaIds);
       foreach ($st->fetchAll(PDO::FETCH_ASSOC) as $row) {
           $chaveMap = $row['conta_id'] . ':' . $row['repo_nome'];
           $statusMap[$chaveMap]  = $row['status'];
           $visivelMap[$chaveMap] = (int)$row['visivel'];
+          $docUrlMap[$chaveMap]  = $row['doc_url'];
       }
 
       foreach ($minhasContas as $conta) {
@@ -998,8 +1034,17 @@ body  { background:#f0f4f9; font-family:'Segoe UI',sans-serif; font-size:.9rem; 
               $chave = $conta['id'] . ':' . $repo['nome'];
               if (($visivelMap[$chave] ?? 1) === 0) continue; // ocultado pelo usuário
               $status = $statusMap[$chave] ?? 'em_execucao';
+
               $repo['conta_id']      = $conta['id'];
               $repo['conta_apelido'] = $conta['apelido'];
+              $repo['doc_url']       = $docUrlMap[$chave] ?? null;
+
+              $descReadme = github_obter_descricao_readme($token, $conta['usuario_github'], $repo['nome']);
+              $repo['descricao'] = $descReadme !== '' ? $descReadme : $repo['descricao'];
+
+              $repo['progresso'] = github_obter_progresso($token, $conta['usuario_github'], $repo['nome'], $repo['issues_abertas']);
+              $repo['previsao']  = github_obter_previsao($token, $conta['usuario_github'], $repo['nome']);
+
               $reposPorSecao[$status][] = $repo;
           }
       }
@@ -1036,23 +1081,45 @@ body  { background:#f0f4f9; font-family:'Segoe UI',sans-serif; font-size:.9rem; 
         <div class="gh-grupo-body" id="grupoBody-<?= $chaveSecao ?>" style="<?= $abertoPorPadrao ? '' : 'display:none' ?>">
           <?php if ($reposPorSecao[$chaveSecao]): ?>
             <div class="gh-proj-grid">
-              <?php foreach ($reposPorSecao[$chaveSecao] as $repo): ?>
+              <?php foreach ($reposPorSecao[$chaveSecao] as $repo):
+                $temDoc        = !empty($repo['doc_url']);
+                $linkPrincipal = $temDoc ? $repo['doc_url'] : $repo['url'];
+              ?>
                 <div class="gh-proj-card" data-conta="<?= esc($repo['conta_apelido']) ?>">
                   <div class="gh-proj-topo">
-                    <a href="<?= esc($repo['url']) ?>" target="_blank" rel="noopener" class="gh-proj-nome">
-                      <i class="bi bi-github me-1"></i><?= esc($repo['nome']) ?>
+                    <a href="<?= esc($linkPrincipal) ?>" target="_blank" rel="noopener" class="gh-proj-nome">
+                      <i class="bi <?= $temDoc ? 'bi-journal-text' : 'bi-github' ?> me-1"></i><?= esc($repo['nome']) ?>
                     </a>
-                    <div class="dropdown">
-                      <button type="button" class="gh-proj-menu" data-bs-toggle="dropdown" aria-expanded="false"><i class="bi bi-three-dots-vertical"></i></button>
-                      <ul class="dropdown-menu dropdown-menu-end">
-                        <?php foreach ($secoesInfo as $optKey => $optInfo): ?>
-                          <li><a class="dropdown-item" href="#" onclick="mudarStatus(event,<?= (int)$repo['conta_id'] ?>,'<?= esc($repo['nome']) ?>','<?= $optKey ?>')"><i class="bi <?= $optInfo['icon'] ?> me-2"></i><?= $optInfo['label'] ?></a></li>
-                        <?php endforeach; ?>
-                      </ul>
+                    <div class="gh-proj-acoes">
+                      <?php if ($temDoc): ?>
+                        <a href="<?= esc($repo['url']) ?>" target="_blank" rel="noopener" class="gh-proj-icon-btn" title="Abrir no GitHub"><i class="bi bi-github"></i></a>
+                      <?php endif; ?>
+                      <button type="button" class="gh-proj-icon-btn"
+                              data-conta="<?= (int)$repo['conta_id'] ?>" data-repo="<?= esc($repo['nome']) ?>" data-docurl="<?= esc($repo['doc_url'] ?? '') ?>"
+                              onclick="editarDocUrl(event,this)" title="Link de documentação">
+                        <i class="bi bi-pencil-fill"></i>
+                      </button>
+                      <div class="dropdown">
+                        <button type="button" class="gh-proj-menu" data-bs-toggle="dropdown" aria-expanded="false"><i class="bi bi-three-dots-vertical"></i></button>
+                        <ul class="dropdown-menu dropdown-menu-end">
+                          <?php foreach ($secoesInfo as $optKey => $optInfo): ?>
+                            <li><a class="dropdown-item" href="#" onclick="mudarStatus(event,<?= (int)$repo['conta_id'] ?>,'<?= esc($repo['nome']) ?>','<?= $optKey ?>')"><i class="bi <?= $optInfo['icon'] ?> me-2"></i><?= $optInfo['label'] ?></a></li>
+                          <?php endforeach; ?>
+                        </ul>
+                      </div>
                     </div>
                   </div>
                   <?php if ($repo['descricao']): ?>
                     <div class="gh-proj-desc"><?= esc($repo['descricao']) ?></div>
+                  <?php endif; ?>
+                  <?php if ($repo['progresso']['total'] > 0): ?>
+                    <div class="gh-proj-progress">
+                      <div class="gh-proj-progress-bar"><div class="gh-proj-progress-fill" style="width:<?= (int)$repo['progresso']['pct'] ?>%"></div></div>
+                      <span class="gh-proj-progress-label">Issues: <?= (int)$repo['progresso']['fechadas'] ?>/<?= (int)$repo['progresso']['total'] ?> fechadas</span>
+                    </div>
+                  <?php endif; ?>
+                  <?php if ($repo['previsao']): ?>
+                    <div class="gh-proj-previsao"><i class="bi bi-calendar-event me-1"></i>Previsão: <?= esc(date('d/m/Y', strtotime($repo['previsao']))) ?></div>
                   <?php endif; ?>
                   <div class="gh-proj-meta">
                     <?php if ($repo['linguagem']): ?><span class="meta-pill"><i class="bi bi-circle-fill" style="font-size:.5rem"></i><?= esc($repo['linguagem']) ?></span><?php endif; ?>
@@ -1685,6 +1752,24 @@ async function mudarStatus(ev, contaId, repoNome, status) {
   const d = await r.json();
   if (d.ok) location.reload();
   else alert(d.msg || 'Erro ao mudar status');
+}
+
+async function editarDocUrl(ev, btn) {
+  ev.preventDefault();
+  ev.stopPropagation();
+  const contaId  = parseInt(btn.dataset.conta, 10);
+  const repoNome = btn.dataset.repo;
+  const atual    = btn.dataset.docurl || '';
+  const novo = prompt('URL da documentação (deixe em branco para remover):', atual);
+  if (novo === null) return;
+
+  const r = await fetch('projetos.php?gh_action=doc_url_set', {
+    method: 'POST', headers: {'Content-Type':'application/json'},
+    body: JSON.stringify({conta_id: contaId, repo_nome: repoNome, doc_url: novo.trim()}),
+  });
+  const d = await r.json();
+  if (d.ok) location.reload();
+  else alert(d.msg || 'Erro ao salvar link');
 }
 
 async function excluirConta() {
