@@ -93,6 +93,30 @@ if ($ghAction) {
         exit;
     }
 
+    if ($ghAction === 'status_set') {
+        $body     = json_decode(file_get_contents('php://input'), true) ?? [];
+        $contaId  = (int)($body['conta_id'] ?? 0);
+        $repoNome = trim($body['repo_nome'] ?? '');
+        $status   = $body['status'] ?? '';
+        if (!in_array($status, ['futuro','em_execucao','concluido'], true)) {
+            echo json_encode(['ok'=>false,'msg'=>'Status inválido']); exit;
+        }
+        if (!$repoNome) { echo json_encode(['ok'=>false,'msg'=>'Repositório inválido']); exit; }
+
+        // Confirma que a conta pertence ao usuário logado antes de gravar
+        $st = $pdo->prepare("SELECT id FROM portal_github_contas WHERE id=? AND user_id=?");
+        $st->execute([$contaId, $uid]);
+        if (!$st->fetch()) { echo json_encode(['ok'=>false,'msg'=>'Conta não encontrada']); exit; }
+
+        $pdo->prepare("
+            INSERT INTO portal_projetos_status (conta_id, repo_nome, status)
+            VALUES (?,?,?)
+            ON DUPLICATE KEY UPDATE status = VALUES(status)
+        ")->execute([$contaId, $repoNome, $status]);
+        echo json_encode(['ok'=>true]);
+        exit;
+    }
+
     if ($ghAction === 'conta_delete') {
         $body = json_decode(file_get_contents('php://input'), true) ?? [];
         $id   = (int)($body['id'] ?? 0);
@@ -248,6 +272,17 @@ function corPct(int $pct): string {
 
 function esc(string $s): string {
     return htmlspecialchars($s, ENT_QUOTES, 'UTF-8');
+}
+
+function dataRelativa(?string $iso): string {
+    if (!$iso) return '—';
+    $ts = strtotime($iso);
+    if (!$ts) return '—';
+    $diff = time() - $ts;
+    if ($diff < 3600)     return 'há ' . max(1, (int)($diff / 60)) . ' min';
+    if ($diff < 86400)    return 'há ' . (int)($diff / 3600) . 'h';
+    if ($diff < 86400*30) return 'há ' . (int)($diff / 86400) . 'd';
+    return date('d/m/Y', $ts);
 }
 
 // ── Card de projeto (lista) — usado nas seções "Em andamento" e "Concluídos" ──
@@ -743,6 +778,29 @@ body  { background:#f0f4f9; font-family:'Segoe UI',sans-serif; font-size:.9rem; 
                 cursor:pointer; border-radius:12px; }
 .gh-conta-add:hover { border-color:#1a237e; color:#1a237e; }
 
+.gh-erro-conta { background:#fff3e0; color:#854d0e; border:1px solid #fde68a;
+                 border-radius:8px; padding:.6rem 1rem; font-size:.82rem; margin-bottom:.75rem; }
+
+.gh-grupo-section { margin-bottom:1.5rem; }
+.gh-grupo-header { border-radius:12px 12px 0 0; padding:.65rem 1.1rem;
+                   display:flex; align-items:center; justify-content:space-between;
+                   color:#fff; font-weight:700; font-size:.85rem; }
+.gh-grupo-count { font-size:.72rem; opacity:.85; font-weight:400; }
+.gh-grupo-body { background:#fff; border:1px solid #e5e7eb; border-top:none;
+                 border-radius:0 0 12px 12px; padding:1rem; }
+.gh-proj-grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(240px,1fr)); gap:.85rem; }
+.gh-proj-card { border:1px solid #e5e7eb; border-radius:12px; padding:1rem;
+                transition:all .15s; background:#fff; }
+.gh-proj-card:hover { box-shadow:0 4px 16px rgba(0,0,0,.08); border-color:#1a237e; }
+.gh-proj-topo { display:flex; align-items:flex-start; justify-content:space-between; gap:.5rem; }
+.gh-proj-nome { font-weight:700; font-size:.9rem; color:#1a237e; text-decoration:none; }
+.gh-proj-nome:hover { text-decoration:underline; }
+.gh-proj-menu { background:none; border:none; color:#9ca3af; cursor:pointer; padding:0 .25rem; }
+.gh-proj-menu:hover { color:#374151; }
+.gh-proj-desc { font-size:.78rem; color:#6b7280; margin:.4rem 0; }
+.gh-proj-meta { display:flex; flex-wrap:wrap; gap:.6rem; margin-top:.6rem;
+                padding-top:.6rem; border-top:1px solid #f3f4f6; }
+
 /* ── Status e Previsão ─────────────────────────────────────────── */
 .status-badge { display:inline-flex; align-items:center; gap:.35rem;
                 padding:.28rem .75rem; border-radius:20px; font-size:.75rem; font-weight:700; }
@@ -851,10 +909,99 @@ body  { background:#f0f4f9; font-family:'Segoe UI',sans-serif; font-size:.9rem; 
     </div>
   </div>
 
-  <!-- ═══════════════ PROJETOS (próxima etapa) ═══════════════ -->
-  <div class="text-muted small mt-4" id="gh-projetos-placeholder">
-    Cadastre uma conta GitHub acima para ver seus projetos aqui.
-  </div>
+  <!-- ═══════════════ PROJETOS (GitHub, 3 seções) ═══════════════ -->
+  <?php
+  $reposPorSecao = ['futuro' => [], 'em_execucao' => [], 'concluido' => []];
+  $errosContas   = [];
+
+  if ($minhasContas) {
+      $contaIds  = array_column($minhasContas, 'id');
+      $statusMap = [];
+      $ph = implode(',', array_fill(0, count($contaIds), '?'));
+      $st = $pdo->prepare("SELECT conta_id, repo_nome, status FROM portal_projetos_status WHERE conta_id IN ($ph)");
+      $st->execute($contaIds);
+      foreach ($st->fetchAll(PDO::FETCH_ASSOC) as $row) {
+          $statusMap[$row['conta_id'] . ':' . $row['repo_nome']] = $row['status'];
+      }
+
+      foreach ($minhasContas as $conta) {
+          if (!$conta['ativo']) continue;
+          $token      = vault_decrypt($conta['token_enc']);
+          $resultado  = github_listar_repos($token);
+          if (isset($resultado['erro'])) {
+              $errosContas[] = ['apelido' => $conta['apelido'], 'msg' => $resultado['erro']];
+              continue;
+          }
+          foreach ($resultado as $repo) {
+              $chave  = $conta['id'] . ':' . $repo['nome'];
+              $status = $statusMap[$chave] ?? 'em_execucao';
+              $repo['conta_id']      = $conta['id'];
+              $repo['conta_apelido'] = $conta['apelido'];
+              $reposPorSecao[$status][] = $repo;
+          }
+      }
+  }
+
+  $secoesInfo = [
+      'futuro'      => ['label' => 'Futuros',     'icon' => 'bi-lightbulb-fill',    'cor' => '#7c3aed'],
+      'em_execucao' => ['label' => 'Em Execução', 'icon' => 'bi-hourglass-split',   'cor' => '#1a237e'],
+      'concluido'   => ['label' => 'Concluídos',  'icon' => 'bi-check-circle-fill', 'cor' => '#1e8e3e'],
+  ];
+  ?>
+
+  <?php foreach ($errosContas as $err): ?>
+    <div class="gh-erro-conta">
+      <i class="bi bi-exclamation-triangle-fill me-2"></i>
+      <strong><?= esc($err['apelido']) ?>:</strong> não foi possível carregar — <?= esc($err['msg']) ?>
+    </div>
+  <?php endforeach; ?>
+
+  <?php if (!$minhasContas): ?>
+    <div class="text-muted small mt-4">Cadastre uma conta GitHub acima para ver seus projetos aqui.</div>
+  <?php else: ?>
+    <?php foreach ($secoesInfo as $chaveSecao => $info): ?>
+      <div class="gh-grupo-section">
+        <div class="gh-grupo-header" style="background:<?= $info['cor'] ?>">
+          <span><i class="bi <?= $info['icon'] ?> me-2"></i><?= $info['label'] ?></span>
+          <span class="gh-grupo-count"><?= count($reposPorSecao[$chaveSecao]) ?> projeto(s)</span>
+        </div>
+        <div class="gh-grupo-body">
+          <?php if ($reposPorSecao[$chaveSecao]): ?>
+            <div class="gh-proj-grid">
+              <?php foreach ($reposPorSecao[$chaveSecao] as $repo): ?>
+                <div class="gh-proj-card">
+                  <div class="gh-proj-topo">
+                    <a href="<?= esc($repo['url']) ?>" target="_blank" rel="noopener" class="gh-proj-nome">
+                      <i class="bi bi-github me-1"></i><?= esc($repo['nome']) ?>
+                    </a>
+                    <div class="dropdown">
+                      <button type="button" class="gh-proj-menu" data-bs-toggle="dropdown" aria-expanded="false"><i class="bi bi-three-dots-vertical"></i></button>
+                      <ul class="dropdown-menu dropdown-menu-end">
+                        <?php foreach ($secoesInfo as $optKey => $optInfo): ?>
+                          <li><a class="dropdown-item" href="#" onclick="mudarStatus(event,<?= (int)$repo['conta_id'] ?>,'<?= esc($repo['nome']) ?>','<?= $optKey ?>')"><i class="bi <?= $optInfo['icon'] ?> me-2"></i><?= $optInfo['label'] ?></a></li>
+                        <?php endforeach; ?>
+                      </ul>
+                    </div>
+                  </div>
+                  <?php if ($repo['descricao']): ?>
+                    <div class="gh-proj-desc"><?= esc($repo['descricao']) ?></div>
+                  <?php endif; ?>
+                  <div class="gh-proj-meta">
+                    <?php if ($repo['linguagem']): ?><span class="meta-pill"><i class="bi bi-circle-fill" style="font-size:.5rem"></i><?= esc($repo['linguagem']) ?></span><?php endif; ?>
+                    <span class="meta-pill"><i class="bi bi-exclamation-circle"></i><?= (int)$repo['issues_abertas'] ?> issues</span>
+                    <span class="meta-pill"><i class="bi bi-clock-history"></i><?= esc(dataRelativa($repo['ultimo_push'])) ?></span>
+                    <span class="meta-pill"><i class="bi bi-person"></i><?= esc($repo['conta_apelido']) ?></span>
+                  </div>
+                </div>
+              <?php endforeach; ?>
+            </div>
+          <?php else: ?>
+            <p class="text-muted small mb-0">Nenhum projeto aqui ainda.</p>
+          <?php endif; ?>
+        </div>
+      </div>
+    <?php endforeach; ?>
+  <?php endif; ?>
 
 <?php else: ?>
   <!-- ═══════════════ DETALHE DO PROJETO ═══════════════ -->
@@ -1264,11 +1411,9 @@ function exportarPrint() {
 // ── Filtro de projetos ──────────────────────────────────────────
 document.getElementById('searchProj')?.addEventListener('input', function() {
   const q = this.value.toLowerCase().trim();
-  document.querySelectorAll('.proj-card').forEach(card => {
-    const cardWrap = card.closest('.col-md-6');
-    if (!cardWrap) return;
+  document.querySelectorAll('.gh-proj-card').forEach(card => {
     const txt = card.textContent.toLowerCase();
-    cardWrap.style.display = (!q || txt.includes(q)) ? '' : 'none';
+    card.style.display = (!q || txt.includes(q)) ? '' : 'none';
   });
 });
 </script>
@@ -1361,6 +1506,17 @@ async function salvarConta() {
   const d = await r.json();
   if (d.ok) { modalConta.hide(); location.reload(); }
   else { erroEl.textContent = d.msg || 'Erro ao salvar'; erroEl.style.display = ''; }
+}
+
+async function mudarStatus(ev, contaId, repoNome, status) {
+  ev.preventDefault();
+  const r = await fetch('projetos.php?gh_action=status_set', {
+    method: 'POST', headers: {'Content-Type':'application/json'},
+    body: JSON.stringify({conta_id: contaId, repo_nome: repoNome, status}),
+  });
+  const d = await r.json();
+  if (d.ok) location.reload();
+  else alert(d.msg || 'Erro ao mudar status');
 }
 
 async function excluirConta() {
