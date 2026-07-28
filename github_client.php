@@ -75,7 +75,9 @@ function github_listar_repos(string $token): array {
     return $repos;
 }
 
-function github_obter_descricao_readme(string $token, string $owner, string $repo): string {
+function github_analisar_readme(string $token, string $owner, string $repo): array {
+    $vazio = ['descricao' => '', 'progresso' => ['feitas' => 0, 'total' => 0, 'pct' => null]];
+
     $ch = curl_init('https://api.github.com/repos/' . rawurlencode($owner) . '/' . rawurlencode($repo) . '/readme');
     curl_setopt_array($ch, [
         CURLOPT_RETURNTRANSFER => true,
@@ -90,55 +92,39 @@ function github_obter_descricao_readme(string $token, string $owner, string $rep
     $code = curl_getinfo($ch, CURLINFO_HTTP_CODE);
     curl_close($ch);
 
-    if ($code !== 200) return '';
+    if ($code !== 200) return $vazio;
 
     $data = json_decode($body, true);
-    if (!is_array($data) || empty($data['content'])) return '';
+    if (!is_array($data) || empty($data['content'])) return $vazio;
 
     $conteudo = base64_decode(str_replace("\n", '', $data['content']));
-    if ($conteudo === false) return '';
+    if ($conteudo === false) return $vazio;
+
+    $descricao = '';
+    $feitas    = 0;
+    $total     = 0;
 
     foreach (explode("\n", str_replace("\r", '', $conteudo)) as $linha) {
-        $linha = trim($linha);
-        if ($linha === '') continue;
-        // Pula headers, imagens/badges, HTML solto, separadores e blocos de código
-        if (preg_match('/^(#|!\[|\[!\[|<|---|```)/', $linha)) continue;
+        $linhaTrim = trim($linha);
 
-        $texto = trim(strip_tags($linha));
-        $texto = preg_replace('/[*_`]/', '', $texto);
-        if (mb_strlen($texto) < 15) continue; // linha curta demais pra ser descrição (ex: link solto)
+        // Checklist markdown ("- [x] tarefa" / "- [ ] tarefa") em qualquer parte do README
+        if (preg_match('/^-\s\[x\]\s/i', $linhaTrim)) { $feitas++; $total++; continue; }
+        if (preg_match('/^-\s\[\s\]\s/', $linhaTrim))  { $total++; continue; }
 
-        return mb_substr($texto, 0, 200);
+        if ($descricao === '') {
+            if ($linhaTrim === '') continue;
+            // Pula headers, imagens/badges, HTML solto, separadores e blocos de código
+            if (preg_match('/^(#|!\[|\[!\[|<|---|```)/', $linhaTrim)) continue;
+
+            $texto = trim(strip_tags($linhaTrim));
+            $texto = preg_replace('/[*_`]/', '', $texto);
+            if (mb_strlen($texto) >= 15) $descricao = mb_substr($texto, 0, 200);
+        }
     }
 
-    return '';
-}
+    $pct = $total > 0 ? (int)round($feitas / $total * 100) : null;
 
-function github_obter_progresso(string $token, string $owner, string $repo, int $issuesAbertas): array {
-    $ch = curl_init('https://api.github.com/search/issues?q=' . rawurlencode("repo:{$owner}/{$repo} type:issue state:closed") . '&per_page=1');
-    curl_setopt_array($ch, [
-        CURLOPT_RETURNTRANSFER => true,
-        CURLOPT_TIMEOUT        => 6,
-        CURLOPT_HTTPHEADER     => [
-            'Authorization: Bearer ' . $token,
-            'Accept: application/vnd.github+json',
-            'User-Agent: portal-glpi',
-        ],
-    ]);
-    $body = curl_exec($ch);
-    $code = curl_getinfo($ch, CURLINFO_HTTP_CODE);
-    curl_close($ch);
-
-    $fechadas = 0;
-    if ($code === 200) {
-        $data = json_decode($body, true);
-        $fechadas = (int)($data['total_count'] ?? 0);
-    }
-
-    $total = $fechadas + $issuesAbertas;
-    $pct   = $total > 0 ? (int)round($fechadas / $total * 100) : null;
-
-    return ['fechadas' => $fechadas, 'abertas' => $issuesAbertas, 'total' => $total, 'pct' => $pct];
+    return ['descricao' => $descricao, 'progresso' => ['feitas' => $feitas, 'total' => $total, 'pct' => $pct]];
 }
 
 function github_obter_previsao(string $token, string $owner, string $repo): ?string {

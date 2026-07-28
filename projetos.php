@@ -1048,11 +1048,11 @@ body  { background:#f0f4f9; font-family:'Segoe UI',sans-serif; font-size:.9rem; 
               $repo['conta_id']      = $conta['id'];
               $repo['conta_apelido'] = $conta['apelido'];
 
-              $descReadme = github_obter_descricao_readme($token, $conta['usuario_github'], $repo['nome']);
-              $repo['descricao'] = $descReadme !== '' ? $descReadme : $repo['descricao'];
+              $analiseReadme = github_analisar_readme($token, $conta['usuario_github'], $repo['nome']);
+              $repo['descricao'] = $analiseReadme['descricao'] !== '' ? $analiseReadme['descricao'] : $repo['descricao'];
+              $repo['progresso'] = $analiseReadme['progresso'];
 
-              $repo['progresso'] = github_obter_progresso($token, $conta['usuario_github'], $repo['nome'], $repo['issues_abertas']);
-              $repo['previsao']  = github_obter_previsao($token, $conta['usuario_github'], $repo['nome']);
+              $repo['previsao'] = github_obter_previsao($token, $conta['usuario_github'], $repo['nome']);
 
               $reposPorSecao[$status][] = $repo;
           }
@@ -1114,7 +1114,7 @@ body  { background:#f0f4f9; font-family:'Segoe UI',sans-serif; font-size:.9rem; 
                   <?php if ($repo['progresso']['total'] > 0): ?>
                     <div class="gh-proj-progress">
                       <div class="gh-proj-progress-bar"><div class="gh-proj-progress-fill" style="width:<?= (int)$repo['progresso']['pct'] ?>%"></div></div>
-                      <span class="gh-proj-progress-label">Issues: <?= (int)$repo['progresso']['fechadas'] ?>/<?= (int)$repo['progresso']['total'] ?> fechadas</span>
+                      <span class="gh-proj-progress-label">Tarefas: <?= (int)$repo['progresso']['feitas'] ?>/<?= (int)$repo['progresso']['total'] ?> concluídas</span>
                     </div>
                   <?php endif; ?>
                   <?php if ($repo['previsao']): ?>
