@@ -1014,13 +1014,18 @@ body  { background:#f0f4f9; font-family:'Segoe UI',sans-serif; font-size:.9rem; 
   <?php if (!$minhasContas): ?>
     <div class="text-muted small mt-4">Cadastre uma conta GitHub acima para ver seus projetos aqui.</div>
   <?php else: ?>
-    <?php foreach ($secoesInfo as $chaveSecao => $info): ?>
+    <?php foreach ($secoesInfo as $chaveSecao => $info):
+      $abertoPorPadrao = ($chaveSecao === 'em_execucao');
+    ?>
       <div class="gh-grupo-section">
-        <div class="gh-grupo-header" style="background:<?= $info['cor'] ?>">
+        <div class="gh-grupo-header" style="background:<?= $info['cor'] ?>;cursor:pointer" onclick="toggleGrupo('<?= $chaveSecao ?>')">
           <span><i class="bi <?= $info['icon'] ?> me-2"></i><?= $info['label'] ?></span>
-          <span class="gh-grupo-count"><?= count($reposPorSecao[$chaveSecao]) ?> projeto(s)</span>
+          <span>
+            <span class="gh-grupo-count"><?= count($reposPorSecao[$chaveSecao]) ?> projeto(s)</span>
+            <i class="bi bi-chevron-down ms-2" id="chvGrupo-<?= $chaveSecao ?>" style="font-size:.75rem;transition:transform .2s<?= $abertoPorPadrao ? ';transform:rotate(-180deg)' : '' ?>"></i>
+          </span>
         </div>
-        <div class="gh-grupo-body">
+        <div class="gh-grupo-body" id="grupoBody-<?= $chaveSecao ?>" style="<?= $abertoPorPadrao ? '' : 'display:none' ?>">
           <?php if ($reposPorSecao[$chaveSecao]): ?>
             <div class="gh-proj-grid">
               <?php foreach ($reposPorSecao[$chaveSecao] as $repo): ?>
@@ -1651,6 +1656,15 @@ function toggleContas() {
   const chv  = document.getElementById('chvContas');
   const aberto = grid.style.display !== 'none';
   grid.style.display = aberto ? 'none' : '';
+  chv.style.transform = aberto ? '' : 'rotate(-180deg)';
+}
+
+function toggleGrupo(chave) {
+  const body = document.getElementById('grupoBody-' + chave);
+  const chv  = document.getElementById('chvGrupo-' + chave);
+  if (!body) return;
+  const aberto = body.style.display !== 'none';
+  body.style.display = aberto ? 'none' : '';
   chv.style.transform = aberto ? '' : 'rotate(-180deg)';
 }
 
