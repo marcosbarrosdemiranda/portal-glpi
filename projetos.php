@@ -35,6 +35,7 @@ $pdo->exec("
         FOREIGN KEY (conta_id) REFERENCES portal_github_contas(id) ON DELETE CASCADE
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
 ");
+$pdo->exec("ALTER TABLE portal_projetos_status ADD COLUMN IF NOT EXISTS visivel TINYINT(1) NOT NULL DEFAULT 1");
 
 // ── AJAX: contas GitHub (cada usuário só mexe nas próprias) ────
 $ghAction = $_GET['gh_action'] ?? '';
@@ -113,6 +114,54 @@ if ($ghAction) {
             VALUES (?,?,?)
             ON DUPLICATE KEY UPDATE status = VALUES(status)
         ")->execute([$contaId, $repoNome, $status]);
+        echo json_encode(['ok'=>true]);
+        exit;
+    }
+
+    if ($ghAction === 'conta_repos') {
+        $body = json_decode(file_get_contents('php://input'), true) ?? [];
+        $id   = (int)($body['id'] ?? 0);
+        $st = $pdo->prepare("SELECT * FROM portal_github_contas WHERE id=? AND user_id=?");
+        $st->execute([$id, $uid]);
+        $conta = $st->fetch(PDO::FETCH_ASSOC);
+        if (!$conta) { echo json_encode(['ok'=>false,'msg'=>'Conta não encontrada']); exit; }
+
+        $resultado = github_listar_repos(vault_decrypt($conta['token_enc']));
+        if (isset($resultado['erro'])) { echo json_encode(['ok'=>false,'msg'=>$resultado['erro']]); exit; }
+
+        $st2 = $pdo->prepare("SELECT repo_nome, visivel FROM portal_projetos_status WHERE conta_id=?");
+        $st2->execute([$id]);
+        $visMap = [];
+        foreach ($st2->fetchAll(PDO::FETCH_ASSOC) as $row) $visMap[$row['repo_nome']] = (int)$row['visivel'];
+
+        $repos = [];
+        foreach ($resultado as $repo) {
+            $repos[] = ['nome' => $repo['nome'], 'visivel' => $visMap[$repo['nome']] ?? 1];
+        }
+        echo json_encode(['ok'=>true,'repos'=>$repos]);
+        exit;
+    }
+
+    if ($ghAction === 'visibilidade_set_lote') {
+        $body    = json_decode(file_get_contents('php://input'), true) ?? [];
+        $contaId = (int)($body['conta_id'] ?? 0);
+        $repos   = $body['repos'] ?? [];
+
+        $st = $pdo->prepare("SELECT id FROM portal_github_contas WHERE id=? AND user_id=?");
+        $st->execute([$contaId, $uid]);
+        if (!$st->fetch()) { echo json_encode(['ok'=>false,'msg'=>'Conta não encontrada']); exit; }
+
+        $upsert = $pdo->prepare("
+            INSERT INTO portal_projetos_status (conta_id, repo_nome, visivel)
+            VALUES (?,?,?)
+            ON DUPLICATE KEY UPDATE visivel = VALUES(visivel)
+        ");
+        foreach ($repos as $r) {
+            $nome = trim($r['nome'] ?? '');
+            if ($nome === '') continue;
+            $vis = !empty($r['visivel']) ? 1 : 0;
+            $upsert->execute([$contaId, $nome, $vis]);
+        }
         echo json_encode(['ok'=>true]);
         exit;
     }
@@ -880,10 +929,12 @@ body  { background:#f0f4f9; font-family:'Segoe UI',sans-serif; font-size:.9rem; 
 <?php if (!$modoDetalhe): ?>
   <!-- ═══════════════ CONTAS GITHUB ═══════════════ -->
   <div class="gh-contas-section">
-    <h6 class="fw-bold mb-2" style="color:#374151">
+    <h6 class="fw-bold mb-2" style="color:#374151;cursor:pointer" onclick="toggleContas()">
       <i class="bi bi-github me-2"></i>Minhas Contas GitHub
+      <span class="text-muted fw-normal">(<?= count($minhasContas) ?>)</span>
+      <i class="bi bi-chevron-down ms-1" id="chvContas" style="font-size:.75rem;transition:transform .2s"></i>
     </h6>
-    <div class="gh-contas-grid">
+    <div class="gh-contas-grid" id="gridContas" style="display:none">
       <?php foreach ($minhasContas as $c): ?>
         <div class="gh-conta-card">
           <div class="gh-conta-topo">
@@ -911,13 +962,16 @@ body  { background:#f0f4f9; font-family:'Segoe UI',sans-serif; font-size:.9rem; 
   $errosContas   = [];
 
   if ($minhasContas) {
-      $contaIds  = array_column($minhasContas, 'id');
-      $statusMap = [];
+      $contaIds   = array_column($minhasContas, 'id');
+      $statusMap  = [];
+      $visivelMap = [];
       $ph = implode(',', array_fill(0, count($contaIds), '?'));
-      $st = $pdo->prepare("SELECT conta_id, repo_nome, status FROM portal_projetos_status WHERE conta_id IN ($ph)");
+      $st = $pdo->prepare("SELECT conta_id, repo_nome, status, visivel FROM portal_projetos_status WHERE conta_id IN ($ph)");
       $st->execute($contaIds);
       foreach ($st->fetchAll(PDO::FETCH_ASSOC) as $row) {
-          $statusMap[$row['conta_id'] . ':' . $row['repo_nome']] = $row['status'];
+          $chaveMap = $row['conta_id'] . ':' . $row['repo_nome'];
+          $statusMap[$chaveMap]  = $row['status'];
+          $visivelMap[$chaveMap] = (int)$row['visivel'];
       }
 
       foreach ($minhasContas as $conta) {
@@ -933,7 +987,8 @@ body  { background:#f0f4f9; font-family:'Segoe UI',sans-serif; font-size:.9rem; 
           $pdo->prepare("UPDATE portal_github_contas SET ultimo_teste_ok=1, ultima_verificacao=NOW() WHERE id=?")
               ->execute([$conta['id']]);
           foreach ($resultado as $repo) {
-              $chave  = $conta['id'] . ':' . $repo['nome'];
+              $chave = $conta['id'] . ':' . $repo['nome'];
+              if (($visivelMap[$chave] ?? 1) === 0) continue; // ocultado pelo usuário
               $status = $statusMap[$chave] ?? 'em_execucao';
               $repo['conta_id']      = $conta['id'];
               $repo['conta_apelido'] = $conta['apelido'];
@@ -1442,6 +1497,12 @@ document.getElementById('searchProj')?.addEventListener('input', function() {
           <input type="password" class="form-control font-monospace" id="conta-token" placeholder="ghp_..." autocomplete="new-password"/>
           <div class="form-text" id="conta-token-hint">Somente leitura, escopo <code>repo</code>. <a href="https://github.com/settings/tokens?type=beta" target="_blank" rel="noopener">Gerar token</a></div>
         </div>
+        <div class="mb-2" id="conta-repos-wrap" style="display:none">
+          <label class="form-label fw-semibold">Repositórios visíveis</label>
+          <div id="conta-repos-lista" style="max-height:220px;overflow-y:auto;border:1px solid #e5e7eb;border-radius:8px;padding:.5rem .75rem">
+            <div class="text-muted small">Carregando...</div>
+          </div>
+        </div>
         <div id="conta-erro" class="text-danger small" style="display:none"></div>
       </div>
       <div class="modal-footer">
@@ -1472,6 +1533,8 @@ function abrirModalConta() {
   document.getElementById('modalContaTitulo').innerHTML = '<i class="bi bi-github me-2"></i>Nova Conta GitHub';
   document.getElementById('btn-excluir-conta').style.display = 'none';
   document.getElementById('btn-testar-conta').style.display = 'none';
+  document.getElementById('conta-repos-wrap').style.display = 'none';
+  document.getElementById('conta-repos-lista').innerHTML = '';
   modalConta.show();
 }
 
@@ -1487,6 +1550,29 @@ function editarConta(c) {
   document.getElementById('btn-excluir-conta').style.display = 'inline-block';
   document.getElementById('btn-testar-conta').style.display = 'inline-block';
   modalConta.show();
+  carregarReposConta(c.id);
+}
+
+async function carregarReposConta(id) {
+  const wrap  = document.getElementById('conta-repos-wrap');
+  const lista = document.getElementById('conta-repos-lista');
+  wrap.style.display = '';
+  lista.innerHTML = '<div class="text-muted small">Carregando...</div>';
+
+  const r = await fetch('projetos.php?gh_action=conta_repos', {
+    method: 'POST', headers: {'Content-Type':'application/json'},
+    body: JSON.stringify({id}),
+  });
+  const d = await r.json();
+  if (!d.ok) { lista.innerHTML = `<div class="text-danger small">${d.msg || 'Erro ao carregar repositórios'}</div>`; return; }
+  if (!d.repos.length) { lista.innerHTML = '<div class="text-muted small">Nenhum repositório encontrado.</div>'; return; }
+
+  lista.innerHTML = d.repos.map(rp => `
+    <div class="form-check">
+      <input class="form-check-input conta-repo-check" type="checkbox" data-nome="${rp.nome}" id="crepo-${rp.nome}" ${rp.visivel ? 'checked' : ''}>
+      <label class="form-check-label small" for="crepo-${rp.nome}">${rp.nome}</label>
+    </div>
+  `).join('');
 }
 
 async function testarConta() {
@@ -1545,8 +1631,27 @@ async function salvarConta() {
     body: JSON.stringify({id, apelido, usuario_github, token}),
   });
   const d = await r.json();
-  if (d.ok) { modalConta.hide(); location.reload(); }
-  else { erroEl.textContent = d.msg || 'Erro ao salvar'; erroEl.style.display = ''; }
+  if (!d.ok) { erroEl.textContent = d.msg || 'Erro ao salvar'; erroEl.style.display = ''; return; }
+
+  const contaIdFinal = id || d.id;
+  const checks = document.querySelectorAll('#conta-repos-lista .conta-repo-check');
+  if (checks.length) {
+    const repos = Array.from(checks).map(chk => ({nome: chk.dataset.nome, visivel: chk.checked}));
+    await fetch('projetos.php?gh_action=visibilidade_set_lote', {
+      method: 'POST', headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({conta_id: contaIdFinal, repos}),
+    });
+  }
+  modalConta.hide();
+  location.reload();
+}
+
+function toggleContas() {
+  const grid = document.getElementById('gridContas');
+  const chv  = document.getElementById('chvContas');
+  const aberto = grid.style.display !== 'none';
+  grid.style.display = aberto ? 'none' : '';
+  chv.style.transform = aberto ? '' : 'rotate(-180deg)';
 }
 
 async function mudarStatus(ev, contaId, repoNome, status) {
