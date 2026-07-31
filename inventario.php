@@ -153,12 +153,11 @@ if (($_SESSION['perfil'] ?? '') === 'self-service') { header('Location: dashboar
     <span class="badge-embreve">Em breve</span>
   </div>
 
-  <div class="cat-card disabled">
+  <a href="inventario_redes.php" class="cat-card" style="border-top-color:#2e7d32">
     <div class="cat-icon net-icon"><i class="bi bi-diagram-3"></i></div>
     <h3>Redes</h3>
-    <p>Switches, roteadores, access points</p>
-    <span class="badge-embreve">Em breve</span>
-  </div>
+    <p>Access points UniFi — status, clientes e uptime</p>
+  </a>
 
   <div class="cat-card disabled">
     <div class="cat-icon monitor-icon"><i class="bi bi-phone"></i></div>
