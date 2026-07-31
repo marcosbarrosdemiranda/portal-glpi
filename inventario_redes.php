@@ -12,6 +12,16 @@ function esc(string $s): string {
     return htmlspecialchars($s, ENT_QUOTES, 'UTF-8');
 }
 
+function formatarUptime(int $segundos): string {
+    if ($segundos <= 0) return '—';
+    $dias    = intdiv($segundos, 86400);
+    $horas   = intdiv($segundos % 86400, 3600);
+    if ($dias > 0)  return "{$dias}d {$horas}h";
+    $minutos = intdiv($segundos % 3600, 60);
+    if ($horas > 0) return "{$horas}h {$minutos}min";
+    return "{$minutos}min";
+}
+
 $is_admin = in_array($_SESSION['perfil'] ?? '', ['admin', 'super-admin', 'tecnico']);
 
 // ── Tabela de controladoras UniFi ────────────────────────────────
@@ -156,7 +166,29 @@ $controladoras = $pdo->query("SELECT * FROM portal_unifi_controladoras WHERE ati
                 cursor:pointer; border-radius:12px; }
     .ctrl-add:hover { border-color:#1a237e; color:#1a237e; }
 
-    .badge-obsidian { display:none; } /* placeholder de compatibilidade visual, sem uso aqui */
+    .badge-obsidian { display:none; }
+
+    .unifi-erro-ctrl { background:#fff3e0; color:#854d0e; border:1px solid #fde68a;
+                        border-radius:8px; padding:.6rem 1rem; font-size:.82rem; margin-bottom:.75rem; }
+
+    .unifi-grupo-section { margin-bottom:1.5rem; }
+    .unifi-grupo-header { border-radius:12px 12px 0 0; padding:.65rem 1.1rem;
+                           display:flex; align-items:center; justify-content:space-between;
+                           color:#fff; font-weight:700; font-size:.85rem; background:#2e7d32; }
+    .unifi-grupo-count { font-size:.72rem; opacity:.85; font-weight:400; }
+    .unifi-grupo-body { background:#fff; border:1px solid #e5e7eb; border-top:none;
+                         border-radius:0 0 12px 12px; padding:1rem; }
+    .unifi-ap-grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(220px,1fr)); gap:.85rem; }
+    .unifi-ap-card { border:1px solid #e5e7eb; border-radius:12px; padding:1rem;
+                      background:#fff; display:flex; flex-direction:column; gap:.4rem; }
+    .unifi-ap-topo { display:flex; align-items:center; gap:.5rem; }
+    .unifi-ap-dot { width:10px; height:10px; border-radius:50%; flex-shrink:0; }
+    .unifi-ap-dot.online  { background:#1e8e3e; }
+    .unifi-ap-dot.offline { background:#d93025; }
+    .unifi-ap-nome { font-weight:700; font-size:.88rem; }
+    .unifi-ap-modelo { font-size:.75rem; color:#6b7280; }
+    .unifi-ap-meta { display:flex; flex-wrap:wrap; gap:.6rem; margin-top:.4rem;
+                      padding-top:.5rem; border-top:1px solid #f3f4f6; font-size:.72rem; color:#6b7280; }
   </style>
 </head>
 <body>
@@ -205,10 +237,63 @@ $controladoras = $pdo->query("SELECT * FROM portal_unifi_controladoras WHERE ati
   </div>
 </div>
 
-<!-- ═══════════════ ACCESS POINTS (próxima etapa) ═══════════════ -->
-<div class="text-muted small mt-4" id="unifi-aps-placeholder">
-  <?= $controladoras ? 'Carregando access points...' : 'Cadastre uma controladora acima para ver os access points aqui.' ?>
-</div>
+<!-- ═══════════════ ACCESS POINTS ═══════════════ -->
+<?php
+$errosControladoras = [];
+$apsPorControladora  = [];
+
+foreach ($controladoras as $c) {
+    $senha     = vault_decrypt($c['senha_enc']);
+    $resultado = unifi_listar_aps($c['url'], $c['usuario'], $senha, $c['site']);
+    if (isset($resultado['erro'])) {
+        $errosControladoras[] = ['apelido' => $c['apelido'], 'msg' => $resultado['erro']];
+        continue;
+    }
+    $apsPorControladora[$c['id']] = $resultado;
+}
+?>
+
+<?php foreach ($errosControladoras as $err): ?>
+  <div class="unifi-erro-ctrl">
+    <i class="bi bi-exclamation-triangle-fill me-2"></i>
+    <strong><?= esc($err['apelido']) ?>:</strong> não foi possível carregar — <?= esc($err['msg']) ?>
+  </div>
+<?php endforeach; ?>
+
+<?php if (!$controladoras): ?>
+  <div class="text-muted small mt-4">Cadastre uma controladora acima para ver os access points aqui.</div>
+<?php else: ?>
+  <?php foreach ($controladoras as $c): if (!isset($apsPorControladora[$c['id']])) continue; ?>
+    <?php $aps = $apsPorControladora[$c['id']]; ?>
+    <div class="unifi-grupo-section">
+      <div class="unifi-grupo-header">
+        <span><i class="bi bi-wifi me-2"></i><?= esc($c['apelido']) ?></span>
+        <span class="unifi-grupo-count"><?= count($aps) ?> access point(s)</span>
+      </div>
+      <div class="unifi-grupo-body">
+        <?php if ($aps): ?>
+          <div class="unifi-ap-grid">
+            <?php foreach ($aps as $ap): ?>
+              <div class="unifi-ap-card">
+                <div class="unifi-ap-topo">
+                  <span class="unifi-ap-dot <?= $ap['status'] ?>"></span>
+                  <span class="unifi-ap-nome"><?= esc($ap['nome']) ?></span>
+                </div>
+                <div class="unifi-ap-modelo"><?= esc($ap['modelo']) ?></div>
+                <div class="unifi-ap-meta">
+                  <span><i class="bi bi-people-fill me-1"></i><?= (int)$ap['clientes'] ?> clientes</span>
+                  <span><i class="bi bi-clock-history me-1"></i><?= esc(formatarUptime($ap['uptime_seg'])) ?></span>
+                </div>
+              </div>
+            <?php endforeach; ?>
+          </div>
+        <?php else: ?>
+          <p class="text-muted small mb-0">Nenhum access point encontrado nessa controladora.</p>
+        <?php endif; ?>
+      </div>
+    </div>
+  <?php endforeach; ?>
+<?php endif; ?>
 
 </div><!-- /wrap -->
 
