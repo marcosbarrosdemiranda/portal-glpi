@@ -16,8 +16,8 @@ function unifi_login(string $url, string $usuario, string $senha): array {
         CURLOPT_SSL_VERIFYHOST => false,
         CURLOPT_COOKIEJAR      => $cookieFile,
         CURLOPT_COOKIEFILE     => $cookieFile,
-        CURLOPT_TIMEOUT        => 8,
-        CURLOPT_CONNECTTIMEOUT => 5,
+        CURLOPT_TIMEOUT        => 4,
+        CURLOPT_CONNECTTIMEOUT => 2,
         CURLOPT_POST           => true,
         CURLOPT_HTTPHEADER     => ['Content-Type: application/json'],
         CURLOPT_POSTFIELDS     => json_encode(['username' => $usuario, 'password' => $senha]),
@@ -59,8 +59,8 @@ function unifi_listar_aps(string $url, string $usuario, string $senha, string $s
         CURLOPT_SSL_VERIFYPEER => false,
         CURLOPT_SSL_VERIFYHOST => false,
         CURLOPT_COOKIEFILE     => $login['cookieFile'],
-        CURLOPT_TIMEOUT        => 8,
-        CURLOPT_CONNECTTIMEOUT => 5,
+        CURLOPT_TIMEOUT        => 4,
+        CURLOPT_CONNECTTIMEOUT => 2,
     ]);
     $body  = curl_exec($ch);
     $errno = curl_errno($ch);
@@ -80,10 +80,10 @@ function unifi_listar_aps(string $url, string $usuario, string $senha, string $s
     foreach ($data['data'] as $dev) {
         if (($dev['type'] ?? '') !== 'uap') continue;
         $aps[] = [
-            'nome'       => $dev['name'] ?? ($dev['model'] ?? 'AP sem nome'),
-            'modelo'     => $dev['model'] ?? '',
-            'mac'        => $dev['mac'] ?? '',
-            'ip'         => $dev['ip'] ?? '',
+            'nome'       => (string)($dev['name'] ?? ($dev['model'] ?? 'AP sem nome')),
+            'modelo'     => (string)($dev['model'] ?? ''),
+            'mac'        => (string)($dev['mac'] ?? ''),
+            'ip'         => (string)($dev['ip'] ?? ''),
             'status'     => ((int)($dev['state'] ?? 0) === 1) ? 'online' : 'offline',
             'clientes'   => (int)($dev['num_sta'] ?? 0),
             'uptime_seg' => (int)($dev['uptime'] ?? 0),

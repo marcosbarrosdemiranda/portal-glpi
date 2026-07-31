@@ -54,9 +54,14 @@ if ($action) {
         $apelido = trim($body['apelido'] ?? '');
         $url     = trim($body['url'] ?? '');
         $usuario = trim($body['usuario'] ?? '');
-        $senha   = trim($body['senha'] ?? '');
+        // Senha não é trimada de propósito — pode ter espaços à margem que fazem parte dela (mesmo padrão de pfsense_proxy.php)
+        $senha   = (string)($body['senha'] ?? '');
         $site    = trim($body['site'] ?? '') ?: 'default';
         $id      = (int)($body['id'] ?? 0);
+
+        if ($action === 'controladora_save' && !$id) {
+            echo json_encode(['ok' => false, 'msg' => 'ID inválido']); exit;
+        }
 
         if (!$apelido || !$url || !$usuario) {
             echo json_encode(['ok' => false, 'msg' => 'Apelido, URL e usuário são obrigatórios']); exit;
@@ -65,14 +70,24 @@ if ($action) {
             echo json_encode(['ok' => false, 'msg' => 'URL deve começar com http:// ou https://']); exit;
         }
 
-        // Edição sem nova senha = mantém a senha atual, não re-testa
-        if ($action === 'controladora_save' && $id && $senha === '') {
-            $st = $pdo->prepare("UPDATE portal_unifi_controladoras SET apelido=?, url=?, usuario=?, site=? WHERE id=?");
-            $st->execute([$apelido, $url, $usuario, $site, $id]);
-            echo json_encode(['ok' => true]); exit;
+        // Edição sem nova senha = mantém a senha atual, não re-testa —
+        // mas só quando URL/usuário não mudaram. Se mudaram, a senha salva seria
+        // enviada em texto puro pro host novo sem o usuário nunca ter digitado ela de novo.
+        if ($action === 'controladora_save' && $senha === '') {
+            $stAtual = $pdo->prepare("SELECT url, usuario FROM portal_unifi_controladoras WHERE id=?");
+            $stAtual->execute([$id]);
+            $atual = $stAtual->fetch(PDO::FETCH_ASSOC);
+            $urlOuUsuarioMudou = $atual && ($atual['url'] !== $url || $atual['usuario'] !== $usuario);
+
+            if (!$urlOuUsuarioMudou) {
+                $st = $pdo->prepare("UPDATE portal_unifi_controladoras SET apelido=?, url=?, usuario=?, site=? WHERE id=?");
+                $st->execute([$apelido, $url, $usuario, $site, $id]);
+                echo json_encode(['ok' => true]); exit;
+            }
+            echo json_encode(['ok' => false, 'msg' => 'Informe a senha novamente ao alterar URL ou usuário']); exit;
         }
 
-        if (!$senha) { echo json_encode(['ok' => false, 'msg' => 'Senha é obrigatória']); exit; }
+        if ($senha === '') { echo json_encode(['ok' => false, 'msg' => 'Senha é obrigatória']); exit; }
         $teste = unifi_testar_login($url, $usuario, $senha);
         if (!$teste['ok']) { echo json_encode(['ok' => false, 'msg' => 'Login falhou: ' . $teste['msg']]); exit; }
 
@@ -166,8 +181,6 @@ $controladoras = $pdo->query("SELECT * FROM portal_unifi_controladoras WHERE ati
                 cursor:pointer; border-radius:12px; }
     .ctrl-add:hover { border-color:#1a237e; color:#1a237e; }
 
-    .badge-obsidian { display:none; }
-
     .unifi-erro-ctrl { background:#fff3e0; color:#854d0e; border:1px solid #fde68a;
                         border-radius:8px; padding:.6rem 1rem; font-size:.82rem; margin-bottom:.75rem; }
 
@@ -242,14 +255,21 @@ $controladoras = $pdo->query("SELECT * FROM portal_unifi_controladoras WHERE ati
 $errosControladoras = [];
 $apsPorControladora  = [];
 
+// Libera o lock de sessão antes do fetch lento — evita travar outras abas do mesmo usuário
+session_write_close();
+
+$stAtualizaTeste = $pdo->prepare("UPDATE portal_unifi_controladoras SET ultimo_teste_ok=?, ultima_verificacao=NOW() WHERE id=?");
+
 foreach ($controladoras as $c) {
     $senha     = vault_decrypt($c['senha_enc']);
     $resultado = unifi_listar_aps($c['url'], $c['usuario'], $senha, $c['site']);
     if (isset($resultado['erro'])) {
         $errosControladoras[] = ['apelido' => $c['apelido'], 'msg' => $resultado['erro']];
+        $stAtualizaTeste->execute([0, $c['id']]);
         continue;
     }
     $apsPorControladora[$c['id']] = $resultado;
+    $stAtualizaTeste->execute([1, $c['id']]);
 }
 ?>
 
@@ -331,6 +351,7 @@ foreach ($controladoras as $c) {
       </div>
       <div class="modal-footer">
         <button type="button" class="btn btn-outline-danger me-auto" id="btn-excluir-ctrl" style="display:none" onclick="excluirControladora()"><i class="bi bi-trash me-1"></i>Excluir</button>
+        <button type="button" class="btn btn-outline-secondary" id="btn-testar-ctrl" style="display:none" onclick="testarControladora()"><i class="bi bi-plug me-1"></i>Testar</button>
         <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
         <button type="button" class="btn btn-primary" onclick="salvarControladora()" style="background:#1a237e;border-color:#1a237e"><i class="bi bi-check-lg me-1"></i>Salvar</button>
       </div>
@@ -357,6 +378,7 @@ function abrirModalControladora() {
   document.getElementById('ctrl-erro').style.display = 'none';
   document.getElementById('modalControladoraTitulo').innerHTML = '<i class="bi bi-wifi me-2"></i>Nova Controladora';
   document.getElementById('btn-excluir-ctrl').style.display = 'none';
+  document.getElementById('btn-testar-ctrl').style.display = 'none';
   modalControladora.show();
 }
 
@@ -371,7 +393,44 @@ function editarControladora(c) {
   document.getElementById('ctrl-erro').style.display = 'none';
   document.getElementById('modalControladoraTitulo').textContent = c.apelido;
   document.getElementById('btn-excluir-ctrl').style.display = 'inline-block';
+  document.getElementById('btn-testar-ctrl').style.display = 'inline-block';
   modalControladora.show();
+}
+
+async function testarControladora() {
+  const id     = document.getElementById('ctrl-id').value;
+  const erroEl = document.getElementById('ctrl-erro');
+  erroEl.style.display = 'none';
+  if (!id) return;
+
+  const btn = document.getElementById('btn-testar-ctrl');
+  const htmlOriginal = btn.innerHTML;
+  btn.disabled = true;
+  btn.innerHTML = '<i class="bi bi-hourglass-split me-1"></i>Testando...';
+
+  try {
+    const r = await fetch('inventario_redes.php?action=controladora_testar', {
+      method: 'POST', headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({id}),
+    });
+    const d = await r.json();
+    if (d.ok) {
+      erroEl.className = 'text-success small';
+      erroEl.textContent = 'Login ok — conexão com a controladora funcionando.';
+      erroEl.style.display = '';
+    } else {
+      erroEl.className = 'text-danger small';
+      erroEl.textContent = d.msg || 'Falha ao testar controladora.';
+      erroEl.style.display = '';
+    }
+  } catch (e) {
+    erroEl.className = 'text-danger small';
+    erroEl.textContent = 'Erro ao testar controladora.';
+    erroEl.style.display = '';
+  } finally {
+    btn.disabled = false;
+    btn.innerHTML = htmlOriginal;
+  }
 }
 
 async function salvarControladora() {
@@ -379,7 +438,7 @@ async function salvarControladora() {
   const apelido = document.getElementById('ctrl-apelido').value.trim();
   const url     = document.getElementById('ctrl-url').value.trim();
   const usuario = document.getElementById('ctrl-usuario').value.trim();
-  const senha   = document.getElementById('ctrl-senha').value.trim();
+  const senha   = document.getElementById('ctrl-senha').value;
   const site    = document.getElementById('ctrl-site').value.trim();
   const erroEl  = document.getElementById('ctrl-erro');
   erroEl.style.display = 'none';
