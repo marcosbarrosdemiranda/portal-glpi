@@ -5,7 +5,7 @@
 # stdout do mysqldump sem nunca gravar o .sql descomprimido em disco.
 
 $date = Get-Date -Format "yyyy-MM-dd"
-$backupDir = "D:\Backup Glpi\Docker-DB"
+$backupDir = "E:\Backup Sistemas\Backup-glpi-portal\Docker-DB"
 $retencaoDias = 5
 
 if (-not (Test-Path $backupDir)) { New-Item -ItemType Directory -Path $backupDir -Force | Out-Null }

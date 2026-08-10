@@ -1,7 +1,10 @@
 # Stack de produção rodando em 192.168.1.198 — ver Portal-Glpi/Arquitetura/PLANO_MIGRACAO_DOCKER.md
-# Código-fonte (GLPI + portal-glpi) mora em D:\docker\glpi-portal\glpi2 (movido de C:\xampp\htdocs\glpi2
-# em 2026-07-19, pra poder desinstalar o XAMPP sem perder dados). Sync automático pro servidor agora
-# usa scp direto pra esse caminho (não é mais a pasta \\192.168.1.198\xampp, que não existe mais).
+# Código-fonte (GLPI + portal-glpi) mora em C:\docker\glpi-portal\glpi2 (movido de D:\docker\glpi-portal\glpi2
+# em 2026-08-09 — disco D: estava saudável, mas o disco G: do servidor passou a apresentar erros de I/O
+# ativos, e o usuário decidiu reorganizar a infra levando tudo pro C:, disco do sistema).
+# Banco de dados também migrou de volume Docker nomeado para bind mount em
+# C:\docker\glpi-portal\mysql-data, pra ficar junto do resto do projeto.
+# Sync automático pro servidor usa scp direto pra C:\docker\glpi-portal\glpi2\portal-glpi\.
 # Porta 7412 escolhida a pedido do usuário — 80/8091 já reservadas no pfSense, DNS/proxy será configurado depois.
 services:
   glpi-db:
@@ -13,7 +16,7 @@ services:
       MYSQL_ROOT_PASSWORD: root_password
       MYSQL_DATABASE: glpi2
     volumes:
-      - glpi_db_data:/var/lib/mysql
+      - C:\docker\glpi-portal\mysql-data:/var/lib/mysql
     networks:
       - glpi-net
 
@@ -24,7 +27,7 @@ services:
     depends_on:
       - glpi-db
     volumes:
-      - D:\docker\glpi-portal\glpi2:/var/www/html/glpi2
+      - C:\docker\glpi-portal\glpi2:/var/www/html/glpi2
     ports:
       - "7412:80"
     networks:
@@ -37,13 +40,10 @@ services:
     depends_on:
       - glpi-db
     volumes:
-      - D:\docker\glpi-portal\glpi2:/var/www/html/glpi2
+      - C:\docker\glpi-portal\glpi2:/var/www/html/glpi2
     entrypoint: ["sh", "-c", "while true; do php /var/www/html/glpi2/front/cron.php; sleep 60; done"]
     networks:
       - glpi-net
-
-volumes:
-  glpi_db_data:
 
 networks:
   glpi-net:
