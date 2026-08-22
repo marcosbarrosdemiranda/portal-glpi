@@ -7,6 +7,11 @@
 agenda/config.php
 config_db_prod.php
 
+# Certificado Let's Encrypt (chave privada) — gerado localmente via certbot
+docker/certbot-etc/
+docker/certbot-log/
+docker/certbot-hooks/txt_record.txt
+
 # ── Ferramentas de debug ───────────────────────────────────────
 # Expõem informações internas; não devem ir para produção
 debug_login.php
