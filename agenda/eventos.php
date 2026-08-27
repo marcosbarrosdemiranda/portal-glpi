@@ -13,6 +13,25 @@ header('Content-Type: application/json');
 
 require_once __DIR__ . '/db.php';
 
+// ── Tabela de recorrências + coluna ─────────────────────────────
+try { $pdo->exec("CREATE TABLE IF NOT EXISTS agenda_recorrencias (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    evento_id VARCHAR(50) NOT NULL,
+    dias_semana VARCHAR(25) NOT NULL COMMENT '1=Domingo...7=Sábado',
+    data_limite DATE DEFAULT NULL,
+    ativo TINYINT(1) DEFAULT 1,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci"); } catch (Exception $e) {}
+// Corrige collation de tabelas já existentes (compatibilidade retroativa)
+try { $pdo->exec("ALTER TABLE agenda_recorrencias CONVERT TO CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci"); } catch (Exception $e) {}
+try { $pdo->exec("ALTER TABLE agenda_recorrencias MODIFY evento_id VARCHAR(50) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL"); } catch (Exception $e) {}
+try { $pdo->exec("ALTER TABLE glpi_plugin_agenda_events ADD COLUMN recorrencia_id INT DEFAULT NULL AFTER concluido"); } catch (Exception $e) {}
+// Coluna para co-atendentes (reunião/evento com múltiplos técnicos)
+try { $pdo->exec("ALTER TABLE glpi_plugin_agenda_events ADD COLUMN co_atendentes TEXT DEFAULT NULL AFTER atendente_cor"); } catch (Exception $e) {}
+// Tipo 'projeto' + coluna com o nome do projeto selecionado (pasta em Docs/wiki/projects)
+try { $pdo->exec("ALTER TABLE glpi_plugin_agenda_events MODIFY tipo ENUM('evento','chamado','requisicao','reuniao','projeto') NOT NULL DEFAULT 'evento'"); } catch (Exception $e) {}
+try { $pdo->exec("ALTER TABLE glpi_plugin_agenda_events ADD COLUMN projeto VARCHAR(255) DEFAULT NULL AFTER setor"); } catch (Exception $e) {}
+
 $action = $_GET['action'] ?? 'list';
 
 try {
@@ -42,7 +61,18 @@ try {
              SET tipo = 'chamado'
              WHERE tipo = 'evento' AND ticket_id IS NOT NULL AND ticket_id != ''"
         );
-        $rows = $pdo->query("SELECT * FROM glpi_plugin_agenda_events ORDER BY start ASC")->fetchAll();
+        // Tenta JOIN com recorrência; se falhar (coluna não existe), faz SELECT simples
+        try {
+            $rows = $pdo->query("
+                SELECT e.*, r.dias_semana AS recorrencia_dias, r.data_limite AS recorrencia_data_limite
+                FROM glpi_plugin_agenda_events e
+                LEFT JOIN agenda_recorrencias r ON e.recorrencia_id = r.id AND r.ativo = 1
+                ORDER BY e.start ASC
+            ")->fetchAll();
+        } catch (Exception $e) {
+            // Fallback: coluna recorrencia_id pode não existir ainda
+            $rows = $pdo->query("SELECT * FROM glpi_plugin_agenda_events ORDER BY start ASC")->fetchAll();
+        }
         echo json_encode($rows);
         exit;
     }
@@ -50,11 +80,36 @@ try {
     // ── DELETE por ID ─────────────────────────────────────────────────────
     if ($action === 'delete') {
         $id = trim($_GET['id'] ?? '');
+        $recorrencia = $_GET['recorrencia'] ?? 'single'; // 'single' ou 'futuras'
         if ($id === '') {
             http_response_code(400);
             echo json_encode(['error' => 'ID não informado']);
             exit;
         }
+
+        // Se for excluir futuras ocorrências de uma recorrência
+        if ($recorrencia === 'futuras') {
+            // Busca o recorrencia_id deste evento
+            $st = $pdo->prepare("SELECT recorrencia_id FROM glpi_plugin_agenda_events WHERE id=?");
+            $st->execute([$id]);
+            $ev = $st->fetch();
+            $recId = $ev ? (int)$ev['recorrencia_id'] : 0;
+
+            if ($recId > 0) {
+                // Desativa recorrência
+                $pdo->prepare("UPDATE agenda_recorrencias SET ativo=0 WHERE id=?")->execute([$recId]);
+                // Deleta eventos futuros (>= hoje) desta recorrência
+                $stDel = $pdo->prepare(
+                    "DELETE FROM glpi_plugin_agenda_events
+                     WHERE recorrencia_id = ? AND DATE(start) >= CURDATE()"
+                );
+                $stDel->execute([$recId]);
+                echo json_encode(['ok' => true, 'removidos' => $stDel->rowCount(), 'recorrencia_desativada' => true]);
+                exit;
+            }
+        }
+
+        // Delete padrão (único)
         $stmt = $pdo->prepare("DELETE FROM glpi_plugin_agenda_events WHERE id = ?");
         $stmt->execute([$id]);
         echo json_encode(['ok' => true, 'removidos' => $stmt->rowCount()]);
@@ -71,6 +126,33 @@ try {
         }
         $stmt = $pdo->prepare("DELETE FROM glpi_plugin_agenda_events WHERE ticket_id = ?");
         $stmt->execute([$ticket_id]);
+        echo json_encode(['ok' => true, 'removidos' => $stmt->rowCount()]);
+        exit;
+    }
+
+    // ── DELETE por ticket_id + PERÍODO (remove só os eventos do horário original
+    // informado, preservando os demais períodos do mesmo chamado) ─────────
+    // Usado ao salvar um chamado de equipe já existente: antes recriava TODOS
+    // os eventos do ticket (deleteByTicket), o que apagava outros períodos
+    // agendados para o mesmo chamado.
+    if ($action === 'deleteByTicketPeriodo') {
+        $ticket_id  = (int)($_GET['ticket_id'] ?? 0);
+        $orig_start = $_GET['orig_start'] ?? '';
+        if (!$ticket_id || !$orig_start) {
+            http_response_code(400);
+            echo json_encode(['error' => 'ticket_id e orig_start são obrigatórios']);
+            exit;
+        }
+        $orig_start = str_replace('T', ' ', substr($orig_start, 0, 19));
+        $stmt = $pdo->prepare(
+            "DELETE FROM glpi_plugin_agenda_events
+             WHERE ticket_id = :ticket_id AND (start = :orig OR start = :orig2)"
+        );
+        $stmt->execute([
+            ':ticket_id' => $ticket_id,
+            ':orig'      => $orig_start,
+            ':orig2'     => $orig_start . ':00',
+        ]);
         echo json_encode(['ok' => true, 'removidos' => $stmt->rowCount()]);
         exit;
     }
@@ -146,19 +228,23 @@ try {
         $is_edit = isset($body['id']) && $body['id'] !== null && $body['id'] !== '';
         $id = $is_edit ? (string)$body['id'] : uniqid('ev_', true);
 
-        $titulo       = $body['titulo']       ?? 'Sem título';
+        $titulo       = preg_replace('/^#\d+\s*[-–]\s*/', '', $body['titulo'] ?? 'Sem título');
         $descricao    = $body['descricao']    ?? '';
         $start        = $body['start']        ?? '';
         $end          = $body['end']          ?? $start;
         $atendente    = $body['atendente']    ?? null;
         $atendente_id = isset($body['atendente_id']) && $body['atendente_id'] !== '' ? (int)$body['atendente_id'] : null;
         $atendente_cor= $body['atendente_cor']?? '#1a73e8';
+        $co_atendentes = $body['co_atendentes'] ?? null; // JSON array: [{"nome":"...","id":1,"cor":"#..."},...]
+        if ($co_atendentes && is_array($co_atendentes)) $co_atendentes = json_encode($co_atendentes);
         $prioridade   = in_array($body['prioridade'] ?? '', ['baixa','media','alta','critica'])
                         ? $body['prioridade'] : 'media';
         $setor        = $body['setor']        ?? null;
-        $tipo         = in_array($body['tipo'] ?? '', ['evento','chamado','requisicao','reuniao'])
+        $projeto      = $body['projeto']      ?? null;
+        $tipo         = in_array($body['tipo'] ?? '', ['evento','chamado','requisicao','reuniao','projeto'])
                         ? $body['tipo'] : 'evento';
-        // ⚠️ Mapeia 'requisicao' → 'chamado' porque o ENUM do MySQL não tem 'requisicao'
+        // Mantém compatibilidade com o comportamento existente: eventos 'requisicao' seguem
+        // sendo salvos como 'chamado' (fora do escopo desta mudança mexer nisso)
         if ($tipo === 'requisicao') $tipo = 'chamado';
         $concluido    = isset($body['concluido']) ? (int)$body['concluido'] : 0;
         $orig_start   = $body['orig_start'] ?? '';
@@ -176,8 +262,10 @@ try {
             ':atendente'    => $atendente,
             ':atendente_id' => $atendente_id,
             ':atendente_cor'=> $atendente_cor,
+            ':co_atendentes'=> $co_atendentes,
             ':prioridade'   => $prioridade,
             ':setor'        => $setor,
+            ':projeto'      => $projeto,
             ':ticket_id'    => $ticket_id,
             ':tipo'         => $tipo,
             ':concluido'    => $concluido,
@@ -185,9 +273,9 @@ try {
 
         $insert_sql = "
             INSERT INTO glpi_plugin_agenda_events
-                (id, titulo, descricao, start, end, atendente, atendente_id, atendente_cor, prioridade, setor, ticket_id, tipo, concluido)
+                (id, titulo, descricao, start, end, atendente, atendente_id, atendente_cor, co_atendentes, prioridade, setor, projeto, ticket_id, tipo, concluido)
             VALUES
-                (:id,:titulo,:descricao,:start,:end,:atendente,:atendente_id,:atendente_cor,:prioridade,:setor,:ticket_id,:tipo,:concluido)
+                (:id,:titulo,:descricao,:start,:end,:atendente,:atendente_id,:atendente_cor,:co_atendentes,:prioridade,:setor,:projeto,:ticket_id,:tipo,:concluido)
         ";
 
         if ($is_edit) {
@@ -196,7 +284,8 @@ try {
                 UPDATE glpi_plugin_agenda_events SET
                     titulo=:titulo, descricao=:descricao, start=:start, end=:end,
                     atendente=:atendente, atendente_id=:atendente_id, atendente_cor=:atendente_cor,
-                    prioridade=:prioridade, setor=:setor, ticket_id=:ticket_id,
+                    co_atendentes=:co_atendentes,
+                    prioridade=:prioridade, setor=:setor, projeto=:projeto, ticket_id=:ticket_id,
                     tipo=:tipo, concluido=:concluido
                 WHERE id = :id
             ");
@@ -232,6 +321,45 @@ try {
             ]);
         }
 
+        // ── Campos adicionais de impressão ───────────────────────────────────
+        if (!empty($body['campos_impressao']) && $ticket_id) {
+            try {
+                $ci = $body['campos_impressao'];
+                $imp_fields = [
+                    'qtdimpressesafourfvfield','qtdimpressesafourffield',
+                    'qtdimpressesathreefvfield','qtdimpressesathreeffield',
+                    'qtdimpafouradesivofield','qtdimpafourplacasfield',
+                    'qtdetiquetafivefield','qtdimpathreeplacafield','qtdimpathreeadesivofield',
+                ];
+                $vals = [];
+                foreach ($imp_fields as $f) $vals[$f] = (int)($ci[$f] ?? 0);
+
+                $chkImp = $pdo->prepare(
+                    "SELECT id FROM glpi_plugin_fields_ticketqtdimpressesafourfrenteversos WHERE items_id = ?"
+                );
+                $chkImp->execute([$ticket_id]);
+
+                if ($chkImp->fetchColumn()) {
+                    $sets = implode(',', array_map(fn($f) => "`$f`=:$f", $imp_fields));
+                    $pdo->prepare(
+                        "UPDATE glpi_plugin_fields_ticketqtdimpressesafourfrenteversos SET $sets WHERE items_id=:items_id"
+                    )->execute(array_merge($vals, ['items_id' => $ticket_id]));
+                } else {
+                    $entRow = $pdo->prepare("SELECT entities_id FROM glpi_tickets WHERE id = ? LIMIT 1");
+                    $entRow->execute([$ticket_id]);
+                    $entities_id = (int)($entRow->fetchColumn() ?: 0);
+                    $cols = implode(',', array_map(fn($f) => "`$f`", $imp_fields));
+                    $phs  = implode(',', array_map(fn($f) => ":$f", $imp_fields));
+                    $pdo->prepare(
+                        "INSERT INTO glpi_plugin_fields_ticketqtdimpressesafourfrenteversos
+                         (items_id,itemtype,plugin_fields_containers_id,entities_id,$cols)
+                         VALUES (:items_id,'Ticket',1,:entities_id,$phs)"
+                    )->execute(array_merge($vals, ['items_id' => $ticket_id, 'entities_id' => $entities_id]));
+                }
+            } catch (\Throwable $e) { /* silencioso */ }
+        }
+        // ─────────────────────────────────────────────────────────────────────
+
         // Se o evento foi marcado como concluído, conclui TODOS os períodos do mesmo ticket
         if ($concluido && $ticket_id) {
             $pdo->prepare(
@@ -240,7 +368,80 @@ try {
             )->execute([$ticket_id, $id]);
         }
 
-        echo json_encode(['ok' => true, 'id' => $id]);
+        // ── Recorrência ──────────────────────────────────────────────
+        $recorrencia_id = (isset($body['recorrencia_id']) && $body['recorrencia_id'] !== null && $body['recorrencia_id'] !== '') ? (int)$body['recorrencia_id'] : null;
+        if (!empty($body['recorrencia_ativa']) && !empty($body['recorrencia_dias'])) {
+            $dias = trim($body['recorrencia_dias']);
+            $data_limite = !empty($body['recorrencia_data_limite']) ? $body['recorrencia_data_limite'] : null;
+
+            if ($data_limite) {
+                $dl = date('Y-m-d', strtotime($data_limite));
+                if ($dl <= date('Y-m-d')) $data_limite = null; // se já passou, ignora
+            }
+
+            if ($is_edit && $recorrencia_id) {
+                // Só atualiza recorrência se os dias REALMENTE mudaram
+                // (evita regenerar tudo ao marcar concluído em uma instância)
+                $check = $pdo->prepare("SELECT dias_semana, data_limite FROM agenda_recorrencias WHERE id=?");
+                $check->execute([$recorrencia_id]);
+                $atual = $check->fetch();
+                if ($atual && ($atual['dias_semana'] !== $dias || ($atual['data_limite'] ?? '') !== ($data_limite ?? ''))) {
+                    $pdo->prepare("UPDATE agenda_recorrencias SET dias_semana=?, data_limite=? WHERE id=?")
+                        ->execute([$dias, $data_limite, $recorrencia_id]);
+                    // Regenera instâncias com os novos dias
+                    gerarInstanciasRecorrencia($pdo, null, $recorrencia_id, 52);
+                }
+            } else {
+                // Cria nova recorrência (vinculada ao evento "mãe")
+                $pdo->prepare("INSERT INTO agenda_recorrencias (evento_id, dias_semana, data_limite) VALUES (?,?,?)")
+                    ->execute([$id, $dias, $data_limite]);
+                $recorrencia_id = (int)$pdo->lastInsertId();
+                // Vincula o evento mãe
+                $pdo->prepare("UPDATE glpi_plugin_agenda_events SET recorrencia_id=? WHERE id=?")
+                    ->execute([$recorrencia_id, $id]);
+                // Gera TODAS as instâncias futuras de uma vez
+                gerarInstanciasRecorrencia($pdo, null, $recorrencia_id, 52);
+            }
+        } elseif ($is_edit && $recorrencia_id) {
+            // Desativou recorrência
+            $pdo->prepare("UPDATE agenda_recorrencias SET ativo=0 WHERE id=?")->execute([$recorrencia_id]);
+        }
+
+        echo json_encode(['ok' => true, 'id' => $id, 'recorrencia_id' => $recorrencia_id]);
+        exit;
+    }
+
+    // ── GERAR SEMANA (recorrência) ──────────────────────────────────
+    // Gera instâncias da semana corrente baseado nas recorrências ativas.
+    // Pode ser chamado manualmente pelo CRON (domingo 07:00) ou via AJAX.
+    if ($action === 'gerar_semana') {
+        $criados = 0;
+        $ignorados = 0;
+        $erros = 0;
+
+        $recurrences = $pdo->query("
+            SELECT r.*, e.titulo, e.descricao, e.start, e.end,
+                   e.atendente, e.atendente_id, e.atendente_cor, e.prioridade, e.setor,
+                   e.ticket_id, e.tipo
+            FROM agenda_recorrencias r
+            JOIN glpi_plugin_agenda_events e ON r.evento_id COLLATE utf8mb4_unicode_ci = e.id
+            WHERE r.ativo = 1
+              AND (r.data_limite IS NULL OR r.data_limite >= CURDATE())
+        ")->fetchAll();
+
+        foreach ($recurrences as $rec) {
+            try {
+                // Limite de 50 inserts por recorrência por chamada (evita timeout)
+                $result = gerarInstanciasRecorrencia($pdo, $rec, null, 52, 50);
+                $criados += $result['criados'];
+                $ignorados += $result['ignorados'];
+            } catch (\Throwable $e) {
+                $erros++;
+                error_log('gerar_semana: erro na recorrência #' . ($rec['id'] ?? '?') . ' - ' . $e->getMessage());
+            }
+        }
+
+        echo json_encode(['ok'=>true, 'criados'=>$criados, 'ignorados'=>$ignorados, 'erros'=>$erros]);
         exit;
     }
 
@@ -249,4 +450,92 @@ try {
 } catch (PDOException $e) {
     http_response_code(500);
     echo json_encode(['error' => 'Erro no banco de dados: ' . $e->getMessage()]);
+} catch (\Throwable $e) {
+    http_response_code(500);
+    echo json_encode(['error' => 'Erro interno: ' . $e->getMessage()]);
+}
+
+// ── Helper: gera instâncias futuras de uma recorrência ──────────────
+// Gera TODAS as ocorrências futuras de uma vez (até data limite ou 364 dias).
+// $rec = registro completo via JOIN, $recId = só o ID (busca internamente)
+function gerarInstanciasRecorrencia($pdo, $rec = null, $recId = null, $semanas = 52, $maxInserts = PHP_INT_MAX) {
+    if ($rec === null && $recId !== null) {
+        $st = $pdo->prepare("
+            SELECT r.*, e.titulo, e.descricao, e.start, e.end,
+                   e.atendente, e.atendente_id, e.atendente_cor, e.prioridade, e.setor,
+                   e.ticket_id, e.tipo
+            FROM agenda_recorrencias r
+            JOIN glpi_plugin_agenda_events e ON r.evento_id COLLATE utf8mb4_unicode_ci = e.id
+            WHERE r.id = ? AND r.ativo = 1
+        ");
+        $st->execute([$recId]);
+        $rec = $st->fetch();
+        if (!$rec) return ['criados' => 0, 'ignorados' => 0];
+    }
+    if (!$rec) return ['criados' => 0, 'ignorados' => 0];
+
+    $criados = 0;
+    $ignorados = 0;
+    $today = new DateTime();
+    $todayDate = (clone $today)->setTime(0, 0, 0);
+
+    $dias_raw = $rec['dias_semana'] ?? '';
+    $dias = array_map('intval', array_filter(explode(',', $dias_raw)));
+    $recDbId = (int)$rec['id'];
+    $duracao = strtotime($rec['end']) - strtotime($rec['start']);
+    $horaInicio = date('H:i:s', strtotime($rec['start']));
+
+    // Data limite: se definida usa ela, senão vai até 31/12/2026
+    if ($rec['data_limite']) {
+        $dataLimite = new DateTime($rec['data_limite']);
+    } else {
+        $dataLimite = new DateTime('2026-12-31');
+    }
+
+    // Busca datas já existentes desta recorrência
+    $existentes = $pdo->prepare("SELECT DATE(start) FROM glpi_plugin_agenda_events WHERE recorrencia_id = ?");
+    $existentes->execute([$recDbId]);
+    $existentesDatas = $existentes->fetchAll(PDO::FETCH_COLUMN);
+
+    // Começa de amanhã (o evento original já é o de hoje)
+    $cursor = (clone $today)->modify('+1 day');
+
+    while ($cursor <= $dataLimite) {
+        $dataStr = $cursor->format('Y-m-d');
+
+        // Mapeia: format('N') = 1(Mon)..7(Sun) → nosso formato: Seg=2, Ter=3...Dom=1
+        $n = (int)$cursor->format('N');
+        $checkDia = $n + 1;
+        if ($checkDia > 7) $checkDia = 1;
+
+        if (in_array($checkDia, $dias)) {
+            if (!in_array($dataStr, $existentesDatas)) {
+                $startDt = $dataStr . ' ' . $horaInicio;
+                $endDt   = date('Y-m-d H:i:s', strtotime($startDt) + $duracao);
+                $evId = 'rec_' . $recDbId . '_' . $dataStr . '_' . uniqid();
+
+                $pdo->prepare("
+                    INSERT INTO glpi_plugin_agenda_events
+                        (id, titulo, descricao, start, end, atendente, atendente_id,
+                         atendente_cor, prioridade, setor, ticket_id, tipo, concluido, recorrencia_id)
+                    VALUES (?,?,?,?,?,?,?,?,?,?,?,?,0,?)
+                ")->execute([
+                    $evId, $rec['titulo'], $rec['descricao'],
+                    $startDt, $endDt,
+                    $rec['atendente'], $rec['atendente_id'], $rec['atendente_cor'],
+                    $rec['prioridade'], $rec['setor'],
+                    $rec['ticket_id'], $rec['tipo'],
+                    $recDbId,
+                ]);
+                $criados++;
+                if ($criados >= $maxInserts) break;
+            } else {
+                $ignorados++;
+            }
+        }
+
+        $cursor->modify('+1 day');
+    }
+
+    return ['criados' => $criados, 'ignorados' => $ignorados];
 }

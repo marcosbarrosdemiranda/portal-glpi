@@ -1,5 +1,15 @@
 ﻿# Timeline de Atividades Macro
 
+## [2026-06-07] — Sessão — VNC + Grupos Dinâmicos + Central AnyDesk
+- **Tipo:** feat + fix
+- **Arquivos alterados/novos:** `vnc_central.php`, `rdp_central.php`, `vnc.php`, `anydesk_central.php` (novo), `acessos.php`, `Docs/wiki/projects/portal-glpi-prd.md`
+- **feat:** VNC funcional via Apache Guacamole (RealVNC Encryption → Prefer off)
+- **feat:** Grupos Dinâmicos na Central VNC — CRUD de grupos cadastráveis/editáveis/excluíveis
+- **feat:** Grupos Dinâmicos na Central RDP — mesma implementação da Central VNC
+- **feat:** Central AnyDesk — página dedicada com CRUD de máquinas, grupos dinâmicos, conexão via `anydesk://ID` e cópia de senha
+- **fix:** Migração automática de categorias antigas (lowercase) para novos grupos
+- **fix:** Botão "Grupos" visível nas páginas principais (acima dos filtros)
+
 ## [2026-06-03] — Sessão 3 — 9 melhorias na Agenda + Git + Obsidian
 - **Tipo:** fix + feat + infra
 - **Arquivos alterados:** `agenda/index.php`, `glpi_doc_proxy.php`, `agenda/config.php`, `debug_proxy.php`

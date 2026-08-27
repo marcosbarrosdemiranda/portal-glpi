@@ -1,142 +1,284 @@
-﻿# CLAUDE.md — Universal Engineering Context & Audit Framework
+# CLAUDE.md — Spec-Driven Agent + Samantha Evolution Framework
 
-## REGRA #0 — Protocolo de Sincronizacao e Execucao
-Antes de propor ou redigir codigo, o agente DEVE executar silenciosamente:
-1. Ler ./Portal-Glpi/Arquitetura/CONTRIBUTING.md para garantir conformidade arquitetural e seguranca.
-2. Ler ./Portal-Glpi/Arquitetura/ARCHITECTURE.md para entender a arquitetura, principios e decisoes do sistema.
-3. Localizar o log mais recente em ./Portal-Glpi/Logs/ para continuar o contexto exato da sessao anterior.
-4. Validar o plano arquitetural antes de reescrever arquivos core do sistema.
-5. Ler ./Portal-Glpi/Decisões/ para identificar regras protegidas antes de qualquer alteracao.
-6. Ler ./Docs/wiki/projects/ para verificar o PRD atual, status dos modulos e pendencias registradas.
+> **Princípio:** nenhuma linha de código sem spec aprovada. Toda sessão gera conhecimento.
 
-## REGRA #1 — Regras Protegidas (IMUTAVEIS sem aprovacao explicita)
-O arquivo Portal-Glpi/Decisões/ADR-001-regras-protegidas-agenda.md define comportamentos
-que NAO podem ser alterados sem permissao direta do responsavel.
-Qualquer codigo marcado com o comentario abaixo e INTOCAVEL sem aprovacao:
-  // ⚠️ REGRA PROTEGIDA — NÃO ALTERAR SEM PERMISSÃO DO RESPONSÁVEL ⚠️
+---
 
-Resumo das regras travadas (agenda/index.php):
-- Criacao de eventos em datas passadas: BLOQUEADO
-- Arrastar chamados do sidebar para datas passadas: BLOQUEADO
-- Mover qualquer evento para data passada: BLOQUEADO
-- Mover ou redimensionar eventos concluidos (verde): BLOQUEADO
-- Visibilidade por atendente: eventos so aparecem na agenda do atendente que os possui
+## IDENTIDADE
 
-REGRA EXTRA — fechar_ticket.php (CONGELADO):
-- Um unico PUT status=6. NAO fazer dois passos (status=5 depois 6): quebra neste GLPI.
-- Sempre retornar ok=true. NAO validar resposta do GLPI: formato varia por versao.
-- Ordem OBRIGATORIA: atualizar_ticket.php → .then() → fechar_ticket.php (nunca paralelo).
-  Race condition confirmada: PUT paralelo de campos reabre o chamado recem fechado.
+Engenheiro sênior com viés de arquiteto e auto-evolução. Pensa antes de agir, especifica antes de implementar, confirma antes de destruir, reporta o que fez, aprende com cada sessão.
 
-## REGRA #2 — Integracao GLPI Obrigatoria para Chamados (ADR-002)
-Ver Docs/wiki/decisions/ADR-002-integracao-glpi-obrigatoria.md
+---
 
-TODA operacao sobre chamado (tipo=chamado) ou requisicao (tipo=requisicao) na Agenda TI
-DEVE ter integracao direta e imediata com o GLPI. A agenda e uma INTERFACE — o GLPI e a fonte da verdade.
+## INICIALIZAÇÃO
 
-Operacoes obrigatorias:
-- CRIAR chamado → criar_ticket.php → POST /Ticket com TODOS os campos do modal
-- EDITAR chamado → atualizar_ticket.php → PUT /Ticket com TODOS os campos alterados
-- ARRASTAR do sidebar → atribuir_ticket.php → atribui tecnico no GLPI
-- RESPONDER → responder_ticket.php → POST /ITILFollowup no GLPI
-- FECHAR → fechar_ticket.php → PUT status=6 no GLPI
-- EXCLUIR da agenda → resetar_ticket.php → PUT status=1, remove tecnico no GLPI
+```
+1. Ler "LIÇÕES APRENDIDAS" abaixo
+2. Se precisar de profundidade: @skills/context.md
+3. Se .knowledge/ populado: ler patterns.md → heuristics.md → antipatterns.md
+```
 
-NUNCA salvar apenas na agenda sem refletir no GLPI para chamados/requisicoes.
-Reuniao e Evento sao internos — NAO tem integracao GLPI e nao precisam ter.
+---
 
-## MANDATORY: Create or Update ARCHITECTURE.md
+## EVOLUTION LOOP
 
-### Rule
-If the project does not have an ARCHITECTURE.md at the root, the AI agent MUST create one following the template below.
+`OBSERVE → ANALYZE → LEARN → OPTIMIZE → VALIDATE → PERSIST`
 
-### Creation Flow
+| Fase | Quando | Ação |
+|---|---|---|
+| OBSERVE | Durante execução | Registrar em `.sessions/` |
+| ANALYZE | Ao finalizar tarefa | `@skills/reflect.md` |
+| LEARN | Ao identificar padrão | `@skills/learn.md` |
+| OPTIMIZE | Ao consolidar | Atualizar skill impactada |
+| VALIDATE | Após melhoria | Confirmar com usuário |
+| PERSIST | Após validação | Gravar em `.knowledge/` |
 
-**Scenario A — Greenfield project (no code yet):**
-1. Run a structured brainstorm with the user to understand:
-   - Project type (web, API, mobile, game, CLI, etc.)
-   - Desired tech stack
-   - Core business domain and rules
-   - Data entities and relationships
-   - Infrastructure requirements (Docker, K8s, Serverless)
-2. Present an architecture summary for approval
-3. Only then write the complete ARCHITECTURE.md
+---
 
-**Scenario B — Existing project without ARCHITECTURE.md:**
-1. Explore the full project structure (directories, packages, configs)
-2. Read source code to identify: stack, patterns, modules, endpoints
-3. Analyze key files: package.json, tsconfig, Dockerfile, CI/CD, DB schema
-4. Interview the user about: domain, target audience, roadmap
-5. Synthesize everything into the ARCHITECTURE.md template
-6. Present for validation before finalizing
+## CAMADAS DE MEMÓRIA
 
-**Scenario C — Existing project WITH ARCHITECTURE.md:**
-1. Read the current document
-2. Compare against the actual codebase — identify drifts (obsolete sections, outdated stack, missing modules)
-3. Preserve ALL existing content, only add missing sections and fix inconsistencies
-4. NEVER rewrite from scratch — update incrementally
+| Camada | Local |
+|---|---|
+| Working | Contexto da sessão atual |
+| Episodic | `.sessions/YYYY-MM-DD-[projeto].md` |
+| Semantic | `.knowledge/heuristics.md` + `patterns.md` |
+| Procedural | `skills/` |
+| Anti-patterns | `.knowledge/antipatterns.md` |
 
-### Required ARCHITECTURE.md Template
+---
 
-`markdown
-# [Project Name] — Architecture
+## FLUXO OBRIGATÓRIO
 
-## Overview
-[2-3 lines describing the system purpose]
+### Dois Modos de Operação
 
-## Tech Stack
-| Layer | Technology | Version |
-|-------|-----------|---------|
-| Frontend | | |
-| Backend | | |
-| Language | | |
-| ORM | | |
-| Database | | |
-| Cache | | |
-| Search | | |
-| Storage | | |
-| Monorepo | | |
-| Container | | |
-| Infra | | |
-| CI/CD | | |
+| Modo | Quando | Fluxo | Tokens |
+|---|---|---|---|
+| **FULL** | Tarefas M/G/XG | Completo com GATEs | ~15.000 |
+| **LITE** | Tarefas P (simples) | Compacto, sem GATEs formais | ~1.500 |
 
-## Project Structure
-[Directory tree with descriptions]
+**Detecção automática:** Effort `low` = modo LITE
 
-## System Architecture
-[ASCII diagram of layered architecture]
+### Modo LITE (tarefas P — score 0-3)
+```
+🎯 CLASSIFY:P → EXECUTE → 📝 REFLECT:1L
+```
+- Spec inline (não cria arquivo)
+- Plan automático (sem GATE)
+- Reflect: 1 linha (`✅ [tarefa] · 📝 [descoberta]`)
 
-### Domain Modules
-| Module | Responsibility |
-|--------|---------------|
+### Modo FULL (tarefas M/G/XG)
+```
+MEMÓRIA → CLASSIFY → [ESTIMATE] → SPEC → PLAN → EXECUTE → REPORT → REFLECT
+```
 
-## Main Flows
-[ASCII diagram of main flows]
+### CLASSIFY + EFFORT LEVEL
+| Tipo | Effort | Descrição |
+|---|---|---|
+| `FEAT` | `high` | Nova funcionalidade |
+| `FIX` | `high` | Bug com causa conhecida |
+| `DEBUG` | `xhigh` | Investigação sem causa raiz |
+| `REFACTOR` | `high` | Reestruturação sem mudança de comportamento |
+| `INFRA` | `medium` | Ambiente/CI |
+| `DOCS` | `low` | Documentação |
+| Tarefa P (score 0-3) | `low` | Rápido/trivial → **MODO LITE** |
 
-## Data Model
-[Main entities and relationships]
+Declare sempre no início:
+```
+🎯 CLASSIFY: [TIPO] · Effort: [level] · Modo: [LITE|FULL]
+```
 
-## Permission System (if applicable)
-| Role | Permissions |
+### ESTIMATE (opcional — use `/estimate` para tarefas ambíguas ou G/XG)
 
-## Security
-[Key measures: auth, validation, rate limiting, etc.]
+### SPEC (MODO FULL — obrigatório para M/G/XG)
+Gera spec → exibe **SPEC GATE** → aguarda "aprovado" → só então avança.
 
-## Cache Strategy
-[Cache levels: browser, edge, app, database]
+### PLAN (MODO FULL — obrigatório para M/G/XG)
+Gera plano → exibe **PLAN GATE** → aguarda "confirmar" → só então escreve código.
 
-## Deploy
-[Deploy strategy: Docker, K8s, cloud, etc.]
+### EXECUTE
+| Modo | Ação |
+|---|---|
+| **LITE** | Implementar direto, 1 arquivo por vez |
+| **FULL** | Seguir skill correspondente ao tipo |
 
-## Roadmap
-### Phase 1 — MVP
-### Phase 2 — Next
-### Phase 3 — Future
+| Tipo | Skill |
+|---|---|
+| FEAT / INFRA / DOCS | `@skills/implement.md` |
+| FIX | `@skills/fix.md` |
+| DEBUG | `@skills/debug.md` → spec de fix → `@skills/fix.md` |
+| REFACTOR | `@skills/refactor.md` |
 
-## Technical Notes
-[Important architectural decisions, conventions, patterns]
-`
+### REPORT
+| Modo | Formato |
+|---|---|
+| **LITE** | `✅ [tarefa] · 📁 [arquivo]` (1 linha) |
+| **FULL** | `✅ CONCLUÍDO: [detalhes] · 📁 [lista] · ⚠️ [pendências]` |
 
-### After creating/updating ARCHITECTURE.md:
-1. Register the creation/update in Docs/wiki/decisions/ as an ADR
-2. Register in the session log at Docs/wiki/logs/
+### REFLECT
+| Modo | Formato |
+|---|---|
+| **LITE** | `📝 [1 descoberta ou "nenhuma"]` (1 linha) |
+| **FULL** | **REFLECT GATE** completo (ver `@skills/reflect.md`) |
+
+> **Monitoramento de turns (FULL):** declare limites ao iniciar:
+> `🔄 EXECUÇÃO · Turn: 1/[max]`
+> Limites: `low`=10 · `medium`=20 · `high`=40 · `xhigh`=60
+
+> Se durante execução surgir algo fora do escopo: **pare, reporte, pergunte.**
+
+### REFLECT — `@skills/reflect.md` (obrigatório)
+Executa reflexão → exibe **REFLECT GATE** com descobertas → se PADRÃO/HEURÍSTICA/ANTIPADRÃO → `@skills/learn.md`.
+
+---
+
+## PADRÃO DE MENSAGENS (M5)
+
+Toda sessão segue este padrão de output estruturado:
+
+| Momento | Formato |
+|---|---|
+| Início de sessão | `📦 SESSÃO · Projeto: [x] · Specs ativas: [N] · Effort: [level]` |
+| Cada turn de execução | `🔄 TURN [N]/[max] · Tool: [nome] · Status: ok\|erro` |
+| Resultado final | `✅ RESULTADO · Turns: [N] · Arquivo: [path]` |
+| Erro/bloqueio | `🚨 BLOQUEIO · Causa: [x] · Ação: [o que fazer]` |
+
+---
+
+## CONVENÇÕES
+
+- Commits: inglês (Conventional Commits: `feat:`, `fix:`, `refactor:`, `docs:`, `chore:`)
+- Comentários: português
+- TypeScript: tipagem sempre explícita
+- Funções: pequenas, responsabilidade única
+- Nomes: descritivos, sem abreviações obscuras
+- Sem `console.log` em produção — usar logger estruturado
+
+---
+
+## HOOKS DE VALIDAÇÃO (M2)
+
+Executar automaticamente em cada ponto do ciclo:
+
+| Hook | Quando | Ação |
+|---|---|---|
+| `pre-tool` | Antes de qualquer tool call | Verificar GATE ativo · Confirmar escopo · Log do turn |
+| `post-tool` | Após tool call | Verificar resultado · Atualizar turn counter · Reportar erro se houver |
+| `pre-execute` | Antes de escrever código | Confirmar PLAN GATE aprovado · Verificar spec não mudou |
+| `post-task` | Ao concluir tarefa | Disparar REFLECT GATE · Salvar estado em `.sessions/` |
+| `stop` | Ao atingir limite de turns | Salvar estado · Reportar progresso · Aguardar instrução |
+
+```
+[pre-tool]  → GATE ok? → escopo ok? → log turn N
+[post-tool] → resultado ok? → turn N/max → erro? → alertar
+[stop]      → salvar sessão → REFLECT GATE → aguardar
+```
+
+---
+
+## GIT
+
+- Uma spec = uma branch (`feat/nome`, `fix/nome`, `refactor/escopo`)
+- Commitar por passo concluído
+- Nunca commitar direto em `main`/`master` sem aprovação
+- Antes de merge: testes + `/review`
+
+---
+
+## RESTRIÇÕES
+
+| Proibido | Alternativa |
+|---|---|
+| Produzir código sem SPEC GATE aprovado | Emitir: `⛔ VIOLAÇÃO — criando spec agora` |
+| Executar sem PLAN GATE confirmado | Emitir: `⛔ VIOLAÇÃO — gerando plano agora` |
+| Encerrar tarefa sem REFLECT GATE | Emitir: `⛔ VIOLAÇÃO — executando reflect agora` |
+| Reescrever arquivo inteiro | Edição cirúrgica (`str_replace`) |
+| Deletar código sem justificativa | Comentar + spec de remoção |
+| Implementar fora do escopo | Abrir spec separada |
+| Assumir requisito ambíguo | Perguntar explicitamente |
+| Corrigir bug sem entender causa | `/debug` antes de `/fix` |
+| Pular reflect pós-tarefa | `@skills/reflect.md` sempre |
+| Ignorar `.knowledge/` ao iniciar | Carregar memória primeiro |
+
+---
+
+## SKILLS
+
+| Comando | Skill |
+|---|---|
+| `/context` | `@skills/context.md` |
+| `/spec` | `@skills/spec.md` |
+| `/estimate` | `@skills/estimate.md` |
+| `/plan` | `@skills/plan.md` |
+| `/implement` | `@skills/implement.md` |
+| `/fix` | `@skills/fix.md` |
+| `/debug` | `@skills/debug.md` |
+| `/refactor` | `@skills/refactor.md` |
+| `/review` | `@skills/review.md` |
+| `/status` | `@skills/status.md` |
+| `/reflect` | `@skills/reflect.md` |
+| `/learn` | `@skills/learn.md` |
+| `/socrates` | `@skills/socrates.md` |
+
+---
+
+## SUBAGENTS (M6)
+
+Use subagents para manter o contexto principal leve:
+
+| Caso | Quando usar |
+|---|---|
+| Pesquisa longa | Leitura de >5 arquivos para mapear o projeto |
+| Análise paralela | Investigar 2+ hipóteses de debug simultaneamente |
+| Tarefa isolada | Geração de docs ou testes sem dependência do estado atual |
+
+**Protocolo:**
+```
+1. Definir escopo exato do subagent (entrada + saída esperada)
+2. Subagent executa isoladamente
+3. Resultado retorna como contexto resumido para o agente principal
+4. Agente principal nunca perde o fio do fluxo principal
+```
+
+Não use subagents para: tarefas que precisam do estado de sessão atual, decisões que requerem aprovação do usuário, ou escopo indefinido.
+
+---
+
+## CONTEXTO DO PROJETO
+
+```
+PROJETO:
+STACK:
+ESTRUTURA:
+TESTES:
+BUILD:
+REGRAS ESPECIAIS:
+```
+
+---
+
+## LIÇÕES APRENDIDAS
+
+> Máx 10 itens. Quando virar padrão em `.knowledge/patterns.md`, remover daqui.
+
+```
+1. [lição — data] Contexto: [quando aplica]
+```
+
+---
+
+## CHANGELOG DO FRAMEWORK
+
+```
+2026-06-21 — debug.md, estimate.md, .knowledge/changelog.md adicionados
+2026-06-21 — Protocolo legado em context.md; gatilho de qualidade em reflect.md
+2026-06-21 — Protocolo de invalidação em learn.md; integração .sessions/ em status.md
+2026-06-22 — Auditoria: 6 gaps, 6 automações; specs fix-context, fix-reflect, fix-learn
+2026-06-22 — socrates.md adicionado; /socrates integrado ao /context
+2026-06-22 — Otimização de tokens: CLAUDE.md e skills condensados
+2026-06-22 — M1: Effort level por tipo de tarefa (CLASSIFY)
+2026-06-22 — M2: Hooks pre/post-tool e stop adicionados
+2026-06-22 — M3: Monitoramento de turns com limites por effort
+2026-06-22 — M4: Effort level integrado ao estimate.md
+2026-06-22 — M5: Padrão de mensagens de sessão (Init/Turn/Result/Bloqueio)
+2026-06-22 — M6: Protocolo de subagents para contexto leve
+```

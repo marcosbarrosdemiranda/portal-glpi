@@ -1,5 +1,5 @@
 <?php
-session_start();
+require_once __DIR__ . '/auth_guard.php';
 if (empty($_SESSION['autenticado'])) { header('Location: auth.php'); exit; }
 if (($_SESSION['perfil'] ?? '') === 'self-service') { header('Location: dashboard.php'); exit; }
 
@@ -8,7 +8,8 @@ require_once __DIR__ . '/agenda/db.php';
 // ── Configuração — ajustar conforme seu servidor ───────────────
 define('VNC_PROXY_HOST', '192.168.1.198');   // IP do servidor websockify
 define('VNC_PROXY_PORT', '6080');            // Porta do websockify
-define('NOVNC_PATH',     '/novnc/vnc.html'); // Caminho do noVNC no XAMPP
+define('NOVNC_BASE',     'http://192.168.1.198:6080'); // URL base do websockify (servindo noVNC)
+define('TOKENS_CFG_PATH','C:/xampp/htdocs/novnc/tokens.cfg'); // Onde salvar o tokens.cfg
 
 // ── Cria tabela ────────────────────────────────────────────────
 $pdo->exec("
@@ -76,17 +77,18 @@ if ($action) {
         $senha = vnc_dec($m['senha_enc']);
         // Token do websockify (pode ser o IP:porta direto ou um alias)
         $token = $m['token'] ?: $m['ip'].':'.$m['porta'];
+        // Path = só o token (TokenFile do websockify resolve para IP:porta)
         $params = http_build_query([
             'host'        => VNC_PROXY_HOST,
             'port'        => VNC_PROXY_PORT,
-            'path'        => 'websockify?token='.$token,
+            'path'        => $token,
             'password'    => $senha,
             'autoconnect' => 'true',
             'reconnect'   => 'true',
             'show_dot'    => 'false',
             'resize'      => 'scale',
         ]);
-        $url = 'http://'.VNC_PROXY_HOST.NOVNC_PATH.'?'.$params;
+        $url = NOVNC_BASE.'/vnc.html?'.$params;
         echo json_encode(['ok'=>true,'url'=>$url,'nome'=>$m['nome'],'ip'=>$m['ip']]);
         exit;
     }
@@ -141,6 +143,19 @@ if ($action) {
             echo "{$tk}: {$r['ip']}:{$r['porta']}\n";
         }
         exit;
+    }
+
+    // Gera e salva tokens.cfg no servidor (chamado após cada CRUD)
+    if ($action === 'save_tokens_server') {
+        $rows = $pdo->query("SELECT nome,ip,porta,token FROM portal_vnc WHERE ativo=1 ORDER BY nome")->fetchAll(PDO::FETCH_ASSOC);
+        $out = "# tokens.cfg — websockify token file\n";
+        $out .= "# Gerado em: ".date('d/m/Y H:i')."\n\n";
+        foreach ($rows as $r) {
+            $tk = $r['token'] ?: $r['ip'].':'.$r['porta'];
+            $out .= "{$tk}: {$r['ip']}:{$r['porta']}\n";
+        }
+        $ok = @file_put_contents(TOKENS_CFG_PATH, $out);
+        echo json_encode(['ok'=>true, 'salvo'=>$ok !== false]); exit;
     }
 
     echo json_encode(['ok'=>false,'msg'=>'Ação inválida']);
@@ -277,7 +292,7 @@ $grupos = $pdo->query("SELECT DISTINCT grupo FROM portal_vnc WHERE grupo != '' O
   <div class="setup-banner" id="banner-setup" style="display:none">
     <strong><i class="bi bi-exclamation-triangle-fill me-2"></i>Configuração necessária:</strong>
     O noVNC + websockify precisa estar rodando no servidor <code><?= VNC_PROXY_HOST ?>:<?= VNC_PROXY_PORT ?></code>.
-    Baixe o <strong>tokens.cfg</strong> após cadastrar as máquinas e configure o websockify.
+    O <strong>tokens.cfg</strong> é gerado automaticamente ao cadastrar/editar máquinas.
     <a href="#" onclick="abrirGuia()" style="color:#92400e;font-weight:600">Ver guia de instalação</a>
   </div>
 
@@ -432,25 +447,24 @@ $grupos = $pdo->query("SELECT DISTINCT grupo FROM portal_vnc WHERE grupo != '' O
       </div>
       <div class="modal-body" style="font-size:.85rem">
         <h6 class="fw-bold mb-2">1. Baixar noVNC</h6>
-        <p>Acesse <a href="https://github.com/novnc/noVNC/releases" target="_blank">github.com/novnc/noVNC/releases</a>,
-        baixe a última versão e extraia em:</p>
+        <p>Extraído em:</p>
         <code class="d-block bg-light p-2 rounded mb-3">C:\xampp\htdocs\novnc\</code>
 
-        <h6 class="fw-bold mb-2">2. Baixar websockify</h6>
-        <p>Acesse <a href="https://github.com/novnc/websockify/releases" target="_blank">github.com/novnc/websockify/releases</a>
-        e baixe o <strong>websockify-win.exe</strong>. Salve em:</p>
-        <code class="d-block bg-light p-2 rounded mb-3">C:\xampp\htdocs\novnc\utils\websockify.exe</code>
+        <h6 class="fw-bold mb-2">2. Instalar websockify (Python)</h6>
+        <p>Abra o PowerShell e instale via pip:</p>
+        <code class="d-block bg-dark text-success p-2 rounded mb-3">
+          pip install websockify
+        </code>
 
-        <h6 class="fw-bold mb-2">3. Gerar o tokens.cfg</h6>
-        <p>Cadastre as máquinas aqui no portal, depois clique em
-        <strong>tokens.cfg</strong> na barra de navegação para baixar o arquivo.<br>
-        Salve em: <code>C:\xampp\htdocs\novnc\tokens.cfg</code></p>
+        <h6 class="fw-bold mb-2">3. tokens.cfg (automático)</h6>
+        <p>Ao cadastrar ou editar máquinas no portal, o arquivo
+        <strong>tokens.cfg</strong> é gerado automaticamente em:<br>
+        <code>C:\xampp\htdocs\novnc\tokens.cfg</code></p>
 
         <h6 class="fw-bold mb-2">4. Iniciar websockify</h6>
         <p>Abra o Prompt de Comando <strong>como Administrador</strong> e execute:</p>
         <code class="d-block bg-dark text-success p-2 rounded mb-3">
-          cd C:\xampp\htdocs\novnc\utils<br>
-          websockify.exe <?= VNC_PROXY_PORT ?> --web ..\  --token-plugin TokenFile --token-source ..\tokens.cfg
+          python -m websockify <?= VNC_PROXY_PORT ?> --web C:\xampp\htdocs\novnc --token-plugin TokenFile --token-source C:\xampp\htdocs\novnc\tokens.cfg
         </code>
 
         <h6 class="fw-bold mb-2">5. Configurar RealVNC em cada máquina</h6>
@@ -467,7 +481,11 @@ $grupos = $pdo->query("SELECT DISTINCT grupo FROM portal_vnc WHERE grupo != '' O
         <div class="alert alert-info mb-0 py-2" style="font-size:.78rem">
           <i class="bi bi-lightbulb-fill me-1"></i>
           Para rodar o websockify automaticamente no Windows, use o <strong>NSSM</strong>
-          (Non-Sucking Service Manager) para registrá-lo como serviço Windows.
+          (Non-Sucking Service Manager) para registrá-lo como serviço Windows:
+          <code class="d-block bg-light p-2 rounded mt-2" style="font-size:.78rem">
+            nssm install "VNC-Proxy" "python" "-m websockify <?= VNC_PROXY_PORT ?> --web C:\xampp\htdocs\novnc --token-plugin TokenFile --token-source C:\xampp\htdocs\novnc\tokens.cfg"<br>
+            nssm start "VNC-Proxy"
+          </code>
         </div>
       </div>
       <div class="modal-footer">
@@ -619,7 +637,7 @@ async function salvar() {
     }),
   });
   const d = await r.json();
-  if (d.ok) { modalVNC.hide(); carregar(); toast('✅ Máquina salva!'); }
+  if (d.ok) { modalVNC.hide(); carregar(); await salvarTokensServer(); toast('✅ Máquina salva!'); }
   else alert(d.msg || 'Erro ao salvar');
 }
 
@@ -627,7 +645,11 @@ async function excluir() {
   const id = document.getElementById('vnc-id').value;
   if (!confirm('Remover esta máquina do VNC?')) return;
   await fetch(`vnc.php?action=delete&id=${id}`);
-  modalVNC.hide(); carregar(); toast('🗑️ Máquina removida.');
+  modalVNC.hide(); carregar(); await salvarTokensServer(); toast('🗑️ Máquina removida.');
+}
+
+async function salvarTokensServer() {
+  try { await fetch('vnc.php?action=save_tokens_server'); } catch(e) {}
 }
 
 function toggleSenha() {

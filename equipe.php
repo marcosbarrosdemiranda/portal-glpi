@@ -1,5 +1,5 @@
 <?php
-session_start();
+require_once __DIR__ . '/auth_guard.php';
 if (empty($_SESSION['autenticado'])) { header('Location: auth.php'); exit; }
 if (($_SESSION['perfil'] ?? '') === 'self-service') { header('Location: dashboard.php'); exit; }
 
@@ -59,15 +59,16 @@ try {
 			'Session-Token: ' . $token,
 		];
 
-		// Buscar usuários com perfil técnico (profiles_id=4)
+		// Buscar usuários ativos com perfil técnico (profiles_id=4)
 		$users = glpi_request('GET',
-			'User?range=0-100&expand_dropdowns=true&searchText[profiles_id]=4',
+			'User?range=0-100&expand_dropdowns=true&is_active=1&searchText[profiles_id]=4',
 			$hdrs
 		);
 
 		if (!empty($users['data']) && is_array($users['data'])) {
 			foreach ($users['data'] as $u) {
 					if (!isset($u['id'])) continue;
+					if (isset($u['is_active']) && !$u['is_active']) continue; // ignora técnicos desativados
 				$primeiro_nome = $u['firstname'] ?? $u['name'] ?? 'Técnico';
 									$nome_comp = trim(($u['firstname'] ?? '') . ' ' . ($u['realname'] ?? ''));
 									if (!$nome_comp) $nome_comp = $primeiro_nome;
@@ -514,6 +515,18 @@ function iniciais(string $nome): string {
     <?php endforeach; ?>
   </div>
 
+  <!-- ═══════════ ROTINAS DA EQUIPE (sem técnico selecionado) ═══════════ -->
+  <div id="equipeRotinas" style="margin-top:1rem">
+    <div class="sec-header">
+      <div class="title"><i class="bi bi-arrow-repeat"></i> Rotinas da Equipe</div>
+      <span id="equipe-rotinas-count" style="font-size:.75rem;opacity:.85"></span>
+    </div>
+    <div style="background:white;border:1px solid #e5e7eb;border-top:none;border-radius:0 0 12px 12px;padding:1rem 1.25rem">
+      <div id="equipe-rotinas-loading" class="vazio-msg"><i class="bi bi-arrow-repeat me-1"></i>Carregando rotinas da equipe…</div>
+      <div id="equipe-rotinas-content" style="display:none"></div>
+    </div>
+  </div>
+
   <!-- ═══════════ PAINEL DE DETALHES INLINE ═══════════ -->
   <div class="detail-panel" id="detailPanel">
     <div class="dp-header">
@@ -590,8 +603,9 @@ function abrirDetalheTecnico(el) {
   document.getElementById('det-nome').textContent = nome;
   document.getElementById('det-carga').textContent = '#' + id;
 
-  // Abre painel
+  // Abre painel e esconde as rotinas da equipe (foco no técnico)
   panel.classList.add('open');
+  document.getElementById('equipeRotinas').style.display = 'none';
 
   // Scroll suave até o painel
   setTimeout(() => {
@@ -626,6 +640,7 @@ function abrirDetalheTecnico(el) {
 
 function fecharPainel() {
   document.getElementById('detailPanel').classList.remove('open');
+  document.getElementById('equipeRotinas').style.display = '';
   tecIdAtual = null;
 }
 
@@ -669,11 +684,8 @@ const LABELS = {
   mensal:    { icon: 'bi-calendar-month',  label: 'Mensal' },
 };
 
-function renderRotinas(rotinas) {
-  const el = document.getElementById('det-rotinas-content');
-  const ld = document.getElementById('det-rotinas-loading');
-  ld.style.display = 'none';
-
+function buildRotinasHtml(rotinas, emptyMsg, prefix) {
+  prefix = prefix || 'rd';
   let html = '';
   let total = 0;
 
@@ -699,7 +711,7 @@ function renderRotinas(rotinas) {
       else if (/2\s*month/i.test(per)) freqBadge = 'M';
 
       const temDesc = r.descricao && r.descricao.length > 0;
-      const descId = 'rd-' + chave + '-' + idx;
+      const descId = prefix + '-' + chave + '-' + idx;
 
       html += '<div class="rotina-card">' +
         '<i class="bi bi-arrow-repeat rot-icon"></i>' +
@@ -713,12 +725,48 @@ function renderRotinas(rotinas) {
   }
 
   if (total === 0) {
-    html = '<div class="vazio-msg" style="padding:.75rem 0"><i class="bi bi-emoji-neutral me-1"></i>Nenhuma rotina ativa para este técnico.</div>';
+    html = '<div class="vazio-msg" style="padding:.75rem 0"><i class="bi bi-emoji-neutral me-1"></i>' +
+      (emptyMsg || 'Nenhuma rotina ativa.') + '</div>';
   }
+  return html;
+}
 
-  el.innerHTML = html;
+function renderRotinas(rotinas) {
+  const el = document.getElementById('det-rotinas-content');
+  const ld = document.getElementById('det-rotinas-loading');
+  ld.style.display = 'none';
+  el.innerHTML = buildRotinasHtml(rotinas, 'Nenhuma rotina ativa para este técnico.', 'rd');
   el.style.display = '';
 }
+
+// ── Rotinas da Equipe (todas, sem distinção) ───────────────────────────────
+function carregarRotinasEquipe() {
+  const ld = document.getElementById('equipe-rotinas-loading');
+  const ct = document.getElementById('equipe-rotinas-content');
+  fetch('equipe_detalhe.php?team=1')
+    .then(r => r.json())
+    .then(data => {
+      ld.style.display = 'none';
+      if (!data.ok) {
+        ct.innerHTML = '<div class="vazio-msg"><i class="bi bi-exclamation-triangle-fill text-danger me-1"></i>Erro ao carregar rotinas da equipe.</div>';
+        ct.style.display = '';
+        return;
+      }
+      const total = ['diario','semanal','quinzenal','mensal']
+        .reduce((s, k) => s + ((data.rotinas[k] || []).length), 0);
+      document.getElementById('equipe-rotinas-count').textContent =
+        total + ' rotina' + (total !== 1 ? 's' : '');
+      ct.innerHTML = buildRotinasHtml(data.rotinas, 'Nenhuma rotina ativa na equipe.', 'eq');
+      ct.style.display = '';
+    })
+    .catch(() => {
+      ld.style.display = 'none';
+      ct.innerHTML = '<div class="vazio-msg"><i class="bi bi-exclamation-triangle-fill text-danger me-1"></i>Erro de rede ao carregar rotinas.</div>';
+      ct.style.display = '';
+    });
+}
+
+document.addEventListener('DOMContentLoaded', carregarRotinasEquipe);
 
 function toggleRotDesc(id) {
   const el = document.getElementById(id);

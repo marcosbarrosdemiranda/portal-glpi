@@ -1,0 +1,13 @@
+{
+    "servidor_nome":  "MGV Loja 01",
+    "portal_url":     "http://192.168.1.198/glpi2/portal-glpi/inventario_balancas.php",
+    "sync_token":     "wZDUZdEGzwDWmcU9EPeUFDsvonsnuAhO",
+
+    "sql_server":     "localhost\\SQL_MGV6",
+    "sql_database":   "MGV6_0001",
+    "sql_auth":       "windows",
+    "sql_user":       "sa",
+    "sql_pass":       "",
+
+    "tabelas_tentar": ["tbBalanca", "BALANCAS", "TB_BALANCAS", "TB_BALANCA", "EQUIPAMENTOS", "BALANCA"]
+}

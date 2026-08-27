@@ -1,5 +1,5 @@
 <?php
-session_start();
+require_once __DIR__ . '/auth_guard.php';
 if (empty($_SESSION['autenticado'])) { header('Location: auth.php'); exit; }
 if (($_SESSION['perfil'] ?? '') === 'self-service') { header('Location: dashboard.php'); exit; }
 ?>
@@ -109,6 +109,14 @@ if (($_SESSION['perfil'] ?? '') === 'self-service') { header('Location: dashboar
     .net-icon  { background:#e8f5e9; color:#2e7d32; }
     .serv-icon { background:#fff3e0; color:#e65100; }
     .monitor-icon { background:#f3e5f5; color:#7b1fa2; }
+    .led-icon  { background:#fff8e1; color:#f9a825; }
+    .ilum-icon { background:#fff3e0; color:#fb8c00; }
+    .eq-icon   { background:#ede7f6; color:#5e35b1; }
+    .inv-icon  { background:#e8f5e9; color:#2e7d32; }
+    .cftv-icon { background:#fbe9e7; color:#d84315; }
+    .alarme-icon { background:#ffebee; color:#c62828; }
+    .mikrotik-icon { background:#e1f5fe; color:#0277bd; }
+    .balanca-icon { background:#f1f8e9; color:#558b2f; }
   </style>
 </head>
 <body>
@@ -145,12 +153,11 @@ if (($_SESSION['perfil'] ?? '') === 'self-service') { header('Location: dashboar
     <span class="badge-embreve">Em breve</span>
   </div>
 
-  <div class="cat-card disabled">
+  <a href="inventario_redes.php" class="cat-card" style="border-top-color:#2e7d32">
     <div class="cat-icon net-icon"><i class="bi bi-diagram-3"></i></div>
     <h3>Redes</h3>
-    <p>Switches, roteadores, access points</p>
-    <span class="badge-embreve">Em breve</span>
-  </div>
+    <p>Access points UniFi — status, clientes e uptime</p>
+  </a>
 
   <div class="cat-card disabled">
     <div class="cat-icon monitor-icon"><i class="bi bi-phone"></i></div>
@@ -165,6 +172,61 @@ if (($_SESSION['perfil'] ?? '') === 'self-service') { header('Location: dashboar
     <p>Monitores, TVs e projetores</p>
     <span class="badge-embreve">Em breve</span>
   </div>
+
+  <div class="cat-card disabled">
+    <div class="cat-icon led-icon"><i class="bi bi-grid-3x3-gap-fill"></i></div>
+    <h3>Painéis de LED</h3>
+    <p>Painéis e telões de LED</p>
+    <span class="badge-embreve">Em breve</span>
+  </div>
+
+  <div class="cat-card disabled">
+    <div class="cat-icon ilum-icon"><i class="bi bi-lightbulb-fill"></i></div>
+    <h3>Automação Iluminação</h3>
+    <p>Controle e automação de iluminação</p>
+    <span class="badge-embreve">Em breve</span>
+  </div>
+
+  <div class="cat-card disabled">
+    <div class="cat-icon eq-icon"><i class="bi bi-gear-wide-connected"></i></div>
+    <h3>Automação Equipamentos</h3>
+    <p>Controladores e equipamentos automatizados</p>
+    <span class="badge-embreve">Em breve</span>
+  </div>
+
+  <div class="cat-card disabled">
+    <div class="cat-icon inv-icon"><i class="bi bi-lightning-charge-fill"></i></div>
+    <h3>Inversores</h3>
+    <p>Inversores de energia e frequência</p>
+    <span class="badge-embreve">Em breve</span>
+  </div>
+
+  <div class="cat-card disabled">
+    <div class="cat-icon cftv-icon"><i class="bi bi-camera-video-fill"></i></div>
+    <h3>CFTV</h3>
+    <p>Câmeras, DVRs e monitoramento</p>
+    <span class="badge-embreve">Em breve</span>
+  </div>
+
+  <div class="cat-card disabled">
+    <div class="cat-icon alarme-icon"><i class="bi bi-bell-fill"></i></div>
+    <h3>Alarmes</h3>
+    <p>Centrais de alarme e sensores</p>
+    <span class="badge-embreve">Em breve</span>
+  </div>
+
+  <div class="cat-card disabled">
+    <div class="cat-icon mikrotik-icon"><i class="bi bi-router-fill"></i></div>
+    <h3>Mikrotik</h3>
+    <p>Roteadores e equipamentos Mikrotik</p>
+    <span class="badge-embreve">Em breve</span>
+  </div>
+
+  <a href="inventario_balancas.php" class="cat-card" style="border-top-color:#558b2f">
+    <div class="cat-icon balanca-icon"><i class="bi bi-speedometer2"></i></div>
+    <h3>Balanças</h3>
+    <p>Balanças, servidores MGV 6 e equipamentos de pesagem</p>
+  </a>
 </div>
 
 </body>

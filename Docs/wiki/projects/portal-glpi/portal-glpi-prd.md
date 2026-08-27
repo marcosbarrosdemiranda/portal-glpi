@@ -16,16 +16,19 @@
 | 🎫 Abertura de Chamado | 🟢 Concluído | 100% |
 | 📋 Histórico de Chamados | 🟢 Concluído | 100% |
 | 📊 Painel de Relatórios | 🟡 Em andamento | ~50% |
-| 🖥️ Inventário | 🟡 Em andamento | ~75% |
+| 🖥️ Inventário | 🟢 Quase concluído | ~95% |
 | 📚 Área do Conhecimento | 🔴 Pendente | ~20% |
 | 🔧 Infraestrutura | 🟢 Concluído | 100% |
+| 👁️ Central VNC | 🟢 Concluído | 100% |
+| 📂 Grupos Dinâmicos (RDP/VNC) | 🟢 Concluído | 100% |
+| 🖥️ Central AnyDesk | 🟢 Concluído | 100% |
 | 🏭 Ferramentas ERP | 🟡 Em andamento | ~50% |
 | 📁 Projetos | 🟡 Em andamento | ~80% |
 | 👥 Equipe | 🟡 Em andamento | ~50% |
 | 💰 Orçamento | 🟡 Em andamento | ~40% |
 | 📄 Contratos | 🟡 Em andamento | ~50% |
 | 🔑 Licenças de Software | 🟡 Em andamento | ~50% |
-| 🔒 Cofre TI | 🟡 Em andamento | ~70% |
+| 🔒 Cofre TI | ✅ Concluído | 100% |
 | 📱 Acesso Mobile | 🔴 Pendente | 0% |
 
 ---
@@ -137,6 +140,7 @@
 - [x] Sistema operacional (versão, arquitetura, kernel)
 - [x] Programas instalados (via GLPI)
 - [x] IPs via NetworkPort → NetworkName → IPAddress
+- [x] Balanças — servidores MGV 6 com CRUD, sync SQL Server + Firebird, cards com status online/offline, firmware e carga
 
 ### Pendente
 - [ ] Filtro por loja/entidade
@@ -172,9 +176,11 @@
 - [x] RDP — gera arquivo .rdp individual com IP/hostname configurado
 - [x] **Apache Guacamole** — acesso RDP no browser com iframe + top bar + auto-login
 - [x] **Auto-sync Guacamole** — criar/editar/excluir conexões via API REST automaticamente
-- [x] VNC — estrutura criada (portal + banco)
+- [x] **VNC funcional via Guacamole** — acesso VNC no browser com mesma top bar e auto-login
+- [x] **Central VNC** — página dedicada com CRUD de máquinas VNC + Guacamole
+- [x] **Grupos Dinâmicos** — CRUD de grupos cadastráveis/editáveis/excluíveis (RDP e VNC)
+- [x] **Central AnyDesk** — página dedicada com CRUD de máquinas, grupos dinâmicos e conexão via protocolo `anydesk://`
 - [x] AnyDesk — link configurável
-- [ ] VNC funcional (instalar noVNC + websockify no servidor)
 - [ ] SSH via browser (xterm.js)
 
 ### Monitoramento
@@ -300,19 +306,41 @@
 - [x] Tags e notas
 - [x] Busca server-side por título, tags e notas
 - [x] Filtro por categoria na toolbar
+- [x] Formulário dinâmico por categoria (Link = título/link/notas; campos ocultos são limpos)
+- [x] Categoria 📞 Contatos Úteis (pessoa de referência + telefone/ramal visível)
+- [x] Auditoria: quem revelou/copiou/criou/editou/excluiu/compartilhou e quando (modal na toolbar)
+- [x] PIN por usuário — cadastro na 1ª vez, desbloqueio por sessão, reset ("esqueci o PIN")
+- [x] Compartilhamento por link temporário (token + expiração + limite de visualizações; `compartilhar.php` público)
 
-### Pendente
-- [ ] Controle de acesso por nível (técnico x encarregado)
-- [ ] Auditoria: quem acessou e quando
-- [ ] Compartilhamento seguro de senha (link com expiração)
-- [ ] Senha mestra para acesso ao cofre
-- [ ] Categoria 📞 Contatos Úteis (telefones/ramais do setor)
+> ✅ **Concluído (10/06/2026)** — módulo completo e em uso.
+
+### Backlog futuro (opcional)
+- [ ] Controle de acesso por nível técnico x encarregado (descartado por ora — segurança via auditoria + PIN)
 
 ---
 
 ## 📱 Módulo 15 — Acesso Mobile
 > Portal acessível em celulares e tablets Android/iOS via navegador, sem instalação.
 > **Prazo:** 03/07/2026
+
+### Estratégia — Fase 1: PWA (Prioritário)
+> Decisão registrada em ADR-004 — o PWA será implementado primeiro por ser mais rápido,
+> não depender de loja e funcionar em Android e iOS simultaneamente.
+> O APK nativo fica como Fase 2 para funcionalidades avançadas.
+
+#### Fase 1 — PWA (Progressive Web App)
+- [ ] Criar `manifest.json` (nome, ícone, cor, modo standalone)
+- [ ] Ícone do portal para tela inicial do celular
+- [ ] Service worker básico (cache offline das páginas principais)
+- [ ] Botão "Instalar app" no banner do portal
+- [ ] Notificações push para novos chamados
+
+#### Fase 2 — APK (via Capacitor / PWA2APK)
+> Planejado após PWA consolidado. O mesmo PWA será empacotado como APK.
+- [ ] Compilar APK com Capacitor
+- [ ] Biometria (digital/face) para desbloqueio do cofre
+- [ ] QR Code para escanear equipamentos no inventário
+- [ ] Publicação interna (fora da Play Store)
 
 ### Acesso na Rede
 - [ ] Documentar IP do servidor para acesso via Wi-Fi interno
@@ -330,12 +358,6 @@
 - [ ] Visualização mensal funcional no touch
 - [ ] Botão "Novo Chamado" acessível no mobile
 - [ ] Drag & drop desativado no touch (substituir por tap para mover)
-
-### PWA (Portal como App)
-- [ ] Criar `manifest.json` (nome, ícone, cor, modo standalone)
-- [ ] Ícone do portal para tela inicial do celular
-- [ ] Service worker básico (cache offline das páginas principais)
-- [ ] Botão "Instalar app" no banner do portal
 
 ---
 

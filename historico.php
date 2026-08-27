@@ -1,10 +1,13 @@
 <?php
-session_start();
+require_once __DIR__ . '/auth_guard.php';
 if (empty($_SESSION['autenticado'])) { header('Location: auth.php'); exit; }
 if (($_SESSION['perfil'] ?? '') === 'self-service') { header('Location: dashboard.php'); exit; }
 
 $nome    = $_SESSION['nome']    ?? '';
 $user_id = (int)($_SESSION['user_id'] ?? 0);
+
+$_cards_hist  = $_SESSION['portal_perfil_cards'] ?? null;
+$hist_ouvinte = ($_cards_hist !== null) && (($_cards_hist['historico'] ?? 'ouvinte') === 'ouvinte');
 
 require_once __DIR__ . '/agenda/config.php';
 require_once __DIR__ . '/entidade_alias.php';
@@ -31,6 +34,7 @@ function glpi_tickets(array $filtros = [], int $pagina = 1, int $por_pagina = 0)
     $status_rev = array_flip($status_map); // ['Novo'=>1, 'Atribuído'=>2, …]
     $urg_map    = [1=>'Muito baixa',2=>'Baixa',3=>'Média',4=>'Alta',5=>'Muito alta'];
     $urg_cor    = [1=>'success',2=>'info',3=>'warning',4=>'danger',5=>'purple'];
+    $type_map   = [1=>'Incidente', 2=>'Requisição'];
     $type_rev   = ['Incidente'=>1, 'Requisição'=>2];
 
     // ── Monta criteria para /search/Ticket ──
@@ -114,9 +118,11 @@ function glpi_tickets(array $filtros = [], int $pagina = 1, int $por_pagina = 0)
         if (!$tid) continue;
 
         $s_display = $row[12] ?? 'Novo';
-        $s_num     = $status_rev[$s_display] ?? 1;
+        $s_num     = is_numeric($s_display) ? (int)$s_display : ($status_rev[$s_display] ?? 1);
+        $s_display = $status_map[$s_num] ?? 'Novo';
         $t_display = $row[14] ?? '';
-        $t_num     = $type_rev[$t_display] ?? ($t_display == '2' ? 2 : 1);
+        $t_num     = is_numeric($t_display) ? (int)$t_display : ($type_rev[$t_display] ?? 1);
+        $t_display = $type_map[$t_num] ?? 'Incidente';
         $u_raw     = $row[3] ?? 3;
         $u_num     = is_numeric($u_raw) ? (int)$u_raw : (array_flip($urg_map)[$u_raw] ?? 3);
 
@@ -129,12 +135,13 @@ function glpi_tickets(array $filtros = [], int $pagina = 1, int $por_pagina = 0)
             'tipo'       => $t_display ?: ($t_num == 1 ? 'Incidente' : 'Requisição'),
             'tipo_n'     => $t_num,
             'urgencia'   => $urg_map[$u_num] ?? 'Média',
+            'urg_n'      => $u_num,
             'urg_cor'    => $urg_cor[$u_num] ?? 'warning',
-            'entidade'   => apelido_entidade($row[80] ?? ''),
-            'entidade_id'=> (int)($row[80] ?? 0),
+            'entidade'   => apelido_entidade(is_array($v80=$row[80]??'') ? ($v80['completename']??$v80['name']??'') : $v80),
+            'entidade_id'=> (int)(is_array($v80=$row[80]??'') ? ($v80['id']??0) : $v80),
             'data'       => substr($row[15] ?? '', 0, 16),
             'atualizado' => substr($row[19] ?? '', 0, 16),
-            'requerente' => $row[4] ?? '',
+            'requerente' => nome_requerente(is_array($v4=$row[4]??'') ? ($v4['name']??$v4['firstname']??'') : $v4),
         ];
     }
 
@@ -205,7 +212,7 @@ if ($export === 'csv') {
     header('Content-Disposition: attachment; filename="historico_chamados_'.date('Y-m-d').'.csv"');
     $out = fopen('php://output', 'w');
     fprintf($out, chr(0xEF).chr(0xBB).chr(0xBF)); // BOM UTF-8
-    fputcsv($out, ['#','Título','Tipo','Status','Urgência','Entidade','Abertura','Atualização','Requerente'], ';');
+    fputcsv($out, ['ID','Título','Tipo','Status','Urgência','Entidade','Abertura','Atualização','Requerente'], ';');
     foreach ($export_dados as $c) {
         fputcsv($out, [$c['id'],$c['titulo'],$c['tipo'],$c['status'],$c['urgencia'],$c['entidade'],$c['data'],$c['atualizado'],$c['requerente']], ';');
     }
@@ -297,17 +304,39 @@ $entidades = carregarEntidades();
 
     .empty { text-align:center; color:#9ca3af; padding:4rem 1rem; }
 
+    .btn-ticket-trash {
+      background:none; border:none; color:#d1d5db; cursor:pointer;
+      padding:4px 6px; border-radius:4px; transition:all .15s; line-height:1;
+    }
+    .btn-ticket-trash:hover { color:#dc2626; background:#fee2e2; }
+
     @media(max-width:768px) {
       .tabela-card { overflow-x:auto; }
       .filtros-card { flex-direction:column; }
     }
+
+    /* Sortable headers */
+    th.sortable {
+      cursor:pointer; user-select:none; white-space:nowrap;
+      transition:color .15s;
+    }
+    th.sortable:hover { color:var(--accent)!important; }
+    th.sortable::after {
+      content:''; display:inline-block; width:.7rem; margin-left:.25rem;
+      opacity:.35; font-size:.7rem;
+    }
+    th.sortable.sort-asc::after { content:'▲'; opacity:1; }
+    th.sortable.sort-desc::after { content:'▼'; opacity:1; color:var(--accent); }
   </style>
 </head>
 <body>
 
 <div class="topbar">
   <div class="brand"><i class="bi bi-clock-history"></i> Histórico de Chamados</div>
-  <a href="dashboard.php"><i class="bi bi-grid me-1"></i>Início</a>
+  <div style="display:flex;gap:.5rem">
+    <a href="agenda/index.php"><i class="bi bi-calendar3 me-1"></i>Agenda TI</a>
+    <a href="dashboard.php"><i class="bi bi-grid me-1"></i>Início</a>
+  </div>
 </div>
 
 <div class="hero">
@@ -404,30 +433,36 @@ $entidades = carregarEntidades();
     <table class="table table-hover">
       <thead>
         <tr>
-          <th>#</th>
-          <th>Título</th>
-          <th>Tipo</th>
-          <th>Status</th>
-          <th>Urgência</th>
-          <th>Entidade</th>
-          <th>Abertura</th>
-          <th>Atualização</th>
+          <th data-col="0" class="sortable">ID</th>
+          <th data-col="1" class="sortable">Título</th>
+          <th data-col="2" class="sortable">Tipo</th>
+          <th data-col="3" class="sortable">Status</th>
+          <th data-col="4" class="sortable">Urgência</th>
+          <th data-col="5" class="sortable">Entidade</th>
+          <th data-col="6" class="sortable">Abertura</th>
+          <th data-col="7" class="sortable sort-desc">Atualização</th>
+          <?php if (!$hist_ouvinte): ?><th style="width:38px"></th><?php endif; ?>
         </tr>
       </thead>
       <tbody>
         <?php foreach ($chamados as $c): ?>
         <tr style="cursor:pointer" onclick="window.location.href='chamado.php?id=<?= $c['id'] ?>'">
-          <td class="ticket-id"><?= $c['id'] ?></td>
-          <td class="ticket-titulo"><?= htmlspecialchars($c['titulo']) ?></td>
-          <td><span class="badge <?= $c['tipo_n']==1 ? 'bg-danger' : 'bg-warning text-dark' ?>"><?= $c['tipo'] ?></span></td>
-          <td><span class="badge bg-<?= $c['status_cor'] ?>"><?= $c['status'] ?></span></td>
-          <td>
+          <td class="ticket-id" data-sort="<?= $c['id'] ?>"><?= $c['id'] ?></td>
+          <td class="ticket-titulo" data-sort="<?= htmlspecialchars(mb_strtolower($c['titulo'])) ?>"><?= htmlspecialchars($c['titulo']) ?></td>
+          <td data-sort="<?= $c['tipo_n'] ?>"><span class="badge <?= $c['tipo_n']==1 ? 'bg-danger' : 'bg-warning text-dark' ?>"><?= $c['tipo'] ?></span></td>
+          <td data-sort="<?= $c['status_n'] ?>"><span class="badge bg-<?= $c['status_cor'] ?>"><?= $c['status'] ?></span></td>
+          <td data-sort="<?= $c['urg_n'] ?>">
             <span class="urg-dot urg-<?= $c['urg_cor'] ?>"></span>
             <?= $c['urgencia'] ?>
           </td>
-          <td class="text-muted" style="font-size:.78rem"><?= htmlspecialchars($c['entidade']) ?></td>
-          <td class="text-muted" style="font-size:.78rem"><?= $c['data'] ?></td>
-          <td class="text-muted" style="font-size:.78rem"><?= $c['atualizado'] ?></td>
+          <td class="text-muted" style="font-size:.78rem" data-sort="<?= htmlspecialchars(mb_strtolower($c['entidade'])) ?>"><?= htmlspecialchars($c['entidade']) ?></td>
+          <td class="text-muted" style="font-size:.78rem" data-sort="<?= $c['data'] ?>"><?= $c['data'] ?></td>
+          <td class="text-muted" style="font-size:.78rem" data-sort="<?= $c['atualizado'] ?>"><?= $c['atualizado'] ?></td>
+          <?php if (!$hist_ouvinte): ?>
+          <td style="text-align:center">
+            <button class="btn-ticket-trash" onclick="event.stopPropagation();excluirChamado(<?= $c['id'] ?>,this)" title="Excluir chamado"><i class="bi bi-trash"></i></button>
+          </td>
+          <?php endif; ?>
         </tr>
         <?php endforeach; ?>
       </tbody>
@@ -483,5 +518,110 @@ $entidades = carregarEntidades();
 
 </div>
 <script src="assets/notificacoes.js"></script>
+<script>
+function toastFallback(msg) {
+  var el = document.getElementById('toast-excluir');
+  if (!el) { el = document.createElement('div'); el.id='toast-excluir'; el.style.cssText='position:fixed;bottom:20px;right:20px;z-index:9999;background:#1a237e;color:white;padding:12px 20px;border-radius:10px;box-shadow:0 4px 20px rgba(0,0,0,.3);font-size:.95rem;transition:opacity .3s'; document.body.appendChild(el); }
+  el.textContent = msg; el.style.opacity='1';
+  if (window.toastTimer) clearTimeout(window.toastTimer);
+  window.toastTimer = setTimeout(function(){ el.style.opacity='0'; }, 3000);
+}
+function toast(msg) { toastFallback(msg); }
+
+function excluirChamado(id, btn) {
+  if (!confirm('Deseja realmente excluir o chamado #' + id + '? Ele irá para a lixeira do GLPI.')) return;
+  if (btn) { btn.disabled = true; btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span>'; }
+  fetch('agenda/excluir_ticket_glpi.php', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ ticket_id: id }),
+  })
+  .then(function(r) { return r.text(); })
+  .then(function(text) {
+    console.log('🔍 Resposta servidor:', text);
+    var res;
+    try { res = JSON.parse(text); } catch(e) { console.error('❌ JSON inválido:', text); if(btn){btn.disabled=false;btn.innerHTML='<i class="bi bi-trash"></i>';} toast('Erro no servidor. Veja o console (F12).'); return; }
+    if (res.ok) {
+      toast('Chamado #' + id + ' enviado para a lixeira do GLPI.');
+      if (btn) { btn.closest('tr').remove(); }
+    } else {
+      toast(res.msg || 'Erro ao excluir chamado.');
+      if (btn) { btn.disabled = false; btn.innerHTML = '<i class="bi bi-trash"></i>'; }
+    }
+  })
+  .catch(function(err) {
+    console.error('❌ Erro fetch:', err);
+    if(btn){btn.disabled=false;btn.innerHTML='<i class="bi bi-trash"></i>';}
+    toast('Erro de conexão. Veja o console (F12).');
+  });
+}
+
+(function() {
+  'use strict';
+
+  const tabela = document.querySelector('.tabela-card table');
+  if (!tabela) return;
+  const tbody = tabela.querySelector('tbody');
+  if (!tbody) return;
+  const linhas = Array.from(tbody.querySelectorAll('tr'));
+
+  // Guarda dados originais
+  const dados = linhas.map(tr => Array.from(tr.children).map(td => td.getAttribute('data-sort') ?? td.textContent.trim()));
+
+  function valorComparacao(val) {
+    if (!val || val === '') return ''; // vazio no final
+    // Se parece com data ISO (YYYY-MM-DD), converte pra timestamp
+    if (/^\d{4}-\d{2}-\d{2}( \d{2}:\d{2})?$/.test(val)) return new Date(val.replace(' ', 'T')).getTime();
+    // Numérico
+    const n = parseFloat(val);
+    if (!isNaN(n)) return n;
+    // String (case insensitive)
+    return val.toLowerCase();
+  }
+
+  function ordenar(colIdx, direcao) {
+    const indices = Array.from({length: dados.length}, (_, i) => i);
+    indices.sort((a, b) => {
+      const va = valorComparacao(dados[a][colIdx]);
+      const vb = valorComparacao(dados[b][colIdx]);
+      if (typeof va === 'number' && typeof vb === 'number') return direcao === 'asc' ? va - vb : vb - va;
+      if (va < vb) return direcao === 'asc' ? -1 : 1;
+      if (va > vb) return direcao === 'asc' ? 1 : -1;
+      return 0;
+    });
+
+    // Reordena DOM
+    const fragment = document.createDocumentFragment();
+    indices.forEach(i => fragment.appendChild(linhas[i]));
+    tbody.appendChild(fragment);
+  }
+
+  // Atualiza classes nos headers
+  function setActiveHeader(colIdx, dir) {
+    tabela.querySelectorAll('th.sortable').forEach(th => {
+      th.classList.remove('sort-asc', 'sort-desc', 'text-primary');
+    });
+    const th = tabela.querySelector(`th.sortable[data-col="${colIdx}"]`);
+    if (th) {
+      th.classList.add(dir === 'asc' ? 'sort-asc' : 'sort-desc', 'text-primary');
+    }
+  }
+
+  // Click nos headers
+  tabela.querySelectorAll('th.sortable').forEach(th => {
+    th.addEventListener('click', function() {
+      const col = parseInt(this.dataset.col);
+      const isDesc = this.classList.contains('sort-desc');
+      const dir = isDesc ? 'asc' : 'desc';
+      ordenar(col, dir);
+      setActiveHeader(col, dir);
+    });
+  });
+
+  // Padrão: ordenar por Atualização (col 7) DESC
+  ordenar(7, 'desc');
+  setActiveHeader(7, 'desc');
+})();
+</script>
 </body>
 </html>

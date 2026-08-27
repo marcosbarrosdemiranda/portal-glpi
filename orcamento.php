@@ -1,7 +1,9 @@
 <?php
-session_start();
+require_once __DIR__ . '/auth_guard.php';
 if (empty($_SESSION['autenticado'])) { header('Location: auth.php'); exit; }
 if (($_SESSION['perfil'] ?? '') === 'self-service') { header('Location: dashboard.php'); exit; }
+$_cards_orc  = $_SESSION['portal_perfil_cards'] ?? null;
+$orc_ouvinte = ($_cards_orc !== null) && (($_cards_orc['orcamento'] ?? 'ouvinte') === 'ouvinte');
 ?>
 <!DOCTYPE html>
 <html lang="pt-BR">
@@ -171,9 +173,11 @@ if (($_SESSION['perfil'] ?? '') === 'self-service') { header('Location: dashboar
     <input type="text" id="f-busca" class="form-control form-control-sm" style="width:200px"
            placeholder="🔍 Buscar descrição..." oninput="filtrar()"/>
     <div style="flex:1"></div>
+    <?php if (!$orc_ouvinte): ?>
     <button class="btn-novo" onclick="abrirModal()">
       <i class="bi bi-plus-lg me-1"></i>Novo Item
     </button>
+    <?php endif; ?>
   </div>
 
   <!-- Tabela -->
@@ -267,6 +271,7 @@ if (($_SESSION['perfil'] ?? '') === 'self-service') { header('Location: dashboar
 
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
 <script>
+const MODO_OUVINTE_ORC = <?= $orc_ouvinte ? 'true' : 'false' ?>;
 const STORE_KEY = 'ti_orcamento';
 let modal;
 let itens = JSON.parse(localStorage.getItem(STORE_KEY) || '[]');
@@ -348,8 +353,10 @@ function renderTabela(lista) {
       <td class="${saldo >= 0 ? 'saldo-pos' : 'saldo-neg'}">${saldo >= 0 ? '' : '-'}${fmt(Math.abs(saldo))}</td>
       <td style="max-width:160px;font-size:.78rem;color:#6b7280">${esc(i.observacao || '—')}</td>
       <td style="text-align:center;white-space:nowrap">
+        ${MODO_OUVINTE_ORC ? '' : `
         <button class="btn-acao text-primary" title="Editar" onclick="editarItem('${i.id}')"><i class="bi bi-pencil-fill"></i></button>
         <button class="btn-acao text-danger"  title="Excluir" onclick="excluirDireto('${i.id}')"><i class="bi bi-trash-fill"></i></button>
+        `}
       </td>
     </tr>`;
   }).join('');

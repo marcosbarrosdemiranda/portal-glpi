@@ -9,7 +9,7 @@ tags:
 
 > Cofre seguro para senhas, comandos, links, documentações críticas e contatos úteis da TI.
 
-**Status:** 🟡 Em andamento (~70%)  
+**Status:** ✅ Concluído (10/06/2026)  
 **Prazo:** 01/07/2026  
 **🏠 Módulo:** [[Bem-vindo|Portal GLPI]]
 
@@ -36,17 +36,20 @@ tags:
 - [x] **Filtro por categoria** — pills na toolbar
 - [x] **Tags** em chips coloridos
 - [x] **Notas** em texto livre
+- [x] **Formulário dinâmico por categoria** — cada tipo exibe só os campos relevantes (ex.: Link = título, link, notas). Config central `CAMPOS_POR_CAT`; campos ocultos são limpos para não persistir dado de outra categoria
+- [x] **Categoria 📞 Contatos Úteis** — pessoa de referência + telefone/ramal (campo visível, não mascarado), tags e notas
+- [x] **Auditoria** — `portal_vault_audit` registra revelar/copiar/criar/editar/excluir/compartilhar/desbloquear + IP e timestamp; modal "Auditoria" na toolbar (últimos 200 eventos)
+- [x] **PIN por usuário** — `portal_vault_pin` (hash via `password_hash`); overlay bloqueia o cofre por sessão; cadastro na 1ª vez, desbloqueio e reset
+- [x] **Re-trava por inatividade (5 min)** — timer no cliente + backstop no servidor (`vault_last`); também trava ao fechar/sair da aba (`pin_lock` via `sendBeacon`)
+- [x] **Compartilhamento por link temporário** — `portal_vault_share` (token + expiração + limite de views); página pública `compartilhar.php` valida e consome visualização
 - [x] **Criptografia:** AES-256-CBC, chave derivada de `GLPI_APP_TOKEN + 'cofre_ti_gmais'` via SHA-256
 - [x] **Responsivo:** CSS Grid `minmax(300px, 1fr)` com cards
 
 ---
 
-## 🔴 Pendente
+## 🟢 Backlog futuro (opcional)
 
-- [ ] Controle de acesso por nível (técnico x encarregado)
-- [ ] Auditoria: quem acessou/visualizou/copiou e quando
-- [ ] Compartilhamento seguro de senha (link temporário com expiração)
-- [ ] Senha mestra para desbloquear o cofre
+- [ ] Controle de acesso por nível técnico x encarregado — descartado por ora (segurança via auditoria + PIN). Não há perfil "encarregado" no login hoje (`auth.php`)
 
 ---
 

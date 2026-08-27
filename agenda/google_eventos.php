@@ -2,7 +2,7 @@
 /**
  * Busca eventos do Google Calendar via iCal e retorna JSON
  */
-session_start();
+require_once __DIR__ . '/../auth_guard.php';
 if (empty($_SESSION['autenticado'])) { http_response_code(401); exit; }
 
 header('Content-Type: application/json');
@@ -19,9 +19,24 @@ $url = $row['ical_url'] ?? '';
 
 if (!$url) { echo json_encode([]); exit; }
 
-// Busca o arquivo iCal
-$ctx = stream_context_create(['http' => ['timeout' => 10]]);
-$ical = @file_get_contents($url, false, $ctx);
+// Busca o arquivo iCal — com retry, porque a rede do servidor às vezes recusa a
+// conexão de saída de forma intermitente (visto em diagnóstico: falha isolada,
+// sucesso na tentativa seguinte). Guarda o último resultado válido em cache pra
+// não sumir com a agenda do Google na tela quando todas as tentativas falharem.
+$cacheFile = __DIR__ . '/gcal_cache_' . $user_id . '.cache';
+$ctx  = stream_context_create(['http' => ['timeout' => 10]]);
+$ical = false;
+for ($tentativa = 1; $tentativa <= 3 && $ical === false; $tentativa++) {
+    $ical = @file_get_contents($url, false, $ctx);
+    if ($ical === false && $tentativa < 3) usleep(300000);
+}
+
+if ($ical !== false) {
+    @file_put_contents($cacheFile, $ical);
+} elseif (is_readable($cacheFile)) {
+    $ical = file_get_contents($cacheFile);
+}
+
 if (!$ical) { echo json_encode([]); exit; }
 
 // Parser iCal simples

@@ -5,7 +5,7 @@
  * Uso: equipe_detalhe.php?id=123
  * Retorna JSON com rotinas, chamados e desempenho do técnico.
  */
-session_start();
+require_once __DIR__ . '/auth_guard.php';
 if (empty($_SESSION['autenticado'])) {
 	http_response_code(401);
 	echo json_encode(['ok' => false, 'msg' => 'Não autenticado']);
@@ -15,7 +15,8 @@ if (empty($_SESSION['autenticado'])) {
 header('Content-Type: application/json');
 
 $user_id = (int)($_GET['id'] ?? 0);
-if ($user_id <= 0) {
+$team    = ($_GET['team'] ?? '') === '1';   // modo equipe: rotinas de todos, sem distinção
+if (!$team && $user_id <= 0) {
 	echo json_encode(['ok' => false, 'msg' => 'ID de técnico inválido']);
 	exit;
 }
@@ -28,6 +29,57 @@ require_once __DIR__ . '/entidade_alias.php';
 
 function esc_js(string $s): string {
 	return htmlspecialchars($s, ENT_QUOTES, 'UTF-8');
+}
+
+// Agrupa linhas de glpi_ticketrecurrents por periodicidade (diário/semanal/quinzenal/mensal)
+function agrupar_rotinas(array $rows): array {
+	$rotinas = ['diario' => [], 'semanal' => [], 'quinzenal' => [], 'mensal' => []];
+	foreach ($rows as $r) {
+		$periodicidade = $r['periodicity'] ?? '86400';
+		if (is_numeric($periodicidade)) {
+			$seg = (int)$periodicidade;
+			if ($seg <= 86400) {        $chave = 'diario';
+			} elseif ($seg <= 604800) {  $chave = 'semanal';
+			} elseif ($seg <= 1296000) { $chave = 'quinzenal';
+			} else {                     $chave = 'mensal'; }
+		} else {
+			$str = strtoupper($periodicidade);
+			if (str_contains($str, 'DIA') || str_contains($str, 'DAY')) {        $chave = 'diario';
+			} elseif (str_contains($str, 'SEMANA') || str_contains($str, 'WEEK')) { $chave = 'semanal';
+			} elseif (str_contains($str, 'QUINZENA')) {                           $chave = 'quinzenal';
+			} else {                                                              $chave = 'mensal'; }
+		}
+		$rotinas[$chave][] = [
+			'id'            => (int)$r['id'],
+			'nome'          => $r['name'] ?? 'Rotina',
+			'periodicidade' => $periodicidade,
+			'template_id'   => (int)($r['tickettemplates_id'] ?? 0),
+			'template'      => $r['template_name'] ?? '',
+			'descricao'     => trim(strip_tags(html_entity_decode($r['descricao'] ?? '', ENT_QUOTES | ENT_HTML5, 'UTF-8'))),
+		];
+	}
+	return $rotinas;
+}
+
+// ── MODO EQUIPE: todas as rotinas ativas (entidade raiz), sem distinção de técnico ──
+if ($team) {
+	$rows = [];
+	try {
+		$rows = $pdo->query("
+			SELECT tr.id, tr.name, tr.periodicity,
+			       tr.tickettemplates_id, tt.name as template_name,
+			       tpf_desc.value as descricao
+			FROM glpi_ticketrecurrents tr
+			LEFT JOIN glpi_tickettemplates tt ON tr.tickettemplates_id = tt.id
+			LEFT JOIN glpi_tickettemplatepredefinedfields tpf_desc
+			  ON tpf_desc.tickettemplates_id = tr.tickettemplates_id
+			  AND tpf_desc.num = 21
+			WHERE tr.is_active = 1 AND tr.entities_id = 0
+			ORDER BY tr.periodicity, tr.name
+		")->fetchAll();
+	} catch (Exception $e) { /* sem dados */ }
+	echo json_encode(['ok' => true, 'team' => true, 'rotinas' => agrupar_rotinas($rows)]);
+	exit;
 }
 
 // ── 1. ROTINAS ─────────────────────────────────────────────────────────────────
@@ -75,37 +127,7 @@ try {
 	}
 } catch (Exception $e) { /* sem dados */ }
 
-foreach ($rotinas_data as $r) {
-	$periodicidade = $r['periodicity'] ?? '86400';
-
-	if (is_numeric($periodicidade)) {
-		$seg = (int)$periodicidade;
-		if ($seg <= 86400) {        $chave = 'diario';
-		} elseif ($seg <= 604800) {  $chave = 'semanal';
-		} elseif ($seg <= 1296000) { $chave = 'quinzenal';
-		} else {                     $chave = 'mensal'; }
-	} else {
-		$str = strtoupper($periodicidade);
-		if (str_contains($str, 'DIA') || str_contains($str, 'DAY')) {
-			$chave = 'diario';
-		} elseif (str_contains($str, 'SEMANA') || str_contains($str, 'WEEK')) {
-			$chave = 'semanal';
-		} elseif (str_contains($str, 'QUINZENA')) {
-			$chave = 'quinzenal';
-		} else {
-			$chave = 'mensal';
-		}
-	}
-
-	$rotinas[$chave][] = [
-		'id'            => (int)$r['id'],
-		'nome'          => $r['name'] ?? 'Rotina',
-		'periodicidade' => $periodicidade,
-		'template_id'   => (int)($r['tickettemplates_id'] ?? 0),
-		'template'      => $r['template_name'] ?? '',
-		'descricao'     => trim(strip_tags(html_entity_decode($r['descricao'] ?? '', ENT_QUOTES | ENT_HTML5, 'UTF-8'))),
-	];
-}
+$rotinas = agrupar_rotinas($rotinas_data);
 
 // ── 2. CHAMADOS (SQL direto — search API tem índice desatualizado) ────────
 $chamados_abertos   = [];

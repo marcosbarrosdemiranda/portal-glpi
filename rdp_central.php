@@ -1,5 +1,5 @@
 <?php
-session_start();
+require_once __DIR__ . '/auth_guard.php';
 if (empty($_SESSION['autenticado'])) { header('Location: auth.php'); exit; }
 if (($_SESSION['perfil'] ?? '') === 'self-service') { header('Location: dashboard.php'); exit; }
 
@@ -45,18 +45,42 @@ $pdo->exec("
 foreach (['usuario VARCHAR(100) DEFAULT ""', 'senha TEXT DEFAULT NULL', 'guac_id INT DEFAULT NULL', "protocolo VARCHAR(5) NOT NULL DEFAULT 'rdp'"] as $col) {
     try { $pdo->exec("ALTER TABLE portal_rdp_maquinas ADD COLUMN $col"); } catch (Exception $e) {}
 }
+// Compatibilidade: registros antigos sem protocolo viram rdp
+try { $pdo->exec("UPDATE portal_rdp_maquinas SET protocolo='rdp' WHERE protocolo IS NULL"); } catch (Exception $e) {}
+
+// ── Tabela de grupos RDP (criar ANTES dos exemplos) ────────────────
+$pdo->exec("
+    CREATE TABLE IF NOT EXISTS portal_rdp_grupos (
+        id        INT AUTO_INCREMENT PRIMARY KEY,
+        nome      VARCHAR(60) NOT NULL UNIQUE,
+        icone     VARCHAR(40) DEFAULT 'bi-display',
+        cor_bg    VARCHAR(20) DEFAULT '#1e3a8a',
+        cor_fundo VARCHAR(20) DEFAULT '#dbeafe',
+        cor_badge VARCHAR(20) DEFAULT '#dbeafe',
+        cor_text  VARCHAR(20) DEFAULT '#1e3a8a',
+        ordem     INT DEFAULT 0
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+");
+
+// Popula defaults se vazio
+if (!$pdo->query("SELECT COUNT(*) FROM portal_rdp_grupos")->fetchColumn()) {
+    $ins = $pdo->prepare("INSERT INTO portal_rdp_grupos (nome,icone,cor_bg,cor_fundo,cor_badge,cor_text,ordem) VALUES (?,?,?,?,?,?,?)");
+    $ins->execute(['Servidores','bi-server','#1e3a8a','#dbeafe','#dbeafe','#1e3a8a',1]);
+    $ins->execute(['Coletores','bi-cpu','#065f46','#d1fae5','#d1fae5','#065f46',2]);
+    $ins->execute(['PCs Estratégicos','bi-pc-display','#7c3aed','#ede9fe','#ede9fe','#7c3aed',3]);
+}
 
 // ── Se tabela vazia, insere exemplos ────────────────────────────
 if ($pdo->query("SELECT COUNT(*) FROM portal_rdp_maquinas")->fetchColumn() == 0) {
     $st = $pdo->prepare("INSERT INTO portal_rdp_maquinas (nome,ip,descricao,usuario,categoria,ordem) VALUES (?,?,?,?,?,?)");
     $exemplos = [
-        ['DC-01',           '192.168.1.10', 'Controlador de Domínio',       '',  'servidor',     1],
-        ['SRV-APP',         '192.168.1.11', 'Servidor de Aplicações',       '',  'servidor',     2],
-        ['SQL-SERVER',      '192.168.1.12', 'Banco de Dados SQL',           '',  'servidor',     3],
-        ['COLETOR-01',      '192.168.1.20', 'Coletor de Dados NFE',          '',  'coletor',      1],
-        ['COLETOR-02',      '192.168.1.21', 'Coletor SAT / PDV',            '',  'coletor',      2],
-        ['PC-GERENCIA',     '192.168.1.30', 'Micro da Gerência',            '',  'pc',           1],
-        ['PC-TI-DIAG',      '192.168.1.31', 'Micro do Suporte TI (WOL)',    '',  'pc',           2],
+        ['DC-01',           '192.168.1.10', 'Controlador de Domínio',       '',  'Servidores',     1],
+        ['SRV-APP',         '192.168.1.11', 'Servidor de Aplicações',       '',  'Servidores',     2],
+        ['SQL-SERVER',      '192.168.1.12', 'Banco de Dados SQL',           '',  'Servidores',     3],
+        ['COLETOR-01',      '192.168.1.20', 'Coletor de Dados NFE',          '',  'Coletores',      1],
+        ['COLETOR-02',      '192.168.1.21', 'Coletor SAT / PDV',            '',  'Coletores',      2],
+        ['PC-GERENCIA',     '192.168.1.30', 'Micro da Gerência',            '',  'PCs Estratégicos',1],
+        ['PC-TI-DIAG',      '192.168.1.31', 'Micro do Suporte TI (WOL)',    '',  'PCs Estratégicos',2],
     ];
     foreach ($exemplos as $e) $st->execute($e);
 }
@@ -68,15 +92,30 @@ $pdo->prepare("UPDATE portal_rdp_maquinas SET guac_id=1 WHERE nome=? AND (guac_i
 $chk = $pdo->query("SELECT COUNT(*) FROM portal_rdp_maquinas WHERE nome='TS - Marcos'")->fetchColumn();
 if ($chk == 0) {
     $pdo->prepare("INSERT INTO portal_rdp_maquinas (nome,ip,descricao,usuario,categoria,ordem,guac_id) VALUES (?,?,?,?,?,?,?)")
-        ->execute(['TS - Marcos','192.168.1.116','Micro do Marcos','marcos@grupogmais','pc',3,1]);
+        ->execute(['TS - Marcos','192.168.1.116','Micro do Marcos','marcos@grupogmais','PCs Estratégicos',3,1]);
 }
 
-// ── Categorias (config visual) ─────────────────────────────────
-$cats = [
-    'servidor' => ['label'=>'Servidores',       'icon'=>'bi-server',        'bg'=>'#1e3a8a', 'color'=>'#dbeafe', 'badge'=>'#dbeafe', 'badge-text'=>'#1e3a8a'],
-    'coletor'  => ['label'=>'Coletores',         'icon'=>'bi-cpu',           'bg'=>'#065f46', 'color'=>'#d1fae5', 'badge'=>'#d1fae5', 'badge-text'=>'#065f46'],
-    'pc'       => ['label'=>'PCs Estratégicos',  'icon'=>'bi-pc-display',    'bg'=>'#7c3aed', 'color'=>'#ede9fe', 'badge'=>'#ede9fe', 'badge-text'=>'#7c3aed'],
-];
+// ── Migra categorias antigas (lowercase) para os novos grupos ──
+$pdo->exec("UPDATE portal_rdp_maquinas SET categoria='Servidores' WHERE (protocolo='rdp' OR protocolo IS NULL) AND categoria='servidor'");
+$pdo->exec("UPDATE portal_rdp_maquinas SET categoria='Coletores' WHERE (protocolo='rdp' OR protocolo IS NULL) AND categoria='coletor'");
+$pdo->exec("UPDATE portal_rdp_maquinas SET categoria='PCs Estratégicos' WHERE (protocolo='rdp' OR protocolo IS NULL) AND categoria='pc'");
+
+// ── Carrega grupos do banco ────────────────────────────────────────
+$grupos_rows = $pdo->query("SELECT * FROM portal_rdp_grupos ORDER BY ordem, nome")->fetchAll(PDO::FETCH_ASSOC);
+$cats = [];
+$cat_lista = [];
+foreach ($grupos_rows as $gr) {
+    $key = $gr['nome'];
+    $cats[$key] = [
+        'label'      => $gr['nome'],
+        'icon'       => $gr['icone'],
+        'bg'         => $gr['cor_bg'],
+        'color'      => $gr['cor_fundo'],
+        'badge'      => $gr['cor_badge'],
+        'badge-text' => $gr['cor_text'],
+    ];
+    $cat_lista[] = $key;
+}
 
 // ── AJAX ────────────────────────────────────────────────────────
 $action = $_GET['action'] ?? '';
@@ -87,10 +126,10 @@ if ($action) {
         $categoria = $_GET['categoria'] ?? '';
         $sql = "SELECT id, nome, ip, descricao, usuario,
                        CASE WHEN senha IS NOT NULL AND senha != '' THEN 1 ELSE 0 END as has_senha,
-                       protocolo, categoria, ordem, guac_id
-                FROM portal_rdp_maquinas WHERE ativo=1";
+                       categoria, ordem, guac_id
+                FROM portal_rdp_maquinas WHERE ativo=1 AND (protocolo='rdp' OR protocolo IS NULL)";
         $params = [];
-        if ($categoria && in_array($categoria, ['servidor','coletor','pc'])) {
+        if ($categoria && in_array($categoria, $cat_lista)) {
             $sql .= " AND categoria=?";
             $params[] = $categoria;
         }
@@ -344,11 +383,9 @@ if ($action) {
         $n = trim($body['nome']??''); $i = trim($body['ip']??'');
         $d = trim($body['descricao']??''); $u = trim($body['usuario']??'');
         $s = $body['senha'] ?? ''; $g = $body['guac_id'] ?? null;
-        $p = $body['protocolo'] ?? 'rdp';
-        $c = $body['categoria']??'servidor';
-        if (!in_array($p, ['rdp','vnc'])) $p = 'rdp';
+        $c = $body['categoria']??($cat_lista[0]??'Servidores');
         if (!$n||!$i) { echo json_encode(['ok'=>false,'msg'=>'Preencha nome e IP']); exit; }
-        if (!in_array($c, ['servidor','coletor','pc'])) $c = 'servidor';
+        if (!in_array($c, $cat_lista)) $c = $cat_lista[0]??'Servidores';
         $senha_enc = $s ? rdp_encrypt($s) : null;
 
         // Se não informou guac_id, tenta criar automaticamente no Guacamole
@@ -383,31 +420,22 @@ if ($action) {
                     $resLista = curl_exec($ch3);
                     curl_close($ch3);
                     $lista = json_decode($resLista, true) ?? [];
-                    // Função auxiliar: monta payload RDP/VNC
-                    $guac_payload = function() use ($n, $i, $u, $s, $p) {
-                        $proto = $p ?? 'rdp';
-                        $params = ($proto === 'vnc')
-                            ? [
-                                'hostname' => $i, 'port' => '5900',
-                                'password' => $s, 'color-depth' => '16',
-                                'read-only' => '', 'swap-red-blue' => '',
-                                'cursor' => '',
-                              ]
-                            : [
-                                'hostname' => $i, 'port' => '3389',
-                                'username' => $u, 'password' => $s,
-                                'ignore-cert' => 'true', 'security' => 'any',
-                              ];
+                    // Função auxiliar: monta payload RDP
+                    $guac_payload = function() use ($n, $i, $u, $s) {
                         return [
                             'parentIdentifier' => 'ROOT',
                             'name' => $n,
-                            'protocol' => $proto,
+                            'protocol' => 'rdp',
                             'attributes' => [
                                 'max-connections' => '', 'max-connections-per-user' => '',
                                 'weight' => '', 'failover-only' => '',
                                 'guacd-hostname' => '', 'guacd-port' => '',
                             ],
-                            'parameters' => $params,
+                            'parameters' => [
+                                'hostname' => $i, 'port' => '3389',
+                                'username' => $u, 'password' => $s,
+                                'ignore-cert' => 'true', 'security' => 'any',
+                            ],
                         ];
                     };
 
@@ -465,9 +493,9 @@ if ($action) {
         }
 
         $guac_val = ($g !== '' && $g !== null) ? (int)$g : null;
-        $mo = $pdo->query("SELECT COALESCE(MAX(ordem),0)+1 FROM portal_rdp_maquinas")->fetchColumn();
-        $pdo->prepare("INSERT INTO portal_rdp_maquinas (nome,ip,descricao,usuario,senha,protocolo,guac_id,categoria,ordem) VALUES (?,?,?,?,?,?,?,?,?)")
-            ->execute([$n,$i,$d,$u,$senha_enc,$p,$guac_val,$c,$mo]);
+        $mo = $pdo->query("SELECT COALESCE(MAX(ordem),0)+1 FROM portal_rdp_maquinas WHERE protocolo='rdp' OR protocolo IS NULL")->fetchColumn();
+        $pdo->prepare("INSERT INTO portal_rdp_maquinas (nome,ip,descricao,usuario,senha,guac_id,categoria,ordem) VALUES (?,?,?,?,?,?,?,?)")
+            ->execute([$n,$i,$d,$u,$senha_enc,$guac_val,$c,$mo]);
         echo json_encode(['ok'=>true, 'id'=>$pdo->lastInsertId(), 'guac_id'=>$g, 'guac_auto'=>($g !== null && $g > 0), 'guac_log'=>$guac_log]); exit;
     }
 
@@ -476,11 +504,9 @@ if ($action) {
         $id=(int)($body['id']??0); $n=trim($body['nome']??''); $i=trim($body['ip']??'');
         $d=trim($body['descricao']??''); $u=trim($body['usuario']??'');
         $s = $body['senha'] ?? ''; $g = $body['guac_id'] ?? null;
-        $p = $body['protocolo'] ?? 'rdp';
-        $c=$body['categoria']??'servidor';
-        if (!in_array($p, ['rdp','vnc'])) $p = 'rdp';
+        $c=$body['categoria']??($cat_lista[0]??'Servidores');
         if (!$id||!$n||!$i) { echo json_encode(['ok'=>false,'msg'=>'Preencha nome e IP']); exit; }
-        if (!in_array($c, ['servidor','coletor','pc'])) $c = 'servidor';
+        if (!in_array($c, $cat_lista)) $c = $cat_lista[0]??'Servidores';
 
         // Se não tem guac_id, tenta buscar/criar no Guacamole
         $guac_log = '';
@@ -501,31 +527,22 @@ if ($action) {
                 $token = $auth['authToken'] ?? '';
                 $ds = $auth['dataSource'] ?? 'mysql';
                 if ($token) {
-                    // Função auxiliar: monta payload RDP/VNC
-                    $guac_payload = function() use ($n, $i, $u, $s, $p) {
-                        $proto = $p ?? 'rdp';
-                        $params = ($proto === 'vnc')
-                            ? [
-                                'hostname' => $i, 'port' => '5900',
-                                'password' => $s, 'color-depth' => '16',
-                                'read-only' => '', 'swap-red-blue' => '',
-                                'cursor' => '',
-                              ]
-                            : [
-                                'hostname' => $i, 'port' => '3389',
-                                'username' => $u, 'password' => $s,
-                                'ignore-cert' => 'true', 'security' => 'any',
-                              ];
+                    // Função auxiliar: monta payload RDP
+                    $guac_payload = function() use ($n, $i, $u, $s) {
                         return [
                             'parentIdentifier' => 'ROOT',
                             'name' => $n,
-                            'protocol' => $proto,
+                            'protocol' => 'rdp',
                             'attributes' => [
                                 'max-connections' => '', 'max-connections-per-user' => '',
                                 'weight' => '', 'failover-only' => '',
                                 'guacd-hostname' => '', 'guacd-port' => '',
                             ],
-                            'parameters' => $params,
+                            'parameters' => [
+                                'hostname' => $i, 'port' => '3389',
+                                'username' => $u, 'password' => $s,
+                                'ignore-cert' => 'true', 'security' => 'any',
+                            ],
                         ];
                     };
 
@@ -585,13 +602,13 @@ if ($action) {
         $guac_val = ($g !== '' && $g !== null) ? (int)$g : null;
         if ($s !== '') {
             $senha_enc = $s ? rdp_encrypt($s) : null;
-            $pdo->prepare("UPDATE portal_rdp_maquinas SET nome=?,ip=?,descricao=?,usuario=?,senha=?,protocolo=?,guac_id=?,categoria=? WHERE id=?")
-                ->execute([$n,$i,$d,$u,$senha_enc,$p,$guac_val,$c,$id]);
+            $pdo->prepare("UPDATE portal_rdp_maquinas SET nome=?,ip=?,descricao=?,usuario=?,senha=?,guac_id=?,categoria=? WHERE id=?")
+                ->execute([$n,$i,$d,$u,$senha_enc,$guac_val,$c,$id]);
         } else {
-            $pdo->prepare("UPDATE portal_rdp_maquinas SET nome=?,ip=?,descricao=?,usuario=?,protocolo=?,guac_id=?,categoria=? WHERE id=?")
-                ->execute([$n,$i,$d,$u,$p,$guac_val,$c,$id]);
+            $pdo->prepare("UPDATE portal_rdp_maquinas SET nome=?,ip=?,descricao=?,usuario=?,guac_id=?,categoria=? WHERE id=?")
+                ->execute([$n,$i,$d,$u,$guac_val,$c,$id]);
         }
-        echo json_encode(['ok'=>true, 'guac_id'=>$guac_val, 'guac_log'=>$guac_log, 'protocolo'=>$p]); exit;
+        echo json_encode(['ok'=>true, 'guac_id'=>$guac_val, 'guac_log'=>$guac_log]); exit;
     }
 
     if ($action === 'delete' && isset($_GET['id'])) {
@@ -648,6 +665,51 @@ if ($action) {
                 $st->execute([$idx, (int)$item['id']]);
             }
         }
+        echo json_encode(['ok'=>true]); exit;
+    }
+
+    // ── Listar grupos ────────────────────────────────────────
+    if ($action === 'list_grupos') {
+        $rows = $pdo->query("SELECT * FROM portal_rdp_grupos ORDER BY ordem, nome")->fetchAll(PDO::FETCH_ASSOC);
+        echo json_encode(['ok'=>true, 'dados'=>$rows]); exit;
+    }
+
+    // ── Salvar grupo ────────────────────────────────────────
+    if ($action === 'save_grupo') {
+        $body = json_decode(file_get_contents('php://input'), true) ?? [];
+        $id = (int)($body['id'] ?? 0);
+        $nome = trim($body['nome'] ?? '');
+        $icone = trim($body['icone'] ?? 'bi-display');
+        $cor_bg = trim($body['cor_bg'] ?? '#1e3a8a');
+        $cor_fundo = trim($body['cor_fundo'] ?? '#dbeafe');
+        $cor_badge = trim($body['cor_badge'] ?? '#dbeafe');
+        $cor_text = trim($body['cor_text'] ?? '#1e3a8a');
+        if (!$nome) { echo json_encode(['ok'=>false,'msg'=>'Nome obrigatório']); exit; }
+        if ($id) {
+            $st = $pdo->prepare("UPDATE portal_rdp_grupos SET nome=?,icone=?,cor_bg=?,cor_fundo=?,cor_badge=?,cor_text=? WHERE id=?");
+            $st->execute([$nome,$icone,$cor_bg,$cor_fundo,$cor_badge,$cor_text,$id]);
+        } else {
+            $st = $pdo->prepare("INSERT INTO portal_rdp_grupos (nome,icone,cor_bg,cor_fundo,cor_badge,cor_text) VALUES (?,?,?,?,?,?)");
+            $st->execute([$nome,$icone,$cor_bg,$cor_fundo,$cor_badge,$cor_text]);
+        }
+        echo json_encode(['ok'=>true]); exit;
+    }
+
+    // ── Excluir grupo ────────────────────────────────────────
+    if ($action === 'delete_grupo') {
+        $body = json_decode(file_get_contents('php://input'), true) ?? [];
+        $id = (int)($body['id'] ?? 0);
+        if (!$id) { echo json_encode(['ok'=>false,'msg'=>'ID obrigatório']); exit; }
+        $st = $pdo->prepare("SELECT nome FROM portal_rdp_grupos WHERE id=?");
+        $st->execute([$id]);
+        $g = $st->fetch();
+        if (!$g) { echo json_encode(['ok'=>false,'msg'=>'Grupo não encontrado']); exit; }
+        // Move máquinas para o primeiro grupo disponível
+        $primeiro = $pdo->query("SELECT nome FROM portal_rdp_grupos WHERE id!={$id} ORDER BY ordem, nome LIMIT 1")->fetchColumn();
+        if ($primeiro) {
+            $pdo->prepare("UPDATE portal_rdp_maquinas SET categoria=? WHERE categoria=?")->execute([$primeiro, $g['nome']]);
+        }
+        $pdo->prepare("DELETE FROM portal_rdp_grupos WHERE id=?")->execute([$id]);
         echo json_encode(['ok'=>true]); exit;
     }
 
@@ -710,9 +772,6 @@ if ($action) {
     .stat-pill{background:white;border:1px solid #e5e7eb;border-radius:8px;padding:.4rem .85rem;font-size:.78rem;display:flex;align-items:center;gap:.4rem;}
     #toast-container{position:fixed;bottom:1.5rem;right:1.5rem;z-index:9999;}
     .badge-senha{display:inline-block;background:#fef3c7;color:#92400e;border-radius:10px;padding:.08rem .45rem;font-size:.6rem;font-weight:600;margin-left:.35rem;vertical-align:middle;}
-    .badge-proto{display:inline-block;border-radius:8px;padding:.08rem .4rem;font-size:.58rem;font-weight:700;margin-left:.35rem;vertical-align:middle;letter-spacing:.3px;}
-    .badge-rdp{background:#dbeafe;color:#1d4ed8;}
-    .badge-vnc{background:#ede9fe;color:#5b21b6;}
   </style>
 </head>
 <body>
@@ -732,7 +791,10 @@ if ($action) {
 </div>
 
 <div class="wrap" id="app">
-  <div class="stats-row" id="stats"></div>
+  <div class="d-flex justify-content-between align-items-start flex-wrap" style="gap:.5rem;margin-bottom:.5rem">
+    <div class="stats-row" id="stats"></div>
+    <button class="btn btn-sm btn-outline-secondary" onclick="abrirModalGrupo()" title="Gerenciar grupos RDP"><i class="bi bi-tags-fill me-1"></i>Grupos</button>
+  </div>
   <div class="filtro-bar" id="filtro-bar"></div>
   <div id="lista-categorias"></div>
 </div>
@@ -748,16 +810,9 @@ if ($action) {
       <div class="modal-body">
         <input type="hidden" id="edit-id"/>
         <div class="mb-3"><label class="form-label fw-semibold">Nome</label><input type="text" class="form-control" id="edit-nome" placeholder="SRV-APP"/></div>
-        <div class="mb-3">
-          <label class="form-label fw-semibold">Protocolo <span class="text-muted small">(tipo de acesso)</span></label>
-          <select class="form-select" id="edit-protocolo" onchange="toggleProtocolo()">
-            <option value="rdp">RDP — Remote Desktop (Windows)</option>
-            <option value="vnc">VNC — Virtual Network Computing (Linux/qualquer)</option>
-          </select>
-        </div>
         <div class="mb-3"><label class="form-label fw-semibold">IP / Hostname</label><input type="text" class="form-control font-monospace" id="edit-ip" placeholder="192.168.1.x"/></div>
         <div class="mb-3"><label class="form-label fw-semibold">Descrição <span class="text-muted small">(opcional)</span></label><input type="text" class="form-control" id="edit-desc" placeholder="Servidor de aplicações..."/></div>
-        <div class="mb-3" id="campo-usuario">
+        <div class="mb-3">
           <label class="form-label fw-semibold">Usuário <span class="text-muted small">(para login automático)</span></label>
           <input type="text" class="form-control" id="edit-usuario" placeholder="marcos@grupogmais"/>
         </div>
@@ -767,15 +822,14 @@ if ($action) {
             <input type="password" class="form-control" id="edit-senha" placeholder="Deixe em branco para não salvar"/>
             <button class="btn btn-outline-secondary" type="button" onclick="toggleSenha()" style="font-size:.75rem"><i class="bi bi-eye-fill"></i></button>
           </div>
-          <div class="form-text text-muted small" id="senha-help">Senha fica criptografada no banco. Só é descriptografada na hora de gerar o lançador automático.</div>
+          <div class="form-text text-muted small">Senha fica criptografada no banco. Só é descriptografada na hora de gerar o lançador automático.</div>
         </div>
         <div class="mb-2">
           <label class="form-label fw-semibold">Categoria</label>
-          <select class="form-select" id="edit-categoria">
-            <option value="servidor">Servidor</option>
-            <option value="coletor">Coletor</option>
-            <option value="pc">PC Estratégico</option>
-          </select>
+          <div class="input-group">
+            <select class="form-select" id="edit-categoria"></select>
+            <button class="btn btn-outline-secondary" type="button" onclick="abrirModalGrupo()" title="Gerenciar grupos RDP"><i class="bi bi-gear-fill"></i></button>
+          </div>
         </div>
         <div class="mb-2">
           <label class="form-label fw-semibold">ID Conexão Guacamole <span class="text-muted small">(opcional)</span></label>
@@ -790,19 +844,45 @@ if ($action) {
     </div>
   </div>
 </div>
+
+<!-- ── Modal Gerenciar Grupos RDP ── -->
+<div class="modal fade" id="modalGrupos" tabindex="-1">
+  <div class="modal-dialog modal-dialog-centered">
+    <div class="modal-content">
+      <div class="modal-header" style="background:linear-gradient(135deg,#1e3a8a,#0f172a);color:white">
+        <h5 class="modal-title fw-bold"><i class="bi bi-tags-fill me-2"></i>Gerenciar Grupos RDP</h5>
+        <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body" id="grupo-list">
+        <p class="text-muted small mb-3">Os grupos aparecem como abas na tela principal. Máquinas de um grupo excluído são movidas para o primeiro grupo.</p>
+        <div id="grupos-container"></div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-secondary" data-bs-dismiss="modal">Fechar</button>
+        <button class="btn btn-primary" onclick="salvarGrupo()" style="background:#1d4ed8;border-color:#1d4ed8"><i class="bi bi-plus-circle me-1"></i>Novo Grupo</button>
+      </div>
+    </div>
+  </div>
+</div>
+
 <div id="toast-container"></div>
 
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
 <script>
 const CATS = <?= json_encode($cats) ?>;
-let modalMaq;
+let GRUPOS = [];
+let modalMaq, modalGrupos;
 let filtroAtivo = '';
 const isAdmin = <?= $is_admin ? 'true' : 'false' ?>;
 
 document.addEventListener('DOMContentLoaded', () => {
   modalMaq = new bootstrap.Modal(document.getElementById('modalMaq'));
-  carregar();
+  if (document.getElementById('modalGrupos')) modalGrupos = new bootstrap.Modal(document.getElementById('modalGrupos'));
+  carregarTudo();
 });
+
+function esc(s) { const d = document.createElement('div'); d.textContent = s; return d.innerHTML; }
+function escAttr(s) { return String(s).replace(/"/g,'&quot;').replace(/'/g,'&#39;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
 
 function getLabel(cat) { return CATS[cat]?.label || cat; }
 function getIcon(cat) { return CATS[cat]?.icon || 'bi-display'; }
@@ -811,7 +891,25 @@ function getColor(cat) { return CATS[cat]?.color || '#f3f4f6'; }
 function getBadgeText(cat) { return CATS[cat]?.['badge-text'] || '#374151'; }
 function getBadge(cat) { return CATS[cat]?.badge || '#e5e7eb'; }
 
-async function carregar() {
+async function carregarTudo() {
+  await carregarGrupos();
+  await carregarMaquinas();
+}
+
+async function carregarGrupos() {
+  const r = await fetch('rdp_central.php?action=list_grupos');
+  const d = await r.json();
+  GRUPOS = d.dados || [];
+  renderizarSelectCategoria();
+}
+
+function renderizarSelectCategoria() {
+  const sel = document.getElementById('edit-categoria');
+  if (!sel) return;
+  sel.innerHTML = GRUPOS.map(g => `<option value="${escAttr(g.nome)}">${esc(g.nome)}</option>`).join('');
+}
+
+async function carregarMaquinas() {
   const url = filtroAtivo ? 'rdp_central.php?action=list&categoria=' + filtroAtivo : 'rdp_central.php?action=list';
   const r = await fetch(url), d = await r.json();
   const maqs = d.dados || [];
@@ -822,36 +920,35 @@ async function carregar() {
 
 function renderStats(maqs) {
   const total = maqs.length;
-  const cats = ['servidor','coletor','pc'];
   const qtds = {};
-  cats.forEach(c => qtds[c] = 0);
+  GRUPOS.forEach(g => qtds[g.nome] = 0);
   maqs.forEach(m => qtds[m.categoria] = (qtds[m.categoria]||0) + 1);
   let h = `<div class="stat-pill"><i class="bi bi-display-fill text-primary"></i>${total} máquina(s)</div>`;
-  cats.forEach(c => {
+  GRUPOS.forEach(g => {
+    const c = g.nome;
     if (qtds[c]) h += `<div class="stat-pill"><i class="${getIcon(c)}" style="color:${getBg(c)}"></i>${getLabel(c)}: ${qtds[c]}</div>`;
   });
   document.getElementById('stats').innerHTML = h;
 }
 
 function renderFiltro(maqs) {
-  const cats = ['servidor','coletor','pc'];
   let h = `<button class="btn-filtro ${!filtroAtivo ? 'ativo' : ''}" onclick="setFiltro('')"><i class="bi bi-funnel"></i>Todas</button>`;
-  cats.forEach(c => {
+  GRUPOS.forEach(g => {
+    const c = g.nome;
     const qtd = maqs.filter(m => m.categoria === c).length;
-    h += `<button class="btn-filtro ${filtroAtivo === c ? 'ativo' : ''}" onclick="setFiltro('${c}')"><i class="${getIcon(c)}"></i>${getLabel(c)}<span class="qtd">${qtd}</span></button>`;
+    h += `<button class="btn-filtro ${filtroAtivo === c ? 'ativo' : ''}" onclick="setFiltro('${escAttr(c)}')"><i class="${getIcon(c)}"></i>${getLabel(c)}<span class="qtd">${qtd}</span></button>`;
   });
   document.getElementById('filtro-bar').innerHTML = h;
 }
 
 function setFiltro(cat) {
   filtroAtivo = cat;
-  carregar();
+  carregarMaquinas();
 }
 
 function renderLista(maqs) {
-  const cats = ['servidor','coletor','pc'];
   const agrupado = {};
-  cats.forEach(c => agrupado[c] = []);
+  GRUPOS.forEach(g => agrupado[g.nome] = []);
   maqs.forEach(m => { if (agrupado[m.categoria]) agrupado[m.categoria].push(m); });
 
   if (typeof window._catAberto === 'undefined') window._catAberto = {};
@@ -859,12 +956,13 @@ function renderLista(maqs) {
 
   const el = document.getElementById('lista-categorias');
   let html = '';
-  cats.forEach(c => {
+  GRUPOS.forEach(g => {
+    const c = g.nome;
     const itens = agrupado[c];
-    if (!itens.length) return;
-    const isOpen = aberto[c] === true; // default: fechado
+    if (!itens || !itens.length) return;
+    const isOpen = aberto[c] === true;
     html += `<section>
-      <div class="section-header ${isOpen?'expanded':''}" style="background:${getColor(c)};color:${getBg(c)}" onclick="toggleCategoria('${c}')">
+      <div class="section-header ${isOpen?'expanded':''}" style="background:${getColor(c)};color:${getBg(c)}" onclick="toggleCategoria('${escAttr(c)}')">
         <i class="${getIcon(c)}"></i>${getLabel(c)}
         <span class="badge-cat" style="background:${getBadge(c)};color:${getBadgeText(c)}">${itens.length}</span>
         <span class="chevron">${isOpen?'▴':'▾'}</span>
@@ -878,7 +976,7 @@ function renderLista(maqs) {
         <div class="maq-info">
           <div class="maq-icon" style="background:${getColor(c)};color:${getBg(c)}"><i class="${getIcon(c)}"></i></div>
           <div>
-            <div class="maq-nome">${esc(m.nome)} ${temSenha ? '<span class="badge-senha"><i class="bi bi-lock-fill"></i> auto</span>' : ''} ${m.protocolo === 'vnc' ? '<span class="badge-proto badge-vnc">VNC</span>' : '<span class="badge-proto badge-rdp">RDP</span>'}</div>
+            <div class="maq-nome">${esc(m.nome)} ${temSenha ? '<span class="badge-senha"><i class="bi bi-lock-fill"></i> auto</span>' : ''}</div>
             <div class="maq-ip">${esc(m.ip)}</div>
             ${m.descricao ? `<div class="maq-desc">${esc(m.descricao)}</div>` : ''}
             ${m.usuario ? `<div class="maq-desc" style="color:#6b7280"><i class="bi bi-person-fill me-1"></i>${esc(m.usuario)}</div>` : ''}
@@ -916,7 +1014,6 @@ function toggleCategoria(cat) {
   aberto[cat] = !aberto[cat];
   const corpo = document.getElementById('corpo-' + cat);
   if (corpo) corpo.classList.toggle('open');
-  // Atualiza chevron no header
   const secao = corpo?.closest('section');
   if (secao) {
     const hdr = secao.querySelector('.section-header');
@@ -930,10 +1027,8 @@ function toggleCategoria(cat) {
 
 function abrirModal() {
   ['edit-id','edit-nome','edit-ip','edit-desc','edit-usuario','edit-senha','edit-guac-id'].forEach(id => document.getElementById(id).value = '');
-  document.getElementById('edit-protocolo').value = 'rdp';
-  document.getElementById('edit-categoria').value = 'servidor';
+  if (GRUPOS.length) document.getElementById('edit-categoria').value = GRUPOS[0].nome;
   document.getElementById('modal-label').innerHTML = '<i class="bi bi-plus-circle-fill me-2"></i>Nova Máquina';
-  toggleProtocolo();
   modalMaq.show();
 }
 
@@ -948,10 +1043,8 @@ async function editar(id) {
   document.getElementById('edit-usuario').value = item.usuario || '';
   document.getElementById('edit-senha').value = '';
   document.getElementById('edit-guac-id').value = item.guac_id || '0';
-  document.getElementById('edit-protocolo').value = item.protocolo || 'rdp';
   document.getElementById('edit-categoria').value = item.categoria;
   document.getElementById('modal-label').innerHTML = '<i class="bi bi-pencil-fill me-2"></i>' + esc(item.nome);
-  toggleProtocolo();
   if (item.has_senha == 1) {
     document.getElementById('edit-senha').placeholder = '🔒 Mantenha em branco para não alterar';
   }
@@ -966,13 +1059,12 @@ async function salvar() {
   const usuario = document.getElementById('edit-usuario').value.trim();
   const senha = document.getElementById('edit-senha').value;
   const guac_id = document.getElementById('edit-guac-id').value.trim();
-  const protocolo = document.getElementById('edit-protocolo').value;
   const categoria = document.getElementById('edit-categoria').value;
   if (!nome || !ip) { toast('Preencha nome e IP', 'danger'); return; }
   const action = id ? 'edit' : 'add';
   const r = await fetch('rdp_central.php?action=' + action, {
     method: 'POST', headers: {'Content-Type': 'application/json'},
-    body: JSON.stringify({id: parseInt(id)||0, nome, ip, descricao: desc, usuario, senha, guac_id: parseInt(guac_id)||null, protocolo, categoria})
+    body: JSON.stringify({id: parseInt(id)||0, nome, ip, descricao: desc, usuario, senha, guac_id: parseInt(guac_id)||null, categoria})
   });
   const d = await r.json();
   if (d.ok) {
@@ -982,14 +1074,14 @@ async function salvar() {
     else if (d.guac_log && d.guac_log.indexOf('sem_') > -1) toast('⚠️ ' + (id ? 'Atualizada' : 'Adicionada') + ' — Guacamole: ' + d.guac_log, 'warning');
     else if (!id) toast('✅ Adicionada!', 'success');
     else toast('✅ Atualizada!', 'success');
-    carregar();
+    carregarTudo();
   } else toast(d.msg || 'Erro', 'danger');
 }
 
 async function excluir(id) {
   if (!confirm('Excluir esta máquina?')) return;
   const r = await fetch('rdp_central.php?action=delete&id=' + id), d = await r.json();
-  if (d.ok) { toast('🗑️ Excluída'); carregar(); }
+  if (d.ok) { toast('🗑️ Excluída'); carregarTudo(); }
   else toast(d.msg || 'Erro', 'danger');
 }
 
@@ -998,25 +1090,82 @@ function toggleSenha() {
   el.type = el.type === 'password' ? 'text' : 'password';
 }
 
-function toggleProtocolo() {
-  const proto = document.getElementById('edit-protocolo').value;
-  const campoUser = document.getElementById('campo-usuario');
-  const helpSenha = document.getElementById('senha-help');
-  if (proto === 'vnc') {
-    campoUser.style.display = 'none';
-    if (helpSenha) helpSenha.textContent = 'Senha VNC (opcional — se deixar em branco, o Guacamole vai pedir ao conectar).';
-  } else {
-    campoUser.style.display = '';
-    if (helpSenha) helpSenha.textContent = 'Senha fica criptografada no banco. Só é descriptografada na hora de gerar o lançador automático.';
-  }
-}
-
-function esc(s) { const d = document.createElement('div'); d.textContent = s; return d.innerHTML; }
 function toast(msg, type = 'success') {
   const id = 't-' + Date.now(), bg = type === 'success' ? 'bg-success' : 'bg-danger';
   document.getElementById('toast-container').insertAdjacentHTML('beforeend',
     `<div id="${id}" class="toast align-items-center text-white ${bg} border-0 show mb-2"><div class="d-flex"><div class="toast-body">${msg}</div><button type="button" class="btn-close btn-close-white me-2 m-auto" onclick="document.getElementById('${id}').remove()"></button></div></div>`);
   setTimeout(() => document.getElementById(id)?.remove(), 4000);
+}
+
+// ── Modal Grupos ────────────────────────────────────────
+function abrirModalGrupo() {
+  listarGrupos();
+  modalGrupos.show();
+}
+
+async function listarGrupos() {
+  const r = await fetch('rdp_central.php?action=list_grupos');
+  const d = await r.json();
+  const grupos = d.dados || [];
+  let h = '';
+  grupos.forEach(g => {
+    h += `<div class="card mb-2" style="border-left:4px solid ${g.cor_bg}">
+      <div class="card-body py-2 px-3 d-flex align-items-center justify-content-between">
+        <div>
+          <i class="${g.icone} me-2" style="color:${g.cor_bg}"></i>
+          <strong>${esc(g.nome)}</strong>
+          <span class="ms-2 badge" style="background:${g.cor_badge};color:${g.cor_text}">#${g.id}</span>
+        </div>
+        <div>
+          <button class="btn btn-sm btn-outline-primary me-1" onclick="editarGrupo(${g.id},'${escAttr(g.nome)}','${escAttr(g.icone)}','${escAttr(g.cor_bg)}','${escAttr(g.cor_fundo)}','${escAttr(g.cor_badge)}','${escAttr(g.cor_text)}')"><i class="bi bi-pencil-fill"></i></button>
+          <button class="btn btn-sm btn-outline-danger" onclick="excluirGrupo(${g.id},'${escAttr(g.nome)}')"><i class="bi bi-trash-fill"></i></button>
+        </div>
+      </div>
+    </div>`;
+  });
+  if (!grupos.length) h = '<p class="text-muted">Nenhum grupo cadastrado.</p>';
+  document.getElementById('grupos-container').innerHTML = h;
+}
+
+async function salvarGrupo() {
+  const nome = prompt('Nome do grupo:');
+  if (!nome) return;
+  const icone = prompt('Ícone Bootstrap (ex: bi-server, bi-cpu, bi-pc-display):', 'bi-display');
+  const cor_bg = prompt('Cor do background (ex: #1e3a8a):', '#1e3a8a');
+  const cor_fundo = prompt('Cor de fundo do card (ex: #dbeafe):', '#dbeafe');
+  const r = await fetch('rdp_central.php?action=save_grupo', {
+    method: 'POST', headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({id: 0, nome, icone, cor_bg, cor_fundo, cor_badge: cor_fundo, cor_text: cor_bg})
+  });
+  const d = await r.json();
+  if (d.ok) { toast('✅ Grupo adicionado!', 'success'); listarGrupos(); carregarTudo(); }
+  else toast(d.msg || 'Erro', 'danger');
+}
+
+async function editarGrupo(id, nome, icone, cor_bg, cor_fundo, cor_badge, cor_text) {
+  const novoNome = prompt('Nome do grupo:', nome);
+  if (!novoNome) return;
+  const novoIcone = prompt('Ícone Bootstrap:', icone);
+  const novaCorBg = prompt('Cor do background:', cor_bg);
+  const novaCorFundo = prompt('Cor de fundo do card:', cor_fundo);
+  const r = await fetch('rdp_central.php?action=save_grupo', {
+    method: 'POST', headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({id, nome: novoNome, icone: novoIcone, cor_bg: novaCorBg, cor_fundo: novaCorFundo, cor_badge: novaCorFundo, cor_text: novaCorBg})
+  });
+  const d = await r.json();
+  if (d.ok) { toast('✅ Grupo atualizado!', 'success'); listarGrupos(); carregarTudo(); }
+  else toast(d.msg || 'Erro', 'danger');
+}
+
+async function excluirGrupo(id, nome) {
+  if (!confirm(`Excluir grupo "${nome}"? Máquinas serão movidas para o primeiro grupo.`)) return;
+  const r = await fetch('rdp_central.php?action=delete_grupo', {
+    method: 'POST', headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({id})
+  });
+  const d = await r.json();
+  if (d.ok) { toast('🗑️ Grupo excluído!', 'success'); listarGrupos(); carregarTudo(); }
+  else toast(d.msg || 'Erro', 'danger');
 }
 </script>
 </body>

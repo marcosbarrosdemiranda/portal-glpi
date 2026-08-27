@@ -1,7 +1,212 @@
 <?php
-session_start();
+require_once __DIR__ . '/auth_guard.php';
 if (empty($_SESSION['autenticado'])) { header('Location: auth.php'); exit; }
 if (($_SESSION['perfil'] ?? '') === 'self-service') { header('Location: dashboard.php'); exit; }
+
+require_once __DIR__ . '/agenda/db.php';
+require_once __DIR__ . '/agenda/config.php';
+require_once __DIR__ . '/vault_crypto.php';
+require_once __DIR__ . '/github_client.php';
+
+$uid = (int)($_SESSION['user_id'] ?? 0);
+
+// ── Tabelas de contas GitHub e status manual dos projetos ──────
+$pdo->exec("
+    CREATE TABLE IF NOT EXISTS portal_github_contas (
+        id                 INT AUTO_INCREMENT PRIMARY KEY,
+        user_id            INT           NOT NULL,
+        apelido            VARCHAR(60)   NOT NULL,
+        usuario_github     VARCHAR(100)  NOT NULL,
+        token_enc          TEXT          NOT NULL,
+        ativo              TINYINT(1)    DEFAULT 1,
+        ultimo_teste_ok    TINYINT(1)    DEFAULT NULL,
+        ultima_verificacao DATETIME      DEFAULT NULL,
+        criado_em          TIMESTAMP     DEFAULT CURRENT_TIMESTAMP
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+");
+$pdo->exec("
+    CREATE TABLE IF NOT EXISTS portal_projetos_status (
+        id            INT AUTO_INCREMENT PRIMARY KEY,
+        conta_id      INT           NOT NULL,
+        repo_nome     VARCHAR(255)  NOT NULL,
+        status        ENUM('futuro','em_execucao','concluido') NOT NULL DEFAULT 'em_execucao',
+        atualizado_em TIMESTAMP     DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+        UNIQUE KEY uk_conta_repo (conta_id, repo_nome),
+        FOREIGN KEY (conta_id) REFERENCES portal_github_contas(id) ON DELETE CASCADE
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+");
+$pdo->exec("ALTER TABLE portal_projetos_status ADD COLUMN IF NOT EXISTS visivel TINYINT(1) NOT NULL DEFAULT 1");
+
+// ── AJAX: contas GitHub (cada usuário só mexe nas próprias) ────
+$ghAction = $_GET['gh_action'] ?? '';
+if ($ghAction) {
+    header('Content-Type: application/json');
+    if (stripos($_SERVER['CONTENT_TYPE'] ?? '', 'application/json') !== 0) {
+        echo json_encode(['ok'=>false,'msg'=>'Requisição inválida']); exit;
+    }
+    if (!$uid) { echo json_encode(['ok'=>false,'msg'=>'Sessão inválida']); exit; }
+
+    if ($ghAction === 'conta_add' || $ghAction === 'conta_save') {
+        $body    = json_decode(file_get_contents('php://input'), true) ?? [];
+        $apelido = trim($body['apelido'] ?? '');
+        $usuario = trim($body['usuario_github'] ?? '');
+        $token   = trim($body['token'] ?? '');
+        $id      = (int)($body['id'] ?? 0);
+
+        if (!$apelido || !$usuario) { echo json_encode(['ok'=>false,'msg'=>'Apelido e usuário são obrigatórios']); exit; }
+
+        // Edição sem novo token = mantém o token atual, não re-testa
+        if ($ghAction === 'conta_save' && $id && $token === '') {
+            $st = $pdo->prepare("UPDATE portal_github_contas SET apelido=?, usuario_github=? WHERE id=? AND user_id=?");
+            $st->execute([$apelido, $usuario, $id, $uid]);
+            echo json_encode(['ok'=>true]); exit;
+        }
+
+        if (!$token) { echo json_encode(['ok'=>false,'msg'=>'Token é obrigatório']); exit; }
+        $teste = github_testar_token($token);
+        if (!$teste['ok']) { echo json_encode(['ok'=>false,'msg'=>'Token inválido: '.$teste['msg']]); exit; }
+
+        $tokenEnc = vault_encrypt($token);
+        if ($ghAction === 'conta_add') {
+            $st = $pdo->prepare("INSERT INTO portal_github_contas (user_id,apelido,usuario_github,token_enc,ultimo_teste_ok,ultima_verificacao) VALUES (?,?,?,?,1,NOW())");
+            $st->execute([$uid, $apelido, $usuario, $tokenEnc]);
+            echo json_encode(['ok'=>true,'id'=>$pdo->lastInsertId()]);
+        } else {
+            $st = $pdo->prepare("UPDATE portal_github_contas SET apelido=?, usuario_github=?, token_enc=?, ultimo_teste_ok=1, ultima_verificacao=NOW() WHERE id=? AND user_id=?");
+            $st->execute([$apelido, $usuario, $tokenEnc, $id, $uid]);
+            echo json_encode(['ok'=>true]);
+        }
+        exit;
+    }
+
+    if ($ghAction === 'conta_testar') {
+        $body = json_decode(file_get_contents('php://input'), true) ?? [];
+        $id   = (int)($body['id'] ?? 0);
+        $st = $pdo->prepare("SELECT token_enc FROM portal_github_contas WHERE id=? AND user_id=?");
+        $st->execute([$id, $uid]);
+        $row = $st->fetch(PDO::FETCH_ASSOC);
+        if (!$row) { echo json_encode(['ok'=>false,'msg'=>'Conta não encontrada']); exit; }
+
+        $teste = github_testar_token(vault_decrypt($row['token_enc']));
+        $pdo->prepare("UPDATE portal_github_contas SET ultimo_teste_ok=?, ultima_verificacao=NOW() WHERE id=?")
+            ->execute([$teste['ok'] ? 1 : 0, $id]);
+        echo json_encode($teste);
+        exit;
+    }
+
+    if ($ghAction === 'status_set') {
+        $body     = json_decode(file_get_contents('php://input'), true) ?? [];
+        $contaId  = (int)($body['conta_id'] ?? 0);
+        $repoNome = trim($body['repo_nome'] ?? '');
+        $status   = $body['status'] ?? '';
+        if (!in_array($status, ['futuro','em_execucao','concluido'], true)) {
+            echo json_encode(['ok'=>false,'msg'=>'Status inválido']); exit;
+        }
+        if (!$repoNome) { echo json_encode(['ok'=>false,'msg'=>'Repositório inválido']); exit; }
+
+        // Confirma que a conta pertence ao usuário logado antes de gravar
+        $st = $pdo->prepare("SELECT id FROM portal_github_contas WHERE id=? AND user_id=?");
+        $st->execute([$contaId, $uid]);
+        if (!$st->fetch()) { echo json_encode(['ok'=>false,'msg'=>'Conta não encontrada']); exit; }
+
+        $pdo->prepare("
+            INSERT INTO portal_projetos_status (conta_id, repo_nome, status)
+            VALUES (?,?,?)
+            ON DUPLICATE KEY UPDATE status = VALUES(status)
+        ")->execute([$contaId, $repoNome, $status]);
+        echo json_encode(['ok'=>true]);
+        exit;
+    }
+
+    if ($ghAction === 'conta_repos') {
+        $body = json_decode(file_get_contents('php://input'), true) ?? [];
+        $id   = (int)($body['id'] ?? 0);
+        $st = $pdo->prepare("SELECT * FROM portal_github_contas WHERE id=? AND user_id=?");
+        $st->execute([$id, $uid]);
+        $conta = $st->fetch(PDO::FETCH_ASSOC);
+        if (!$conta) { echo json_encode(['ok'=>false,'msg'=>'Conta não encontrada']); exit; }
+
+        $resultado = github_listar_repos(vault_decrypt($conta['token_enc']));
+        if (isset($resultado['erro'])) { echo json_encode(['ok'=>false,'msg'=>$resultado['erro']]); exit; }
+
+        $st2 = $pdo->prepare("SELECT repo_nome, visivel FROM portal_projetos_status WHERE conta_id=?");
+        $st2->execute([$id]);
+        $visMap = [];
+        foreach ($st2->fetchAll(PDO::FETCH_ASSOC) as $row) $visMap[$row['repo_nome']] = (int)$row['visivel'];
+
+        $repos = [];
+        foreach ($resultado as $repo) {
+            $repos[] = ['nome' => $repo['nome'], 'visivel' => $visMap[$repo['nome']] ?? 1];
+        }
+        echo json_encode(['ok'=>true,'repos'=>$repos]);
+        exit;
+    }
+
+    if ($ghAction === 'visibilidade_set_lote') {
+        $body    = json_decode(file_get_contents('php://input'), true) ?? [];
+        $contaId = (int)($body['conta_id'] ?? 0);
+        $repos   = $body['repos'] ?? [];
+
+        $st = $pdo->prepare("SELECT id FROM portal_github_contas WHERE id=? AND user_id=?");
+        $st->execute([$contaId, $uid]);
+        if (!$st->fetch()) { echo json_encode(['ok'=>false,'msg'=>'Conta não encontrada']); exit; }
+
+        $upsert = $pdo->prepare("
+            INSERT INTO portal_projetos_status (conta_id, repo_nome, visivel)
+            VALUES (?,?,?)
+            ON DUPLICATE KEY UPDATE visivel = VALUES(visivel)
+        ");
+        foreach ($repos as $r) {
+            $nome = trim($r['nome'] ?? '');
+            if ($nome === '') continue;
+            $vis = !empty($r['visivel']) ? 1 : 0;
+            $upsert->execute([$contaId, $nome, $vis]);
+        }
+        echo json_encode(['ok'=>true]);
+        exit;
+    }
+
+    if ($ghAction === 'readme_html') {
+        $body     = json_decode(file_get_contents('php://input'), true) ?? [];
+        $contaId  = (int)($body['conta_id'] ?? 0);
+        $repoNome = trim($body['repo_nome'] ?? '');
+        if (!$repoNome) { echo json_encode(['ok'=>false,'msg'=>'Repositório inválido']); exit; }
+
+        $st = $pdo->prepare("SELECT * FROM portal_github_contas WHERE id=? AND user_id=?");
+        $st->execute([$contaId, $uid]);
+        $conta = $st->fetch(PDO::FETCH_ASSOC);
+        if (!$conta) { echo json_encode(['ok'=>false,'msg'=>'Conta não encontrada']); exit; }
+
+        $resultado = github_obter_readme_html(vault_decrypt($conta['token_enc']), $conta['usuario_github'], $repoNome);
+        if (isset($resultado['erro'])) { echo json_encode(['ok'=>false,'msg'=>$resultado['erro']]); exit; }
+
+        echo json_encode([
+            'ok'      => true,
+            'html'    => $resultado['html'],
+            'repoUrl' => 'https://github.com/' . rawurlencode($conta['usuario_github']) . '/' . rawurlencode($repoNome),
+        ]);
+        exit;
+    }
+
+    if ($ghAction === 'conta_delete') {
+        $body = json_decode(file_get_contents('php://input'), true) ?? [];
+        $id   = (int)($body['id'] ?? 0);
+        $pdo->prepare("DELETE FROM portal_github_contas WHERE id=? AND user_id=?")->execute([$id, $uid]);
+        echo json_encode(['ok'=>true]);
+        exit;
+    }
+
+    echo json_encode(['ok'=>false,'msg'=>'Ação inválida']);
+    exit;
+}
+
+// ── Minhas contas GitHub (para o painel e, na próxima etapa, a listagem) ──
+$minhasContas = [];
+if ($uid) {
+    $st = $pdo->prepare("SELECT * FROM portal_github_contas WHERE user_id=? ORDER BY criado_em");
+    $st->execute([$uid]);
+    $minhasContas = $st->fetchAll(PDO::FETCH_ASSOC);
+}
 
 // ── Parser de projeto Markdown ─────────────────────────────────────────────
 function parseProjeto(string $filepath): ?array {
@@ -140,19 +345,240 @@ function esc(string $s): string {
     return htmlspecialchars($s, ENT_QUOTES, 'UTF-8');
 }
 
+function dataRelativa(?string $iso): string {
+    if (!$iso) return '—';
+    $ts = strtotime($iso);
+    if (!$ts) return '—';
+    $diff = time() - $ts;
+    if ($diff < 3600)     return 'há ' . max(1, (int)($diff / 60)) . ' min';
+    if ($diff < 86400)    return 'há ' . (int)($diff / 3600) . 'h';
+    if ($diff < 86400*30) return 'há ' . (int)($diff / 86400) . 'd';
+    return date('d/m/Y', $ts);
+}
+
+// ── Card de projeto (lista) — usado nas seções "Em andamento" e "Concluídos" ──
+function renderProjCard(array $p): void {
+    $modsVisiveis = array_values(array_filter($p['modulos'], fn($m) => $m['tot'] > 0));
+    $exibir = array_slice($modsVisiveis, 0, 5);
+    $extras = max(0, count($modsVisiveis) - 5);
+    ?>
+    <div class="col-md-6 col-xl-4">
+      <a href="projetos.php?proj=<?= urlencode($p['arquivo']) ?>" class="proj-card h-100">
+
+        <!-- Título + % -->
+        <div class="proj-card-title">
+          <span><?= esc($p['titulo']) ?></span>
+          <span style="font-size:1.1rem;font-weight:800;color:<?= corPct($p['pct']) ?>;flex-shrink:0">
+            <?= $p['pct'] ?>%
+          </span>
+        </div>
+
+        <!-- Descrição -->
+        <?php if ($p['objetivo']): ?>
+          <div class="proj-card-desc"><?= esc($p['objetivo']) ?></div>
+        <?php endif; ?>
+
+        <!-- Barra geral -->
+        <div class="d-flex align-items-center gap-2">
+          <div class="prog-bar flex-grow-1">
+            <div class="prog-fill" style="width:<?= $p['pct'] ?>%;background:<?= corPct($p['pct']) ?>"></div>
+          </div>
+          <span class="prog-label" style="color:<?= corPct($p['pct']) ?>">
+            <?= $p['done'] ?>/<?= $p['total'] ?>
+          </span>
+        </div>
+
+        <!-- Mini módulos -->
+        <?php if ($exibir): ?>
+        <div class="mod-mini">
+          <?php foreach ($exibir as $mod): ?>
+            <div class="mod-mini-row">
+              <span class="mod-mini-name"><?= esc($mod['nome']) ?></span>
+              <div class="mod-mini-bar">
+                <div class="mod-mini-fill" style="width:<?= $mod['pct'] ?>%;background:<?= corPct($mod['pct']) ?>"></div>
+              </div>
+              <span class="mod-mini-pct" style="color:<?= corPct($mod['pct']) ?>"><?= $mod['pct'] ?>%</span>
+            </div>
+          <?php endforeach; ?>
+          <?php if ($extras > 0): ?>
+            <div class="mod-mais">+ <?= $extras ?> módulos</div>
+          <?php endif; ?>
+        </div>
+        <?php endif; ?>
+
+        <!-- Meta info + botão -->
+        <div class="card-meta">
+          <?php if ($p['equipe']): ?>
+            <span class="meta-pill"><i class="bi bi-people"></i><?= esc($p['equipe']) ?></span>
+          <?php endif; ?>
+          <?php if ($p['prazo']): ?>
+            <span class="meta-pill"><i class="bi bi-calendar-check"></i><?= esc($p['prazo']) ?></span>
+          <?php endif; ?>
+          <span class="btn-detalhe">
+            Ver detalhes <i class="bi bi-arrow-right"></i>
+          </span>
+        </div>
+
+      </a>
+    </div>
+    <?php
+}
+
 // ── Carrega todos os projetos ──────────────────────────────────────────────
 $pastaProj = __DIR__ . '/Docs/wiki/projects';
 $projetos  = [];
-if (is_dir($pastaProj)) {
-    foreach (glob($pastaProj . '/*.md') as $arq) {
-        $p = parseProjeto($arq);
-        if ($p) { $p['arquivo'] = basename($arq); $projetos[] = $p; }
+
+/**
+ * Carrega projetos da pasta — UMA subpasta = UM card
+ * Todos os .md dentro de uma subpasta são mesclados em um único projeto
+ * Pastas iniciadas com _ (underscore) são ignoradas (ex: _Documentação)
+ */
+function carregarProjetosDaPasta(string $pasta): array {
+    $result = [];
+    if (!is_dir($pasta)) return $result;
+
+    // Subpastas = UM card por pasta (com todos .md recursivos)
+    foreach (glob($pasta . '/*', GLOB_ONLYDIR) as $subPasta) {
+        $nomeProj = basename($subPasta);
+
+        // Ignora pastas iniciadas com _ (documentação, arquivos auxiliares)
+        if (str_starts_with($nomeProj, '_')) continue;
+
+        // Busca recursiva por .md
+        $mdFiles = [];
+        $rdi = new RecursiveDirectoryIterator($subPasta, RecursiveDirectoryIterator::SKIP_DOTS);
+        $rit = new RecursiveIteratorIterator($rdi);
+        foreach ($rit as $file) {
+            if ($file->getExtension() === 'md') $mdFiles[] = $file->getPathname();
+        }
+        sort($mdFiles);
+        if (empty($mdFiles)) continue;
+
+        // Separa o .md principal (nome parecido com a pasta, README, index, ou o primeiro)
+        $mainMd = null;
+        $extraMds = [];
+        $pastaNorm = mb_strtolower(str_replace(['-', '_', ' '], '', $nomeProj));
+        foreach ($mdFiles as $md) {
+            $base = mb_strtolower(basename($md, '.md'));
+            $baseNorm = str_replace(['-', '_', ' '], '', $base);
+            if ($mainMd === null && (str_contains($baseNorm, $pastaNorm) || $base === 'readme' || $base === 'index')) {
+                $mainMd = $md;
+            } else {
+                $extraMds[] = $md;
+            }
+        }
+        if (!$mainMd) {
+            $mainMd = $mdFiles[0];
+            $extraMds = array_slice($mdFiles, 1);
+        }
+
+        // Parse principal
+        $proj = parseProjeto($mainMd);
+        if (!$proj) continue;
+
+        // Título = nome da pasta (consistência)
+        $proj['titulo'] = $nomeProj;
+
+        // Mescla módulos de .md extras
+        foreach ($extraMds as $extraMd) {
+            $extra = parseProjeto($extraMd);
+            if ($extra && !empty($extra['modulos'])) {
+                $proj['modulos'] = array_merge($proj['modulos'], $extra['modulos']);
+            }
+            // Aproveita campos que o principal não tem
+            if (!$proj['objetivo'] && !empty($extra['objetivo'])) $proj['objetivo'] = $extra['objetivo'];
+            if (!$proj['prazo']    && !empty($extra['prazo']))    $proj['prazo']    = $extra['prazo'];
+            if (!$proj['equipe']   && !empty($extra['equipe']))   $proj['equipe']   = $extra['equipe'];
+            if (!$proj['repo']     && !empty($extra['repo']))     $proj['repo']     = $extra['repo'];
+        }
+
+        // Recalcula percentuais
+        $tot = $done = 0;
+        foreach ($proj['modulos'] as &$mod) {
+            $mt = count($mod['tarefas']);
+            $md = count(array_filter($mod['tarefas'], fn($t) => $t['done']));
+            $mod['pct']  = $mt > 0 ? round($md / $mt * 100) : 0;
+            $mod['done'] = $md;
+            $mod['tot']  = $mt;
+            $tot  += $mt;
+            $done += $md;
+        }
+        unset($mod);
+        $proj['pct']   = $tot > 0 ? round($done / $tot * 100) : 0;
+        $proj['done']  = $done;
+        $proj['total'] = $tot;
+
+        $proj['arquivo']  = $nomeProj . '/' . basename($mainMd);
+        $proj['pasta']    = $nomeProj;
+        $proj['filepath'] = $mainMd;
+        $proj['md_files'] = $mdFiles; // todos os .md para merge no download
+        $result[] = $proj;
     }
+
+    // .md na raiz (legado) — só inclui se não tiver subpasta correspondente
+    $pastas = array_map('basename', glob($pasta . '/*', GLOB_ONLYDIR));
+    foreach (glob($pasta . '/*.md') as $arq) {
+        $base = basename($arq, '.md');
+        if (in_array($base, $pastas)) continue; // já tem subpasta → pula duplicata
+
+        $p = parseProjeto($arq);
+        if ($p) {
+            $p['arquivo']  = basename($arq);
+            $p['pasta']    = '';
+            $p['filepath'] = $arq;
+            $p['md_files'] = [$arq];
+            $result[] = $p;
+        }
+    }
+
+    return $result;
+}
+
+// 1. Tenta carregar da rede primeiro (fonte única — contém projetos de todos os técnicos)
+$configLocal = __DIR__ . '/config_projetos.local.php';
+$origemUsada = 'local';
+if (file_exists($configLocal)) {
+    require_once $configLocal;
+    if (defined('ORIGEM_PROJETOS') && ORIGEM_PROJETOS && is_dir(ORIGEM_PROJETOS)) {
+        $projetos = carregarProjetosDaPasta(ORIGEM_PROJETOS);
+        $origemUsada = 'rede';
+    }
+}
+
+// 2. Fallback: local se rede não estiver disponível
+if ($origemUsada === 'local') {
+    $projetos = carregarProjetosDaPasta($pastaProj);
 }
 
 // ── Modo: lista (padrão) ou detalhe (?proj=arquivo.md) ────────────────────
 $selArq  = $_GET['proj'] ?? null;
 $projeto = null;
+
+// ── Ação: sincronizar projetos da rede ───────────────────────────
+$mensagemSync = '';
+if (isset($_GET['sync']) && $_GET['sync'] === '1') {
+    $syncScript = __DIR__ . '/sync_projetos.php';
+    if (file_exists($syncScript)) {
+        $output = @shell_exec('php "' . $syncScript . '" 2>&1');
+        $mensagemSync = 'Projetos sincronizados da rede!';
+        // Recarrega os projetos após sync (sempre da rede se disponível)
+        $configLocal = __DIR__ . '/config_projetos.local.php';
+        $origemSync = 'local';
+        if (file_exists($configLocal)) {
+            require_once $configLocal;
+            if (defined('ORIGEM_PROJETOS') && ORIGEM_PROJETOS && is_dir(ORIGEM_PROJETOS)) {
+                $projetos = carregarProjetosDaPasta(ORIGEM_PROJETOS);
+                $origemSync = 'rede';
+            }
+        }
+        if ($origemSync === 'local') {
+            $projetos = carregarProjetosDaPasta($pastaProj);
+        }
+    } else {
+        $mensagemSync = 'Script de sync não encontrado.';
+    }
+}
+
 if ($selArq) {
     foreach ($projetos as $p) {
         if ($p['arquivo'] === $selArq) { $projeto = $p; break; }
@@ -226,12 +652,19 @@ if ($modoDetalhe) {
 
 // ── Action: download .md com seções selecionadas ────────────────
 if ($modoDetalhe && ($_GET['action'] ?? '') === 'download' && isset($_GET['sections'])) {
-    $filepath = __DIR__ . '/Docs/wiki/projects/' . basename($selArq);
-    $raw = @file_get_contents($filepath);
-    if (!$raw) { http_response_code(404); echo 'Arquivo não encontrado.'; exit; }
+    // Lê de TODOS os .md do projeto (merge para multi-arquivo)
+    $mdFiles = $projeto['md_files'] ?? [$projeto['filepath']];
+    $rawAll  = '';
+    foreach ($mdFiles as $md) {
+        if (file_exists($md)) {
+            $rawAll .= "\n" . @file_get_contents($md);
+        }
+    }
+    $rawAll = trim($rawAll);
+    if (!$rawAll) { http_response_code(404); echo 'Conteúdo não encontrado.'; exit; }
 
     $selected = array_filter(explode(',', $_GET['sections']), 'trim');
-    $lines = explode("\n", str_replace("\r", '', $raw));
+    $lines = explode("\n", str_replace("\r", '', $rawAll));
 
     // Separa seções do markdown por heading ##
     $secMarkdown = [];
@@ -292,7 +725,8 @@ if ($modoDetalhe && ($_GET['action'] ?? '') === 'download' && isset($_GET['secti
         $output = "# " . ($projeto['titulo'] ?? 'Projeto') . "\n\n*(nenhuma seção selecionada)*\n";
     }
 
-    $filename = basename($selArq, '.md') . '_exportado.md';
+    $filename = str_replace('/', '-', $selArq);
+    $filename = basename($filename, '.md') . '_exportado.md';
     header('Content-Type: text/markdown; charset=utf-8');
     header('Content-Disposition: attachment; filename="' . $filename . '"');
     echo $output;
@@ -397,6 +831,72 @@ body  { background:#f0f4f9; font-family:'Segoe UI',sans-serif; font-size:.9rem; 
 .badge-obsidian { background:#7c3aed; color:#fff; font-size:.65rem;
                   padding:.15rem .5rem; border-radius:8px; font-weight:600; }
 
+/* ── Contas GitHub ─────────────────────────────────────────── */
+.gh-contas-section { margin-bottom: 1.5rem; margin-top: 2rem; }
+.gh-contas-grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(160px,1fr)); gap:.75rem; }
+.gh-conta-card { background:#fff; border:2px solid #e5e7eb; border-radius:12px;
+                 padding:1rem; position:relative; transition:all .15s; }
+.gh-conta-card:hover { box-shadow:0 4px 16px rgba(0,0,0,.08); }
+.gh-conta-topo { display:flex; justify-content:space-between; align-items:center; margin-bottom:.5rem; }
+.gh-conta-badge.ok   { color:#1e8e3e; }
+.gh-conta-badge.erro { color:#d93025; }
+.gh-conta-cfg { background:none; border:none; color:#9ca3af; cursor:pointer; padding:0; }
+.gh-conta-cfg:hover { color:#1a237e; }
+.gh-conta-apelido { font-weight:700; font-size:.88rem; }
+.gh-conta-usuario { font-size:.75rem; color:#6b7280; }
+.gh-conta-add { display:flex; flex-direction:column; align-items:center; justify-content:center;
+                gap:.35rem; min-height:64px; border:2px dashed #d1d5db; color:#9ca3af;
+                cursor:pointer; border-radius:12px; }
+.gh-conta-add:hover { border-color:#1a237e; color:#1a237e; }
+
+.gh-erro-conta { background:#fff3e0; color:#854d0e; border:1px solid #fde68a;
+                 border-radius:8px; padding:.6rem 1rem; font-size:.82rem; margin-bottom:.75rem; }
+
+.gh-grupo-section { margin-bottom:1.5rem; }
+.gh-grupo-header { border-radius:12px 12px 0 0; padding:.65rem 1.1rem;
+                   display:flex; align-items:center; justify-content:space-between;
+                   color:#fff; font-weight:700; font-size:.85rem; }
+.gh-grupo-count { font-size:.72rem; opacity:.85; font-weight:400; }
+.gh-grupo-body { background:#fff; border:1px solid #e5e7eb; border-top:none;
+                 border-radius:0 0 12px 12px; padding:1rem; }
+.gh-proj-grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(260px,1fr)); gap:.85rem; }
+.gh-proj-card { display:flex; flex-direction:column; border:1px solid #e5e7eb; border-radius:12px; padding:1rem;
+                transition:all .15s; background:#fff; }
+.gh-proj-card:hover { box-shadow:0 4px 16px rgba(0,0,0,.08); border-color:#1a237e; }
+.gh-proj-topo { display:flex; align-items:flex-start; justify-content:space-between; gap:.5rem; }
+.gh-proj-nome { font-weight:700; font-size:.9rem; color:#1a237e; text-decoration:none; }
+.gh-proj-nome:hover { text-decoration:underline; }
+.gh-proj-acoes { display:flex; align-items:center; gap:.15rem; flex-shrink:0; }
+.gh-proj-icon-btn { background:none; border:none; color:#9ca3af; cursor:pointer; padding:.15rem .3rem;
+                     text-decoration:none; font-size:.85rem; display:inline-flex; }
+.gh-proj-icon-btn:hover { color:#374151; }
+.gh-proj-menu { background:none; border:none; color:#9ca3af; cursor:pointer; padding:0 .25rem; }
+.gh-proj-menu:hover { color:#374151; }
+.gh-proj-desc { font-size:.78rem; color:#6b7280; margin:.4rem 0;
+                display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; overflow:hidden; }
+.gh-proj-progress { margin:.3rem 0; }
+.gh-proj-progress-bar { height:6px; border-radius:3px; background:#e5e7eb; overflow:hidden; }
+.gh-proj-progress-fill { height:100%; border-radius:3px; background:#1a237e; transition:width .4s ease; }
+.gh-proj-progress-label { font-size:.68rem; color:#9ca3af; margin-top:.2rem; display:block; }
+.gh-proj-previsao { font-size:.72rem; color:#6b7280; margin-top:.2rem; }
+.gh-proj-meta { display:flex; flex-wrap:wrap; gap:.6rem; margin-top:auto;
+                padding-top:.6rem; border-top:1px solid #f3f4f6; }
+
+/* ── Conteúdo do README (renderizado pelo GitHub) dentro do modal ── */
+.gh-readme-conteudo { font-size:.88rem; line-height:1.6; color:#1f2328; }
+.gh-readme-conteudo h1, .gh-readme-conteudo h2 { font-size:1.2rem; font-weight:700; margin:1rem 0 .5rem; padding-bottom:.3rem; border-bottom:1px solid #e5e7eb; }
+.gh-readme-conteudo h3, .gh-readme-conteudo h4 { font-size:1rem; font-weight:700; margin:.85rem 0 .4rem; }
+.gh-readme-conteudo p { margin:0 0 .75rem; }
+.gh-readme-conteudo ul, .gh-readme-conteudo ol { margin:0 0 .75rem; padding-left:1.5rem; }
+.gh-readme-conteudo img { max-width:100%; height:auto; }
+.gh-readme-conteudo code { background:#f3f4f6; border-radius:4px; padding:.1rem .35rem; font-size:.85em; }
+.gh-readme-conteudo pre { background:#f6f8fa; border-radius:8px; padding:.75rem 1rem; overflow-x:auto; margin:0 0 .75rem; }
+.gh-readme-conteudo pre code { background:none; padding:0; }
+.gh-readme-conteudo blockquote { border-left:3px solid #d1d5db; color:#6b7280; margin:0 0 .75rem; padding:.1rem 1rem; }
+.gh-readme-conteudo table { border-collapse:collapse; margin:0 0 .75rem; width:100%; }
+.gh-readme-conteudo th, .gh-readme-conteudo td { border:1px solid #e5e7eb; padding:.4rem .6rem; font-size:.85rem; }
+.gh-readme-conteudo a { color:#1a237e; }
+
 /* ── Status e Previsão ─────────────────────────────────────────── */
 .status-badge { display:inline-flex; align-items:center; gap:.35rem;
                 padding:.28rem .75rem; border-radius:20px; font-size:.75rem; font-weight:700; }
@@ -457,90 +957,185 @@ body  { background:#f0f4f9; font-family:'Segoe UI',sans-serif; font-size:.9rem; 
       <?= esc($projeto['objetivo']) ?>
     <?php else: ?>
       Acompanhe o progresso de cada projeto
-      <span class="badge-obsidian ms-2"><i class="bi bi-journal-bookmark me-1"></i>Obsidian</span>
     <?php endif; ?>
   </p>
 </div>
 
 <div class="wrap">
 
-<?php if (!$projetos): ?>
-  <div class="card-box text-center py-5 text-muted">
-    <i class="bi bi-folder-x fs-1 d-block mb-2"></i>
-    <p>Nenhum projeto em <code>Docs/wiki/projects/</code></p>
-    <p class="small">Crie um arquivo <code>.md</code> no Obsidian para aparecer aqui.</p>
+<?php if ($mensagemSync): ?>
+  <div class="sync-toast" style="background:#1b6d4a;color:#fff;padding:8px 16px;border-radius:8px;margin-bottom:1rem;display:inline-flex;align-items:center;gap:8px;font-size:.9rem">
+    <i class="bi bi-check-circle-fill"></i> <?= esc($mensagemSync) ?>
+  </div>
+<?php endif; ?>
+
+<?php if (!$modoDetalhe): ?>
+  <!-- ═══════════════ CONTAS GITHUB ═══════════════ -->
+  <div class="gh-contas-section">
+    <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:.5rem;margin-bottom:.5rem">
+      <h6 class="fw-bold mb-0" style="color:#374151;cursor:pointer" onclick="toggleContas()">
+        <i class="bi bi-github me-2"></i>Minhas Contas GitHub
+        <span class="text-muted fw-normal">(<?= count($minhasContas) ?>)</span>
+        <i class="bi bi-chevron-down ms-1" id="chvContas" style="font-size:.75rem;transition:transform .2s"></i>
+      </h6>
+      <?php if ($minhasContas): ?>
+      <select id="filtroConta" class="form-select form-select-sm" style="max-width:200px" onclick="event.stopPropagation()">
+        <option value="">Todos os técnicos</option>
+        <?php foreach ($minhasContas as $c): ?>
+          <option value="<?= esc($c['apelido']) ?>"><?= esc($c['apelido']) ?></option>
+        <?php endforeach; ?>
+      </select>
+      <?php endif; ?>
+    </div>
+    <div class="gh-contas-grid" id="gridContas" style="display:none">
+      <?php foreach ($minhasContas as $c): ?>
+        <div class="gh-conta-card">
+          <div class="gh-conta-topo">
+            <span class="gh-conta-badge <?= $c['ultimo_teste_ok'] ? 'ok' : 'erro' ?>">
+              <i class="bi <?= $c['ultimo_teste_ok'] ? 'bi-check-circle-fill' : 'bi-exclamation-triangle-fill' ?>"></i>
+            </span>
+            <button type="button" class="gh-conta-cfg" onclick='editarConta(<?= json_encode(['id'=>$c['id'],'apelido'=>$c['apelido'],'usuario_github'=>$c['usuario_github']], JSON_HEX_APOS | JSON_HEX_QUOT | JSON_HEX_AMP | JSON_HEX_TAG) ?>)' title="Editar">
+              <i class="bi bi-gear-fill"></i>
+            </button>
+          </div>
+          <div class="gh-conta-apelido"><?= esc($c['apelido']) ?></div>
+          <div class="gh-conta-usuario">@<?= esc($c['usuario_github']) ?></div>
+        </div>
+      <?php endforeach; ?>
+      <div class="gh-conta-card gh-conta-add" onclick="abrirModalConta()">
+        <i class="bi bi-plus-circle" style="font-size:1.5rem"></i>
+        <div class="gh-conta-apelido">Adicionar</div>
+      </div>
+    </div>
   </div>
 
-<?php elseif (!$modoDetalhe): ?>
-  <!-- ═══════════════ LISTA DE CARDS ═══════════════ -->
-  <div class="row g-3">
-  <?php foreach ($projetos as $p):
-      $modsVisiveis = array_filter($p['modulos'], fn($m) => $m['tot'] > 0);
-      $modsVisiveis = array_values($modsVisiveis);
-      $exibir = array_slice($modsVisiveis, 0, 5);
-      $extras  = max(0, count($modsVisiveis) - 5);
+  <!-- ═══════════════ PROJETOS (GitHub, 3 seções) ═══════════════ -->
+
+  <?php
+  $reposPorSecao = ['futuro' => [], 'em_execucao' => [], 'concluido' => []];
+  $errosContas   = [];
+
+  if ($minhasContas) {
+      $contaIds   = array_column($minhasContas, 'id');
+      $statusMap  = [];
+      $visivelMap = [];
+      $ph = implode(',', array_fill(0, count($contaIds), '?'));
+      $st = $pdo->prepare("SELECT conta_id, repo_nome, status, visivel FROM portal_projetos_status WHERE conta_id IN ($ph)");
+      $st->execute($contaIds);
+      foreach ($st->fetchAll(PDO::FETCH_ASSOC) as $row) {
+          $chaveMap = $row['conta_id'] . ':' . $row['repo_nome'];
+          $statusMap[$chaveMap]  = $row['status'];
+          $visivelMap[$chaveMap] = (int)$row['visivel'];
+      }
+
+      foreach ($minhasContas as $conta) {
+          if (!$conta['ativo']) continue;
+          $token      = vault_decrypt($conta['token_enc']);
+          $resultado  = github_listar_repos($token);
+          if (isset($resultado['erro'])) {
+              $errosContas[] = ['apelido' => $conta['apelido'], 'msg' => $resultado['erro']];
+              $pdo->prepare("UPDATE portal_github_contas SET ultimo_teste_ok=0, ultima_verificacao=NOW() WHERE id=?")
+                  ->execute([$conta['id']]);
+              continue;
+          }
+          $pdo->prepare("UPDATE portal_github_contas SET ultimo_teste_ok=1, ultima_verificacao=NOW() WHERE id=?")
+              ->execute([$conta['id']]);
+          foreach ($resultado as $repo) {
+              $chave = $conta['id'] . ':' . $repo['nome'];
+              if (($visivelMap[$chave] ?? 1) === 0) continue; // ocultado pelo usuário
+              $status = $statusMap[$chave] ?? 'em_execucao';
+
+              $repo['conta_id']      = $conta['id'];
+              $repo['conta_apelido'] = $conta['apelido'];
+
+              $analiseReadme = github_analisar_readme($token, $conta['usuario_github'], $repo['nome']);
+              $repo['descricao'] = $analiseReadme['descricao'] !== '' ? $analiseReadme['descricao'] : $repo['descricao'];
+              $repo['progresso'] = $analiseReadme['progresso'];
+
+              $repo['previsao'] = github_obter_previsao($token, $conta['usuario_github'], $repo['nome']);
+
+              $reposPorSecao[$status][] = $repo;
+          }
+      }
+  }
+
+  $secoesInfo = [
+      'futuro'      => ['label' => 'Futuros',     'icon' => 'bi-lightbulb-fill',    'cor' => '#7c3aed'],
+      'em_execucao' => ['label' => 'Em Execução', 'icon' => 'bi-hourglass-split',   'cor' => '#1a237e'],
+      'concluido'   => ['label' => 'Concluídos',  'icon' => 'bi-check-circle-fill', 'cor' => '#1e8e3e'],
+  ];
   ?>
-    <div class="col-md-6 col-xl-4">
-      <a href="projetos.php?proj=<?= urlencode($p['arquivo']) ?>" class="proj-card h-100">
 
-        <!-- Título + % -->
-        <div class="proj-card-title">
-          <span><?= esc($p['titulo']) ?></span>
-          <span style="font-size:1.1rem;font-weight:800;color:<?= corPct($p['pct']) ?>;flex-shrink:0">
-            <?= $p['pct'] ?>%
-          </span>
-        </div>
-
-        <!-- Descrição -->
-        <?php if ($p['objetivo']): ?>
-          <div class="proj-card-desc"><?= esc($p['objetivo']) ?></div>
-        <?php endif; ?>
-
-        <!-- Barra geral -->
-        <div class="d-flex align-items-center gap-2">
-          <div class="prog-bar flex-grow-1">
-            <div class="prog-fill" style="width:<?= $p['pct'] ?>%;background:<?= corPct($p['pct']) ?>"></div>
-          </div>
-          <span class="prog-label" style="color:<?= corPct($p['pct']) ?>">
-            <?= $p['done'] ?>/<?= $p['total'] ?>
-          </span>
-        </div>
-
-        <!-- Mini módulos -->
-        <?php if ($exibir): ?>
-        <div class="mod-mini">
-          <?php foreach ($exibir as $mod): ?>
-            <div class="mod-mini-row">
-              <span class="mod-mini-name"><?= esc($mod['nome']) ?></span>
-              <div class="mod-mini-bar">
-                <div class="mod-mini-fill" style="width:<?= $mod['pct'] ?>%;background:<?= corPct($mod['pct']) ?>"></div>
-              </div>
-              <span class="mod-mini-pct" style="color:<?= corPct($mod['pct']) ?>"><?= $mod['pct'] ?>%</span>
-            </div>
-          <?php endforeach; ?>
-          <?php if ($extras > 0): ?>
-            <div class="mod-mais">+ <?= $extras ?> módulos</div>
-          <?php endif; ?>
-        </div>
-        <?php endif; ?>
-
-        <!-- Meta info + botão -->
-        <div class="card-meta">
-          <?php if ($p['equipe']): ?>
-            <span class="meta-pill"><i class="bi bi-people"></i><?= esc($p['equipe']) ?></span>
-          <?php endif; ?>
-          <?php if ($p['prazo']): ?>
-            <span class="meta-pill"><i class="bi bi-calendar-check"></i><?= esc($p['prazo']) ?></span>
-          <?php endif; ?>
-          <span class="btn-detalhe">
-            Ver detalhes <i class="bi bi-arrow-right"></i>
-          </span>
-        </div>
-
-      </a>
+  <?php foreach ($errosContas as $err): ?>
+    <div class="gh-erro-conta">
+      <i class="bi bi-exclamation-triangle-fill me-2"></i>
+      <strong><?= esc($err['apelido']) ?>:</strong> não foi possível carregar — <?= esc($err['msg']) ?>
     </div>
   <?php endforeach; ?>
-  </div>
+
+  <?php if (!$minhasContas): ?>
+    <div class="text-muted small mt-4">Cadastre uma conta GitHub acima para ver seus projetos aqui.</div>
+  <?php else: ?>
+    <?php foreach ($secoesInfo as $chaveSecao => $info):
+      $abertoPorPadrao = ($chaveSecao === 'em_execucao');
+    ?>
+      <div class="gh-grupo-section">
+        <div class="gh-grupo-header" style="background:<?= $info['cor'] ?>;cursor:pointer" onclick="toggleGrupo('<?= $chaveSecao ?>')">
+          <span><i class="bi <?= $info['icon'] ?> me-2"></i><?= $info['label'] ?></span>
+          <span>
+            <span class="gh-grupo-count"><?= count($reposPorSecao[$chaveSecao]) ?> projeto(s)</span>
+            <i class="bi bi-chevron-down ms-2" id="chvGrupo-<?= $chaveSecao ?>" style="font-size:.75rem;transition:transform .2s<?= $abertoPorPadrao ? ';transform:rotate(-180deg)' : '' ?>"></i>
+          </span>
+        </div>
+        <div class="gh-grupo-body" id="grupoBody-<?= $chaveSecao ?>" style="<?= $abertoPorPadrao ? '' : 'display:none' ?>">
+          <?php if ($reposPorSecao[$chaveSecao]): ?>
+            <div class="gh-proj-grid">
+              <?php foreach ($reposPorSecao[$chaveSecao] as $repo): ?>
+                <div class="gh-proj-card" data-conta="<?= esc($repo['conta_apelido']) ?>">
+                  <div class="gh-proj-topo">
+                    <a href="#" onclick="abrirDocumentacao(event,<?= (int)$repo['conta_id'] ?>,'<?= esc($repo['nome']) ?>')" class="gh-proj-nome">
+                      <i class="bi bi-journal-text me-1"></i><?= esc($repo['nome']) ?>
+                    </a>
+                    <div class="gh-proj-acoes">
+                      <a href="<?= esc($repo['url']) ?>" target="_blank" rel="noopener" class="gh-proj-icon-btn" title="Abrir no GitHub"><i class="bi bi-github"></i></a>
+                      <div class="dropdown">
+                        <button type="button" class="gh-proj-menu" data-bs-toggle="dropdown" aria-expanded="false"><i class="bi bi-three-dots-vertical"></i></button>
+                        <ul class="dropdown-menu dropdown-menu-end">
+                          <?php foreach ($secoesInfo as $optKey => $optInfo): ?>
+                            <li><a class="dropdown-item" href="#" onclick="mudarStatus(event,<?= (int)$repo['conta_id'] ?>,'<?= esc($repo['nome']) ?>','<?= $optKey ?>')"><i class="bi <?= $optInfo['icon'] ?> me-2"></i><?= $optInfo['label'] ?></a></li>
+                          <?php endforeach; ?>
+                        </ul>
+                      </div>
+                    </div>
+                  </div>
+                  <?php if ($repo['descricao']): ?>
+                    <div class="gh-proj-desc"><?= esc($repo['descricao']) ?></div>
+                  <?php endif; ?>
+                  <?php if ($repo['progresso']['total'] > 0): ?>
+                    <div class="gh-proj-progress">
+                      <div class="gh-proj-progress-bar"><div class="gh-proj-progress-fill" style="width:<?= (int)$repo['progresso']['pct'] ?>%"></div></div>
+                      <span class="gh-proj-progress-label">Tarefas: <?= (int)$repo['progresso']['feitas'] ?>/<?= (int)$repo['progresso']['total'] ?> concluídas</span>
+                    </div>
+                  <?php endif; ?>
+                  <?php if ($repo['previsao']): ?>
+                    <div class="gh-proj-previsao"><i class="bi bi-calendar-event me-1"></i>Previsão: <?= esc(date('d/m/Y', strtotime($repo['previsao']))) ?></div>
+                  <?php endif; ?>
+                  <div class="gh-proj-meta">
+                    <?php if ($repo['linguagem']): ?><span class="meta-pill"><i class="bi bi-circle-fill" style="font-size:.5rem"></i><?= esc($repo['linguagem']) ?></span><?php endif; ?>
+                    <span class="meta-pill"><i class="bi bi-exclamation-circle"></i><?= (int)$repo['issues_abertas'] ?> issues</span>
+                    <span class="meta-pill"><i class="bi bi-clock-history"></i><?= esc(dataRelativa($repo['ultimo_push'])) ?></span>
+                    <span class="meta-pill"><i class="bi bi-person"></i><?= esc($repo['conta_apelido']) ?></span>
+                  </div>
+                </div>
+              <?php endforeach; ?>
+            </div>
+          <?php else: ?>
+            <p class="text-muted small mb-0">Nenhum projeto aqui ainda.</p>
+          <?php endif; ?>
+        </div>
+      </div>
+    <?php endforeach; ?>
+  <?php endif; ?>
 
 <?php else: ?>
   <!-- ═══════════════ DETALHE DO PROJETO ═══════════════ -->
@@ -593,7 +1188,7 @@ body  { background:#f0f4f9; font-family:'Segoe UI',sans-serif; font-size:.9rem; 
       </span>
     </div>
     <div style="font-size:.75rem;color:#9ca3af">
-      <?= $projeto['done'] ?> / <?= $projeto['total'] ?> tarefas · <?= count($projeto['modulos']) ?> módulos
+      <?= $projeto['done'] ?> / <?= $projeto['total'] ?> tarefas · <?= count(array_filter($projeto['modulos'], fn($m) => $m['tot'] > 0)) ?> módulos
     </div>
   </div>
 
@@ -623,6 +1218,7 @@ body  { background:#f0f4f9; font-family:'Segoe UI',sans-serif; font-size:.9rem; 
     <h6 style="font-weight:700;margin-bottom:.75rem">
       <i class="bi bi-graph-up-arrow me-2 text-primary"></i>Cronograma de Previsão de Término
     </h6>
+    <svg viewBox="0 0 <?=$svgW?> <?=$svgH?>" style="width:100%;height:auto;display:block">
       <!-- Y grid -->
       <?php foreach ([0,25,50,75,100] as $g):
             $gy = $py($g); ?>
@@ -804,8 +1400,16 @@ body  { background:#f0f4f9; font-family:'Segoe UI',sans-serif; font-size:.9rem; 
 
   <div style="text-align:center;margin-top:1.5rem;font-size:.75rem;color:#9ca3af">
     <i class="bi bi-journal-bookmark me-1"></i>
-    <code>Docs/wiki/projects/<?= esc($projeto['arquivo']) ?></code>
+    <code title="<?= esc($projeto['filepath'] ?? '') ?>"><?= esc($projeto['arquivo'] ?? '') ?></code>
     · Edite no Obsidian e recarregue · <?= date('d/m/Y H:i') ?>
+    <?php
+    $lastSyncFile = __DIR__ . '/Docs/wiki/projects/.last_sync';
+    if (file_exists($lastSyncFile)):
+        $lastSync = @file_get_contents($lastSyncFile);
+        if ($lastSync):
+    ?>
+    · <i class="bi bi-arrow-repeat me-1"></i>Último sync: <?= esc(substr($lastSync, 0, 16)) ?>
+    <?php endif; endif; ?>
   </div>
 
 <?php endif; ?>
@@ -935,5 +1539,275 @@ function exportarPrint() {
 }
 <?php endif; ?>
 </script>
+
+<?php if (!$modoDetalhe): ?>
+<script>
+// ── Filtro de projetos por técnico ────────────────────────────────
+function aplicarFiltroProjetos() {
+  const conta = document.getElementById('filtroConta')?.value || '';
+  document.querySelectorAll('.gh-proj-card').forEach(card => {
+    card.style.display = (!conta || card.dataset.conta === conta) ? '' : 'none';
+  });
+}
+document.getElementById('filtroConta')?.addEventListener('change', aplicarFiltroProjetos);
+</script>
+<?php endif; ?>
+
+<!-- Modal: adicionar/editar conta GitHub -->
+<div class="modal fade" id="modalConta" tabindex="-1">
+  <div class="modal-dialog modal-dialog-centered">
+    <div class="modal-content">
+      <div class="modal-header" style="background:linear-gradient(135deg,#1a237e,#1565c0);color:white">
+        <h5 class="modal-title fw-bold" id="modalContaTitulo"><i class="bi bi-github me-2"></i>Nova Conta GitHub</h5>
+        <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <input type="hidden" id="conta-id"/>
+        <div class="mb-3">
+          <label class="form-label fw-semibold">Apelido</label>
+          <input type="text" class="form-control" id="conta-apelido" placeholder="Ex: Pessoal"/>
+        </div>
+        <div class="mb-3">
+          <label class="form-label fw-semibold">Usuário GitHub</label>
+          <input type="text" class="form-control" id="conta-usuario" placeholder="ex: joaosilva"/>
+        </div>
+        <div class="mb-2">
+          <label class="form-label fw-semibold">Personal Access Token</label>
+          <input type="password" class="form-control font-monospace" id="conta-token" placeholder="ghp_..." autocomplete="new-password"/>
+          <div class="form-text" id="conta-token-hint">Somente leitura, escopo <code>repo</code>. <a href="https://github.com/settings/tokens?type=beta" target="_blank" rel="noopener">Gerar token</a></div>
+        </div>
+        <div class="mb-2" id="conta-repos-wrap" style="display:none">
+          <label class="form-label fw-semibold">Repositórios visíveis</label>
+          <div id="conta-repos-lista" style="max-height:220px;overflow-y:auto;border:1px solid #e5e7eb;border-radius:8px;padding:.5rem .75rem">
+            <div class="text-muted small">Carregando...</div>
+          </div>
+        </div>
+        <div id="conta-erro" class="text-danger small" style="display:none"></div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-outline-danger me-auto" id="btn-excluir-conta" style="display:none" onclick="excluirConta()"><i class="bi bi-trash me-1"></i>Excluir</button>
+        <button type="button" class="btn btn-outline-secondary" id="btn-testar-conta" style="display:none" onclick="testarConta()"><i class="bi bi-plug me-1"></i>Testar</button>
+        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
+        <button type="button" class="btn btn-primary" onclick="salvarConta()" style="background:#1a237e;border-color:#1a237e"><i class="bi bi-check-lg me-1"></i>Salvar</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Modal: documentação do projeto (README renderizado do GitHub) -->
+<div class="modal fade" id="modalDoc" tabindex="-1">
+  <div class="modal-dialog modal-dialog-centered modal-lg modal-dialog-scrollable">
+    <div class="modal-content">
+      <div class="modal-header" style="background:linear-gradient(135deg,#1a237e,#1565c0);color:white">
+        <h5 class="modal-title fw-bold" id="modalDocTitulo"><i class="bi bi-journal-text me-2"></i>Documentação</h5>
+        <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body gh-readme-conteudo" id="modalDocCorpo">
+        <div class="text-muted small">Carregando...</div>
+      </div>
+      <div class="modal-footer">
+        <a href="#" target="_blank" rel="noopener" class="btn btn-outline-secondary me-auto" id="modalDocGithub"><i class="bi bi-github me-1"></i>Ver no GitHub</a>
+        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Fechar</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+let modalConta;
+let modalDoc;
+document.addEventListener('DOMContentLoaded', () => {
+  const elConta = document.getElementById('modalConta');
+  if (elConta) modalConta = new bootstrap.Modal(elConta);
+  const elDoc = document.getElementById('modalDoc');
+  if (elDoc) modalDoc = new bootstrap.Modal(elDoc);
+});
+
+async function abrirDocumentacao(ev, contaId, repoNome) {
+  ev.preventDefault();
+  document.getElementById('modalDocTitulo').innerHTML = '<i class="bi bi-journal-text me-2"></i>' + repoNome;
+  document.getElementById('modalDocCorpo').innerHTML = '<div class="text-muted small">Carregando...</div>';
+  document.getElementById('modalDocGithub').href = '#';
+  modalDoc.show();
+
+  const r = await fetch('projetos.php?gh_action=readme_html', {
+    method: 'POST', headers: {'Content-Type':'application/json'},
+    body: JSON.stringify({conta_id: contaId, repo_nome: repoNome}),
+  });
+  const d = await r.json();
+  const corpo = document.getElementById('modalDocCorpo');
+  if (!d.ok) {
+    corpo.innerHTML = `<p class="text-danger small">${d.msg || 'Erro ao carregar documentação'}</p>`;
+    return;
+  }
+  document.getElementById('modalDocGithub').href = d.repoUrl;
+  corpo.innerHTML = d.html || '<p class="text-muted small">Este repositório não tem um README.</p>';
+}
+
+function abrirModalConta() {
+  document.getElementById('conta-id').value = '';
+  document.getElementById('conta-apelido').value = '';
+  document.getElementById('conta-usuario').value = '';
+  document.getElementById('conta-token').value = '';
+  document.getElementById('conta-token').placeholder = 'ghp_...';
+  document.getElementById('conta-erro').className = 'text-danger small';
+  document.getElementById('conta-erro').style.display = 'none';
+  document.getElementById('modalContaTitulo').innerHTML = '<i class="bi bi-github me-2"></i>Nova Conta GitHub';
+  document.getElementById('btn-excluir-conta').style.display = 'none';
+  document.getElementById('btn-testar-conta').style.display = 'none';
+  document.getElementById('conta-repos-wrap').style.display = 'none';
+  document.getElementById('conta-repos-lista').innerHTML = '';
+  modalConta.show();
+}
+
+function editarConta(c) {
+  document.getElementById('conta-id').value = c.id;
+  document.getElementById('conta-apelido').value = c.apelido;
+  document.getElementById('conta-usuario').value = c.usuario_github;
+  document.getElementById('conta-token').value = '';
+  document.getElementById('conta-token').placeholder = 'Deixe em branco para manter o token atual';
+  document.getElementById('conta-erro').className = 'text-danger small';
+  document.getElementById('conta-erro').style.display = 'none';
+  document.getElementById('modalContaTitulo').textContent = c.apelido;
+  document.getElementById('btn-excluir-conta').style.display = 'inline-block';
+  document.getElementById('btn-testar-conta').style.display = 'inline-block';
+  modalConta.show();
+  carregarReposConta(c.id);
+}
+
+async function carregarReposConta(id) {
+  const wrap  = document.getElementById('conta-repos-wrap');
+  const lista = document.getElementById('conta-repos-lista');
+  wrap.style.display = '';
+  lista.innerHTML = '<div class="text-muted small">Carregando...</div>';
+
+  const r = await fetch('projetos.php?gh_action=conta_repos', {
+    method: 'POST', headers: {'Content-Type':'application/json'},
+    body: JSON.stringify({id}),
+  });
+  const d = await r.json();
+  if (!d.ok) { lista.innerHTML = `<div class="text-danger small">${d.msg || 'Erro ao carregar repositórios'}</div>`; return; }
+  if (!d.repos.length) { lista.innerHTML = '<div class="text-muted small">Nenhum repositório encontrado.</div>'; return; }
+
+  lista.innerHTML = d.repos.map(rp => `
+    <div class="form-check">
+      <input class="form-check-input conta-repo-check" type="checkbox" data-nome="${rp.nome}" id="crepo-${rp.nome}" ${rp.visivel ? 'checked' : ''}>
+      <label class="form-check-label small" for="crepo-${rp.nome}">${rp.nome}</label>
+    </div>
+  `).join('');
+}
+
+async function testarConta() {
+  const id     = document.getElementById('conta-id').value;
+  const erroEl = document.getElementById('conta-erro');
+  erroEl.style.display = 'none';
+  if (!id) return;
+
+  const btn = document.getElementById('btn-testar-conta');
+  const htmlOriginal = btn.innerHTML;
+  btn.disabled = true;
+  btn.innerHTML = '<i class="bi bi-hourglass-split me-1"></i>Testando...';
+
+  try {
+    const r = await fetch('projetos.php?gh_action=conta_testar', {
+      method: 'POST', headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({id}),
+    });
+    const d = await r.json();
+    if (d.ok) {
+      erroEl.className = 'text-success small';
+      erroEl.textContent = 'Token válido — conexão ok.';
+      erroEl.style.display = '';
+    } else {
+      erroEl.className = 'text-danger small';
+      erroEl.textContent = d.msg || 'Falha ao testar token.';
+      erroEl.style.display = '';
+    }
+  } catch (e) {
+    erroEl.className = 'text-danger small';
+    erroEl.textContent = 'Erro ao testar conta.';
+    erroEl.style.display = '';
+  } finally {
+    btn.disabled = false;
+    btn.innerHTML = htmlOriginal;
+  }
+}
+
+async function salvarConta() {
+  const id             = document.getElementById('conta-id').value;
+  const apelido        = document.getElementById('conta-apelido').value.trim();
+  const usuario_github = document.getElementById('conta-usuario').value.trim();
+  const token          = document.getElementById('conta-token').value.trim();
+  const erroEl         = document.getElementById('conta-erro');
+  erroEl.style.display = 'none';
+
+  if (!apelido || !usuario_github) {
+    erroEl.textContent = 'Preencha apelido e usuário.';
+    erroEl.style.display = '';
+    return;
+  }
+
+  const action = id ? 'conta_save' : 'conta_add';
+  const r = await fetch(`projetos.php?gh_action=${action}`, {
+    method: 'POST', headers: {'Content-Type':'application/json'},
+    body: JSON.stringify({id, apelido, usuario_github, token}),
+  });
+  const d = await r.json();
+  if (!d.ok) { erroEl.textContent = d.msg || 'Erro ao salvar'; erroEl.style.display = ''; return; }
+
+  const contaIdFinal = id || d.id;
+  const checks = document.querySelectorAll('#conta-repos-lista .conta-repo-check');
+  if (checks.length) {
+    const repos = Array.from(checks).map(chk => ({nome: chk.dataset.nome, visivel: chk.checked}));
+    await fetch('projetos.php?gh_action=visibilidade_set_lote', {
+      method: 'POST', headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({conta_id: contaIdFinal, repos}),
+    });
+  }
+  modalConta.hide();
+  location.reload();
+}
+
+function toggleContas() {
+  const grid = document.getElementById('gridContas');
+  const chv  = document.getElementById('chvContas');
+  const aberto = grid.style.display !== 'none';
+  grid.style.display = aberto ? 'none' : '';
+  chv.style.transform = aberto ? '' : 'rotate(-180deg)';
+}
+
+function toggleGrupo(chave) {
+  const body = document.getElementById('grupoBody-' + chave);
+  const chv  = document.getElementById('chvGrupo-' + chave);
+  if (!body) return;
+  const aberto = body.style.display !== 'none';
+  body.style.display = aberto ? 'none' : '';
+  chv.style.transform = aberto ? '' : 'rotate(-180deg)';
+}
+
+async function mudarStatus(ev, contaId, repoNome, status) {
+  ev.preventDefault();
+  const r = await fetch('projetos.php?gh_action=status_set', {
+    method: 'POST', headers: {'Content-Type':'application/json'},
+    body: JSON.stringify({conta_id: contaId, repo_nome: repoNome, status}),
+  });
+  const d = await r.json();
+  if (d.ok) location.reload();
+  else alert(d.msg || 'Erro ao mudar status');
+}
+
+async function excluirConta() {
+  const id = document.getElementById('conta-id').value;
+  if (!id || !confirm('Excluir esta conta GitHub? Os projetos dela deixarão de aparecer.')) return;
+  const r = await fetch('projetos.php?gh_action=conta_delete', {
+    method: 'POST', headers: {'Content-Type':'application/json'},
+    body: JSON.stringify({id}),
+  });
+  const d = await r.json();
+  if (d.ok) { modalConta.hide(); location.reload(); }
+  else alert(d.msg || 'Erro ao excluir');
+}
+</script>
+
 </body>
 </html>

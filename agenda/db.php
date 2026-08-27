@@ -4,9 +4,9 @@
  * Extrai as credenciais do config_db.php sem instanciar a classe GLPI
  */
 
-$db_host = 'localhost';
+$db_host = 'glpi-db';
 $db_user = 'root';
-$db_pass = '';
+$db_pass = 'root_password';
 $db_name = 'glpi2';
 
 $pdo = new PDO(

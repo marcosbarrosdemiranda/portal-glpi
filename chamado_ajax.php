@@ -5,7 +5,7 @@
  * Uso: chamado_ajax.php?id=1234
  * Retorna JSON com dados do ticket para exibição em modal flutuante.
  */
-session_start();
+require_once __DIR__ . '/auth_guard.php';
 if (empty($_SESSION['autenticado'])) {
 	http_response_code(401);
 	echo json_encode(['ok' => false, 'msg' => 'Não autenticado']);
@@ -70,8 +70,32 @@ $followups = glpi_req(
 	$token
 );
 
-// Busca anexos (documentos) dos followups
-$docs = [];
+// Busca anexos (documentos): tanto os do Ticket (criação) quanto os dos followups (Responder)
+$docs   = [];
+$vistos = [];
+
+$addDoc = function(int $docid) use (&$docs, &$vistos, $token) {
+	if (!$docid || isset($vistos[$docid])) return;
+	$docData = glpi_req(GLPI_URL . '/apirest.php/Document/' . $docid, $token);
+	if (empty($docData['id'])) return;
+	$vistos[$docid] = true;
+	$fname = $docData['filename'] ?? $docData['name'] ?? 'arquivo';
+	$ext   = strtolower(pathinfo($fname, PATHINFO_EXTENSION));
+	$docs[] = [
+		'id'    => $docid,
+		'nome'  => $fname,
+		'isImg' => in_array($ext, ['jpg','jpeg','png','gif','webp','bmp','svg']),
+		'size'  => (int)($docData['filesize'] ?? 0),
+	];
+};
+
+// Documentos vinculados diretamente ao Ticket (anexos da criação)
+$td_list = glpi_req(GLPI_URL . '/apirest.php/Ticket/' . $ticket_id . '/Document_Item', $token);
+foreach ((array)$td_list as $di) {
+	$addDoc((int)($di['documents_id'] ?? 0));
+}
+
+// Documentos vinculados aos followups (anexos do Responder)
 if (is_array($followups)) {
 	foreach ($followups as $f) {
 		$fu_id = (int)($f['id'] ?? 0);
@@ -81,21 +105,7 @@ if (is_array($followups)) {
 			$token
 		);
 		foreach ((array)$di_list as $di) {
-			$docid = (int)($di['documents_id'] ?? 0);
-			if (!$docid) continue;
-			$docData = glpi_req(
-				GLPI_URL . '/apirest.php/Document/' . $docid,
-				$token
-			);
-			if (empty($docData['id'])) continue;
-			$fname = $docData['filename'] ?? $docData['name'] ?? 'arquivo';
-			$ext   = strtolower(pathinfo($fname, PATHINFO_EXTENSION));
-			$docs[] = [
-				'id'    => $docid,
-				'nome'  => $fname,
-				'isImg' => in_array($ext, ['jpg','jpeg','png','gif','webp','bmp','svg']),
-				'size'  => (int)($docData['filesize'] ?? 0),
-			];
+			$addDoc((int)($di['documents_id'] ?? 0));
 		}
 	}
 }

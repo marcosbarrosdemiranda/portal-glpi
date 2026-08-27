@@ -7,6 +7,11 @@
 agenda/config.php
 config_db_prod.php
 
+# Certificado Let's Encrypt (chave privada) — gerado localmente via certbot
+docker/certbot-etc/
+docker/certbot-log/
+docker/certbot-hooks/txt_record.txt
+
 # ── Ferramentas de debug ───────────────────────────────────────
 # Expõem informações internas; não devem ir para produção
 debug_login.php
@@ -33,6 +38,9 @@ Thumbs.db
 desktop.ini
 .DS_Store
 
+# ── Configurações locais de projetos ────────────────────────────
+config_projetos.local.php
+
 # ── Logs e temporários ────────────────────────────────────────
 *.log
 *.tmp
@@ -41,3 +49,10 @@ desktop.ini
 # ── Dependências (se vier a usar composer/npm) ─────────────────
 /vendor/
 /node_modules/
+
+# Spec-Driven Agent
+.claude/sda/hooks/state.json
+.claude/sda/hooks/state.history.log
+
+# ── Workspace de execução do superpowers (subagent-driven-development) ──
+.superpowers/

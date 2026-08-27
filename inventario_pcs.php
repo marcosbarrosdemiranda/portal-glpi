@@ -1,5 +1,5 @@
 <?php
-session_start();
+require_once __DIR__ . '/auth_guard.php';
 if (empty($_SESSION['autenticado'])) { header('Location: auth.php'); exit; }
 if (($_SESSION['perfil'] ?? '') === 'self-service') { header('Location: dashboard.php'); exit; }
 
@@ -154,19 +154,26 @@ $f_entidade = $_GET['entidade'] ?? '';
       box-shadow:0 1px 4px rgba(0,0,0,.05);
     }
 
-    /* Seção entidade */
-    .entidade-section { margin-bottom:1.5rem; }
+    /* Seção entidade (accordion — recolhido por padrão) */
+    .entidade-section { margin-bottom:.75rem; }
     .entidade-header {
       background:linear-gradient(135deg,var(--primary),#1565c0);
-      color:white; border-radius:10px 10px 0 0;
+      color:white; border-radius:10px;
       padding:.65rem 1.25rem; font-weight:700; font-size:.9rem;
       display:flex; align-items:center; justify-content:space-between;
+      cursor:pointer; user-select:none; transition:border-radius .15s, filter .15s;
     }
+    .entidade-header:hover { filter:brightness(1.1); }
+    .entidade-header .chevron { transition:transform .2s; }
+    .entidade-section.expanded .entidade-header { border-radius:10px 10px 0 0; }
+    .entidade-section.expanded .entidade-header .chevron { transform:rotate(180deg); }
     .entidade-body {
       background:white; border-radius:0 0 10px 10px;
       border:1px solid #e5e7eb; border-top:none;
       box-shadow:0 2px 8px rgba(0,0,0,.06); overflow:hidden;
+      display:none;
     }
+    .entidade-section.expanded .entidade-body { display:block; }
 
     /* Grid de PCs */
     .pcs-grid { padding:.75rem; }
@@ -212,6 +219,20 @@ $f_entidade = $_GET['entidade'] ?? '';
     .status-badge {
       display:inline-flex; align-items:center; gap:.4rem;
       padding:.35rem .9rem; border-radius:20px; font-size:.8rem; font-weight:700;
+    }
+
+    /* ── Responsivo (mobile/tablet) ── */
+    @media (max-width: 640px) {
+      .topbar { flex-wrap:wrap; gap:.4rem; }
+      .topbar .brand { font-size:.9rem; }
+      .hero { padding:1.5rem 1rem 3.5rem; }
+      .hero h1 { font-size:1.2rem; }
+      .wrap { margin-top:-2.5rem; }
+      .filtros-card { padding:.85rem; gap:.6rem; }
+      .filtros-card > div { flex:1 1 100%; }
+      .filtros-card input, .filtros-card select { width:100% !important; }
+      .btn-filtrar { width:100%; justify-content:center; }
+      .pcs-grid { padding:.5rem; }
     }
 
   </style>
@@ -270,9 +291,12 @@ $f_entidade = $_GET['entidade'] ?? '';
   <!-- PCs por entidade -->
   <?php foreach ($por_entidade as $ent_nome => $pcs): ?>
   <div class="entidade-section" data-entidade="<?= htmlspecialchars($ent_nome) ?>">
-    <div class="entidade-header">
+    <div class="entidade-header" onclick="toggleEntidade(this)">
       <span><i class="bi bi-building me-2"></i><?= htmlspecialchars($ent_nome) ?></span>
-      <span class="badge bg-light text-dark"><?= count($pcs) ?> máquinas</span>
+      <span class="d-flex align-items-center gap-2">
+        <span class="badge bg-light text-dark"><?= count($pcs) ?> máquinas</span>
+        <i class="bi bi-chevron-down chevron"></i>
+      </span>
     </div>
     <div class="entidade-body">
       <div class="pcs-grid">
@@ -489,29 +513,50 @@ function atualizarContadores() {
   document.getElementById('cnt-offline').textContent = offline;
 }
 
-// ── Filtros ───────────────────────────────────────────────────
-function filtrarEntidade() {
-  const sel = document.getElementById('f-entidade').value;
-  document.querySelectorAll('.entidade-section').forEach(s => {
-    s.style.display = !sel || s.dataset.entidade === sel ? '' : 'none';
-  });
+// ── Accordion das unidades ────────────────────────────────────
+function toggleEntidade(header) {
+  header.closest('.entidade-section').classList.toggle('expanded');
 }
 
-function filtrarStatus() {
-  const sel = document.getElementById('f-status').value;
-  document.querySelectorAll('.pc-card').forEach(c => {
-    c.style.display = !sel || c.dataset.status === sel ? '' : 'none';
+// ── Filtros (unificados) ──────────────────────────────────────
+// Recolhido é o padrão. Com qualquer filtro ativo, expande automaticamente
+// as unidades que têm resultado; ao limpar tudo, volta a recolher.
+function aplicarFiltros() {
+  const q   = document.getElementById('f-busca').value.toLowerCase().trim();
+  const st  = document.getElementById('f-status').value;
+  const ent = document.getElementById('f-entidade').value;
+  const filtroAtivo = !!(q || st || ent);
+
+  document.querySelectorAll('.entidade-section').forEach(section => {
+    const entOk = !ent || section.dataset.entidade === ent;
+    let visiveis = 0;
+
+    section.querySelectorAll('.pc-card').forEach(c => {
+      const mBusca  = !q  || c.dataset.nome.toLowerCase().includes(q) || c.dataset.ip.includes(q);
+      const mStatus = !st || c.dataset.status === st;
+      const show = entOk && mBusca && mStatus;
+      c.style.display = show ? '' : 'none';
+      if (show) visiveis++;
+    });
+
+    // Mostra a seção se a entidade casa e há cards visíveis (ou se não há filtro)
+    section.style.display = (entOk && (visiveis > 0 || !filtroAtivo)) ? '' : 'none';
+
+    // Com filtro ativo → expande quem tem resultado; sem filtro → recolhe (padrão)
+    if (filtroAtivo) {
+      section.classList.toggle('expanded', visiveis > 0);
+    } else {
+      section.classList.remove('expanded');
+    }
   });
+
   atualizarContadores();
 }
 
-function filtrarBusca() {
-  const q = document.getElementById('f-busca').value.toLowerCase();
-  document.querySelectorAll('.pc-card').forEach(c => {
-    const match = c.dataset.nome.toLowerCase().includes(q) || c.dataset.ip.includes(q);
-    c.style.display = match ? '' : 'none';
-  });
-}
+// Aliases mantidos para os handlers inline do HTML
+function filtrarEntidade() { aplicarFiltros(); }
+function filtrarStatus()   { aplicarFiltros(); }
+function filtrarBusca()    { aplicarFiltros(); }
 
 // ── Modal detalhes ────────────────────────────────────────────
 function abrirDetalhes(card) {

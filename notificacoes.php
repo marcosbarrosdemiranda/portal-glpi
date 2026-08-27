@@ -4,7 +4,7 @@
  * Usa SQL direto via PDO (ignora search API que tem índice desatualizado)
  * GET ?ultimo=2026-06-01T10:00:00
  */
-session_start();
+require_once __DIR__ . '/auth_guard.php';
 if (empty($_SESSION['autenticado'])) { http_response_code(401); exit; }
 if (($_SESSION['perfil'] ?? '') === 'self-service') { echo json_encode([]); exit; }
 
@@ -16,6 +16,17 @@ require_once __DIR__ . '/entidade_alias.php';
 $ultimo = $_GET['ultimo'] ?? date('Y-m-d H:i:s', strtotime('-1 minute'));
 $ultimo = str_replace('T', ' ', $ultimo);
 
+// Converte de UTC (enviado pelo JS .toISOString()) para o fuso local do servidor
+// Subtrai 1s para evitar perder tickets criados no mesmo segundo do polling
+try {
+    $dt = new DateTime($ultimo, new DateTimeZone('UTC'));
+    $dt->setTimezone(new DateTimeZone('America/Sao_Paulo'))
+        ->modify('-1 second');
+    $ultimo = $dt->format('Y-m-d H:i:s');
+} catch (Exception $e) {
+    /* fallback: mantém o valor original */
+}
+
 $novos = [];
 
 try {
@@ -26,7 +37,7 @@ try {
         LEFT JOIN glpi_entities e ON e.id = t.entities_id
         WHERE t.is_deleted = 0
           AND t.status IN (1, 2)  -- Novo ou Em atendimento (criado da agenda com técnico)
-          AND t.date > ?
+          AND t.date_creation > ?
         ORDER BY t.date DESC
         LIMIT 20
     ");

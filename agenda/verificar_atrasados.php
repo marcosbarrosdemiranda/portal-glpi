@@ -1,21 +1,28 @@
 <?php
 /**
- * Verifica chamados na agenda com mais de 1 dia de atraso.
+ * Verifica chamados na agenda com mais de 24h de atraso.
  *
- * Regra:
+ * Regra de 1 dia útil:
+ *   - Segunda-feira: limite = 48h (chamados de sexta duram o fim de semana)
+ *   - Terça a Domingo: limite = 24h
+ *
  *   - Chamados concluídos → ignorados
- *   - Chamados com end < (agora - 24h) E ainda não concluídos:
+ *   - Chamados com end < limite E ainda não concluídos:
  *       → remove o evento da agenda
  *       → se NENHUM outro período do mesmo ticket estiver dentro do prazo,
  *         reseta o ticket no GLPI (status=1, remove técnico, volta pro sidebar)
  *   - Eventos/reuniões sem ticket → ignorados (não removem)
  *
  * Ex:
- *   Hoje = Sábado
- *     - Chamados de SEXTA   → ficam (< 24h)
- *     - Chamados de QUINTA  → removidos (> 24h)
- *   Se ticket de QUINTA tiver um novo período cadastrado em SEXTA:
- *     → só remove o período de QUINTA, ticket continua ativo
+ *   Segunda 08:00
+ *     - Chamados de SEXTA 17h → ficam (48h, expiram 17h de segunda)
+ *     - Chamados de SEXTA 7h → removidos (> 48h)
+ *     - Chamados de QUINTA → removidos (> 48h)
+ *   Terça 08:00
+ *     - Chamados de SEGUNDA 9h → ficam (< 24h)
+ *     - Chamados de SEGUNDA 7h → removidos (> 24h)
+ *   Se ticket tiver um novo período cadastrado dentro do prazo:
+ *     → só remove o período antigo, ticket continua ativo
  */
 header('Content-Type: application/json');
 ob_start();
@@ -24,15 +31,22 @@ require_once 'config.php';
 require_once 'db.php';
 
 $agora     = date('Y-m-d H:i:s');
-$limite_1d = date('Y-m-d H:i:s', strtotime('-24 hours'));
+$diaSemana = (int)date('N'); // 1=Segunda … 7=Domingo
 
-// ── Busca eventos com +24h de atraso (não concluídos, com ticket) ──
+// Segunda-feira: estende para 48h (chamados de sexta não expiram no fim de semana)
+if ($diaSemana === 1) {
+    $limite = date('Y-m-d H:i:s', strtotime('-48 hours'));
+} else {
+    $limite = date('Y-m-d H:i:s', strtotime('-24 hours'));
+}
+
+// ── Busca eventos atrasados (não concluídos, com ticket) ──
 $stmt = $pdo->prepare("
     SELECT * FROM glpi_plugin_agenda_events
     WHERE concluido = 0 AND ticket_id IS NOT NULL AND end < ?
     ORDER BY end ASC
 ");
-$stmt->execute([$limite_1d]);
+$stmt->execute([$limite]);
 $atrasados = $stmt->fetchAll();
 
 $para_avisar = []; // eventos sem ticket atrasados (só aviso, não remove)
@@ -45,12 +59,12 @@ foreach ($atrasados as $ev) {
         continue;
     }
 
-    // Verifica se o mesmo ticket tem OUTRO período ainda dentro do prazo (< 24h de atraso)
+    // Verifica se o mesmo ticket tem OUTRO período ainda dentro do prazo
     $check = $pdo->prepare("
         SELECT COUNT(*) FROM glpi_plugin_agenda_events
         WHERE ticket_id = ? AND id != ? AND end >= ? AND concluido = 0
     ");
-    $check->execute([$tid, $ev['id'], $limite_1d]);
+    $check->execute([$tid, $ev['id'], $limite]);
     $tem_periodo_recente = (int)$check->fetchColumn() > 0;
 
     $para_remover[] = [

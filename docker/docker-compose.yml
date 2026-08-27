@@ -1,0 +1,62 @@
+# Stack de produção rodando em 192.168.1.198 — ver Portal-Glpi/Arquitetura/PLANO_MIGRACAO_DOCKER.md
+# Código-fonte (GLPI + portal-glpi) mora em C:\docker\glpi-portal\glpi2 (movido de D:\docker\glpi-portal\glpi2
+# em 2026-08-09 — disco D: estava saudável, mas o disco G: do servidor passou a apresentar erros de I/O
+# ativos, e o usuário decidiu reorganizar a infra levando tudo pro C:, disco do sistema).
+# Banco de dados também migrou de volume Docker nomeado para bind mount em
+# C:\docker\glpi-portal\mysql-data, pra ficar junto do resto do projeto.
+# Sync automático pro servidor usa scp direto pra C:\docker\glpi-portal\glpi2\portal-glpi\.
+# Porta 7412 escolhida a pedido do usuário — 80/8091 já reservadas no pfSense, DNS/proxy será configurado depois.
+services:
+  glpi-db:
+    image: mariadb:10.4
+    container_name: glpi-db
+    restart: unless-stopped
+    command: --default-time-zone=-04:00
+    environment:
+      MYSQL_ROOT_PASSWORD: root_password
+      MYSQL_DATABASE: glpi2
+    volumes:
+      - C:\docker\glpi-portal\mysql-data:/var/lib/mysql
+    networks:
+      - glpi-net
+
+  glpi-web:
+    build: .
+    container_name: glpi-web
+    restart: unless-stopped
+    depends_on:
+      - glpi-db
+    volumes:
+      - C:\docker\glpi-portal\glpi2:/var/www/html/glpi2
+    networks:
+      - glpi-net
+
+  glpi-nginx:
+    image: nginx:alpine
+    container_name: glpi-nginx
+    restart: unless-stopped
+    depends_on:
+      - glpi-web
+    volumes:
+      - C:\docker\glpi-portal\certbot-etc:/etc/letsencrypt:ro
+      - C:\docker\glpi-portal\nginx.conf:/etc/nginx/conf.d/default.conf:ro
+    ports:
+      - "7412:443"
+    networks:
+      - glpi-net
+
+  glpi-cron:
+    build: .
+    container_name: glpi-cron
+    restart: unless-stopped
+    depends_on:
+      - glpi-db
+    volumes:
+      - C:\docker\glpi-portal\glpi2:/var/www/html/glpi2
+    entrypoint: ["sh", "-c", "while true; do php /var/www/html/glpi2/front/cron.php; sleep 60; done"]
+    networks:
+      - glpi-net
+
+networks:
+  glpi-net:
+    driver: bridge
