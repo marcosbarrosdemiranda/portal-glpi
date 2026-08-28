@@ -1168,6 +1168,12 @@ document.addEventListener('DOMContentLoaded', function() {
     }
   });
 
+  // Foco no horário atual ao abrir a agenda: posiciona o scroll ~1h antes de
+  // agora, respeitando o slotMinTime (06:00) e sem estourar o fim do dia.
+  const _horaAgora  = new Date().getHours();
+  const _scrollHora = Math.min(22, Math.max(6, _horaAgora - 1));
+  const scrollTimeAgora = String(_scrollHora).padStart(2, '0') + ':00:00';
+
   calendar = new FullCalendar.Calendar(document.getElementById('calendar'), {
     locale: 'pt-br',
     initialView: 'timeGridWeek',
@@ -1182,6 +1188,7 @@ document.addEventListener('DOMContentLoaded', function() {
     },
     height: '100%',
     nowIndicator: true,
+    scrollTime: scrollTimeAgora,
     slotMinTime: '06:00:00',
     slotMaxTime: '23:00:00',
     slotDuration: '00:15:00',
