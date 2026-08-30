@@ -117,6 +117,10 @@ if (($_SESSION['perfil'] ?? '') === 'self-service') { header('Location: dashboar
     .alarme-icon { background:#ffebee; color:#c62828; }
     .mikrotik-icon { background:#e1f5fe; color:#0277bd; }
     .balanca-icon { background:#f1f8e9; color:#558b2f; }
+    .celular-icon { background:#e3f2fd; color:#1565c0; }
+    .tablet-icon  { background:#f3e5f5; color:#7b1fa2; }
+    .coletor-icon { background:#e8f5e9; color:#2e7d32; }
+    .pdvmob-icon  { background:#fff3e0; color:#e65100; }
   </style>
 </head>
 <body>
@@ -160,9 +164,30 @@ if (($_SESSION['perfil'] ?? '') === 'self-service') { header('Location: dashboar
   </a>
 
   <div class="cat-card disabled">
-    <div class="cat-icon monitor-icon"><i class="bi bi-phone"></i></div>
-    <h3>Dispositivos Móveis</h3>
-    <p>Celulares, tablets e coletores</p>
+    <div class="cat-icon celular-icon"><i class="bi bi-phone"></i></div>
+    <h3>Celulares</h3>
+    <p>Smartphones e linhas corporativas</p>
+    <span class="badge-embreve">Em breve</span>
+  </div>
+
+  <div class="cat-card disabled">
+    <div class="cat-icon tablet-icon"><i class="bi bi-tablet"></i></div>
+    <h3>Tablets</h3>
+    <p>Tablets corporativos e acessórios</p>
+    <span class="badge-embreve">Em breve</span>
+  </div>
+
+  <div class="cat-card disabled">
+    <div class="cat-icon coletor-icon"><i class="bi bi-upc-scan"></i></div>
+    <h3>Coletores</h3>
+    <p>Coletores de dados e leitores de código de barras</p>
+    <span class="badge-embreve">Em breve</span>
+  </div>
+
+  <div class="cat-card disabled">
+    <div class="cat-icon pdvmob-icon"><i class="bi bi-credit-card-2-back"></i></div>
+    <h3>PDV Mobile</h3>
+    <p>Terminais de venda móveis e PDV portátil</p>
     <span class="badge-embreve">Em breve</span>
   </div>
 
