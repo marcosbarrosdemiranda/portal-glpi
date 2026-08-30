@@ -282,6 +282,16 @@ $H = 'inv_h';
     .row-act .del:hover { border-color:#c62828; color:#c62828; }
     .empty { background:#fff; border-radius:12px; padding:3rem 1.5rem; text-align:center; color:#5f6368; box-shadow:0 1px 4px rgba(0,0,0,.08); }
     .empty i { font-size:2.4rem; color:#c5cbd3; display:block; margin-bottom:.6rem; }
+    .grp { margin-bottom:.6rem; }
+    .grp-hd { background:#1a237e; color:#fff; border-radius:10px; padding:.6rem 1.1rem; font-weight:700; font-size:.9rem; display:flex; align-items:center; justify-content:space-between; cursor:pointer; user-select:none; }
+    .grp-hd:hover { filter:brightness(1.12); }
+    .grp-n { font-weight:600; opacity:.9; font-size:.82rem; display:flex; align-items:center; gap:.4rem; }
+    .grp-hd .chev { transition:transform .2s; }
+    .grp.open .grp-hd { border-radius:10px 10px 0 0; }
+    .grp.open .grp-hd .chev { transform:rotate(180deg); }
+    .grp-bd { display:none; }
+    .grp.open .grp-bd { display:block; }
+    .grp-bd table { border-radius:0 0 10px 10px; box-shadow:none; border:1px solid #e5e7eb; border-top:none; }
     .modal-back { display:none; position:fixed; inset:0; background:rgba(0,0,0,.35); z-index:1000; }
     .modal-back.show { display:flex; align-items:flex-start; justify-content:center; padding:3rem 1rem; overflow-y:auto; }
     .modal-card { background:#fff; border-radius:14px; width:560px; max-width:100%; box-shadow:0 12px 50px rgba(0,0,0,.3); }
@@ -361,22 +371,15 @@ $H = 'inv_h';
     </form>
   </div>
 
-  <?php $MOT = ['quebrado'=>'Quebrado','vendido'=>'Vendido','descartado'=>'Descartado','outro'=>'Outro']; ?>
-  <?php if (!$ativos): ?>
-    <div class="empty">
-      <i class="bi bi-inbox"></i>
-      <?php if ($busca || $loja_filtro || $sub_filtro): ?>
-        Nenhum item com esse filtro.
-      <?php elseif ($view === 'baixados'): ?>
-        Nenhum item baixado. Itens quebrados, vendidos ou descartados aparecem aqui.
-      <?php else: ?>
-        Nenhum <?= $H($card['titulo']) ?> cadastrado ainda. Clique em <strong>Novo</strong>.
-      <?php endif; ?>
-    </div>
-  <?php else: ?>
+  <?php
+  $MOT = ['quebrado'=>'Quebrado','vendido'=>'Vendido','descartado'=>'Descartado','outro'=>'Outro'];
+
+  $tabela = function(array $rows, bool $showLoja) use ($view, $fonte, $MOT, $H, $GLPI_BASE, $glpiForm) { ?>
     <table>
       <thead><tr>
-        <th>Nome</th><th>Loja</th><th>Subcategoria</th><th>Fabricante / Modelo</th>
+        <th>Nome</th>
+        <?php if ($showLoja): ?><th>Loja</th><?php endif; ?>
+        <th>Subcategoria</th><th>Fabricante / Modelo</th>
         <?php if ($view === 'baixados'): ?>
           <th>Motivo</th><th>Baixa</th>
         <?php else: ?>
@@ -385,10 +388,10 @@ $H = 'inv_h';
         <th></th>
       </tr></thead>
       <tbody>
-      <?php foreach ($ativos as $a): ?>
+      <?php foreach ($rows as $a): ?>
         <tr>
           <td><?= $H($a['name'] ?: '(sem nome)') ?><?php if ($a['contact']): ?><div class="sub"><?= $H($a['contact']) ?></div><?php endif; ?></td>
-          <td><?= $H(apelido_entidade($a['entidade'] ?? '—')) ?></td>
+          <?php if ($showLoja): ?><td><?= $H(apelido_entidade($a['entidade'] ?? '—')) ?></td><?php endif; ?>
           <td><?= $H($a['subcategoria'] ?: '—') ?></td>
           <td><?= $H($a['fabricante'] ?: '—') ?><?php if ($a['modelo']): ?><div class="sub"><?= $H($a['modelo']) ?></div><?php endif; ?></td>
           <?php if ($view === 'baixados'): ?>
@@ -412,6 +415,40 @@ $H = 'inv_h';
       <?php endforeach; ?>
       </tbody>
     </table>
+  <?php };
+  ?>
+
+  <?php if (!$ativos): ?>
+    <div class="empty">
+      <i class="bi bi-inbox"></i>
+      <?php if ($busca || $loja_filtro || $sub_filtro): ?>
+        Nenhum item com esse filtro.
+      <?php elseif ($view === 'baixados'): ?>
+        Nenhum item baixado. Itens quebrados, vendidos ou descartados aparecem aqui.
+      <?php else: ?>
+        Nenhum <?= $H($card['titulo']) ?> cadastrado ainda. Clique em <strong>Novo</strong>.
+      <?php endif; ?>
+    </div>
+  <?php elseif ($loja_filtro): ?>
+    <?php $tabela($ativos, false); ?>
+  <?php else: ?>
+    <?php
+      $grupos = [];
+      foreach ($ativos as $a) {
+          $nome = apelido_entidade($a['entidade'] ?? '') ?: 'Sem loja';
+          $grupos[$nome][] = $a;
+      }
+      ksort($grupos, SORT_NATURAL | SORT_FLAG_CASE);
+    ?>
+    <?php foreach ($grupos as $lojaNome => $rows): ?>
+      <div class="grp">
+        <div class="grp-hd" onclick="this.parentElement.classList.toggle('open')">
+          <span><i class="bi bi-shop"></i> <?= $H($lojaNome) ?></span>
+          <span class="grp-n"><?= count($rows) ?> <i class="bi bi-chevron-down chev"></i></span>
+        </div>
+        <div class="grp-bd"><?php $tabela($rows, false); ?></div>
+      </div>
+    <?php endforeach; ?>
   <?php endif; ?>
 </div>
 
