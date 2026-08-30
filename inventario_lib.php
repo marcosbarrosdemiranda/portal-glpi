@@ -76,6 +76,13 @@ function inv_bootstrap(PDO $pdo): void {
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
     ");
 
+    // Migrações leves (rodam sempre)
+    $cols = [];
+    foreach ($pdo->query("SHOW COLUMNS FROM portal_inv_fields") as $r) $cols[] = $r['Field'];
+    if (!in_array('na_lista', $cols, true)) {
+        $pdo->exec("ALTER TABLE portal_inv_fields ADD COLUMN na_lista TINYINT(1) DEFAULT 0 COMMENT 'mostra como coluna na listagem'");
+    }
+
     // Semente inicial (só roda se ainda não há nenhum card)
     if ((int)$pdo->query("SELECT COUNT(*) FROM portal_inv_cards")->fetchColumn() > 0) return;
 
@@ -139,6 +146,18 @@ function inv_values(PDO $pdo, string $itemtype, int $itemsId): array {
     $st = $pdo->prepare("SELECT field_id, valor FROM portal_inv_values WHERE itemtype = ? AND items_id = ?");
     $st->execute([$itemtype, $itemsId]);
     return $st->fetchAll(PDO::FETCH_KEY_PAIR);
+}
+
+/** valores de vários ativos de uma vez → [items_id => [field_id => valor]] */
+function inv_values_bulk(PDO $pdo, string $itemtype, array $itemsIds): array {
+    $itemsIds = array_values(array_filter(array_map('intval', $itemsIds)));
+    if (!$itemsIds) return [];
+    $ph = implode(',', array_fill(0, count($itemsIds), '?'));
+    $st = $pdo->prepare("SELECT items_id, field_id, valor FROM portal_inv_values WHERE itemtype = ? AND items_id IN ($ph)");
+    $st->execute(array_merge([$itemtype], $itemsIds));
+    $out = [];
+    foreach ($st as $r) $out[(int)$r['items_id']][(int)$r['field_id']] = $r['valor'];
+    return $out;
 }
 
 function inv_save_values(PDO $pdo, string $itemtype, int $itemsId, array $porFieldId): void {

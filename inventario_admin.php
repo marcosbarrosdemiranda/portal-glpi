@@ -104,13 +104,14 @@ if ($action === 'field_save') {
         'tipo'        => $tipo,
         'opcoes'      => trim($_POST['opcoes'] ?? '') ?: null,
         'obrigatorio' => isset($_POST['obrigatorio']) && $_POST['obrigatorio'] !== '0' ? 1 : 0,
+        'na_lista'    => isset($_POST['na_lista']) && $_POST['na_lista'] !== '0' ? 1 : 0,
         'ordem'       => (int)($_POST['ordem'] ?? 100),
     ];
     if ($id) {
         $dados['id'] = $id;
-        $pdo->prepare("UPDATE portal_inv_fields SET card_id=:card_id,chave=:chave,label=:label,tipo=:tipo,opcoes=:opcoes,obrigatorio=:obrigatorio,ordem=:ordem WHERE id=:id")->execute($dados);
+        $pdo->prepare("UPDATE portal_inv_fields SET card_id=:card_id,chave=:chave,label=:label,tipo=:tipo,opcoes=:opcoes,obrigatorio=:obrigatorio,na_lista=:na_lista,ordem=:ordem WHERE id=:id")->execute($dados);
     } else {
-        $pdo->prepare("INSERT INTO portal_inv_fields (card_id,chave,label,tipo,opcoes,obrigatorio,ordem) VALUES (:card_id,:chave,:label,:tipo,:opcoes,:obrigatorio,:ordem)")->execute($dados);
+        $pdo->prepare("INSERT INTO portal_inv_fields (card_id,chave,label,tipo,opcoes,obrigatorio,na_lista,ordem) VALUES (:card_id,:chave,:label,:tipo,:opcoes,:obrigatorio,:na_lista,:ordem)")->execute($dados);
         $id = (int)$pdo->lastInsertId();
     }
     jout(['ok' => true, 'id' => $id]);
@@ -178,6 +179,7 @@ $H = 'inv_h';
     .btn-del { background:#fff; border:1px solid #e0e4ea; color:#9aa0a6; }
     .btn-del:hover { border-color:#c62828; color:#c62828; }
     .row-actions { display:flex; gap:.5rem; margin-top:.7rem; }
+    .fbox { border:1px solid #e0e4ea; border-radius:10px; padding:.85rem 1rem; margin-bottom:.7rem; background:#fafbfc; }
     #novoCardBox { background:#fff; border:2px dashed #c5cae9; border-radius:12px; padding:1rem 1.1rem; margin-bottom:1.5rem; }
     #msg { position:fixed; bottom:1.2rem; right:1.2rem; z-index:1100; }
   </style>
@@ -266,33 +268,49 @@ $H = 'inv_h';
       </div>
 
       <div class="sec">
-        <h4>Campos personalizados</h4>
-        <div id="fields-<?= $cid ?>">
-          <?php foreach ($fieldsBy[$cid] as $f): $global = $f['card_id'] === null; ?>
-          <div class="lin" data-field="<?= (int)$f['id'] ?>">
-            <input class="nome" value="<?= $H($f['label']) ?>" <?= $global ? 'disabled' : '' ?>/>
-            <input type="text" style="width:110px" value="<?= $H($f['tipo']) ?>" disabled/>
-            <span class="gid"><?= $global ? 'global' : 'só deste card' ?><?= $f['obrigatorio'] ? ' · obrig.' : '' ?></span>
-            <?php if (!$global): ?>
-            <button class="btn btn-ghost btn-sm" onclick="salvarField(<?= $cid ?>, <?= (int)$f['id'] ?>)">Salvar</button>
-            <button class="btn btn-del btn-sm" onclick="excluirField(<?= (int)$f['id'] ?>)"><i class="bi bi-trash3"></i></button>
-            <?php endif; ?>
+        <h4>Características do item (campos personalizados)</h4>
+        <p class="muted" style="margin:.2rem 0 .7rem;font-size:.8rem">Aparecem no formulário de cada ativo deste card. Marque "na lista" para virar coluna na listagem.</p>
+        <?php foreach ($fieldsBy[$cid] as $f): $global = $f['card_id'] === null; ?>
+        <div class="fbox" data-field="<?= (int)$f['id'] ?>">
+          <div class="grid2">
+            <div class="fld"><label>Rótulo</label><input class="f-label" value="<?= $H($f['label']) ?>" <?= $global ? 'disabled' : '' ?>/></div>
+            <div class="fld"><label>Tipo</label>
+              <select class="f-tipo" <?= $global ? 'disabled' : '' ?>>
+                <?php foreach (['text'=>'Texto','number'=>'Número','date'=>'Data','select'=>'Lista','textarea'=>'Texto longo','checkbox'=>'Sim/Não'] as $tv => $tl): ?>
+                  <option value="<?= $tv ?>" <?= $f['tipo'] === $tv ? 'selected' : '' ?>><?= $tl ?></option>
+                <?php endforeach; ?>
+              </select>
+            </div>
+            <div class="fld full"><label>Opções da lista (uma por linha)</label><textarea class="f-opcoes" rows="2" <?= $global ? 'disabled' : '' ?>><?= $H($f['opcoes']) ?></textarea></div>
+            <div class="fld"><label>Obrigatório</label><select class="f-obrig" <?= $global ? 'disabled' : '' ?>><option value="0">Não</option><option value="1" <?= $f['obrigatorio'] ? 'selected' : '' ?>>Sim</option></select></div>
+            <div class="fld"><label>Mostrar na lista</label><select class="f-lista" <?= $global ? 'disabled' : '' ?>><option value="0">Não</option><option value="1" <?= !empty($f['na_lista']) ? 'selected' : '' ?>>Sim</option></select></div>
+            <div class="fld"><label>Ordem</label><input class="f-ordem" type="number" value="<?= (int)$f['ordem'] ?>" <?= $global ? 'disabled' : '' ?>/></div>
           </div>
-          <?php endforeach; ?>
-        </div>
-        <div class="grid2" style="margin-top:.6rem">
-          <div class="fld"><label>Rótulo</label><input id="nf-<?= $cid ?>-label" placeholder="Ex: Nº patrimônio interno"/></div>
-          <div class="fld"><label>Tipo</label>
-            <select id="nf-<?= $cid ?>-tipo">
-              <option value="text">Texto</option><option value="number">Número</option><option value="date">Data</option>
-              <option value="select">Lista</option><option value="textarea">Texto longo</option><option value="checkbox">Sim/Não</option>
-            </select>
+          <?php if (!$global): ?>
+          <div class="row-actions">
+            <button class="btn btn-primary btn-sm" onclick="salvarField(<?= $cid ?>, <?= (int)$f['id'] ?>)">Salvar campo</button>
+            <button class="btn btn-del btn-sm" onclick="excluirField(<?= (int)$f['id'] ?>)"><i class="bi bi-trash3"></i> Excluir</button>
           </div>
-          <div class="fld full"><label>Opções da lista (uma por linha — só para tipo Lista)</label><textarea id="nf-<?= $cid ?>-opcoes" rows="2"></textarea></div>
-          <div class="fld"><label>Obrigatório</label><select id="nf-<?= $cid ?>-obrig"><option value="0">Não</option><option value="1">Sim</option></select></div>
-          <div class="fld"><label>Ordem</label><input type="number" id="nf-<?= $cid ?>-ordem" value="100"/></div>
+          <?php else: ?><p class="muted" style="font-size:.76rem;margin:.3rem 0 0">Campo global — editável em outro lugar.</p><?php endif; ?>
         </div>
-        <button class="btn btn-primary btn-sm" onclick="salvarField(<?= $cid ?>, 0)"><i class="bi bi-plus-lg"></i> Adicionar campo</button>
+        <?php endforeach; ?>
+
+        <div class="fbox" style="border-style:dashed">
+          <div class="grid2">
+            <div class="fld"><label>Rótulo</label><input id="nf-<?= $cid ?>-label" placeholder="Ex: PDV vinculado"/></div>
+            <div class="fld"><label>Tipo</label>
+              <select id="nf-<?= $cid ?>-tipo">
+                <option value="text">Texto</option><option value="number">Número</option><option value="date">Data</option>
+                <option value="select">Lista</option><option value="textarea">Texto longo</option><option value="checkbox">Sim/Não</option>
+              </select>
+            </div>
+            <div class="fld full"><label>Opções da lista (uma por linha — só p/ tipo Lista)</label><textarea id="nf-<?= $cid ?>-opcoes" rows="2"></textarea></div>
+            <div class="fld"><label>Obrigatório</label><select id="nf-<?= $cid ?>-obrig"><option value="0">Não</option><option value="1">Sim</option></select></div>
+            <div class="fld"><label>Mostrar na lista</label><select id="nf-<?= $cid ?>-lista"><option value="0">Não</option><option value="1">Sim</option></select></div>
+            <div class="fld"><label>Ordem</label><input type="number" id="nf-<?= $cid ?>-ordem" value="100"/></div>
+          </div>
+          <button class="btn btn-primary btn-sm" onclick="salvarField(<?= $cid ?>, 0)"><i class="bi bi-plus-lg"></i> Adicionar característica</button>
+        </div>
       </div>
     </div>
   </div>
@@ -347,18 +365,23 @@ function excluirSub(id) {
 function salvarField(cardId, id) {
   let data;
   if (id) {
-    const el = document.querySelector(`.lin[data-field="${id}"]`);
-    data = { action: 'field_save', id, card_id: cardId, label: el.querySelector('.nome').value };
+    const el = document.querySelector(`.fbox[data-field="${id}"]`);
+    data = {
+      action: 'field_save', id, card_id: cardId,
+      label: el.querySelector('.f-label').value, tipo: el.querySelector('.f-tipo').value,
+      opcoes: el.querySelector('.f-opcoes').value, obrigatorio: el.querySelector('.f-obrig').value,
+      na_lista: el.querySelector('.f-lista').value, ordem: el.querySelector('.f-ordem').value,
+    };
   } else {
     data = {
       action: 'field_save', id: 0, card_id: cardId,
       label: $(`#nf-${cardId}-label`).value, tipo: $(`#nf-${cardId}-tipo`).value,
       opcoes: $(`#nf-${cardId}-opcoes`).value, obrigatorio: $(`#nf-${cardId}-obrig`).value,
-      ordem: $(`#nf-${cardId}-ordem`).value,
+      na_lista: $(`#nf-${cardId}-lista`).value, ordem: $(`#nf-${cardId}-ordem`).value,
     };
   }
   if (!data.label.trim()) { toast('Rótulo do campo vazio', false); return; }
-  post(data).then(d => { if (d.ok) { toast('Campo salvo'); reload(); } else toast(d.erro, false); });
+  post(data).then(d => { if (d.ok) { toast('Característica salva'); reload(); } else toast(d.erro, false); });
 }
 function excluirField(id) {
   if (!confirm('Excluir este campo?\n\nOs valores já preenchidos nos ativos serão perdidos.')) return;

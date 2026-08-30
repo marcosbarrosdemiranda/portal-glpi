@@ -24,6 +24,7 @@ $glpiForm  = $fonte === 'phone' ? 'phone.form.php' : 'peripheral.form.php';
 
 $subcats = inv_subcats($pdo, (int)$card['id']);
 $fields  = inv_fields($pdo, (int)$card['id']);
+$fieldsLista = array_values(array_filter($fields, fn($f) => !empty($f['na_lista']) && $f['tipo'] !== 'textarea'));
 
 /* ─────────────────────── AÇÕES (JSON) ─────────────────────── */
 $action = $_GET['action'] ?? $_POST['action'] ?? '';
@@ -212,6 +213,8 @@ $st = $pdo->prepare($sql);
 $st->execute($params);
 $ativos = $st->fetchAll();
 
+$valsAll = $fieldsLista ? inv_values_bulk($pdo, $itemtype, array_column($ativos, 'id')) : [];
+
 // contagens por subcategoria e por loja — dentro da mesma view (ativos/baixados), sem os filtros sub/loja/busca
 $baseWhere = array_filter($where, fn($c) => !str_contains($c, ':subf') && !str_contains($c, ':loja') && !str_contains($c, ':b'));
 $baseW = implode(' AND ', $baseWhere);
@@ -374,12 +377,13 @@ $H = 'inv_h';
   <?php
   $MOT = ['quebrado'=>'Quebrado','vendido'=>'Vendido','descartado'=>'Descartado','outro'=>'Outro'];
 
-  $tabela = function(array $rows, bool $showLoja) use ($view, $fonte, $MOT, $H, $GLPI_BASE, $glpiForm) { ?>
+  $tabela = function(array $rows, bool $showLoja) use ($view, $fonte, $MOT, $H, $GLPI_BASE, $glpiForm, $fieldsLista, $valsAll) { ?>
     <table>
       <thead><tr>
         <th>Nome</th>
         <?php if ($showLoja): ?><th>Loja</th><?php endif; ?>
         <th>Subcategoria</th><th>Fabricante / Modelo</th>
+        <?php foreach ($fieldsLista as $f): ?><th><?= $H($f['label']) ?></th><?php endforeach; ?>
         <?php if ($view === 'baixados'): ?>
           <th>Motivo</th><th>Baixa</th>
         <?php else: ?>
@@ -394,6 +398,11 @@ $H = 'inv_h';
           <?php if ($showLoja): ?><td><?= $H(apelido_entidade($a['entidade'] ?? '—')) ?></td><?php endif; ?>
           <td><?= $H($a['subcategoria'] ?: '—') ?></td>
           <td><?= $H($a['fabricante'] ?: '—') ?><?php if ($a['modelo']): ?><div class="sub"><?= $H($a['modelo']) ?></div><?php endif; ?></td>
+          <?php foreach ($fieldsLista as $f):
+              $v = $valsAll[(int)$a['id']][(int)$f['id']] ?? '';
+              if ($f['tipo'] === 'checkbox') $v = ($v === '1' || $v === 1) ? 'Sim' : ($v === '' ? '' : 'Não'); ?>
+            <td><?= $H($v !== '' ? $v : '—') ?></td>
+          <?php endforeach; ?>
           <?php if ($view === 'baixados'): ?>
             <td><?= $H($MOT[$a['baixa_motivo']] ?? $a['baixa_motivo']) ?><?php if ($a['baixa_obs']): ?><div class="sub"><?= $H($a['baixa_obs']) ?></div><?php endif; ?></td>
             <td><?= $H($a['baixa_data'] ?: '—') ?><?php if ($a['baixa_por']): ?><div class="sub"><?= $H($a['baixa_por']) ?></div><?php endif; ?></td>
