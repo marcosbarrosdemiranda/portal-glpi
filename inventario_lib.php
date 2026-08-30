@@ -117,6 +117,15 @@ function inv_bootstrap(PDO $pdo): void {
         $insNb->execute([(int)$r['id']]);
     }
 
+    // Lixo do agente (containers Docker / sem tipo de hardware): joga em "Ignorado".
+    // INSERT IGNORE = só toca máquina sem categoria; se o usuário mover, não volta.
+    $insIg = $pdo->prepare("INSERT IGNORE INTO portal_inv_pc_cat (computer_id, categoria, atualizado_por) VALUES (?, '__ignorado__', 'classificacao-ignorados')");
+    foreach ($pdo->query("SELECT c.id, c.name, t.name AS tipo
+                          FROM glpi_computers c LEFT JOIN glpi_computertypes t ON t.id = c.computertypes_id
+                          WHERE c.is_deleted = 0 AND c.is_template = 0") as $r) {
+        if (inv_pc_regra($r['name'], $r['tipo']) === '__ignorado__') $insIg->execute([(int)$r['id']]);
+    }
+
     // Classificação inicial dos computadores (só na 1ª vez que a tabela está vazia)
     if ((int)$pdo->query("SELECT COUNT(*) FROM portal_inv_pc_cat")->fetchColumn() === 0) {
         $ins = $pdo->prepare("INSERT IGNORE INTO portal_inv_pc_cat (computer_id, categoria, atualizado_por) VALUES (?,?,'classificacao-inicial')");
@@ -367,6 +376,11 @@ const INV_PC_CATS = [
 /** Palpite de categoria só para a classificação inicial. Depois é manual. */
 function inv_pc_regra(string $nome, ?string $tipoGlpi): string {
     $n = mb_strtoupper(trim($nome));
+    // Lixo do agente: containers Docker / WSL. Sem tipo de hardware = quase certeza que não é PC.
+    if (!$tipoGlpi
+        || str_contains($n, 'DOCKER')
+        || preg_match('/\bON .+ ACCOUNT$/', $n)            // "docker-desktop on ti1gr account", "Ubuntu on ... account"
+        || preg_match('/^(SENSOR-|HOMEASSISTANT|PORTAINER)/', $n)) return '__ignorado__';
     if (str_starts_with($n, 'PDV')) return 'pdvs';
     if ($tipoGlpi === 'VMware' || $n === 'ARQFUNC'
         || preg_match('/(SERVER|SERVIDOR|\bSRV\b|HYPER-?V|ESXI|VCENTER|DELPHOS|GUNNEBO|\bTS\b|DOMINIO)/', $n)) return 'maquinas-virtuais';

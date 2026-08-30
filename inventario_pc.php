@@ -90,12 +90,16 @@ if ($action === 'reativar') {
 }
 
 /* ─────────── PÁGINA ─────────── */
+$ignMode     = isset($_GET['ignorados']);
+$listaSlug   = $ignMode ? '__ignorado__' : $slug;
 $view        = ($_GET['view'] ?? 'ativos') === 'baixados' ? 'baixados' : 'ativos';
 $loja_filtro = (int)($_GET['loja'] ?? 0);
 $busca       = mb_strtolower(trim($_GET['busca'] ?? ''));
 
-$todos     = inv_computers_do_card($pdo, $slug, $view);
-$totalOutra = count(inv_computers_do_card($pdo, $slug, $view === 'ativos' ? 'baixados' : 'ativos'));
+$qtdIgnorados = count(inv_computers_do_card($pdo, '__ignorado__', 'ativos'));
+
+$todos     = inv_computers_do_card($pdo, $listaSlug, $view);
+$totalOutra = count(inv_computers_do_card($pdo, $listaSlug, $view === 'ativos' ? 'baixados' : 'ativos'));
 
 $rows = array_values(array_filter($todos, function ($r) use ($loja_filtro, $busca) {
     if ($loja_filtro && (int)$r['entities_id'] !== $loja_filtro) return false;
@@ -196,35 +200,50 @@ $qsView = $view === 'baixados' ? '&view=baixados' : '';
 
 <div class="wrap">
   <div class="head">
-    <div class="ic" style="background:<?= $H($card['cor']) ?>"><i class="bi <?= $H($card['icone']) ?>"></i></div>
+    <div class="ic" style="background:<?= $ignMode ? '#9aa0a6' : $H($card['cor']) ?>"><i class="bi <?= $ignMode ? 'bi-slash-circle' : $H($card['icone']) ?>"></i></div>
     <div>
-      <h1><?= $H($card['titulo']) ?></h1>
-      <p><?= $totalAtivos ?> em uso · <?= $totalBaixados ?> baixado<?= $totalBaixados == 1 ? '' : 's' ?></p>
+      <h1><?= $ignMode ? 'Ignorados' : $H($card['titulo']) ?></h1>
+      <?php if ($ignMode): ?>
+        <p>Máquinas fora do inventário (containers Docker, serviços). Mova pra uma categoria se for um PC de verdade.</p>
+      <?php else: ?>
+        <p><?= $totalAtivos ?> em uso · <?= $totalBaixados ?> baixado<?= $totalBaixados == 1 ? '' : 's' ?></p>
+      <?php endif; ?>
     </div>
     <div class="add">
-      <a class="btn-add" style="background:#455a64" href="inventario_relatorio.php?cat=<?= $H($slug) ?><?= $qsView ?>"><i class="bi bi-file-earmark-pdf"></i> PDF</a>
-      <?php if ($view === 'ativos'): ?><button class="btn-add" onclick="abrirModal(0)"><i class="bi bi-plus-lg"></i> Novo</button><?php endif; ?>
+      <?php if ($ignMode): ?>
+        <a class="btn-add" style="background:#455a64" href="inventario_pc.php?cat=<?= $H($slug) ?>"><i class="bi bi-arrow-left"></i> Voltar</a>
+      <?php else: ?>
+        <a class="btn-add" style="background:#455a64" href="inventario_relatorio.php?cat=<?= $H($slug) ?><?= $qsView ?>"><i class="bi bi-file-earmark-pdf"></i> PDF</a>
+        <?php if ($view === 'ativos'): ?><button class="btn-add" onclick="abrirModal(0)"><i class="bi bi-plus-lg"></i> Novo</button><?php endif; ?>
+      <?php endif; ?>
     </div>
   </div>
 
+  <?php if (!$ignMode): ?>
   <div class="tabs">
     <a class="tab <?= $view === 'ativos' ? 'active' : '' ?>" href="?cat=<?= $H($slug) ?>"><i class="bi bi-check-circle"></i> Em uso<span class="n"><?= $totalAtivos ?></span></a>
     <a class="tab <?= $view === 'baixados' ? 'active' : '' ?>" href="?cat=<?= $H($slug) ?>&view=baixados"><i class="bi bi-archive"></i> Baixados<span class="n"><?= $totalBaixados ?></span></a>
+    <?php if ($qtdIgnorados): ?>
+      <a class="tab" href="?cat=<?= $H($slug) ?>&ignorados=1" style="margin-left:auto"><i class="bi bi-slash-circle"></i> Ignorados<span class="n"><?= $qtdIgnorados ?></span></a>
+    <?php endif; ?>
   </div>
+  <?php endif; ?>
 
+  <?php $qsIgn = $ignMode ? '&ignorados=1' : ''; ?>
   <div class="filtros">
     <?php if ($loja_filtro): ?>
-      <a class="chip" href="?cat=<?= $H($slug) ?><?= $qsView ?>">Todas as lojas</a>
+      <a class="chip" href="?cat=<?= $H($slug) ?><?= $qsView . $qsIgn ?>">Todas as lojas</a>
     <?php else: ?>
       <button type="button" class="chip active" onclick="toggleTodosGrupos()">Todas as lojas <i class="bi bi-arrows-expand"></i></button>
     <?php endif; ?>
     <?php foreach ($cntPorLoja as $eid => $n): if (!$eid) continue; ?>
-      <a class="chip <?= $loja_filtro == $eid ? 'active' : '' ?>" href="?cat=<?= $H($slug) ?>&loja=<?= (int)$eid ?><?= $qsView ?>">
+      <a class="chip <?= $loja_filtro == $eid ? 'active' : '' ?>" href="?cat=<?= $H($slug) ?>&loja=<?= (int)$eid ?><?= $qsView . $qsIgn ?>">
         <?= $H(apelido_entidade($entMap[$eid] ?? '—')) ?> <?= (int)$n ?>
       </a>
     <?php endforeach; ?>
     <form class="busca" method="get">
       <input type="hidden" name="cat" value="<?= $H($slug) ?>"/>
+      <?php if ($ignMode): ?><input type="hidden" name="ignorados" value="1"/><?php endif; ?>
       <?php if ($view === 'baixados'): ?><input type="hidden" name="view" value="baixados"/><?php endif; ?>
       <?php if ($loja_filtro): ?><input type="hidden" name="loja" value="<?= $loja_filtro ?>"/><?php endif; ?>
       <input type="text" name="busca" value="<?= $H($_GET['busca'] ?? '') ?>" placeholder="Nome, série, patrimônio..."/>
