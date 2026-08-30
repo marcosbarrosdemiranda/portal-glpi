@@ -1,0 +1,230 @@
+<?php
+/**
+ * inventario_lib.php — base do módulo de Inventário do portal.
+ *
+ * Modelo híbrido:
+ *  - O ativo em si mora no GLPI (glpi_peripherals / glpi_phones), gravado via API REST.
+ *  - A taxonomia (cards, subcategorias) e os campos personalizados moram em
+ *    tabelas portal_inv_* deste banco.
+ *
+ * Requer: $pdo (agenda/db.php) e as constantes GLPI_* (agenda/config.php).
+ */
+
+require_once __DIR__ . '/agenda/config.php';
+
+/* ───────────────────────────── Tabelas ───────────────────────────── */
+
+function inv_bootstrap(PDO $pdo): void {
+    $pdo->exec("
+        CREATE TABLE IF NOT EXISTS portal_inv_cards (
+            id         INT AUTO_INCREMENT PRIMARY KEY,
+            slug       VARCHAR(40)  NOT NULL UNIQUE,
+            titulo     VARCHAR(80)  NOT NULL,
+            descricao  VARCHAR(160) DEFAULT '',
+            icone      VARCHAR(40)  DEFAULT 'bi-box',
+            cor        VARCHAR(9)   DEFAULT '#0097a7',
+            fonte      ENUM('peripheral','phone') NOT NULL DEFAULT 'peripheral',
+            ordem      INT     DEFAULT 100,
+            ativo      TINYINT(1) DEFAULT 1,
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+    ");
+    $pdo->exec("
+        CREATE TABLE IF NOT EXISTS portal_inv_subcats (
+            id           INT AUTO_INCREMENT PRIMARY KEY,
+            card_id      INT NOT NULL,
+            nome         VARCHAR(80) NOT NULL,
+            glpi_type_id INT DEFAULT NULL COMMENT 'id em glpi_peripheraltypes ou glpi_phonetypes',
+            ordem        INT DEFAULT 100,
+            FOREIGN KEY (card_id) REFERENCES portal_inv_cards(id) ON DELETE CASCADE
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+    ");
+    $pdo->exec("
+        CREATE TABLE IF NOT EXISTS portal_inv_fields (
+            id          INT AUTO_INCREMENT PRIMARY KEY,
+            card_id     INT DEFAULT NULL COMMENT 'NULL = campo global (todos os cards)',
+            chave       VARCHAR(40) NOT NULL,
+            label       VARCHAR(80) NOT NULL,
+            tipo        ENUM('text','number','date','select','textarea','checkbox') NOT NULL DEFAULT 'text',
+            opcoes      TEXT DEFAULT NULL COMMENT 'select: uma opção por linha',
+            obrigatorio TINYINT(1) DEFAULT 0,
+            ordem       INT DEFAULT 100
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+    ");
+    $pdo->exec("
+        CREATE TABLE IF NOT EXISTS portal_inv_values (
+            id       INT AUTO_INCREMENT PRIMARY KEY,
+            itemtype VARCHAR(20) NOT NULL COMMENT 'Peripheral | Phone',
+            items_id INT NOT NULL,
+            field_id INT NOT NULL,
+            valor    TEXT DEFAULT NULL,
+            UNIQUE KEY uniq_item_field (itemtype, items_id, field_id),
+            FOREIGN KEY (field_id) REFERENCES portal_inv_fields(id) ON DELETE CASCADE
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+    ");
+
+    // Semente inicial (só roda se ainda não há nenhum card)
+    if ((int)$pdo->query("SELECT COUNT(*) FROM portal_inv_cards")->fetchColumn() > 0) return;
+
+    $seed = [
+        ['celulares',  'Celulares',            'Smartphones e linhas corporativas',            'bi-phone',              '#1565c0', 'phone',      ['Celular']],
+        ['tablets',    'Tablets',              'Tablets corporativos e acessórios',            'bi-tablet',             '#7b1fa2', 'peripheral', ['Tablet']],
+        ['coletores',  'Coletores',            'Coletores de dados e leitores de código',       'bi-upc-scan',           '#2e7d32', 'peripheral', ['Coletor']],
+        ['pdvmobile',  'PDV Mobile',           'Terminais de venda móveis e PDV portátil',      'bi-credit-card-2-back', '#e65100', 'peripheral', ['PDV Mobile']],
+        ['pinpads',    'Pinpads',              'Pinpads e leitores de cartão',                  'bi-credit-card',        '#3949ab', 'peripheral', ['Pinpad']],
+        ['pos',        'POS',                  'Terminais POS e maquininhas de pagamento',      'bi-shop-window',        '#00796b', 'peripheral', ['POS']],
+        ['termometros','Termômetros',          'Termômetros e sensores de temperatura',         'bi-thermometer-half',   '#c62828', 'peripheral', ['Termômetro']],
+        ['radios',     'Rádios Comunicação',   'Rádios comunicadores e HTs',                    'bi-walkie-talkie',      '#0277bd', 'peripheral', ['Rádio Comunicador']],
+        ['som',        'Equipamentos de Som',  'Caixas de som, amplificadores e microfones',    'bi-speaker-fill',       '#8e24aa', 'peripheral', ['Equipamento de Som']],
+        ['acessorios', 'Acessórios Celulares', 'Fones, carregadores, cabos e capas',            'bi-headphones',         '#f9a825', 'peripheral', ['Acessório Celular']],
+        ['triturador', 'Triturador de Papel',  'Fragmentadoras e trituradoras de documentos',   'bi-scissors',           '#546e7a', 'peripheral', ['Triturador de Papel']],
+        ['videoconf',  'Videoconferência',     'Câmeras, barras de som e equipamentos de VC',   'bi-camera-video-fill',  '#1a73e8', 'peripheral', ['Videoconferência']],
+        ['cftv',       'CFTV',                 'Câmeras, gravadores e infraestrutura de CFTV',  'bi-camera-reels-fill',  '#d84315', 'peripheral', ['Câmera', 'DVR', 'NVR', 'PowerBalun']],
+    ];
+
+    $insCard = $pdo->prepare("INSERT INTO portal_inv_cards (slug,titulo,descricao,icone,cor,fonte,ordem) VALUES (?,?,?,?,?,?,?)");
+    $insSub  = $pdo->prepare("INSERT INTO portal_inv_subcats (card_id,nome,ordem) VALUES (?,?,?)");
+    $ordem = 10;
+    foreach ($seed as $c) {
+        [$slug,$titulo,$desc,$icone,$cor,$fonte,$subs] = $c;
+        $insCard->execute([$slug,$titulo,$desc,$icone,$cor,$fonte,$ordem]);
+        $cardId = (int)$pdo->lastInsertId();
+        $o = 10;
+        foreach ($subs as $s) { $insSub->execute([$cardId,$s,$o]); $o += 10; }
+        $ordem += 10;
+    }
+}
+
+/* ───────────────────────────── Taxonomia ───────────────────────────── */
+
+function inv_cards(PDO $pdo, bool $todos = false): array {
+    $sql = "SELECT * FROM portal_inv_cards" . ($todos ? '' : " WHERE ativo = 1") . " ORDER BY ordem, titulo";
+    return $pdo->query($sql)->fetchAll();
+}
+
+function inv_card(PDO $pdo, string $slug): ?array {
+    $st = $pdo->prepare("SELECT * FROM portal_inv_cards WHERE slug = ?");
+    $st->execute([$slug]);
+    return $st->fetch() ?: null;
+}
+
+function inv_subcats(PDO $pdo, int $cardId): array {
+    $st = $pdo->prepare("SELECT * FROM portal_inv_subcats WHERE card_id = ? ORDER BY ordem, nome");
+    $st->execute([$cardId]);
+    return $st->fetchAll();
+}
+
+/** Campos personalizados aplicáveis a um card (globais + do card). */
+function inv_fields(PDO $pdo, int $cardId): array {
+    $st = $pdo->prepare("SELECT * FROM portal_inv_fields WHERE card_id IS NULL OR card_id = ? ORDER BY ordem, label");
+    $st->execute([$cardId]);
+    return $st->fetchAll();
+}
+
+/** valores personalizados de um ativo → [field_id => valor] */
+function inv_values(PDO $pdo, string $itemtype, int $itemsId): array {
+    $st = $pdo->prepare("SELECT field_id, valor FROM portal_inv_values WHERE itemtype = ? AND items_id = ?");
+    $st->execute([$itemtype, $itemsId]);
+    return $st->fetchAll(PDO::FETCH_KEY_PAIR);
+}
+
+function inv_save_values(PDO $pdo, string $itemtype, int $itemsId, array $porFieldId): void {
+    $up = $pdo->prepare("INSERT INTO portal_inv_values (itemtype,items_id,field_id,valor)
+                         VALUES (?,?,?,?)
+                         ON DUPLICATE KEY UPDATE valor = VALUES(valor)");
+    foreach ($porFieldId as $fid => $val) {
+        $up->execute([$itemtype, $itemsId, (int)$fid, ($val === '' ? null : $val)]);
+    }
+}
+
+/* ───────────────────────────── GLPI REST API ───────────────────────────── */
+
+function glpi_session(): ?string {
+    $ch = curl_init(GLPI_URL . '/apirest.php/initSession');
+    curl_setopt_array($ch, [
+        CURLOPT_RETURNTRANSFER => true,
+        CURLOPT_TIMEOUT        => 20,
+        CURLOPT_HTTPHEADER     => [
+            'Authorization: Basic ' . base64_encode(GLPI_USER . ':' . GLPI_PASS),
+            'App-Token: ' . GLPI_APP_TOKEN,
+        ],
+    ]);
+    $r = json_decode(curl_exec($ch), true);
+    curl_close($ch);
+    return $r['session_token'] ?? null;
+}
+
+function glpi_kill(?string $token): void {
+    if (!$token) return;
+    $ch = curl_init(GLPI_URL . '/apirest.php/killSession');
+    curl_setopt_array($ch, [
+        CURLOPT_RETURNTRANSFER => true,
+        CURLOPT_TIMEOUT        => 10,
+        CURLOPT_HTTPHEADER     => ['Session-Token: ' . $token, 'App-Token: ' . GLPI_APP_TOKEN],
+    ]);
+    curl_exec($ch);
+    curl_close($ch);
+}
+
+/**
+ * Chamada genérica à API. Retorna [httpcode, corpo-decodificado].
+ * $method: GET|POST|PUT|DELETE
+ */
+function glpi_call(string $method, string $endpoint, ?array $body, string $token): array {
+    $ch = curl_init(GLPI_URL . '/apirest.php/' . ltrim($endpoint, '/'));
+    $opt = [
+        CURLOPT_RETURNTRANSFER => true,
+        CURLOPT_TIMEOUT        => 25,
+        CURLOPT_CUSTOMREQUEST  => $method,
+        CURLOPT_HTTPHEADER     => [
+            'Session-Token: ' . $token,
+            'App-Token: ' . GLPI_APP_TOKEN,
+            'Content-Type: application/json',
+        ],
+    ];
+    if ($body !== null) $opt[CURLOPT_POSTFIELDS] = json_encode($body, JSON_UNESCAPED_UNICODE);
+    curl_setopt_array($ch, $opt);
+    $raw  = curl_exec($ch);
+    $code = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+    curl_close($ch);
+    return [$code, json_decode($raw, true)];
+}
+
+/**
+ * Garante que existe uma linha de dropdown do GLPI com esse nome (Manufacturer,
+ * PeripheralModel, PhoneModel, PeripheralType…). Cria via API se faltar.
+ */
+function glpi_ensure_dropdown(PDO $pdo, string $tabela, string $endpoint, string $nome, string $token): ?int {
+    $nome = trim($nome);
+    if ($nome === '') return null;
+    $st = $pdo->prepare("SELECT id FROM `$tabela` WHERE name = ?");
+    $st->execute([$nome]);
+    $id = $st->fetchColumn();
+    if ($id !== false) return (int)$id;
+
+    [$code, $resp] = glpi_call('POST', $endpoint, ['input' => ['name' => $nome]], $token);
+    if ($code >= 200 && $code < 300) {
+        if (isset($resp['id'])) return (int)$resp['id'];
+        if (isset($resp[0]['id'])) return (int)$resp[0]['id'];
+    }
+    return null;
+}
+
+/** Idem, para o "tipo" (PeripheralType / PhoneType) conforme a fonte do card. */
+function glpi_ensure_type(PDO $pdo, string $fonte, string $nome, string $token): ?int {
+    return $fonte === 'phone'
+        ? glpi_ensure_dropdown($pdo, 'glpi_phonetypes', 'PhoneType', $nome, $token)
+        : glpi_ensure_dropdown($pdo, 'glpi_peripheraltypes', 'PeripheralType', $nome, $token);
+}
+
+/** Resolve/atualiza o glpi_type_id de todas as subcategorias de um card. */
+function inv_sync_types(PDO $pdo, array $card, string $token): void {
+    $up = $pdo->prepare("UPDATE portal_inv_subcats SET glpi_type_id = ? WHERE id = ?");
+    foreach (inv_subcats($pdo, (int)$card['id']) as $sc) {
+        if ($sc['glpi_type_id']) continue;
+        $tid = glpi_ensure_type($pdo, $card['fonte'], $sc['nome'], $token);
+        if ($tid) $up->execute([$tid, $sc['id']]);
+    }
+}
+
+function inv_h($s): string { return htmlspecialchars((string)$s, ENT_QUOTES, 'UTF-8'); }

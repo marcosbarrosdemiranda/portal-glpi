@@ -2,6 +2,11 @@
 require_once __DIR__ . '/auth_guard.php';
 if (empty($_SESSION['autenticado'])) { header('Location: auth.php'); exit; }
 if (($_SESSION['perfil'] ?? '') === 'self-service') { header('Location: dashboard.php'); exit; }
+
+require_once __DIR__ . '/agenda/db.php';
+require_once __DIR__ . '/inventario_lib.php';
+inv_bootstrap($pdo);
+$cards_glpi = inv_cards($pdo);
 ?>
 <!DOCTYPE html>
 <html lang="pt-BR">
@@ -171,77 +176,13 @@ if (($_SESSION['perfil'] ?? '') === 'self-service') { header('Location: dashboar
     <p>Access points UniFi — status, clientes e uptime</p>
   </a>
 
-  <a href="inventario_glpi.php?cat=celulares" class="cat-card" style="border-top-color:#1565c0">
-    <div class="cat-icon celular-icon"><i class="bi bi-phone"></i></div>
-    <h3>Celulares</h3>
-    <p>Smartphones e linhas corporativas</p>
+  <?php foreach ($cards_glpi as $c): ?>
+  <a href="inventario_glpi.php?cat=<?= htmlspecialchars($c['slug']) ?>" class="cat-card" style="border-top-color:<?= htmlspecialchars($c['cor']) ?>">
+    <div class="cat-icon" style="background:<?= htmlspecialchars($c['cor']) ?>22;color:<?= htmlspecialchars($c['cor']) ?>"><i class="bi <?= htmlspecialchars($c['icone']) ?>"></i></div>
+    <h3><?= htmlspecialchars($c['titulo']) ?></h3>
+    <p><?= htmlspecialchars($c['descricao']) ?></p>
   </a>
-
-  <a href="inventario_glpi.php?cat=tablets" class="cat-card" style="border-top-color:#7b1fa2">
-    <div class="cat-icon tablet-icon"><i class="bi bi-tablet"></i></div>
-    <h3>Tablets</h3>
-    <p>Tablets corporativos e acessórios</p>
-  </a>
-
-  <a href="inventario_glpi.php?cat=coletores" class="cat-card" style="border-top-color:#2e7d32">
-    <div class="cat-icon coletor-icon"><i class="bi bi-upc-scan"></i></div>
-    <h3>Coletores</h3>
-    <p>Coletores de dados e leitores de código de barras</p>
-  </a>
-
-  <a href="inventario_glpi.php?cat=pdvmobile" class="cat-card" style="border-top-color:#e65100">
-    <div class="cat-icon pdvmob-icon"><i class="bi bi-credit-card-2-back"></i></div>
-    <h3>PDV Mobile</h3>
-    <p>Terminais de venda móveis e PDV portátil</p>
-  </a>
-
-  <a href="inventario_glpi.php?cat=pinpads" class="cat-card" style="border-top-color:#3949ab">
-    <div class="cat-icon pinpad-icon"><i class="bi bi-credit-card"></i></div>
-    <h3>Pinpads</h3>
-    <p>Pinpads e leitores de cartão</p>
-  </a>
-
-  <a href="inventario_glpi.php?cat=pos" class="cat-card" style="border-top-color:#00796b">
-    <div class="cat-icon pos-icon"><i class="bi bi-shop-window"></i></div>
-    <h3>POS</h3>
-    <p>Terminais POS e maquininhas de pagamento</p>
-  </a>
-
-  <a href="inventario_glpi.php?cat=termometros" class="cat-card" style="border-top-color:#c62828">
-    <div class="cat-icon termo-icon"><i class="bi bi-thermometer-half"></i></div>
-    <h3>Termômetros</h3>
-    <p>Termômetros e sensores de temperatura</p>
-  </a>
-
-  <a href="inventario_glpi.php?cat=radios" class="cat-card" style="border-top-color:#0277bd">
-    <div class="cat-icon radio-icon"><i class="bi bi-walkie-talkie"></i></div>
-    <h3>Rádios Comunicação</h3>
-    <p>Rádios comunicadores e HTs</p>
-  </a>
-
-  <a href="inventario_glpi.php?cat=som" class="cat-card" style="border-top-color:#8e24aa">
-    <div class="cat-icon som-icon"><i class="bi bi-speaker-fill"></i></div>
-    <h3>Equipamentos de Som</h3>
-    <p>Caixas de som, amplificadores e microfones</p>
-  </a>
-
-  <a href="inventario_glpi.php?cat=acessorios" class="cat-card" style="border-top-color:#f9a825">
-    <div class="cat-icon acess-icon"><i class="bi bi-headphones"></i></div>
-    <h3>Acessórios Celulares</h3>
-    <p>Fones, carregadores, cabos e capas</p>
-  </a>
-
-  <a href="inventario_glpi.php?cat=triturador" class="cat-card" style="border-top-color:#546e7a">
-    <div class="cat-icon tritura-icon"><i class="bi bi-scissors"></i></div>
-    <h3>Triturador de Papel</h3>
-    <p>Fragmentadoras e trituradoras de documentos</p>
-  </a>
-
-  <a href="inventario_glpi.php?cat=videoconf" class="cat-card" style="border-top-color:#1a73e8">
-    <div class="cat-icon videoconf-icon"><i class="bi bi-camera-video-fill"></i></div>
-    <h3>Videoconferência</h3>
-    <p>Câmeras, barras de som e equipamentos de videoconferência</p>
-  </a>
+  <?php endforeach; ?>
 
   <div class="cat-card disabled">
     <div class="cat-icon monitor-icon"><i class="bi bi-tv"></i></div>
@@ -275,13 +216,6 @@ if (($_SESSION['perfil'] ?? '') === 'self-service') { header('Location: dashboar
     <div class="cat-icon inv-icon"><i class="bi bi-lightning-charge-fill"></i></div>
     <h3>Inversores</h3>
     <p>Inversores de energia e frequência</p>
-    <span class="badge-embreve">Em breve</span>
-  </div>
-
-  <div class="cat-card disabled">
-    <div class="cat-icon cftv-icon"><i class="bi bi-camera-video-fill"></i></div>
-    <h3>CFTV</h3>
-    <p>Câmeras, DVRs e monitoramento</p>
     <span class="badge-embreve">Em breve</span>
   </div>
 
