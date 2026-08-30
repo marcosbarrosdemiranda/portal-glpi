@@ -128,6 +128,7 @@ if (($_SESSION['perfil'] ?? '') === 'self-service') { header('Location: dashboar
     .som-icon     { background:#f3e5f5; color:#8e24aa; }
     .acess-icon   { background:#fff8e1; color:#f9a825; }
     .tritura-icon { background:#eceff1; color:#546e7a; }
+    .videoconf-icon { background:#e8f0fe; color:#1a73e8; }
   </style>
 </head>
 <body>
@@ -244,6 +245,13 @@ if (($_SESSION['perfil'] ?? '') === 'self-service') { header('Location: dashboar
     <div class="cat-icon tritura-icon"><i class="bi bi-scissors"></i></div>
     <h3>Triturador de Papel</h3>
     <p>Fragmentadoras e trituradoras de documentos</p>
+    <span class="badge-embreve">Em breve</span>
+  </div>
+
+  <div class="cat-card disabled">
+    <div class="cat-icon videoconf-icon"><i class="bi bi-camera-video-fill"></i></div>
+    <h3>Videoconferência</h3>
+    <p>Câmeras, barras de som e equipamentos de videoconferência</p>
     <span class="badge-embreve">Em breve</span>
   </div>
 
