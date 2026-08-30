@@ -129,7 +129,25 @@ if ($action === 'delete') {
     if (!$token) { echo json_encode(['ok' => false, 'erro' => 'Falha ao autenticar no GLPI']); exit; }
     [$code, $resp] = glpi_call('DELETE', "$itemtype/$id", null, $token);  // soft delete → lixeira do GLPI
     glpi_kill($token);
+    inv_baixa_clear($pdo, $itemtype, $id);
     echo json_encode(['ok' => ($code >= 200 && $code < 300), 'http' => $code]);
+    exit;
+}
+
+if ($action === 'baixa') {
+    header('Content-Type: application/json; charset=utf-8');
+    $id  = (int)($_POST['id'] ?? 0);
+    $por = $_SESSION['nome'] ?? $_SESSION['usuario'] ?? '';
+    inv_baixa_set($pdo, $itemtype, $id, $_POST['motivo'] ?? 'quebrado',
+                  trim($_POST['observacao'] ?? ''), $_POST['baixado_em'] ?? null, $por);
+    echo json_encode(['ok' => true]);
+    exit;
+}
+
+if ($action === 'reativar') {
+    header('Content-Type: application/json; charset=utf-8');
+    inv_baixa_clear($pdo, $itemtype, (int)($_POST['id'] ?? 0));
+    echo json_encode(['ok' => true]);
     exit;
 }
 
@@ -146,6 +164,7 @@ if (array_filter($subcats, fn($s) => $s['glpi_type_id'] === null)) {
 $sub_filtro  = (int)($_GET['sub'] ?? 0);
 $loja_filtro = (int)($_GET['loja'] ?? 0);
 $busca       = trim($_GET['busca'] ?? '');
+$view        = ($_GET['view'] ?? 'ativos') === 'baixados' ? 'baixados' : 'ativos';
 
 $typeIds = array_values(array_filter(array_map(fn($s) => (int)$s['glpi_type_id'], $subcats)));
 $aplicaTipo = ($fonte === 'peripheral') || count($subcats) > 1;
@@ -153,6 +172,7 @@ $aplicaTipo = ($fonte === 'peripheral') || count($subcats) > 1;
 $where  = ["p.is_deleted = 0", "p.is_template = 0"];
 $params = [];
 if ($fonte === 'peripheral') $where[] = "p.is_dynamic = 0";
+$where[] = $view === 'baixados' ? "bx.id IS NOT NULL" : "bx.id IS NULL";
 
 if ($aplicaTipo) {
     if (!$typeIds) $where[] = "1 = 0";
@@ -173,32 +193,46 @@ if ($busca !== '') {
     $params[':b'] = '%' . $busca . '%';
 }
 $W = implode(' AND ', $where);
+$JOIN = "FROM `$tbl` p
+         LEFT JOIN portal_inv_baixas bx ON bx.itemtype = " . $pdo->quote($itemtype) . " AND bx.items_id = p.id
+         LEFT JOIN glpi_entities e      ON e.id  = p.entities_id
+         LEFT JOIN glpi_manufacturers m ON m.id  = p.manufacturers_id
+         LEFT JOIN `$tblModel` md       ON md.id = p.$colModel
+         LEFT JOIN `$tblType` t         ON t.id  = p.$colType";
 
 $sql = "SELECT p.id, p.name, p.serial, p.otherserial, p.contact, p.entities_id,
                p.$colType AS type_id, e.completename AS entidade,
-               m.name AS fabricante, md.name AS modelo, t.name AS subcategoria, p.date_mod
-        FROM `$tbl` p
-        LEFT JOIN glpi_entities e      ON e.id  = p.entities_id
-        LEFT JOIN glpi_manufacturers m ON m.id  = p.manufacturers_id
-        LEFT JOIN `$tblModel` md       ON md.id = p.$colModel
-        LEFT JOIN `$tblType` t         ON t.id  = p.$colType
+               m.name AS fabricante, md.name AS modelo, t.name AS subcategoria, p.date_mod,
+               bx.motivo AS baixa_motivo, bx.observacao AS baixa_obs,
+               bx.baixado_em AS baixa_data, bx.baixado_por AS baixa_por
+        $JOIN
         WHERE $W
         ORDER BY e.completename, p.name";
 $st = $pdo->prepare($sql);
 $st->execute($params);
 $ativos = $st->fetchAll();
 
-// contagens (por subcategoria e por loja) — ignoram os filtros sub/loja/busca
-function inv_count(PDO $pdo, string $tbl, string $baseW, array $baseP, string $groupCol): array {
-    $st = $pdo->prepare("SELECT p.$groupCol AS k, COUNT(*) n FROM `$tbl` p WHERE $baseW GROUP BY p.$groupCol");
+// contagens por subcategoria e por loja — dentro da mesma view (ativos/baixados), sem os filtros sub/loja/busca
+$baseWhere = array_filter($where, fn($c) => !str_contains($c, ':subf') && !str_contains($c, ':loja') && !str_contains($c, ':b'));
+$baseW = implode(' AND ', $baseWhere);
+$baseP = array_filter($params, fn($k) => !in_array($k, [':subf', ':loja', ':b'], true), ARRAY_FILTER_USE_KEY);
+
+function inv_count(PDO $pdo, string $join, string $baseW, array $baseP, string $groupCol): array {
+    $st = $pdo->prepare("SELECT p.$groupCol AS k, COUNT(*) n $join WHERE $baseW GROUP BY p.$groupCol");
     $st->execute($baseP);
     return $st->fetchAll(PDO::FETCH_KEY_PAIR);
 }
-$baseW = implode(' AND ', array_filter($where, fn($c) => !str_contains($c, ':subf') && !str_contains($c, ':loja') && !str_contains($c, ':b')));
-$baseP = array_filter($params, fn($k) => !in_array($k, [':subf', ':loja', ':b'], true), ARRAY_FILTER_USE_KEY);
-$cntPorTipo = inv_count($pdo, $tbl, $baseW, $baseP, $colType);
-$cntPorLoja = inv_count($pdo, $tbl, $baseW, $baseP, 'entities_id');
+$cntPorTipo = inv_count($pdo, $JOIN, $baseW, $baseP, $colType);
+$cntPorLoja = inv_count($pdo, $JOIN, $baseW, $baseP, 'entities_id');
 $totalGeral = array_sum($cntPorTipo);
+
+// total da outra view (pro badge do toggle)
+$wOutra = array_map(fn($c) => str_contains($c, 'bx.id IS') ? ($view === 'baixados' ? 'bx.id IS NULL' : 'bx.id IS NOT NULL') : $c, $baseWhere);
+$stO = $pdo->prepare("SELECT COUNT(*) $JOIN WHERE " . implode(' AND ', $wOutra));
+$stO->execute($baseP);
+$totalOutra = (int)$stO->fetchColumn();
+$totalAtivos   = $view === 'ativos'   ? $totalGeral : $totalOutra;
+$totalBaixados = $view === 'baixados' ? $totalGeral : $totalOutra;
 
 $entidades = $pdo->query("SELECT id, completename FROM glpi_entities ORDER BY completename")->fetchAll();
 $GLPI_BASE = '/glpi2/front/';
@@ -271,6 +305,7 @@ $H = 'inv_h';
   <div class="brand"><i class="bi bi-box-seam"></i> Inventário</div>
   <span class="spacer"></span>
   <a href="inventario.php"><i class="bi bi-grid-3x3-gap"></i> Categorias</a>
+  <a href="inventario_admin.php"><i class="bi bi-gear"></i> Configurar</a>
   <a href="dashboard.php"><i class="bi bi-house"></i> Início</a>
 </div>
 
@@ -279,16 +314,29 @@ $H = 'inv_h';
     <div class="ic" style="background:<?= $H($card['cor']) ?>"><i class="bi <?= $H($card['icone']) ?>"></i></div>
     <div>
       <h1><?= $H($card['titulo']) ?></h1>
-      <p><?= $totalGeral ?> ativo<?= $totalGeral == 1 ? '' : 's' ?> no GLPI</p>
+      <p><?= $totalAtivos ?> em uso · <?= $totalBaixados ?> baixado<?= $totalBaixados == 1 ? '' : 's' ?></p>
     </div>
+    <?php if ($view === 'ativos'): ?>
     <div class="add"><button class="btn-add" onclick="abrirModal(0)"><i class="bi bi-plus-lg"></i> Novo</button></div>
+    <?php endif; ?>
   </div>
+
+  <div class="tabs" style="margin-bottom:1rem">
+    <a class="tab <?= $view === 'ativos' ? 'active' : '' ?>" href="?cat=<?= $H($slug) ?>">
+      <i class="bi bi-check-circle"></i> Em uso<span class="n"><?= $totalAtivos ?></span>
+    </a>
+    <a class="tab <?= $view === 'baixados' ? 'active' : '' ?>" href="?cat=<?= $H($slug) ?>&view=baixados">
+      <i class="bi bi-archive"></i> Baixados<span class="n"><?= $totalBaixados ?></span>
+    </a>
+  </div>
+
+  <?php $qsView = $view === 'baixados' ? '&view=baixados' : ''; ?>
 
   <?php if (count($subcats) > 1): ?>
   <div class="tabs">
-    <a class="tab <?= !$sub_filtro ? 'active' : '' ?>" href="?cat=<?= $H($slug) ?>">Todas<span class="n"><?= $totalGeral ?></span></a>
+    <a class="tab <?= !$sub_filtro ? 'active' : '' ?>" href="?cat=<?= $H($slug) ?><?= $qsView ?>">Todas<span class="n"><?= $totalGeral ?></span></a>
     <?php foreach ($subcats as $s): ?>
-      <a class="tab <?= $sub_filtro == $s['id'] ? 'active' : '' ?>" href="?cat=<?= $H($slug) ?>&sub=<?= (int)$s['id'] ?>">
+      <a class="tab <?= $sub_filtro == $s['id'] ? 'active' : '' ?>" href="?cat=<?= $H($slug) ?>&sub=<?= (int)$s['id'] ?><?= $qsView ?>">
         <?= $H($s['nome']) ?><span class="n"><?= (int)($cntPorTipo[$s['glpi_type_id']] ?? 0) ?></span>
       </a>
     <?php endforeach; ?>
@@ -296,32 +344,45 @@ $H = 'inv_h';
   <?php endif; ?>
 
   <div class="filtros">
-    <a class="chip <?= !$loja_filtro ? 'active' : '' ?>" href="?cat=<?= $H($slug) ?><?= $sub_filtro ? '&sub='.$sub_filtro : '' ?>">Todas as lojas</a>
+    <a class="chip <?= !$loja_filtro ? 'active' : '' ?>" href="?cat=<?= $H($slug) ?><?= $sub_filtro ? '&sub='.$sub_filtro : '' ?><?= $qsView ?>">Todas as lojas</a>
     <?php foreach ($cntPorLoja as $eid => $n): if (!$eid) continue;
         $enome = ''; foreach ($entidades as $e) if ((int)$e['id'] === (int)$eid) $enome = $e['completename']; ?>
       <a class="chip <?= $loja_filtro == $eid ? 'active' : '' ?>"
-         href="?cat=<?= $H($slug) ?><?= $sub_filtro ? '&sub='.$sub_filtro : '' ?>&loja=<?= (int)$eid ?>">
+         href="?cat=<?= $H($slug) ?><?= $sub_filtro ? '&sub='.$sub_filtro : '' ?>&loja=<?= (int)$eid ?><?= $qsView ?>">
         <?= $H(apelido_entidade($enome)) ?> <?= (int)$n ?>
       </a>
     <?php endforeach; ?>
     <form class="busca" method="get">
       <input type="hidden" name="cat" value="<?= $H($slug) ?>"/>
+      <?php if ($view === 'baixados'): ?><input type="hidden" name="view" value="baixados"/><?php endif; ?>
       <?php if ($sub_filtro): ?><input type="hidden" name="sub" value="<?= $sub_filtro ?>"/><?php endif; ?>
       <?php if ($loja_filtro): ?><input type="hidden" name="loja" value="<?= $loja_filtro ?>"/><?php endif; ?>
       <input type="text" name="busca" value="<?= $H($busca) ?>" placeholder="Nome, série, patrimônio..."/>
     </form>
   </div>
 
+  <?php $MOT = ['quebrado'=>'Quebrado','vendido'=>'Vendido','descartado'=>'Descartado','outro'=>'Outro']; ?>
   <?php if (!$ativos): ?>
     <div class="empty">
       <i class="bi bi-inbox"></i>
-      <?= ($busca || $loja_filtro || $sub_filtro) ? 'Nenhum ativo com esse filtro.' : 'Nenhum ' . $H($card['titulo']) . ' cadastrado ainda. Clique em <strong>Novo</strong>.' ?>
+      <?php if ($busca || $loja_filtro || $sub_filtro): ?>
+        Nenhum item com esse filtro.
+      <?php elseif ($view === 'baixados'): ?>
+        Nenhum item baixado. Itens quebrados, vendidos ou descartados aparecem aqui.
+      <?php else: ?>
+        Nenhum <?= $H($card['titulo']) ?> cadastrado ainda. Clique em <strong>Novo</strong>.
+      <?php endif; ?>
     </div>
   <?php else: ?>
     <table>
       <thead><tr>
         <th>Nome</th><th>Loja</th><th>Subcategoria</th><th>Fabricante / Modelo</th>
-        <th><?= $fonte === 'phone' ? 'Nº linha' : 'Série' ?></th><th>Patrimônio</th><th></th>
+        <?php if ($view === 'baixados'): ?>
+          <th>Motivo</th><th>Baixa</th>
+        <?php else: ?>
+          <th><?= $fonte === 'phone' ? 'Nº linha' : 'Série' ?></th><th>Patrimônio</th>
+        <?php endif; ?>
+        <th></th>
       </tr></thead>
       <tbody>
       <?php foreach ($ativos as $a): ?>
@@ -330,10 +391,20 @@ $H = 'inv_h';
           <td><?= $H(apelido_entidade($a['entidade'] ?? '—')) ?></td>
           <td><?= $H($a['subcategoria'] ?: '—') ?></td>
           <td><?= $H($a['fabricante'] ?: '—') ?><?php if ($a['modelo']): ?><div class="sub"><?= $H($a['modelo']) ?></div><?php endif; ?></td>
-          <td><?= $H($a['serial'] ?: '—') ?></td>
-          <td><?= $H($a['otherserial'] ?: '—') ?></td>
+          <?php if ($view === 'baixados'): ?>
+            <td><?= $H($MOT[$a['baixa_motivo']] ?? $a['baixa_motivo']) ?><?php if ($a['baixa_obs']): ?><div class="sub"><?= $H($a['baixa_obs']) ?></div><?php endif; ?></td>
+            <td><?= $H($a['baixa_data'] ?: '—') ?><?php if ($a['baixa_por']): ?><div class="sub"><?= $H($a['baixa_por']) ?></div><?php endif; ?></td>
+          <?php else: ?>
+            <td><?= $H($a['serial'] ?: '—') ?></td>
+            <td><?= $H($a['otherserial'] ?: '—') ?></td>
+          <?php endif; ?>
           <td><div class="row-act">
-            <button title="Editar" onclick="abrirModal(<?= (int)$a['id'] ?>)"><i class="bi bi-pencil"></i></button>
+            <?php if ($view === 'baixados'): ?>
+              <button title="Reativar" onclick="reativar(<?= (int)$a['id'] ?>, '<?= $H(addslashes($a['name'])) ?>')"><i class="bi bi-arrow-counterclockwise"></i></button>
+            <?php else: ?>
+              <button title="Editar" onclick="abrirModal(<?= (int)$a['id'] ?>)"><i class="bi bi-pencil"></i></button>
+              <button title="Dar baixa" onclick="abrirBaixa(<?= (int)$a['id'] ?>, '<?= $H(addslashes($a['name'])) ?>')"><i class="bi bi-box-arrow-in-down"></i></button>
+            <?php endif; ?>
             <button class="del" title="Excluir" onclick="excluir(<?= (int)$a['id'] ?>, '<?= $H(addslashes($a['name'])) ?>')"><i class="bi bi-trash3"></i></button>
             <a class="chip" href="<?= $GLPI_BASE . $glpiForm ?>?id=<?= (int)$a['id'] ?>" target="_blank" rel="noopener" title="Abrir no GLPI"><i class="bi bi-box-arrow-up-right"></i></a>
           </div></td>
@@ -399,6 +470,34 @@ $H = 'inv_h';
     </footer>
   </div>
 </div>
+<!-- Modal de baixa -->
+<div class="modal-back" id="baixaBack">
+  <div class="modal-card" style="width:440px">
+    <header>
+      <h3>Dar baixa no equipamento</h3>
+      <button onclick="fecharBaixa()">&times;</button>
+    </header>
+    <div class="modal-body" style="grid-template-columns:1fr">
+      <input type="hidden" id="b-id"/>
+      <p style="margin:0;color:#5f6368;font-size:.85rem">Marcar <strong id="b-nome"></strong> como fora de uso. Sai da lista "Em uso" e vai pra "Baixados" (dá pra reativar depois).</p>
+      <div class="fld"><label>Motivo *</label>
+        <select id="b-motivo">
+          <option value="quebrado">Quebrado definitivamente</option>
+          <option value="vendido">Vendido</option>
+          <option value="descartado">Descartado</option>
+          <option value="outro">Outro</option>
+        </select>
+      </div>
+      <div class="fld"><label>Data da baixa</label><input type="date" id="b-data"/></div>
+      <div class="fld"><label>Observação</label><textarea id="b-obs" rows="2" placeholder="Ex: tela trincada, sem conserto"></textarea></div>
+    </div>
+    <footer>
+      <button class="btn btn-ghost" onclick="fecharBaixa()">Cancelar</button>
+      <button class="btn btn-primary" id="btnBaixa" onclick="confirmarBaixa()">Dar baixa</button>
+    </footer>
+  </div>
+</div>
+
 <datalist id="dl-fab"></datalist>
 <div id="msg"></div>
 
@@ -481,7 +580,39 @@ function excluir(id, nome) {
     .then(d => { if (d.ok) { toast('Excluído'); setTimeout(() => location.reload(), 600); } else toast('Erro ao excluir', false); });
 }
 
+function abrirBaixa(id, nome) {
+  $('#b-id').value = id;
+  $('#b-nome').textContent = nome;
+  $('#b-motivo').value = 'quebrado';
+  $('#b-data').value = new Date().toISOString().slice(0, 10);
+  $('#b-obs').value = '';
+  $('#baixaBack').classList.add('show');
+}
+function fecharBaixa() { $('#baixaBack').classList.remove('show'); }
+function confirmarBaixa() {
+  const fd = new FormData();
+  fd.set('action', 'baixa');
+  fd.set('id', $('#b-id').value);
+  fd.set('motivo', $('#b-motivo').value);
+  fd.set('baixado_em', $('#b-data').value);
+  fd.set('observacao', $('#b-obs').value.trim());
+  $('#btnBaixa').disabled = true;
+  fetch(`inventario_glpi.php?cat=${CAT}`, { method: 'POST', body: fd })
+    .then(r => r.json())
+    .then(d => { if (d.ok) { toast('Baixa registrada'); setTimeout(() => location.reload(), 600); } else { toast('Erro', false); $('#btnBaixa').disabled = false; } });
+}
+function reativar(id, nome) {
+  if (!confirm(`Reativar "${nome}"?\n\nVolta pra lista "Em uso".`)) return;
+  const fd = new FormData();
+  fd.set('action', 'reativar');
+  fd.set('id', id);
+  fetch(`inventario_glpi.php?cat=${CAT}`, { method: 'POST', body: fd })
+    .then(r => r.json())
+    .then(d => { if (d.ok) { toast('Reativado'); setTimeout(() => location.reload(), 600); } });
+}
+
 $('#modalBack').addEventListener('click', e => { if (e.target === $('#modalBack')) fecharModal(); });
+$('#baixaBack').addEventListener('click', e => { if (e.target === $('#baixaBack')) fecharBaixa(); });
 </script>
 </body>
 </html>

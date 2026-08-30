@@ -62,6 +62,19 @@ function inv_bootstrap(PDO $pdo): void {
             FOREIGN KEY (field_id) REFERENCES portal_inv_fields(id) ON DELETE CASCADE
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
     ");
+    $pdo->exec("
+        CREATE TABLE IF NOT EXISTS portal_inv_baixas (
+            id          INT AUTO_INCREMENT PRIMARY KEY,
+            itemtype    VARCHAR(20) NOT NULL,
+            items_id    INT NOT NULL,
+            motivo      ENUM('quebrado','vendido','descartado','outro') NOT NULL DEFAULT 'quebrado',
+            observacao  TEXT DEFAULT NULL,
+            baixado_em  DATE DEFAULT NULL,
+            baixado_por VARCHAR(120) DEFAULT NULL,
+            created_at  DATETIME DEFAULT CURRENT_TIMESTAMP,
+            UNIQUE KEY uniq_item (itemtype, items_id)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+    ");
 
     // Semente inicial (só roda se ainda não há nenhum card)
     if ((int)$pdo->query("SELECT COUNT(*) FROM portal_inv_cards")->fetchColumn() > 0) return;
@@ -225,6 +238,29 @@ function inv_sync_types(PDO $pdo, array $card, string $token): void {
         $tid = glpi_ensure_type($pdo, $card['fonte'], $sc['nome'], $token);
         if ($tid) $up->execute([$tid, $sc['id']]);
     }
+}
+
+/* ───────────────────────────── Baixa / desativação ───────────────────────────── */
+
+const INV_MOTIVOS = [
+    'quebrado'   => 'Quebrado definitivamente',
+    'vendido'    => 'Vendido',
+    'descartado' => 'Descartado',
+    'outro'      => 'Outro',
+];
+
+function inv_baixa_set(PDO $pdo, string $itemtype, int $itemsId, string $motivo, string $obs, ?string $data, string $por): void {
+    $motivo = array_key_exists($motivo, INV_MOTIVOS) ? $motivo : 'quebrado';
+    $pdo->prepare("
+        INSERT INTO portal_inv_baixas (itemtype, items_id, motivo, observacao, baixado_em, baixado_por)
+        VALUES (?,?,?,?,?,?)
+        ON DUPLICATE KEY UPDATE motivo=VALUES(motivo), observacao=VALUES(observacao),
+                                baixado_em=VALUES(baixado_em), baixado_por=VALUES(baixado_por)
+    ")->execute([$itemtype, $itemsId, $motivo, $obs ?: null, $data ?: null, $por ?: null]);
+}
+
+function inv_baixa_clear(PDO $pdo, string $itemtype, int $itemsId): void {
+    $pdo->prepare("DELETE FROM portal_inv_baixas WHERE itemtype = ? AND items_id = ?")->execute([$itemtype, $itemsId]);
 }
 
 function inv_h($s): string { return htmlspecialchars((string)$s, ENT_QUOTES, 'UTF-8'); }

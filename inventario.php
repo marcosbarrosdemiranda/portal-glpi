@@ -141,6 +141,7 @@ $cards_glpi = inv_cards($pdo);
 <div class="topbar">
   <div class="brand"><i class="bi bi-box-seam me-1"></i> Inventário</div>
   <span class="spacer"></span>
+  <a href="inventario_admin.php"><i class="bi bi-gear me-1"></i>Configurar</a>
   <a href="dashboard.php"><i class="bi bi-grid me-1"></i>Início</a>
 </div>
 
