@@ -152,12 +152,6 @@ $cards_glpi = inv_cards($pdo);
 </div>
 
 <div class="cat-grid">
-  <a href="inventario_pcs.php" class="cat-card" style="border-top-color:#0097a7">
-    <div class="cat-icon pc-icon"><i class="bi bi-broadcast-pin"></i></div>
-    <h3>PCs — Status online</h3>
-    <p>Ping ao vivo: quais máquinas estão ligadas agora</p>
-  </a>
-
   <div class="cat-card disabled">
     <div class="cat-icon printer-icon"><i class="bi bi-printer"></i></div>
     <h3>Impressoras</h3>
