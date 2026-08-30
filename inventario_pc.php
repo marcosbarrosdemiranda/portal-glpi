@@ -23,6 +23,12 @@ if ($action === 'set_cat') {
     inv_pc_set_categoria($pdo, (int)($_POST['id'] ?? 0), $_POST['categoria'] ?? 'pcs-retaguarda', $por);
     echo json_encode(['ok' => true]); exit;
 }
+if ($action === 'set_srv') {
+    header('Content-Type: application/json');
+    $hid = (int)($_POST['host_id'] ?? 0);
+    inv_srv_set($pdo, (int)($_POST['id'] ?? 0), $_POST['papel'] ?? 'fisico', $hid ?: null);
+    echo json_encode(['ok' => true]); exit;
+}
 if ($action === 'form') {
     header('Content-Type: application/json');
     $id = (int)($_GET['id'] ?? 0);
@@ -34,9 +40,13 @@ if ($action === 'form') {
     $st->execute([$id]);
     $it = $st->fetch();
     if (!$it) { echo json_encode(['ok' => false, 'erro' => 'Não encontrado']); exit; }
+    $srv = $pdo->prepare("SELECT papel, host_id FROM portal_inv_servidores WHERE computer_id = ?");
+    $srv->execute([$id]);
+    $sr = $srv->fetch() ?: ['papel' => 'fisico', 'host_id' => null];
     echo json_encode(['ok' => true, 'item' => [
         'id' => (int)$it['id'], 'name' => $it['name'], 'entities_id' => (int)$it['entities_id'],
         'categoria' => inv_pc_categoria($pdo, $id),
+        'papel' => $sr['papel'], 'host_id' => (int)($sr['host_id'] ?? 0),
         'fabricante' => $it['fabricante_nome'] ?? '', 'modelo' => $it['modelo_nome'] ?? '',
         'serial' => $it['serial'] ?? '', 'otherserial' => $it['otherserial'] ?? '', 'comment' => $it['comment'] ?? '',
     ]]);
@@ -62,6 +72,9 @@ if ($action === 'save') {
         else { [$code, $resp] = glpi_call('POST', 'Computer', ['input' => $input], $token); $id = (int)($resp['id'] ?? $resp[0]['id'] ?? 0); }
         if ($code < 200 || $code >= 300 || !$id) { echo json_encode(['ok' => false, 'erro' => 'GLPI recusou (HTTP ' . $code . ')']); exit; }
         inv_pc_set_categoria($pdo, $id, $_POST['categoria'] ?? $slug, $por);
+        if (($_POST['categoria'] ?? $slug) === 'maquinas-virtuais' || isset($_POST['papel'])) {
+            inv_srv_set($pdo, $id, $_POST['papel'] ?? 'fisico', (int)($_POST['host_id'] ?? 0) ?: null);
+        }
         echo json_encode(['ok' => true, 'id' => $id]);
     } finally { glpi_kill($token); }
     exit;
@@ -106,6 +119,16 @@ $rows = array_values(array_filter($todos, function ($r) use ($loja_filtro, $busc
     if ($busca !== '' && !str_contains(mb_strtolower($r['name'] . ' ' . $r['serial'] . ' ' . $r['otherserial']), $busca)) return false;
     return true;
 }));
+
+// Card de servidores: visão em árvore (servidor físico → VMs). Sempre carrega todos os
+// físicos (mesmo os filtrados fora) pra montar o dropdown de host.
+$IS_SRV = ($slug === 'maquinas-virtuais' && !$ignMode && $view === 'ativos');
+$srvFisicos = [];
+if ($IS_SRV) {
+    $rows  = inv_srv_anota($pdo, $rows);
+    $todos = inv_srv_anota($pdo, $todos);
+    foreach ($todos as $r) if (($r['papel'] ?? 'fisico') === 'fisico') $srvFisicos[(int)$r['id']] = $r['name'];
+}
 
 $cntPorLoja = [];
 foreach ($todos as $r) { $cntPorLoja[(int)$r['entities_id']] = ($cntPorLoja[(int)$r['entities_id']] ?? 0) + 1; }
@@ -300,10 +323,77 @@ $qsView = $view === 'baixados' ? '&view=baixados' : '';
   <?php };
   ?>
 
+  <?php
+  // linha de máquina na visão de servidores (com papel + host)
+  $linhaSrv = function(array $a) use ($H, $srvFisicos) {
+      $papel = $a['papel'] ?? 'fisico'; ?>
+    <tr>
+      <td><?= $papel === 'virtual' ? '<span style="color:#9aa0a6">└─ </span>' : '<i class="bi bi-hdd-rack-fill" style="color:#5e35b1"></i> ' ?><?= $H($a['name'] ?: '(sem nome)') ?></td>
+      <td>
+        <select class="cat" onchange="mudarSrv(<?= (int)$a['id'] ?>, this.value, null)">
+          <option value="fisico" <?= $papel === 'fisico' ? 'selected' : '' ?>>Servidor físico</option>
+          <option value="virtual" <?= $papel === 'virtual' ? 'selected' : '' ?>>Máquina virtual</option>
+        </select>
+      </td>
+      <td>
+        <?php if ($papel === 'virtual'): ?>
+          <select class="cat" onchange="mudarSrv(<?= (int)$a['id'] ?>, 'virtual', this.value)">
+            <option value="0">— servidor host —</option>
+            <?php foreach ($srvFisicos as $fid => $fnome): if ($fid === (int)$a['id']) continue; ?>
+              <option value="<?= $fid ?>" <?= (int)$a['host_id'] === $fid ? 'selected' : '' ?>><?= $H($fnome) ?></option>
+            <?php endforeach; ?>
+          </select>
+        <?php else: ?><span class="sub">—</span><?php endif; ?>
+      </td>
+      <td><?= $H($a['tipo_hw'] ?: '—') ?></td>
+      <td><?= $H($a['fabricante'] ?: '—') ?><?php if ($a['modelo']): ?><div class="sub"><?= $H($a['modelo']) ?></div><?php endif; ?></td>
+      <td><?= $H($a['serial'] ?: '—') ?><?php if ($a['otherserial']): ?><div class="sub">pat. <?= $H($a['otherserial']) ?></div><?php endif; ?></td>
+      <td><div class="row-act">
+        <button title="Editar" onclick="abrirModal(<?= (int)$a['id'] ?>)"><i class="bi bi-pencil"></i></button>
+        <button title="Dar baixa" onclick="abrirBaixa(<?= (int)$a['id'] ?>, '<?= $H(addslashes($a['name'])) ?>')"><i class="bi bi-box-arrow-in-down"></i></button>
+        <button class="del" title="Excluir" onclick="excluir(<?= (int)$a['id'] ?>, '<?= $H(addslashes($a['name'])) ?>')"><i class="bi bi-trash3"></i></button>
+        <a href="/glpi2/front/computer.form.php?id=<?= (int)$a['id'] ?>" target="_blank" rel="noopener" title="Abrir no GLPI"><i class="bi bi-box-arrow-up-right"></i></a>
+      </div></td>
+    </tr>
+  <?php };
+
+  $arvore = function(array $fisico, array $vms) use ($H, $linhaSrv) { ?>
+    <div class="grp open">
+      <div class="grp-hd" onclick="this.parentElement.classList.toggle('open')">
+        <span><i class="bi bi-hdd-rack-fill"></i> <?= $H($fisico['name'] ?? 'Sem servidor definido') ?></span>
+        <span class="grp-n"><?= count($vms) ?> VM<?= count($vms) == 1 ? '' : 's' ?> <i class="bi bi-chevron-down chev"></i></span>
+      </div>
+      <div class="grp-bd"><table>
+        <thead><tr><th>Nome</th><th>Papel</th><th>Host</th><th>Tipo (HW)</th><th>Fabricante / Modelo</th><th>Série</th><th></th></tr></thead>
+        <tbody>
+          <?php if ($fisico) $linhaSrv($fisico); ?>
+          <?php foreach ($vms as $v) $linhaSrv($v); ?>
+        </tbody>
+      </table></div>
+    </div>
+  <?php };
+  ?>
+
   <?php if (!$rows): ?>
     <div class="empty"><i class="bi bi-inbox"></i>
       <?= ($busca || $loja_filtro) ? 'Nenhuma máquina com esse filtro.' : ($view === 'baixados' ? 'Nenhuma máquina baixada.' : 'Nenhuma máquina nesta categoria.') ?>
     </div>
+  <?php elseif ($IS_SRV): ?>
+    <?php
+      $fisicos = []; $vmsPorHost = []; $orfas = [];
+      foreach ($rows as $r) {
+          if (($r['papel'] ?? 'fisico') === 'fisico') $fisicos[(int)$r['id']] = $r;
+      }
+      foreach ($rows as $r) {
+          if (($r['papel'] ?? 'fisico') !== 'virtual') continue;
+          $h = (int)($r['host_id'] ?? 0);
+          if ($h && isset($fisicos[$h])) $vmsPorHost[$h][] = $r;
+          else $orfas[] = $r;
+      }
+      uasort($fisicos, fn($a, $b) => strnatcasecmp($a['name'], $b['name']));
+      foreach ($fisicos as $fid => $f) $arvore($f, $vmsPorHost[$fid] ?? []);
+      if ($orfas) $arvore([], $orfas);
+    ?>
   <?php elseif ($loja_filtro): ?>
     <?php $tabela($rows); ?>
   <?php else:
@@ -338,6 +428,19 @@ $qsView = $view === 'baixados' ? '&view=baixados' : '';
           <?php foreach (INV_PC_CATS as $cv => $cl): ?><option value="<?= $cv ?>" <?= $slug === $cv ? 'selected' : '' ?>><?= $H($cl) ?></option><?php endforeach; ?>
         </select>
       </div>
+      <?php if ($slug === 'maquinas-virtuais'): ?>
+      <div class="fld"><label>Papel</label>
+        <select id="f-papel" onchange="document.getElementById('f-host-wrap').style.display = this.value === 'virtual' ? '' : 'none'">
+          <option value="fisico">Servidor físico</option>
+          <option value="virtual">Máquina virtual</option>
+        </select>
+      </div>
+      <div class="fld" id="f-host-wrap" style="display:none"><label>Servidor host (da VM)</label>
+        <select id="f-host"><option value="0">—</option>
+          <?php foreach ($srvFisicos as $fid => $fnome): ?><option value="<?= $fid ?>"><?= $H($fnome) ?></option><?php endforeach; ?>
+        </select>
+      </div>
+      <?php endif; ?>
       <div class="fld"><label>Fabricante</label><input id="f-fabricante"/></div>
       <div class="fld"><label>Modelo</label><input id="f-modelo"/></div>
       <div class="fld"><label>Nº de série</label><input id="f-serial"/></div>
@@ -383,10 +486,16 @@ function P(data) {
   return fetch(`inventario_pc.php?cat=${CAT}`, { method: 'POST', body: fd }).then(r => r.json());
 }
 function mudarCat(id, cat) { P({ action: 'set_cat', id, categoria: cat }).then(d => { if (d.ok) { toast('Categoria alterada'); setTimeout(() => location.reload(), 500); } }); }
+function mudarSrv(id, papel, host) {
+  const d = { action: 'set_srv', id, papel };
+  d.host_id = (host === null || host === undefined) ? 0 : host;
+  P(d).then(r => { if (r.ok) { toast('Atualizado'); setTimeout(() => location.reload(), 500); } });
+}
 
 function abrirModal(id) {
   ['f-name','f-fabricante','f-modelo','f-serial','f-otherserial','f-comment'].forEach(i => $('#'+i).value = '');
   $('#f-entidade').value = 0; $('#f-categoria').value = CAT;
+  if ($('#f-papel')) { $('#f-papel').value = 'fisico'; $('#f-host-wrap').style.display = 'none'; $('#f-host').value = 0; }
   $('#modalTitulo').textContent = id ? 'Editar máquina' : 'Nova máquina';
   $('#f-id').value = id || '';
   if (id) fetch(`inventario_pc.php?cat=${CAT}&action=form&id=${id}`).then(r => r.json()).then(d => {
@@ -397,6 +506,11 @@ function abrirModal(id) {
     $('#f-fabricante').value = it.fabricante || ''; $('#f-modelo').value = it.modelo || '';
     $('#f-serial').value = it.serial || ''; $('#f-otherserial').value = it.otherserial || '';
     $('#f-comment').value = it.comment || '';
+    if ($('#f-papel')) {
+      $('#f-papel').value = it.papel || 'fisico';
+      $('#f-host-wrap').style.display = it.papel === 'virtual' ? '' : 'none';
+      $('#f-host').value = it.host_id || 0;
+    }
   });
   $('#modalBack').classList.add('show');
 }
@@ -409,6 +523,7 @@ function salvar() {
     serial: $('#f-serial').value.trim(), otherserial: $('#f-otherserial').value.trim(),
     comment: $('#f-comment').value.trim(),
   };
+  if ($('#f-papel')) { d.papel = $('#f-papel').value; d.host_id = $('#f-host').value; }
   if (!d.name) { toast('Nome é obrigatório', false); return; }
   $('#btnSalvar').disabled = true;
   P(d).then(r => { if (r.ok) { toast('Salvo'); setTimeout(() => location.reload(), 600); } else { toast(r.erro || 'Erro', false); $('#btnSalvar').disabled = false; } });

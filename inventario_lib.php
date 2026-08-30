@@ -84,6 +84,14 @@ function inv_bootstrap(PDO $pdo): void {
             atualizado_por VARCHAR(120) DEFAULT NULL
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
     ");
+    $pdo->exec("
+        CREATE TABLE IF NOT EXISTS portal_inv_servidores (
+            computer_id   INT NOT NULL PRIMARY KEY,
+            papel         ENUM('fisico','virtual') NOT NULL DEFAULT 'fisico',
+            host_id       INT DEFAULT NULL COMMENT 'servidor físico que hospeda esta VM',
+            atualizado_em DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+    ");
 
     // Migrações leves (rodam sempre)
     $cols = [];
@@ -124,6 +132,13 @@ function inv_bootstrap(PDO $pdo): void {
                           FROM glpi_computers c LEFT JOIN glpi_computertypes t ON t.id = c.computertypes_id
                           WHERE c.is_deleted = 0 AND c.is_template = 0") as $r) {
         if (inv_pc_regra($r['name'], $r['tipo']) === '__ignorado__') $insIg->execute([(int)$r['id']]);
+    }
+
+    // Servidores: máquina de tipo VMware = VM; o resto fica físico (default). Idempotente.
+    $insV = $pdo->prepare("INSERT IGNORE INTO portal_inv_servidores (computer_id, papel) VALUES (?, 'virtual')");
+    foreach ($pdo->query("SELECT c.id FROM glpi_computers c JOIN glpi_computertypes t ON t.id = c.computertypes_id
+                          WHERE t.name = 'VMware' AND c.is_deleted = 0 AND c.is_template = 0") as $r) {
+        $insV->execute([(int)$r['id']]);
     }
 
     // Classificação inicial dos computadores (só na 1ª vez que a tabela está vazia)
@@ -399,6 +414,34 @@ function inv_pc_set_categoria(PDO $pdo, int $computerId, string $slug, string $p
     $pdo->prepare("INSERT INTO portal_inv_pc_cat (computer_id, categoria, atualizado_por) VALUES (?,?,?)
                    ON DUPLICATE KEY UPDATE categoria = VALUES(categoria), atualizado_por = VALUES(atualizado_por)")
         ->execute([$computerId, $slug, $por]);
+}
+
+/* ── Servidores físicos × VMs ── */
+
+/** Anota cada linha de computador com papel ('fisico'|'virtual') e host_id. */
+function inv_srv_anota(PDO $pdo, array $rows): array {
+    $ids = array_column($rows, 'id');
+    $map = [];
+    if ($ids) {
+        $ph = implode(',', array_fill(0, count($ids), '?'));
+        $st = $pdo->prepare("SELECT computer_id, papel, host_id FROM portal_inv_servidores WHERE computer_id IN ($ph)");
+        $st->execute(array_map('intval', $ids));
+        foreach ($st as $r) $map[(int)$r['computer_id']] = $r;
+    }
+    foreach ($rows as &$r) {
+        $s = $map[(int)$r['id']] ?? null;
+        $r['papel']   = $s['papel'] ?? 'fisico';
+        $r['host_id'] = $s['host_id'] ?? null;
+    }
+    return $rows;
+}
+
+function inv_srv_set(PDO $pdo, int $computerId, string $papel, ?int $hostId): void {
+    $papel = $papel === 'virtual' ? 'virtual' : 'fisico';
+    if ($papel === 'fisico') $hostId = null;
+    $pdo->prepare("INSERT INTO portal_inv_servidores (computer_id, papel, host_id) VALUES (?,?,?)
+                   ON DUPLICATE KEY UPDATE papel = VALUES(papel), host_id = VALUES(host_id)")
+        ->execute([$computerId, $papel, $hostId ?: null]);
 }
 
 /** Todos os computadores de uma categoria (slug do card), já filtrados por view. */

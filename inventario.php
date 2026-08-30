@@ -159,13 +159,6 @@ $cards_glpi = inv_cards($pdo);
     <span class="badge-embreve">Em breve</span>
   </div>
 
-  <div class="cat-card disabled">
-    <div class="cat-icon net-icon"><i class="bi bi-hdd-stack"></i></div>
-    <h3>Servidores</h3>
-    <p>Servidores físicos e virtuais</p>
-    <span class="badge-embreve">Em breve</span>
-  </div>
-
   <a href="inventario_redes.php" class="cat-card" style="border-top-color:#2e7d32">
     <div class="cat-icon net-icon"><i class="bi bi-diagram-3"></i></div>
     <h3>Redes</h3>
