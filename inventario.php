@@ -127,6 +127,7 @@ if (($_SESSION['perfil'] ?? '') === 'self-service') { header('Location: dashboar
     .radio-icon   { background:#e1f5fe; color:#0277bd; }
     .som-icon     { background:#f3e5f5; color:#8e24aa; }
     .acess-icon   { background:#fff8e1; color:#f9a825; }
+    .tritura-icon { background:#eceff1; color:#546e7a; }
   </style>
 </head>
 <body>
@@ -236,6 +237,13 @@ if (($_SESSION['perfil'] ?? '') === 'self-service') { header('Location: dashboar
     <div class="cat-icon acess-icon"><i class="bi bi-headphones"></i></div>
     <h3>Acessórios Celulares</h3>
     <p>Fones, carregadores, cabos e capas</p>
+    <span class="badge-embreve">Em breve</span>
+  </div>
+
+  <div class="cat-card disabled">
+    <div class="cat-icon tritura-icon"><i class="bi bi-scissors"></i></div>
+    <h3>Triturador de Papel</h3>
+    <p>Fragmentadoras e trituradoras de documentos</p>
     <span class="badge-embreve">Em breve</span>
   </div>
 
