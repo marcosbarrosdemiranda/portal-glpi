@@ -101,12 +101,20 @@ function inv_bootstrap(PDO $pdo): void {
     $temCard = $pdo->prepare("SELECT COUNT(*) FROM portal_inv_cards WHERE slug = ?");
     $insC2   = $pdo->prepare("INSERT INTO portal_inv_cards (slug,titulo,descricao,icone,cor,fonte,ordem) VALUES (?,?,?,?,?,'computer',?)");
     foreach ([
-        ['pcs-retaguarda',  'PCs Retaguarda',       'Computadores de escritório e back-office', 'bi-pc-display',      '#0097a7', 5],
-        ['pdvs',            'PDVs',                 'Frentes de caixa / pontos de venda',       'bi-cart-check',      '#00796b', 6],
-        ['maquinas-virtuais','Servidores / VMs',    'Servidores físicos e máquinas virtuais',   'bi-hdd-stack',       '#5e35b1', 7],
+        ['pcs-retaguarda',  'PCs Retaguarda',    'Computadores de escritório e back-office', 'bi-pc-display', '#0097a7', 5],
+        ['notebooks',       'Notebooks',         'Notebooks e ultrabooks',                   'bi-laptop',     '#00838f', 6],
+        ['pdvs',            'PDVs',              'Frentes de caixa / pontos de venda',       'bi-cart-check', '#00796b', 7],
+        ['maquinas-virtuais','Servidores / VMs', 'Servidores físicos e máquinas virtuais',   'bi-hdd-stack',  '#5e35b1', 8],
     ] as [$sl,$ti,$de,$ic,$co,$or]) {
         $temCard->execute([$sl]);
         if (!$temCard->fetchColumn()) $insC2->execute([$sl,$ti,$de,$ic,$co,$or]);
+    }
+
+    // Notebooks: classifica pelo tipo de hardware do GLPI (idempotente — só toca máquina sem categoria)
+    $insNb = $pdo->prepare("INSERT IGNORE INTO portal_inv_pc_cat (computer_id, categoria, atualizado_por) VALUES (?, 'notebooks', 'classificacao-notebook')");
+    foreach ($pdo->query("SELECT c.id FROM glpi_computers c JOIN glpi_computertypes t ON t.id = c.computertypes_id
+                          WHERE t.name = 'Notebook' AND c.is_deleted = 0 AND c.is_template = 0") as $r) {
+        $insNb->execute([(int)$r['id']]);
     }
 
     // Classificação inicial dos computadores (só na 1ª vez que a tabela está vazia)
@@ -350,6 +358,7 @@ function inv_ativos_do_card(PDO $pdo, array $card, array $subcats, string $view 
 
 const INV_PC_CATS = [
     'pcs-retaguarda'    => 'PC Retaguarda',
+    'notebooks'         => 'Notebook',
     'pdvs'              => 'PDV',
     'maquinas-virtuais' => 'Servidor / VM',
     '__ignorado__'      => 'Ignorado (não é PC)',
@@ -361,6 +370,7 @@ function inv_pc_regra(string $nome, ?string $tipoGlpi): string {
     if (str_starts_with($n, 'PDV')) return 'pdvs';
     if ($tipoGlpi === 'VMware' || $n === 'ARQFUNC'
         || preg_match('/(SERVER|SERVIDOR|\bSRV\b|HYPER-?V|ESXI|VCENTER|DELPHOS|GUNNEBO|\bTS\b|DOMINIO)/', $n)) return 'maquinas-virtuais';
+    if ($tipoGlpi === 'Notebook') return 'notebooks';
     return 'pcs-retaguarda';
 }
 
