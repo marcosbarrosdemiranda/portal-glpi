@@ -121,6 +121,12 @@ if (($_SESSION['perfil'] ?? '') === 'self-service') { header('Location: dashboar
     .tablet-icon  { background:#f3e5f5; color:#7b1fa2; }
     .coletor-icon { background:#e8f5e9; color:#2e7d32; }
     .pdvmob-icon  { background:#fff3e0; color:#e65100; }
+    .pinpad-icon  { background:#e8eaf6; color:#3949ab; }
+    .pos-icon     { background:#e0f2f1; color:#00796b; }
+    .termo-icon   { background:#ffebee; color:#c62828; }
+    .radio-icon   { background:#e1f5fe; color:#0277bd; }
+    .som-icon     { background:#f3e5f5; color:#8e24aa; }
+    .acess-icon   { background:#fff8e1; color:#f9a825; }
   </style>
 </head>
 <body>
@@ -188,6 +194,48 @@ if (($_SESSION['perfil'] ?? '') === 'self-service') { header('Location: dashboar
     <div class="cat-icon pdvmob-icon"><i class="bi bi-credit-card-2-back"></i></div>
     <h3>PDV Mobile</h3>
     <p>Terminais de venda móveis e PDV portátil</p>
+    <span class="badge-embreve">Em breve</span>
+  </div>
+
+  <div class="cat-card disabled">
+    <div class="cat-icon pinpad-icon"><i class="bi bi-credit-card"></i></div>
+    <h3>Pinpads</h3>
+    <p>Pinpads e leitores de cartão</p>
+    <span class="badge-embreve">Em breve</span>
+  </div>
+
+  <div class="cat-card disabled">
+    <div class="cat-icon pos-icon"><i class="bi bi-shop-window"></i></div>
+    <h3>POS</h3>
+    <p>Terminais POS e maquininhas de pagamento</p>
+    <span class="badge-embreve">Em breve</span>
+  </div>
+
+  <div class="cat-card disabled">
+    <div class="cat-icon termo-icon"><i class="bi bi-thermometer-half"></i></div>
+    <h3>Termômetros</h3>
+    <p>Termômetros e sensores de temperatura</p>
+    <span class="badge-embreve">Em breve</span>
+  </div>
+
+  <div class="cat-card disabled">
+    <div class="cat-icon radio-icon"><i class="bi bi-walkie-talkie"></i></div>
+    <h3>Rádios Comunicação</h3>
+    <p>Rádios comunicadores e HTs</p>
+    <span class="badge-embreve">Em breve</span>
+  </div>
+
+  <div class="cat-card disabled">
+    <div class="cat-icon som-icon"><i class="bi bi-speaker-fill"></i></div>
+    <h3>Equipamentos de Som</h3>
+    <p>Caixas de som, amplificadores e microfones</p>
+    <span class="badge-embreve">Em breve</span>
+  </div>
+
+  <div class="cat-card disabled">
+    <div class="cat-icon acess-icon"><i class="bi bi-headphones"></i></div>
+    <h3>Acessórios Celulares</h3>
+    <p>Fones, carregadores, cabos e capas</p>
     <span class="badge-embreve">Em breve</span>
   </div>
 
