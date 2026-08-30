@@ -23,7 +23,7 @@ function inv_bootstrap(PDO $pdo): void {
             descricao  VARCHAR(160) DEFAULT '',
             icone      VARCHAR(40)  DEFAULT 'bi-box',
             cor        VARCHAR(9)   DEFAULT '#0097a7',
-            fonte      ENUM('peripheral','phone') NOT NULL DEFAULT 'peripheral',
+            fonte      ENUM('peripheral','phone','computer') NOT NULL DEFAULT 'peripheral',
             ordem      INT     DEFAULT 100,
             ativo      TINYINT(1) DEFAULT 1,
             created_at DATETIME DEFAULT CURRENT_TIMESTAMP
@@ -76,15 +76,53 @@ function inv_bootstrap(PDO $pdo): void {
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
     ");
 
+    $pdo->exec("
+        CREATE TABLE IF NOT EXISTS portal_inv_pc_cat (
+            computer_id   INT NOT NULL PRIMARY KEY,
+            categoria     VARCHAR(40) NOT NULL,
+            atualizado_em DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+            atualizado_por VARCHAR(120) DEFAULT NULL
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+    ");
+
     // Migrações leves (rodam sempre)
     $cols = [];
     foreach ($pdo->query("SHOW COLUMNS FROM portal_inv_fields") as $r) $cols[] = $r['Field'];
     if (!in_array('na_lista', $cols, true)) {
         $pdo->exec("ALTER TABLE portal_inv_fields ADD COLUMN na_lista TINYINT(1) DEFAULT 0 COMMENT 'mostra como coluna na listagem'");
     }
+    // fonte 'computer' no enum
+    $ef = $pdo->query("SHOW COLUMNS FROM portal_inv_cards LIKE 'fonte'")->fetch();
+    if ($ef && !str_contains($ef['Type'], "'computer'")) {
+        $pdo->exec("ALTER TABLE portal_inv_cards MODIFY fonte ENUM('peripheral','phone','computer') NOT NULL DEFAULT 'peripheral'");
+    }
 
-    // Semente inicial (só roda se ainda não há nenhum card)
-    if ((int)$pdo->query("SELECT COUNT(*) FROM portal_inv_cards")->fetchColumn() > 0) return;
+    // Garante os cards de computadores (mesmo que a semente geral já tenha rodado)
+    $temCard = $pdo->prepare("SELECT COUNT(*) FROM portal_inv_cards WHERE slug = ?");
+    $insC2   = $pdo->prepare("INSERT INTO portal_inv_cards (slug,titulo,descricao,icone,cor,fonte,ordem) VALUES (?,?,?,?,?,'computer',?)");
+    foreach ([
+        ['pcs-retaguarda',  'PCs Retaguarda',       'Computadores de escritório e back-office', 'bi-pc-display',      '#0097a7', 5],
+        ['pdvs',            'PDVs',                 'Frentes de caixa / pontos de venda',       'bi-cart-check',      '#00796b', 6],
+        ['maquinas-virtuais','Servidores / VMs',    'Servidores físicos e máquinas virtuais',   'bi-hdd-stack',       '#5e35b1', 7],
+    ] as [$sl,$ti,$de,$ic,$co,$or]) {
+        $temCard->execute([$sl]);
+        if (!$temCard->fetchColumn()) $insC2->execute([$sl,$ti,$de,$ic,$co,$or]);
+    }
+
+    // Classificação inicial dos computadores (só na 1ª vez que a tabela está vazia)
+    if ((int)$pdo->query("SELECT COUNT(*) FROM portal_inv_pc_cat")->fetchColumn() === 0) {
+        $ins = $pdo->prepare("INSERT IGNORE INTO portal_inv_pc_cat (computer_id, categoria, atualizado_por) VALUES (?,?,'classificacao-inicial')");
+        $q = "SELECT c.id, c.name, t.name AS tipo
+              FROM glpi_computers c LEFT JOIN glpi_computertypes t ON t.id = c.computertypes_id
+              WHERE c.is_deleted = 0 AND c.is_template = 0";
+        foreach ($pdo->query($q) as $r) {
+            $slug = inv_pc_regra($r['name'], $r['tipo']);
+            if ($slug !== 'pcs-retaguarda') $ins->execute([(int)$r['id'], $slug]);  // retaguarda é o default, não precisa gravar
+        }
+    }
+
+    // Semente inicial geral (só roda se ainda não há nenhum card)
+    if ((int)$pdo->query("SELECT COUNT(*) FROM portal_inv_cards")->fetchColumn() > 3) return;
 
     $seed = [
         ['celulares',  'Celulares',            'Smartphones e linhas corporativas',            'bi-phone',              '#1565c0', 'phone',      ['Celular']],
@@ -265,6 +303,11 @@ function inv_sync_types(PDO $pdo, array $card, string $token): void {
  */
 function inv_ativos_do_card(PDO $pdo, array $card, array $subcats, string $view = 'ativos'): array {
     $fonte    = $card['fonte'];
+    if ($fonte === 'computer') {
+        $rows = inv_computers_do_card($pdo, $card['slug'], $view);
+        foreach ($rows as &$r) { $r['subcategoria'] = $r['tipo_hw'] ?: '—'; }
+        return $rows;
+    }
     $itemtype = $fonte === 'phone' ? 'Phone' : 'Peripheral';
     $tbl      = $fonte === 'phone' ? 'glpi_phones' : 'glpi_peripherals';
     $tblType  = $fonte === 'phone' ? 'glpi_phonetypes' : 'glpi_peripheraltypes';
@@ -301,6 +344,58 @@ function inv_ativos_do_card(PDO $pdo, array $card, array $subcats, string $view 
     $st = $pdo->prepare($sql);
     $st->execute($params);
     return $st->fetchAll();
+}
+
+/* ───────────────────────────── Computadores (PCs / PDVs / VMs) ───────────────────────────── */
+
+const INV_PC_CATS = [
+    'pcs-retaguarda'    => 'PC Retaguarda',
+    'pdvs'              => 'PDV',
+    'maquinas-virtuais' => 'Servidor / VM',
+    '__ignorado__'      => 'Ignorado (não é PC)',
+];
+
+/** Palpite de categoria só para a classificação inicial. Depois é manual. */
+function inv_pc_regra(string $nome, ?string $tipoGlpi): string {
+    $n = mb_strtoupper(trim($nome));
+    if (str_starts_with($n, 'PDV')) return 'pdvs';
+    if ($tipoGlpi === 'VMware' || $n === 'ARQFUNC'
+        || preg_match('/(SERVER|SERVIDOR|\bSRV\b|HYPER-?V|ESXI|VCENTER|DELPHOS|GUNNEBO|\bTS\b|DOMINIO)/', $n)) return 'maquinas-virtuais';
+    return 'pcs-retaguarda';
+}
+
+function inv_pc_categoria(PDO $pdo, int $computerId): string {
+    $st = $pdo->prepare("SELECT categoria FROM portal_inv_pc_cat WHERE computer_id = ?");
+    $st->execute([$computerId]);
+    return $st->fetchColumn() ?: 'pcs-retaguarda';
+}
+
+function inv_pc_set_categoria(PDO $pdo, int $computerId, string $slug, string $por): void {
+    if (!array_key_exists($slug, INV_PC_CATS)) $slug = 'pcs-retaguarda';
+    $pdo->prepare("INSERT INTO portal_inv_pc_cat (computer_id, categoria, atualizado_por) VALUES (?,?,?)
+                   ON DUPLICATE KEY UPDATE categoria = VALUES(categoria), atualizado_por = VALUES(atualizado_por)")
+        ->execute([$computerId, $slug, $por]);
+}
+
+/** Todos os computadores de uma categoria (slug do card), já filtrados por view. */
+function inv_computers_do_card(PDO $pdo, string $cardSlug, string $view = 'ativos'): array {
+    $cond = $view === 'baixados' ? 'bx.id IS NOT NULL' : 'bx.id IS NULL';
+    $sql = "SELECT c.id, c.name, c.serial, c.otherserial, c.contact, c.entities_id,
+                   e.completename AS entidade, t.name AS tipo_hw,
+                   m.name AS fabricante, md.name AS modelo, pc.categoria AS cat_salva,
+                   bx.motivo AS baixa_motivo, bx.observacao AS baixa_obs,
+                   bx.baixado_em AS baixa_data, bx.baixado_por AS baixa_por
+            FROM glpi_computers c
+            LEFT JOIN portal_inv_pc_cat pc ON pc.computer_id = c.id
+            LEFT JOIN portal_inv_baixas bx ON bx.itemtype = 'Computer' AND bx.items_id = c.id
+            LEFT JOIN glpi_entities e       ON e.id  = c.entities_id
+            LEFT JOIN glpi_computertypes t  ON t.id  = c.computertypes_id
+            LEFT JOIN glpi_manufacturers m  ON m.id  = c.manufacturers_id
+            LEFT JOIN glpi_computermodels md ON md.id = c.computermodels_id
+            WHERE c.is_deleted = 0 AND c.is_template = 0 AND $cond
+            ORDER BY e.completename, c.name";
+    $rows = $pdo->query($sql)->fetchAll();
+    return array_values(array_filter($rows, fn($r) => ($r['cat_salva'] ?: 'pcs-retaguarda') === $cardSlug));
 }
 
 /* ───────────────────────────── Baixa / desativação ───────────────────────────── */

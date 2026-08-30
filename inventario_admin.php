@@ -29,7 +29,7 @@ if ($action === 'card_save') {
         'descricao' => trim($_POST['descricao'] ?? ''),
         'icone'     => trim($_POST['icone'] ?? 'bi-box') ?: 'bi-box',
         'cor'       => trim($_POST['cor'] ?? '#0097a7') ?: '#0097a7',
-        'fonte'     => ($_POST['fonte'] ?? 'peripheral') === 'phone' ? 'phone' : 'peripheral',
+        'fonte'     => in_array($_POST['fonte'] ?? '', ['phone','computer'], true) ? $_POST['fonte'] : 'peripheral',
         'ordem'     => (int)($_POST['ordem'] ?? 100),
         'ativo'     => isset($_POST['ativo']) && $_POST['ativo'] !== '0' ? 1 : 0,
     ];
@@ -206,7 +206,7 @@ $H = 'inv_h';
       <div class="fld"><label>Ícone (Bootstrap Icons)</label><input id="nc-icone" value="bi-box"/></div>
       <div class="fld"><label>Cor</label><input type="color" id="nc-cor" value="#0097a7"/></div>
       <div class="fld"><label>Fonte no GLPI</label>
-        <select id="nc-fonte"><option value="peripheral">Periférico</option><option value="phone">Telefone</option></select>
+        <select id="nc-fonte"><option value="peripheral">Periférico</option><option value="phone">Telefone</option><option value="computer">Computador</option></select>
       </div>
       <div class="fld"><label>Ordem</label><input type="number" id="nc-ordem" value="100"/></div>
     </div>
@@ -235,6 +235,7 @@ $H = 'inv_h';
           <select id="c<?= $cid ?>-fonte">
             <option value="peripheral" <?= $c['fonte'] === 'peripheral' ? 'selected' : '' ?>>Periférico</option>
             <option value="phone" <?= $c['fonte'] === 'phone' ? 'selected' : '' ?>>Telefone</option>
+            <option value="computer" <?= $c['fonte'] === 'computer' ? 'selected' : '' ?>>Computador</option>
           </select>
         </div>
         <div class="fld"><label>Ordem</label><input type="number" id="c<?= $cid ?>-ordem" value="<?= (int)$c['ordem'] ?>"/></div>

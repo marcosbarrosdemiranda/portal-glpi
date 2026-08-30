@@ -24,7 +24,8 @@ foreach ($cards as $c) {
     $subs   = inv_subcats($pdo, (int)$c['id']);
     $rows   = inv_ativos_do_card($pdo, $c, $subs, $view);
     $flds   = array_values(array_filter(inv_fields($pdo, (int)$c['id']), fn($f) => !empty($f['na_lista']) && $f['tipo'] !== 'textarea'));
-    $vals   = $flds ? inv_values_bulk($pdo, $c['fonte'] === 'phone' ? 'Phone' : 'Peripheral', array_column($rows, 'id')) : [];
+    $it     = ['phone' => 'Phone', 'computer' => 'Computer'][$c['fonte']] ?? 'Peripheral';
+    $vals   = $flds ? inv_values_bulk($pdo, $it, array_column($rows, 'id')) : [];
     $porLoja = [];
     foreach ($rows as $r) {
         $ln = apelido_entidade($r['entidade'] ?? '') ?: 'Sem loja';
@@ -74,7 +75,9 @@ $hoje = date('d/m/Y H:i');
 <div class="bar">
   <span><i class="bi bi-file-earmark-text"></i> Relatório de Inventário</span>
   <span class="sp"></span>
-  <a href="<?= $soCat ? 'inventario_glpi.php?cat=' . $H($soCat) : 'inventario.php' ?>"><i class="bi bi-arrow-left"></i> Voltar</a>
+  <?php $voltar = 'inventario.php';
+    if ($soCat) { $cc = inv_card($pdo, $soCat); $voltar = ($cc && $cc['fonte'] === 'computer' ? 'inventario_pc.php' : 'inventario_glpi.php') . '?cat=' . $H($soCat); } ?>
+  <a href="<?= $voltar ?>"><i class="bi bi-arrow-left"></i> Voltar</a>
   <button onclick="window.print()"><i class="bi bi-printer"></i> Imprimir / PDF</button>
 </div>
 
