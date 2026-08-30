@@ -261,8 +261,8 @@ $H = 'inv_h';
     .head .ic { width:52px; height:52px; border-radius:13px; display:flex; align-items:center; justify-content:center; font-size:1.5rem; color:#fff; flex-shrink:0; }
     .head h1 { font-size:1.4rem; font-weight:800; margin:0; color:#1a237e; }
     .head p  { margin:0; color:#5f6368; font-size:.85rem; }
-    .head .add { margin-left:auto; }
-    .btn-add { background:#1a237e; color:#fff; border:none; border-radius:9px; padding:.5rem 1rem; font-size:.85rem; display:inline-flex; align-items:center; gap:.45rem; cursor:pointer; }
+    .head .add { margin-left:auto; display:flex; gap:.5rem; }
+    .btn-add { background:#1a237e; color:#fff; border:none; border-radius:9px; padding:.5rem 1rem; font-size:.85rem; display:inline-flex; align-items:center; gap:.45rem; cursor:pointer; text-decoration:none; }
     .tabs { display:flex; flex-wrap:wrap; gap:.4rem; margin-bottom:.6rem; }
     .tab { border:1px solid #d5dae2; background:#fff; border-radius:20px; padding:.3rem .85rem; font-size:.8rem; color:#3c4043; text-decoration:none; }
     .tab:hover { border-color:#1a237e; color:#1a237e; }
@@ -271,6 +271,7 @@ $H = 'inv_h';
     .filtros { display:flex; flex-wrap:wrap; gap:.4rem; align-items:center; margin-bottom:1rem; }
     .chip { border:1px solid #e0e4ea; background:#fff; border-radius:16px; padding:.25rem .7rem; font-size:.78rem; color:#5f6368; text-decoration:none; }
     .chip.active { background:#e8eaf6; color:#1a237e; border-color:#c5cae9; font-weight:600; }
+    button.chip { font:inherit; cursor:pointer; }
     form.busca { margin-left:auto; }
     form.busca input { border:1px solid #d5dae2; border-radius:8px; padding:.35rem .7rem; font-size:.85rem; min-width:210px; }
     table { width:100%; border-collapse:collapse; background:#fff; border-radius:12px; overflow:hidden; box-shadow:0 1px 4px rgba(0,0,0,.08); }
@@ -329,9 +330,10 @@ $H = 'inv_h';
       <h1><?= $H($card['titulo']) ?></h1>
       <p><?= $totalAtivos ?> em uso · <?= $totalBaixados ?> baixado<?= $totalBaixados == 1 ? '' : 's' ?></p>
     </div>
-    <?php if ($view === 'ativos'): ?>
-    <div class="add"><button class="btn-add" onclick="abrirModal(0)"><i class="bi bi-plus-lg"></i> Novo</button></div>
-    <?php endif; ?>
+    <div class="add">
+      <a class="btn-add" style="background:#455a64" href="inventario_relatorio.php?cat=<?= $H($slug) ?><?= $view === 'baixados' ? '&view=baixados' : '' ?>"><i class="bi bi-file-earmark-pdf"></i> PDF</a>
+      <?php if ($view === 'ativos'): ?><button class="btn-add" onclick="abrirModal(0)"><i class="bi bi-plus-lg"></i> Novo</button><?php endif; ?>
+    </div>
   </div>
 
   <div class="tabs" style="margin-bottom:1rem">
@@ -357,7 +359,11 @@ $H = 'inv_h';
   <?php endif; ?>
 
   <div class="filtros">
-    <a class="chip <?= !$loja_filtro ? 'active' : '' ?>" href="?cat=<?= $H($slug) ?><?= $sub_filtro ? '&sub='.$sub_filtro : '' ?><?= $qsView ?>">Todas as lojas</a>
+    <?php if ($loja_filtro): ?>
+      <a class="chip" href="?cat=<?= $H($slug) ?><?= $sub_filtro ? '&sub='.$sub_filtro : '' ?><?= $qsView ?>">Todas as lojas</a>
+    <?php else: ?>
+      <button type="button" class="chip active" onclick="toggleTodosGrupos()" title="Expandir / recolher todas as lojas">Todas as lojas <i class="bi bi-arrows-expand"></i></button>
+    <?php endif; ?>
     <?php foreach ($cntPorLoja as $eid => $n): if (!$eid) continue;
         $enome = ''; foreach ($entidades as $e) if ((int)$e['id'] === (int)$eid) $enome = $e['completename']; ?>
       <a class="chip <?= $loja_filtro == $eid ? 'active' : '' ?>"
@@ -655,6 +661,13 @@ function reativar(id, nome) {
   fetch(`inventario_glpi.php?cat=${CAT}`, { method: 'POST', body: fd })
     .then(r => r.json())
     .then(d => { if (d.ok) { toast('Reativado'); setTimeout(() => location.reload(), 600); } });
+}
+
+function toggleTodosGrupos() {
+  const grps = document.querySelectorAll('.grp');
+  if (!grps.length) return;
+  const algumFechado = [...grps].some(g => !g.classList.contains('open'));
+  grps.forEach(g => g.classList.toggle('open', algumFechado));
 }
 
 $('#modalBack').addEventListener('click', e => { if (e.target === $('#modalBack')) fecharModal(); });

@@ -259,6 +259,50 @@ function inv_sync_types(PDO $pdo, array $card, string $token): void {
     }
 }
 
+/**
+ * Lista os ativos de um card direto do GLPI (sem filtros de loja/busca).
+ * $view = 'ativos' | 'baixados'. Usado pelo relatório e pode alimentar a listagem.
+ */
+function inv_ativos_do_card(PDO $pdo, array $card, array $subcats, string $view = 'ativos'): array {
+    $fonte    = $card['fonte'];
+    $itemtype = $fonte === 'phone' ? 'Phone' : 'Peripheral';
+    $tbl      = $fonte === 'phone' ? 'glpi_phones' : 'glpi_peripherals';
+    $tblType  = $fonte === 'phone' ? 'glpi_phonetypes' : 'glpi_peripheraltypes';
+    $tblModel = $fonte === 'phone' ? 'glpi_phonemodels' : 'glpi_peripheralmodels';
+    $colType  = $fonte === 'phone' ? 'phonetypes_id' : 'peripheraltypes_id';
+    $colModel = $fonte === 'phone' ? 'phonemodels_id' : 'peripheralmodels_id';
+
+    $typeIds    = array_values(array_filter(array_map(fn($s) => (int)$s['glpi_type_id'], $subcats)));
+    $aplicaTipo = ($fonte === 'peripheral') || count($subcats) > 1;
+
+    $where  = ["p.is_deleted = 0", "p.is_template = 0"];
+    $params = [];
+    if ($fonte === 'peripheral') $where[] = "p.is_dynamic = 0";
+    $where[] = $view === 'baixados' ? "bx.id IS NOT NULL" : "bx.id IS NULL";
+    if ($aplicaTipo) {
+        if (!$typeIds) { $where[] = "1 = 0"; }
+        else {
+            $ph = [];
+            foreach ($typeIds as $i => $t) { $ph[] = ":t$i"; $params[":t$i"] = $t; }
+            $where[] = "p.$colType IN (" . implode(',', $ph) . ")";
+        }
+    }
+    $sql = "SELECT p.id, p.name, p.serial, p.otherserial, p.contact, p.entities_id,
+                   e.completename AS entidade, m.name AS fabricante, md.name AS modelo,
+                   t.name AS subcategoria, bx.motivo AS baixa_motivo, bx.baixado_em AS baixa_data
+            FROM `$tbl` p
+            LEFT JOIN portal_inv_baixas bx ON bx.itemtype = " . $pdo->quote($itemtype) . " AND bx.items_id = p.id
+            LEFT JOIN glpi_entities e      ON e.id  = p.entities_id
+            LEFT JOIN glpi_manufacturers m ON m.id  = p.manufacturers_id
+            LEFT JOIN `$tblModel` md       ON md.id = p.$colModel
+            LEFT JOIN `$tblType` t         ON t.id  = p.$colType
+            WHERE " . implode(' AND ', $where) . "
+            ORDER BY e.completename, p.name";
+    $st = $pdo->prepare($sql);
+    $st->execute($params);
+    return $st->fetchAll();
+}
+
 /* ───────────────────────────── Baixa / desativação ───────────────────────────── */
 
 const INV_MOTIVOS = [
