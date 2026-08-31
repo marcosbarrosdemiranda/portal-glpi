@@ -67,7 +67,7 @@ $h = fn($s) => htmlspecialchars((string)$s, ENT_QUOTES, 'UTF-8');
     <h1>Não consegui abrir</h1>
     <p>Este PC ainda não está configurado.</p>
     <a class="btn btn-a" href="vnc_setup.php" target="_blank">Configurar este PC</a>
-    <a class="btn btn-b" href="rdp_central.php" onclick="window.close()">Central RDP</a>
+    <a class="btn btn-b" href="rdp_central.php">Central RDP</a>
     <span class="retry" onclick="tentar()">Tentar de novo</span>
   </div>
 </div>
@@ -83,8 +83,8 @@ $h = fn($s) => htmlspecialchars((string)$s, ENT_QUOTES, 'UTF-8');
   function agenda(){
     setTimeout(function(){
       if (lancou) {
-        window.close();
-        document.getElementById('ok').innerHTML = '<p style="font-size:.85rem;color:#5f6368">Pode fechar esta janela.</p>';
+        if (window.history.length > 1) window.history.back();
+        else location.replace('rdp_central.php');
       } else {
         document.getElementById('ok').style.display = 'none';
         document.getElementById('fail').style.display = 'block';

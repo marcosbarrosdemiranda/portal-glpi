@@ -67,7 +67,7 @@ $h = fn($s) => htmlspecialchars((string)$s, ENT_QUOTES, 'UTF-8');
     <h1>Não consegui abrir o VNC</h1>
     <p>Este PC ainda não está configurado, ou o VNC Viewer não respondeu.</p>
     <a class="btn btn-a" href="vnc_setup.php" target="_blank">Configurar este PC</a>
-    <a class="btn btn-b" href="vnc_central.php" onclick="window.close()">Central VNC</a>
+    <a class="btn btn-b" href="vnc_central.php">Central VNC</a>
     <span class="retry" onclick="tentar()">Tentar de novo</span>
   </div>
 </div>
@@ -83,15 +83,16 @@ $h = fn($s) => htmlspecialchars((string)$s, ENT_QUOTES, 'UTF-8');
   function agenda(){
     setTimeout(function(){
       if (lancou) {
-        // deu certo — some com tudo e tenta fechar a janelinha
-        window.close();
-        document.getElementById('ok').innerHTML = '<p style="font-size:.85rem;color:#5f6368">Pode fechar esta janela.</p>';
+        // abriu — volta pra Central VNC pra não deixar a aba presa
+        if (window.history.length > 1) window.history.back();
+        else location.replace('vnc_central.php');
       } else {
         document.getElementById('ok').style.display = 'none';
         document.getElementById('fail').style.display = 'block';
       }
     }, 2500);
   }
+  // dispara já no load (o gesto do clique do link ainda vale aqui)
   tentar();
 </script>
 </body>
