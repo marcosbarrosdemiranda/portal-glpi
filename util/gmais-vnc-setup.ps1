@@ -23,18 +23,11 @@ function Baixa($url, $dest) {
     try { Invoke-WebRequest $url -OutFile $dest -UseBasicParsing -TimeoutSec 30 } catch {}
 }
 
-# 1) viewer
+# 1) viewer (5 MB — só baixa se faltar)
 if (-not (Test-Path $viewer)) { Baixa "${base}VNCViewer.exe" $viewer }
 
-# 2) handler (atualiza se o do portal for mais novo — compara tamanho)
-try {
-    $head = Invoke-WebRequest "${base}gmais-vnc.ps1" -Method Head -UseBasicParsing -TimeoutSec 15
-    $remoteLen = [int]$head.Headers['Content-Length']
-    $localLen  = if (Test-Path $psh) { (Get-Item $psh).Length } else { -1 }
-    if ($remoteLen -gt 0 -and $remoteLen -ne $localLen) { Baixa "${base}gmais-vnc.ps1" $psh }
-} catch {
-    if (-not (Test-Path $psh)) { Baixa "${base}gmais-vnc.ps1" $psh }
-}
+# 2) handler — sempre baixa (arquivo pequeno, garante versão atual)
+Baixa "${base}gmais-vnc.ps1" $psh
 
 # 3) protocolo gmaisvnc:// no perfil do usuario
 $key = 'HKCU:\Software\Classes\gmaisvnc'
