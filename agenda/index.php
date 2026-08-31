@@ -2223,6 +2223,63 @@ async function uploadAnexosCriar(ticketId) {
   return data;
 }
 
+// Anexos de evento puro (sem chamado GLPI) — guardados em portal_agenda_event_anexos
+async function uploadAnexosEvento(eventId) {
+  if (!arquivosAnexosCriar.length || !eventId) return;
+  const form = new FormData();
+  form.append('event_id', eventId);
+  arquivosAnexosCriar.forEach(f => form.append('arquivos[]', f));
+  try {
+    const r = await fetch('eventos.php?action=anexo_upload', { method: 'POST', body: form });
+    const d = await r.json();
+    if (d.ok && d.anexos > 0) toast(`📎 ${d.anexos} anexo(s) salvos no evento.`);
+  } catch (e) {}
+}
+
+function carregarAnexosEvento(eventId, concluido) {
+  const wrap  = document.getElementById('ev-anexos');
+  const campo = document.getElementById('campo-anexos');
+  wrap.innerHTML = ''; campo.style.display = 'none';
+  fetch('eventos.php?action=anexo_list&event_id=' + encodeURIComponent(eventId))
+    .then(r => r.json())
+    .then(d => {
+      const docs = (d && d.docs) || [];
+      if (!docs.length) return;
+      docs.forEach(doc => {
+        const url  = 'anexo_evento.php?id=' + doc.id;
+        const cell = document.createElement('span');
+        cell.style.cssText = 'position:relative;display:inline-block';
+        if (doc.isImg) {
+          const img = document.createElement('img');
+          img.className = 'anexo-thumb'; img.alt = doc.nome; img.title = doc.nome; img.src = url;
+          img.onerror = () => cell.remove();
+          img.onclick = () => abrirLbModal(url);
+          cell.appendChild(img);
+        } else {
+          const a = document.createElement('a');
+          a.className = 'anexo-file'; a.href = '#'; a.title = doc.nome;
+          a.innerHTML = '<i class="bi bi-file-earmark"></i>' + escHtml(doc.nome.length > 22 ? doc.nome.slice(0, 20) + '…' : doc.nome);
+          a.onclick = e => { e.preventDefault(); window.open(url); };
+          cell.appendChild(a);
+        }
+        if (!concluido && !MODO_OUVINTE) {
+          const del = document.createElement('button');
+          del.type = 'button'; del.innerHTML = '&times;'; del.title = 'Remover anexo';
+          del.style.cssText = 'position:absolute;top:-6px;right:-6px;width:18px;height:18px;border:none;border-radius:50%;background:#dc3545;color:#fff;font-size:11px;line-height:1;cursor:pointer;padding:0';
+          del.onclick = () => {
+            if (!confirm('Remover este anexo?')) return;
+            fetch('eventos.php?action=anexo_del', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id: doc.id }) })
+              .then(() => cell.remove());
+          };
+          cell.appendChild(del);
+        }
+        wrap.appendChild(cell);
+      });
+      campo.style.display = '';
+    })
+    .catch(() => {});
+}
+
 function salvarEventoObjAsync(dados) {
   return fetch('eventos.php?action=save', {
     method: 'POST',
@@ -2513,6 +2570,9 @@ function preencherModal(dados) {
         }
       })
       .catch(err => { if (err.name !== 'AbortError') console.warn('ticket_descricao:', err); });
+  } else if (dados.id) {
+    // Evento puro (sem chamado): carrega os anexos guardados no banco
+    carregarAnexosEvento(dados.id, !!dados.concluido);
   }
 
   // Atualiza modo single/multi e chips (N?ƒO chama ajustarDuracaoPorTipo aqui —
@@ -3558,11 +3618,18 @@ function salvarEvento() {
           ticket_id:     ticket_id || dadosBase.ticket_id,
         });
         salvarEventoObj(evDados, () => {
-          modalEvento.hide();
-          calendar.refetchEvents();
-          carregarTickets();
-          reativar();
-          toast(`✅ Reunião compartilhada com ${multiSel.length} atendente(s).`);
+          const fecharMulti = () => {
+            modalEvento.hide();
+            calendar.refetchEvents();
+            carregarTickets();
+            reativar();
+            toast(`✅ Reunião compartilhada com ${multiSel.length} atendente(s).`);
+          };
+          if (!evDados.ticket_id && arquivosAnexosCriar.length) {
+            uploadAnexosEvento(evDados.id).finally(fecharMulti);
+          } else {
+            fecharMulti();
+          }
         });
       }
     };
@@ -3653,6 +3720,15 @@ function salvarEvento() {
     if (start) calendar.gotoDate(start.slice(0, 10));
   };
 
+  // Evento puro (sem chamado): sobe os anexos pro banco depois de salvar
+  const finalizarComAnexos = () => {
+    if (!dados.ticket_id && arquivosAnexosCriar.length) {
+      uploadAnexosEvento(dados.id).finally(finalizarSalvar);
+    } else {
+      finalizarSalvar();
+    }
+  };
+
   // Se é chamado/requisição sem ticket_id → cria no GLPI primeiro
   const precisaCriar = (tipo === 'chamado' || tipo === 'requisicao') && !dados.ticket_id;
   if (precisaCriar) {
@@ -3691,7 +3767,7 @@ function salvarEvento() {
     return;
   }
 
-  salvarEventoObj(dados, finalizarSalvar);
+  salvarEventoObj(dados, finalizarComAnexos);
 }
 
 function salvarEventoObj(dados, cb) {

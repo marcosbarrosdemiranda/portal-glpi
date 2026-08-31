@@ -31,10 +31,60 @@ try { $pdo->exec("ALTER TABLE glpi_plugin_agenda_events ADD COLUMN co_atendentes
 // Tipo 'projeto' + coluna com o nome do projeto selecionado (pasta em Docs/wiki/projects)
 try { $pdo->exec("ALTER TABLE glpi_plugin_agenda_events MODIFY tipo ENUM('evento','chamado','requisicao','reuniao','projeto') NOT NULL DEFAULT 'evento'"); } catch (Exception $e) {}
 try { $pdo->exec("ALTER TABLE glpi_plugin_agenda_events ADD COLUMN projeto VARCHAR(255) DEFAULT NULL AFTER setor"); } catch (Exception $e) {}
+// Anexos de eventos "puros" (sem chamado GLPI) — guardados no próprio banco
+try { $pdo->exec("CREATE TABLE IF NOT EXISTS portal_agenda_event_anexos (
+    id        INT AUTO_INCREMENT PRIMARY KEY,
+    event_id  VARCHAR(60) NOT NULL,
+    nome      VARCHAR(255) NOT NULL,
+    mime      VARCHAR(120) DEFAULT 'application/octet-stream',
+    tamanho   INT DEFAULT 0,
+    conteudo  LONGBLOB NOT NULL,
+    criado_em DATETIME DEFAULT CURRENT_TIMESTAMP,
+    KEY idx_event (event_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4"); } catch (Exception $e) {}
 
 $action = $_GET['action'] ?? 'list';
 
 try {
+
+    // ── ANEXOS DE EVENTO (evento puro, sem chamado) ───────────────────────
+    if ($action === 'anexo_upload') {
+        $eid = trim($_POST['event_id'] ?? '');
+        if ($eid === '' || empty($_FILES['arquivos']['name'][0])) {
+            echo json_encode(['ok' => false, 'msg' => 'event_id e arquivos são obrigatórios']); exit;
+        }
+        $ins = $pdo->prepare("INSERT INTO portal_agenda_event_anexos (event_id,nome,mime,tamanho,conteudo) VALUES (?,?,?,?,?)");
+        $n = 0;
+        foreach ($_FILES['arquivos']['tmp_name'] as $i => $tmp) {
+            if ($_FILES['arquivos']['error'][$i] !== UPLOAD_ERR_OK) continue;
+            if (($_FILES['arquivos']['size'][$i] ?? 0) > 10 * 1024 * 1024) continue; // 10 MB/arquivo
+            $nome = mb_substr(basename($_FILES['arquivos']['name'][$i]), 0, 255);
+            $mime = @mime_content_type($tmp) ?: ($_FILES['arquivos']['type'][$i] ?: 'application/octet-stream');
+            $data = file_get_contents($tmp);
+            if ($data === false) continue;
+            $ins->bindValue(1, $eid);
+            $ins->bindValue(2, $nome);
+            $ins->bindValue(3, $mime);
+            $ins->bindValue(4, strlen($data), PDO::PARAM_INT);
+            $ins->bindValue(5, $data, PDO::PARAM_LOB);
+            $ins->execute();
+            $n++;
+        }
+        echo json_encode(['ok' => true, 'anexos' => $n]); exit;
+    }
+    if ($action === 'anexo_list') {
+        $eid = trim($_GET['event_id'] ?? '');
+        $st = $pdo->prepare("SELECT id,nome,mime FROM portal_agenda_event_anexos WHERE event_id=? ORDER BY id");
+        $st->execute([$eid]);
+        $docs = [];
+        foreach ($st as $r) $docs[] = ['id' => (int)$r['id'], 'nome' => $r['nome'], 'isImg' => strncmp($r['mime'], 'image/', 6) === 0];
+        echo json_encode(['ok' => true, 'docs' => $docs]); exit;
+    }
+    if ($action === 'anexo_del') {
+        $body = json_decode(file_get_contents('php://input'), true) ?? [];
+        $pdo->prepare("DELETE FROM portal_agenda_event_anexos WHERE id=?")->execute([(int)($body['id'] ?? 0)]);
+        echo json_encode(['ok' => true]); exit;
+    }
 
     // ── LIST ──────────────────────────────────────────────────────────────
     if ($action === 'list') {
@@ -112,6 +162,7 @@ try {
         // Delete padrão (único)
         $stmt = $pdo->prepare("DELETE FROM glpi_plugin_agenda_events WHERE id = ?");
         $stmt->execute([$id]);
+        $pdo->prepare("DELETE FROM portal_agenda_event_anexos WHERE event_id = ?")->execute([$id]);
         echo json_encode(['ok' => true, 'removidos' => $stmt->rowCount()]);
         exit;
     }
