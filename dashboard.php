@@ -320,24 +320,32 @@ function pode_ver(string $key, ?array $cards): bool {
   </a>
   <?php endif; ?>
 
-  <!-- ── KPIs ── -->
-  <?php if (pode_ver('relatorios',$perfil_cards) || pode_ver('inventario',$perfil_cards)): ?>
-  <div class="section-label"><i class="bi bi-bar-chart-line me-2"></i>KPIs</div>
+  <!-- ── ACESSOS ── -->
+  <?php if (pode_ver('acesso_remoto',$perfil_cards) || pode_ver('infra',$perfil_cards) || pode_ver('erp',$perfil_cards)): ?>
+  <div class="section-label"><i class="bi bi-grid-3x3-gap-fill me-2"></i>Acessos</div>
   <?php endif; ?>
 
-  <?php if (pode_ver('relatorios', $perfil_cards)): ?>
-  <a href="relatorios.php" class="dash-card card-relatorio">
-    <div class="card-icon"><i class="bi bi-bar-chart-fill"></i></div>
-    <h5>Painel de Relatórios</h5>
-    <p>Dashboards com gráficos de chamados por atendente, loja, categoria e Monitor SLA.</p>
+  <?php if (pode_ver('acesso_remoto', $perfil_cards)): ?>
+  <a href="acessos.php#remoto" class="dash-card card-acesso-remoto">
+    <div class="card-icon"><i class="bi bi-display-fill"></i></div>
+    <h5>Acesso Remoto</h5>
+    <p>Remote Desktop (RDP), VNC e AnyDesk para suporte e acesso a servidores.</p>
   </a>
   <?php endif; ?>
 
-  <?php if (pode_ver('inventario', $perfil_cards)): ?>
-  <a href="inventario.php" class="dash-card card-inventario">
-    <div class="card-icon"><i class="bi bi-pc-display"></i></div>
-    <h5>Inventário</h5>
-    <p>Monitore máquinas por loja — status online/offline e configurações.</p>
+  <?php if (pode_ver('infra', $perfil_cards)): ?>
+  <a href="acessos.php#infra" class="dash-card card-infra">
+    <div class="card-icon"><i class="bi bi-hdd-network-fill"></i></div>
+    <h5>Infraestrutura</h5>
+    <p>pfSense, VMware, Mikrotik e UniFi — gerenciamento da rede e servidores.</p>
+  </a>
+  <?php endif; ?>
+
+  <?php if (pode_ver('erp', $perfil_cards)): ?>
+  <a href="acessos.php#erp" class="dash-card card-erp">
+    <div class="card-icon"><i class="bi bi-building-fill-gear"></i></div>
+    <h5>Ferramentas ERP</h5>
+    <p>Sistemas de gestão e ferramentas corporativas da empresa.</p>
   </a>
   <?php endif; ?>
 
@@ -370,32 +378,24 @@ function pode_ver(string $key, ?array $cards): bool {
   </a>
   <?php endif; ?>
 
-  <!-- ── ACESSOS ── -->
-  <?php if (pode_ver('acesso_remoto',$perfil_cards) || pode_ver('infra',$perfil_cards) || pode_ver('erp',$perfil_cards)): ?>
-  <div class="section-label"><i class="bi bi-grid-3x3-gap-fill me-2"></i>Acessos</div>
+  <!-- ── KPIs ── -->
+  <?php if (pode_ver('relatorios',$perfil_cards) || pode_ver('inventario',$perfil_cards)): ?>
+  <div class="section-label"><i class="bi bi-bar-chart-line me-2"></i>KPIs</div>
   <?php endif; ?>
 
-  <?php if (pode_ver('acesso_remoto', $perfil_cards)): ?>
-  <a href="acessos.php#remoto" class="dash-card card-acesso-remoto">
-    <div class="card-icon"><i class="bi bi-display-fill"></i></div>
-    <h5>Acesso Remoto</h5>
-    <p>Remote Desktop (RDP), VNC e AnyDesk para suporte e acesso a servidores.</p>
+  <?php if (pode_ver('relatorios', $perfil_cards)): ?>
+  <a href="relatorios.php" class="dash-card card-relatorio">
+    <div class="card-icon"><i class="bi bi-bar-chart-fill"></i></div>
+    <h5>Painel de Relatórios</h5>
+    <p>Dashboards com gráficos de chamados por atendente, loja, categoria e Monitor SLA.</p>
   </a>
   <?php endif; ?>
 
-  <?php if (pode_ver('infra', $perfil_cards)): ?>
-  <a href="acessos.php#infra" class="dash-card card-infra">
-    <div class="card-icon"><i class="bi bi-hdd-network-fill"></i></div>
-    <h5>Infraestrutura</h5>
-    <p>pfSense, VMware, Mikrotik e UniFi — gerenciamento da rede e servidores.</p>
-  </a>
-  <?php endif; ?>
-
-  <?php if (pode_ver('erp', $perfil_cards)): ?>
-  <a href="acessos.php#erp" class="dash-card card-erp">
-    <div class="card-icon"><i class="bi bi-building-fill-gear"></i></div>
-    <h5>Ferramentas ERP</h5>
-    <p>Sistemas de gestão e ferramentas corporativas da empresa.</p>
+  <?php if (pode_ver('inventario', $perfil_cards)): ?>
+  <a href="inventario.php" class="dash-card card-inventario">
+    <div class="card-icon"><i class="bi bi-pc-display"></i></div>
+    <h5>Inventário</h5>
+    <p>Monitore máquinas por loja — status online/offline e configurações.</p>
   </a>
   <?php endif; ?>
 
