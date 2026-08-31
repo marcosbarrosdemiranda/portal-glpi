@@ -106,7 +106,7 @@ if ($action) {
 
         // Se não informou guac_id, tenta criar automaticamente no Guacamole
         $guac_log = '';
-        if ($g === null || $g === '' || $g === 0) {
+        if (false) { // Guacamole desativado — VNC é sempre nativo agora
             $guac_url = rtrim(GUACAMOLE_URL, '/');
             $ch = curl_init($guac_url . '/api/tokens');
             curl_setopt_array($ch, [
@@ -222,7 +222,7 @@ if ($action) {
 
         // Se não tem guac_id, tenta buscar/criar no Guacamole
         $guac_log = '';
-        if ($g === null || $g === '' || $g === 0) {
+        if (false) { // Guacamole desativado — VNC é sempre nativo agora
             $guac_url = rtrim(GUACAMOLE_URL, '/');
             $ch = curl_init($guac_url . '/api/tokens');
             curl_setopt_array($ch, [
@@ -689,15 +689,10 @@ function renderLista(maqs) {
             <div class="maq-nome">${esc(m.nome)}</div>
             <div class="maq-ip">${esc(m.ip)}</div>
             ${m.descricao ? `<div class="maq-desc">${esc(m.descricao)}</div>` : ''}
-            ${temGuac ? `<div class="maq-desc" style="color:#7c3aed"><i class="bi bi-globe2 me-1"></i>Guacamole VNC</div>` : ''}
           </div>
         </div>
         <div class="maq-actions">
           <a class="btn-rdp btn-nativo" href="vnc_launch.php?id=${m.id}" title="Abre o VNC Viewer instalado no seu PC (C:\\Util\\VNCViewer.exe)"><i class="bi bi-display-fill"></i>Abrir no VNC</a>
-          ${temGuac
-            ? `<a class="btn-rdp btn-auto" href="guacamole_conectar.php?id=${m.id}"><i class="bi bi-globe2"></i>Guacamole</a>`
-            : ''
-          }
           ${isAdmin ? `<button class="btn-config" onclick="editar(${m.id})"><i class="bi bi-pencil-fill"></i></button><button class="btn-config" onclick="excluir(${m.id})" style="color:#ef4444"><i class="bi bi-trash-fill"></i></button>` : ''}
         </div>
       </div>`;

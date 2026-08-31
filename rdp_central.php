@@ -390,7 +390,7 @@ if ($action) {
 
         // Se não informou guac_id, tenta criar automaticamente no Guacamole
         $guac_log = '';
-        if ($g === null || $g === '' || $g === 0) {
+        if (false) { // Guacamole desativado — RDP é sempre nativo (.rdp / mstsc) agora
             $guac_url = rtrim(GUACAMOLE_URL, '/');
 
             // 1. Login
@@ -510,7 +510,7 @@ if ($action) {
 
         // Se não tem guac_id, tenta buscar/criar no Guacamole
         $guac_log = '';
-        if ($g === null || $g === '' || $g === 0) {
+        if (false) { // Guacamole desativado — RDP é sempre nativo (.rdp / mstsc) agora
             $guac_url = rtrim(GUACAMOLE_URL, '/');
             $ch = curl_init($guac_url . '/api/tokens');
             curl_setopt_array($ch, [
@@ -980,16 +980,12 @@ function renderLista(maqs) {
             <div class="maq-ip">${esc(m.ip)}</div>
             ${m.descricao ? `<div class="maq-desc">${esc(m.descricao)}</div>` : ''}
             ${m.usuario ? `<div class="maq-desc" style="color:#6b7280"><i class="bi bi-person-fill me-1"></i>${esc(m.usuario)}</div>` : ''}
-            ${temGuac ? `<div class="maq-desc" style="color:#059669"><i class="bi bi-globe2 me-1"></i>Guacamole</div>` : ''}
           </div>
         </div>
         <div class="maq-actions">
-          ${temGuac
-            ? `<a class="btn-rdp btn-auto" href="guacamole_conectar.php?id=${m.id}"><i class="bi bi-lightning-charge-fill"></i>Conectar</a>`
-            : (temSenha
-                ? `<a class="btn-rdp btn-manual" href="rdp_central.php?action=launcher&id=${m.id}"><i class="bi bi-download"></i>Conectar (.bat)</a>`
-                : `<a class="btn-rdp btn-manual" href="rdp_central.php?action=rdp&id=${m.id}"><i class="bi bi-download"></i>Conectar (.rdp)</a>`)
-          }
+          ${temSenha
+            ? `<a class="btn-rdp btn-manual" href="rdp_central.php?action=launcher&id=${m.id}"><i class="bi bi-download"></i>Conectar (.bat)</a>`
+            : `<a class="btn-rdp btn-manual" href="rdp_central.php?action=rdp&id=${m.id}"><i class="bi bi-download"></i>Conectar (.rdp)</a>`}
           ${isAdmin ? `<button class="btn-config" onclick="editar(${m.id})"><i class="bi bi-pencil-fill"></i></button><button class="btn-config" onclick="excluir(${m.id})" style="color:#ef4444"><i class="bi bi-trash-fill"></i></button>` : ''}
         </div>
       </div>`;

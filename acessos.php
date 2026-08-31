@@ -49,6 +49,8 @@ $pdo->exec("UPDATE portal_acessos SET url='pfsense_lojas.php' WHERE nome='pfSens
 $pdo->exec("UPDATE portal_acessos SET url='vnc_central.php', tipo='web' WHERE nome='VNC Viewer' AND grupo='remoto'");
 // Garante que o AnyDesk aponte para a Central AnyDesk
 $pdo->exec("UPDATE portal_acessos SET url='anydesk_central.php', tipo='web' WHERE nome='AnyDesk' AND grupo='remoto'");
+// VNC agora abre o viewer nativo do PC (Guacamole aposentado)
+$pdo->exec("UPDATE portal_acessos SET descricao='Acesso VNC — abre o VNC Viewer do seu PC' WHERE nome='VNC Viewer' AND descricao LIKE '%Guacamole%'");
 // PCs — Status online (ping ao vivo), na Infraestrutura ao lado do UniFi
 $pdo->exec("INSERT INTO portal_acessos (nome,descricao,grupo,tipo,url,icone,cor_bg,cor_text,ordem)
             SELECT 'PCs — Status online','Ping ao vivo: quais máquinas estão ligadas agora','infra','web','inventario_pcs.php','bi-broadcast-pin','#e0f2fe','#0369a1',5
