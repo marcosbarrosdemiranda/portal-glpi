@@ -372,15 +372,26 @@ if ($action) {
     if ($action === 'save_grupo') {
         $body = json_decode(file_get_contents('php://input'), true) ?? [];
         $id = (int)($body['id']??0);
-        $nome = trim($body['nome']??'');
-        if (!$nome) { echo json_encode(['ok'=>false,'msg'=>'Nome obrigatório']); exit; }
-        $icone = trim($body['icone']??'bi-display');
-        $cor_bg = trim($body['cor_bg']??'#6366f1');
-        $cor_fundo = trim($body['cor_fundo']??'#eef2ff');
-        $cor_badge = trim($body['cor_badge']??'#c7d2fe');
-        $cor_text = trim($body['cor_text']??'#3730a2');
-        $ordem = (int)($body['ordem']??0);
+        // Em edição, campos não enviados mantêm o valor atual (não reseta ícone/cor)
+        $cur = [];
         if ($id) {
+            $q = $pdo->prepare("SELECT * FROM portal_vnc_grupos WHERE id=?"); $q->execute([$id]);
+            $cur = $q->fetch(PDO::FETCH_ASSOC) ?: [];
+        }
+        $nome = trim($body['nome'] ?? $cur['nome'] ?? '');
+        if (!$nome) { echo json_encode(['ok'=>false,'msg'=>'Nome obrigatório']); exit; }
+        $icone = trim($body['icone'] ?? $cur['icone'] ?? 'bi-display');
+        $cor_bg = trim($body['cor_bg'] ?? $cur['cor_bg'] ?? '#6366f1');
+        $cor_fundo = trim($body['cor_fundo'] ?? $cur['cor_fundo'] ?? '#eef2ff');
+        $cor_badge = trim($body['cor_badge'] ?? $cur['cor_badge'] ?? '#c7d2fe');
+        $cor_text = trim($body['cor_text'] ?? $cur['cor_text'] ?? '#3730a2');
+        $ordem = (int)($body['ordem'] ?? $cur['ordem'] ?? 0);
+        if ($id) {
+            // renomeou? move as máquinas do nome antigo pro novo
+            if (!empty($cur['nome']) && $cur['nome'] !== $nome) {
+                $pdo->prepare("UPDATE portal_rdp_maquinas SET categoria=? WHERE protocolo='vnc' AND categoria=?")
+                    ->execute([$nome, $cur['nome']]);
+            }
             $pdo->prepare("UPDATE portal_vnc_grupos SET nome=?,icone=?,cor_bg=?,cor_fundo=?,cor_badge=?,cor_text=?,ordem=? WHERE id=?")
                 ->execute([$nome,$icone,$cor_bg,$cor_fundo,$cor_badge,$cor_text,$ordem,$id]);
         } else {
@@ -805,11 +816,25 @@ async function listarGrupos() {
     return;
   }
   el.innerHTML = grupos.map((g, i) =>
-    `<div style="display:flex;align-items:center;gap:.5rem;padding:.4rem .5rem;border-radius:6px;background:${i%2===0?'#f9fafb':'transparent'};margin-bottom:2px">
+    `<div style="display:flex;align-items:center;gap:.4rem;padding:.35rem .5rem;border-radius:6px;background:${i%2===0?'#f9fafb':'transparent'};margin-bottom:2px">
       <i class="${g.icone}" style="color:${g.cor_bg};font-size:1rem"></i>
-      <span style="flex:1;font-size:.85rem">${esc(g.nome)}</span>
+      <input class="form-control form-control-sm grp-edit" data-id="${g.id}" value="${escAttr(g.nome)}" style="flex:1;font-size:.85rem;height:28px"/>
+      <button class="btn btn-sm btn-primary" style="padding:.1rem .5rem;font-size:.72rem;background:#6d28d9;border-color:#6d28d9" onclick="renomearGrupo(${g.id})"><i class="bi bi-check-lg"></i></button>
       <button class="btn btn-sm btn-outline-danger" style="padding:.1rem .4rem;font-size:.7rem" onclick="excluirGrupo(${g.id})"><i class="bi bi-trash"></i></button>
     </div>`).join('');
+}
+
+async function renomearGrupo(id) {
+  const inp = document.querySelector(`.grp-edit[data-id="${id}"]`);
+  const nome = inp.value.trim();
+  if (!nome) { toast('Nome obrigatório', 'danger'); return; }
+  const r = await fetch('vnc_central.php?action=save_grupo', {
+    method: 'POST', headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({ id, nome })
+  });
+  const d = await r.json();
+  if (d.ok) { toast('✅ Grupo renomeado'); await listarGrupos(); await carregarGrupos(); }
+  else toast(d.msg || 'Erro', 'danger');
 }
 
 async function salvarGrupo() {
