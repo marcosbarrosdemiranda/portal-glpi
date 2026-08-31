@@ -30,6 +30,7 @@ $US      = "\x1f";
 $payload = rtrim(strtr(base64_encode($ip . $US . $user . $US . $senha), '+/', '-_'), '=');
 $uri     = 'gmaisrdp:' . $payload;
 $h = fn($s) => htmlspecialchars((string)$s, ENT_QUOTES, 'UTF-8');
+header('Cache-Control: no-store');
 ?>
 <!DOCTYPE html>
 <html lang="pt-BR">
@@ -56,42 +57,31 @@ $h = fn($s) => htmlspecialchars((string)$s, ENT_QUOTES, 'UTF-8');
 </head>
 <body>
 <div class="box">
-  <div id="ok">
-    <div class="spin"></div>
-    <h1>Abrindo <?= $h($m['nome']) ?>…</h1>
-    <div class="ip"><?= $h($ip) ?><?= $user ? ' — ' . $h($user) : '' ?></div>
-    <span class="retry" onclick="tentar()">Não abriu? Clique aqui</span>
-  </div>
-  <div id="fail">
-    <i class="bi bi-exclamation-triangle-fill ic"></i>
-    <h1>Não consegui abrir</h1>
-    <p>Este PC ainda não está configurado.</p>
-    <a class="btn btn-a" href="vnc_setup.php" target="_blank">Configurar este PC</a>
-    <a class="btn btn-b" href="rdp_central.php">Central RDP</a>
-    <span class="retry" onclick="tentar()">Tentar de novo</span>
+  <div class="spin"></div>
+  <h1>Abrindo <?= $h($m['nome']) ?>…</h1>
+  <div class="ip"><?= $h($ip) ?><?= $user ? ' — ' . $h($user) : '' ?></div>
+  <a class="btn btn-a" id="go" href="<?= $h($uri) ?>" style="margin-top:.9rem">Abrir Área de Trabalho</a>
+  <div id="ajuda" style="display:none;margin-top:1rem;font-size:.8rem;color:#5f6368">
+    Não abriu? <a href="vnc_setup.php" target="_blank">Configurar este PC</a> ·
+    <a href="rdp_central.php">Central RDP</a>
   </div>
 </div>
 <script>
   var URI = <?= json_encode($uri) ?>;
-  var lancou = false;
-  function saiu(){ lancou = true; }
-  window.addEventListener('blur', saiu);
-  window.addEventListener('pagehide', saiu);
-  document.addEventListener('visibilitychange', function(){ if (document.hidden) saiu(); });
+  var abriu = false;
+  window.addEventListener('blur', function(){ abriu = true; });
+  document.addEventListener('visibilitychange', function(){ if (document.hidden) abriu = true; });
 
-  function tentar(){ lancou = false; location.href = URI; agenda(); }
-  function agenda(){
-    setTimeout(function(){
-      if (lancou) {
-        if (window.history.length > 1) window.history.back();
-        else location.replace('rdp_central.php');
-      } else {
-        document.getElementById('ok').style.display = 'none';
-        document.getElementById('fail').style.display = 'block';
-      }
-    }, 2500);
-  }
-  tentar();
+  setTimeout(function(){ location.href = URI; }, 300);
+
+  setTimeout(function(){
+    if (abriu) {
+      if (window.history.length > 1) window.history.back();
+      else location.replace('rdp_central.php');
+    } else {
+      document.getElementById('ajuda').style.display = 'block';
+    }
+  }, 4000);
 </script>
 </body>
 </html>
