@@ -42,7 +42,7 @@ try {
     if (-not $ip) { throw "IP vazio" }
     Log "conectar $ip`::$port  senha=$([bool]$pass)"
 
-    $args = @("$ip`::$port", '-WarnUnencrypted=0', '-VerifyId=0', '-Encryption=PreferOff', '-AlwaysConnected=1')
+    $args = @("$ip`::$port", '-WarnUnencrypted=0', '-VerifyId=0', '-Encryption=PreferOff')
     $pwFile = $null
     if ($pass) {
         $pwFile = New-VncPasswordFile $pass
