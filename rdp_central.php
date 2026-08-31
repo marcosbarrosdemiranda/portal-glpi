@@ -759,6 +759,8 @@ if ($action) {
     .btn-auto:hover{background:#047857;}
     .btn-manual{background:#6b7280;color:white;}
     .btn-manual:hover{background:#4b5563;}
+    .btn-nativo{background:#1d4ed8;color:white;text-decoration:none;}
+    .btn-nativo:hover{background:#1e40af;}
     .btn-config{background:transparent;border:none;color:#9ca3af;cursor:pointer;padding:.3rem;border-radius:6px;font-size:.85rem;}
     .btn-config:hover{background:#f3f4f6;color:#374151;}
     .card-add{border:2px dashed #d1d5db;background:transparent;border-radius:10px;padding:1.25rem;text-align:center;color:#9ca3af;cursor:pointer;margin-bottom:.5rem;transition:all .15s;}
@@ -781,6 +783,7 @@ if ($action) {
     <?php if ($is_admin): ?>
     <button onclick="abrirModal()" style="background:rgba(255,255,255,.15);border:none;color:white;border-radius:6px;padding:.3rem .75rem;font-size:.82rem;cursor:pointer"><i class="bi bi-plus-lg me-1"></i>Nova Máquina</button>
     <?php endif; ?>
+    <a href="vnc_setup.php"><i class="bi bi-gear-fill me-1"></i>Configurar este PC</a>
     <a href="acessos.php"><i class="bi bi-grid-3x3-gap-fill me-1"></i>Acessos</a>
     <a href="dashboard.php"><i class="bi bi-grid me-1"></i>Início</a>
   </div>
@@ -983,9 +986,8 @@ function renderLista(maqs) {
           </div>
         </div>
         <div class="maq-actions">
-          ${temSenha
-            ? `<a class="btn-rdp btn-manual" href="rdp_central.php?action=launcher&id=${m.id}"><i class="bi bi-download"></i>Conectar (.bat)</a>`
-            : `<a class="btn-rdp btn-manual" href="rdp_central.php?action=rdp&id=${m.id}"><i class="bi bi-download"></i>Conectar (.rdp)</a>`}
+          <a class="btn-rdp btn-nativo" href="rdp_launch.php?id=${m.id}" title="Abre a Area de Trabalho Remota do seu PC"><i class="bi bi-pc-display-horizontal"></i>Abrir Área de Trabalho</a>
+          <a class="btn-rdp btn-manual" href="rdp_central.php?action=${temSenha ? 'launcher' : 'rdp'}&id=${m.id}" title="Baixar arquivo (alternativa)"><i class="bi bi-download"></i></a>
           ${isAdmin ? `<button class="btn-config" onclick="editar(${m.id})"><i class="bi bi-pencil-fill"></i></button><button class="btn-config" onclick="excluir(${m.id})" style="color:#ef4444"><i class="bi bi-trash-fill"></i></button>` : ''}
         </div>
       </div>`;

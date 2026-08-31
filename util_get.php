@@ -7,6 +7,8 @@ $allow = [
     'gmais-vnc.ps1'       => 'text/plain; charset=utf-8',
     'gmais-vnc-setup.ps1' => 'text/plain; charset=utf-8',
     'gmais-vnc.vbs'       => 'text/plain; charset=utf-8',
+    'gmais-rdp.ps1'       => 'text/plain; charset=utf-8',
+    'gmais-rdp.vbs'       => 'text/plain; charset=utf-8',
     'VNCViewer.exe'       => 'application/octet-stream',
 ];
 $f = basename($_GET['f'] ?? '');

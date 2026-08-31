@@ -57,8 +57,8 @@ $h = fn($s) => htmlspecialchars((string)$s, ENT_QUOTES, 'UTF-8');
 </head>
 <body>
 <div class="box">
-  <h1><i class="bi bi-gear-fill"></i> Configurar "Abrir no VNC" neste PC</h1>
-  <p class="lead">Só precisa fazer <strong>uma vez por PC que não está no domínio</strong>. Depois, o botão "Abrir no VNC" da Central VNC abre o viewer direto, em 1 clique.</p>
+  <h1><i class="bi bi-gear-fill"></i> Configurar acesso remoto neste PC</h1>
+  <p class="lead">Só precisa fazer <strong>uma vez por PC que não está no domínio</strong>. Depois, os botões <strong>"Abrir no VNC"</strong> (Central VNC) e <strong>"Abrir Área de Trabalho"</strong> (Central RDP) funcionam direto, em 1 clique.</p>
 
   <h2>Jeito fácil</h2>
   <div class="step"><span class="n">1</span><div>Clique em <strong>Baixar configurador</strong>.</div></div>
@@ -74,7 +74,7 @@ $h = fn($s) => htmlspecialchars((string)$s, ENT_QUOTES, 'UTF-8');
   </div>
 
   <div class="alt">
-    <p class="hint"><strong>O que isso faz:</strong> cria <code>C:\Util</code>, baixa o <code>VNCViewer.exe</code> e o handler, e registra o protocolo <code>gmaisvnc://</code> no seu perfil. Nada de admin permanente, nada que atrapalhe o PC.</p>
+    <p class="hint"><strong>O que isso faz:</strong> cria <code>C:\Util</code>, baixa o <code>VNCViewer.exe</code> + os handlers, e registra os protocolos <code>gmaisvnc://</code> e <code>gmaisrdp://</code> no seu perfil. Nada de admin permanente, nada que atrapalhe o PC.</p>
   </div>
 
   <a class="volta" href="vnc_central.php">← Voltar à Central VNC</a>
