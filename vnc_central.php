@@ -458,7 +458,7 @@ function renderLista(maqs) {
           </div>
         </div>
         <div class="maq-actions">
-          <a class="btn-rdp btn-nativo" href="vnc_launch.php?id=${m.id}" title="Abre o VNC Viewer instalado no seu PC (C:\\Util\\VNCViewer.exe)"><i class="bi bi-display-fill"></i>Abrir no VNC</a>
+          <a class="btn-rdp btn-nativo" href="vnc_launch.php?id=${m.id}" onclick="return abrirRemoto('vnc_launch.php?id=${m.id}')" title="Abre o VNC Viewer do seu PC"><i class="bi bi-display-fill"></i>Abrir no VNC</a>
           ${isAdmin ? `<button class="btn-config" onclick="editar(${m.id})"><i class="bi bi-pencil-fill"></i></button><button class="btn-config" onclick="excluir(${m.id})" style="color:#ef4444"><i class="bi bi-trash-fill"></i></button>` : ''}
         </div>
       </div>`;
@@ -626,6 +626,7 @@ function toggleSenha() {
 }
 
 function esc(s) { const d = document.createElement('div'); d.textContent = s; return d.innerHTML; }
+function abrirRemoto(url) { window.open(url, 'gmais_launch', 'width=420,height=250,menubar=no,toolbar=no,location=no'); return false; }
 function escAttr(s) { return esc(s).replace(/'/g,'&#39;').replace(/"/g,'&quot;'); }
 
 function toast(msg, type = 'success') {

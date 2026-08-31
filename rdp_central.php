@@ -461,6 +461,7 @@ document.addEventListener('DOMContentLoaded', () => {
 });
 
 function esc(s) { const d = document.createElement('div'); d.textContent = s; return d.innerHTML; }
+function abrirRemoto(url) { window.open(url, 'gmais_launch', 'width=420,height=250,menubar=no,toolbar=no,location=no'); return false; }
 function escAttr(s) { return String(s).replace(/"/g,'&quot;').replace(/'/g,'&#39;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
 
 function getLabel(cat) { return CATS[cat]?.label || cat; }
@@ -561,7 +562,7 @@ function renderLista(maqs) {
           </div>
         </div>
         <div class="maq-actions">
-          <a class="btn-rdp btn-nativo" href="rdp_launch.php?id=${m.id}" title="Abre a Area de Trabalho Remota do seu PC"><i class="bi bi-pc-display-horizontal"></i>Abrir Área de Trabalho</a>
+          <a class="btn-rdp btn-nativo" href="rdp_launch.php?id=${m.id}" onclick="return abrirRemoto('rdp_launch.php?id=${m.id}')" title="Abre a Área de Trabalho Remota do seu PC"><i class="bi bi-pc-display-horizontal"></i>Abrir Área de Trabalho</a>
           <a class="btn-rdp btn-manual" href="rdp_central.php?action=${temSenha ? 'launcher' : 'rdp'}&id=${m.id}" title="Baixar arquivo (alternativa)"><i class="bi bi-download"></i></a>
           ${isAdmin ? `<button class="btn-config" onclick="editar(${m.id})"><i class="bi bi-pencil-fill"></i></button><button class="btn-config" onclick="excluir(${m.id})" style="color:#ef4444"><i class="bi bi-trash-fill"></i></button>` : ''}
         </div>

@@ -1,7 +1,7 @@
 <?php
 /**
- * rdp_launch.php — abre a Área de Trabalho Remota (mstsc) do PC via protocolo gmaisrdp://
- * Handler instalado 1x (GPO ou "Configurar este PC"). Ver util/gmais-rdp.ps1
+ * rdp_launch.php — dispara a Área de Trabalho Remota (gmaisrdp://). Abre numa janelinha:
+ * se o handler estiver OK, fecha sozinha; se não, mostra o atalho de configuração.
  */
 require_once __DIR__ . '/auth_guard.php';
 if (empty($_SESSION['autenticado'])) { header('Location: auth.php'); exit; }
@@ -26,7 +26,6 @@ if (!$m) { http_response_code(404); exit('Máquina não encontrada.'); }
 $ip    = trim($m['ip']);
 $user  = trim($m['usuario'] ?? '');
 $senha = $m['senha'] ? rdp_dec($m['senha']) : '';
-
 $US      = "\x1f";
 $payload = rtrim(strtr(base64_encode($ip . $US . $user . $US . $senha), '+/', '-_'), '=');
 $uri     = 'gmaisrdp:' . $payload;
@@ -36,31 +35,63 @@ $h = fn($s) => htmlspecialchars((string)$s, ENT_QUOTES, 'UTF-8');
 <html lang="pt-BR">
 <head>
 <meta charset="UTF-8">
-<title>Abrindo Área de Trabalho — <?= $h($m['nome']) ?></title>
+<title>Abrindo Área de Trabalho…</title>
 <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.css" rel="stylesheet"/>
 <style>
-  body { font-family:'Segoe UI',sans-serif; background:#f0f4f9; color:#202124; display:flex; min-height:100vh; align-items:center; justify-content:center; margin:0; }
-  .box { background:#fff; border-radius:14px; box-shadow:0 4px 24px rgba(0,0,0,.12); padding:2rem 2.25rem; max-width:420px; text-align:center; }
-  .box i.big { font-size:2.4rem; color:#1d4ed8; }
-  h1 { font-size:1.1rem; margin:.6rem 0 .2rem; }
-  .ip { font-family:Consolas,monospace; color:#5f6368; font-size:.9rem; }
-  .btn { display:inline-block; margin-top:1.1rem; background:#1d4ed8; color:#fff; text-decoration:none; border-radius:9px; padding:.55rem 1.3rem; font-size:.9rem; }
-  .hint { margin-top:1rem; font-size:.78rem; color:#80868b; line-height:1.5; }
-  a.volta { display:block; margin-top:.9rem; font-size:.8rem; color:#1a73e8; }
+  body { font-family:'Segoe UI',sans-serif; background:#f0f4f9; color:#202124; margin:0; display:flex; min-height:100vh; align-items:center; justify-content:center; }
+  .box { text-align:center; padding:1.5rem; max-width:360px; }
+  .spin { width:34px; height:34px; border:3px solid #d5dae2; border-top-color:#1d4ed8; border-radius:50%; animation:r .8s linear infinite; margin:0 auto .8rem; }
+  @keyframes r { to { transform:rotate(360deg); } }
+  h1 { font-size:1rem; margin:.2rem 0; }
+  .ip { font-family:Consolas,monospace; color:#5f6368; font-size:.82rem; }
+  #fail { display:none; }
+  #fail .ic { font-size:2rem; color:#e8a33d; }
+  #fail h1 { color:#7a5b00; margin:.5rem 0 .3rem; }
+  #fail p { font-size:.83rem; color:#5f6368; margin:.3rem 0 1rem; }
+  .btn { display:inline-block; margin:.25rem; padding:.5rem 1.1rem; border-radius:9px; font-size:.85rem; text-decoration:none; }
+  .btn-a { background:#1d4ed8; color:#fff; }
+  .btn-b { background:#e9edf2; color:#3c4043; }
+  .retry { font-size:.8rem; color:#1a73e8; display:block; margin-top:.6rem; cursor:pointer; }
 </style>
 </head>
 <body>
 <div class="box">
-  <i class="bi bi-pc-display-horizontal big"></i>
-  <h1>Abrindo <?= $h($m['nome']) ?></h1>
-  <div class="ip"><?= $h($ip) ?><?= $user ? ' — ' . $h($user) : '' ?></div>
-  <a class="btn" href="<?= $h($uri) ?>" id="go"><i class="bi bi-box-arrow-up-right"></i> Abrir Área de Trabalho</a>
-  <div class="hint">Não abriu? Este PC ainda não foi configurado — <a href="vnc_setup.php">clique aqui para configurar</a> (1 vez só).</div>
-  <a class="volta" href="rdp_central.php">← Central RDP</a>
+  <div id="ok">
+    <div class="spin"></div>
+    <h1>Abrindo <?= $h($m['nome']) ?>…</h1>
+    <div class="ip"><?= $h($ip) ?><?= $user ? ' — ' . $h($user) : '' ?></div>
+    <span class="retry" onclick="tentar()">Não abriu? Clique aqui</span>
+  </div>
+  <div id="fail">
+    <i class="bi bi-exclamation-triangle-fill ic"></i>
+    <h1>Não consegui abrir</h1>
+    <p>Este PC ainda não está configurado.</p>
+    <a class="btn btn-a" href="vnc_setup.php" target="_blank">Configurar este PC</a>
+    <a class="btn btn-b" href="rdp_central.php" onclick="window.close()">Central RDP</a>
+    <span class="retry" onclick="tentar()">Tentar de novo</span>
+  </div>
 </div>
 <script>
-  setTimeout(function(){ window.location.href = document.getElementById('go').href; }, 200);
-  setTimeout(function(){ window.close(); }, 1500);
+  var URI = <?= json_encode($uri) ?>;
+  var lancou = false;
+  function saiu(){ lancou = true; }
+  window.addEventListener('blur', saiu);
+  window.addEventListener('pagehide', saiu);
+  document.addEventListener('visibilitychange', function(){ if (document.hidden) saiu(); });
+
+  function tentar(){ lancou = false; location.href = URI; agenda(); }
+  function agenda(){
+    setTimeout(function(){
+      if (lancou) {
+        window.close();
+        document.getElementById('ok').innerHTML = '<p style="font-size:.85rem;color:#5f6368">Pode fechar esta janela.</p>';
+      } else {
+        document.getElementById('ok').style.display = 'none';
+        document.getElementById('fail').style.display = 'block';
+      }
+    }, 2500);
+  }
+  tentar();
 </script>
 </body>
 </html>
