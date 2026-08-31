@@ -1,0 +1,62 @@
+CENTRAL VNC — abrir PDV direto no VNC Viewer nativo
+===================================================
+
+Em vez do Guacamole no navegador, o botao "Abrir no VNC" da Central VNC
+abre o VNC Viewer instalado no proprio PC da TI. Mais leve e mais rapido
+na rede local.
+
+
+INSTALACAO (uma vez por PC da TI)
+---------------------------------
+
+1. Criar a pasta  C:\Util  e copiar pra dentro dela:
+
+   - VNCViewer.exe    -> o VNC Viewer (ver abaixo onde baixar)
+   - gmais-vnc.ps1    -> deste mesmo diretorio util\
+   - gmaisvnc.reg     -> deste mesmo diretorio util\
+
+2. Duplo-clique em  gmaisvnc.reg  ->  "Sim"
+   (registra o protocolo gmaisvnc:// so pro usuario atual, nao pede admin)
+
+3. Testar: no portal -> Central VNC -> "Abrir no VNC" numa maquina.
+   O Chrome/Edge pergunta "Abrir gmaisvnc?" -> marcar "sempre permitir" -> Abrir.
+
+
+ONDE BAIXAR O VIEWER
+--------------------
+
+TightVNC Viewer (recomendado):
+   https://www.tightvnc.com/download.php
+   Instale o "TightVNC for Windows" e copie
+   C:\Program Files\TightVNC\tvnviewer.exe  para  C:\Util\VNCViewer.exe
+   (so o viewer; nao precisa do server)
+
+Se a TI ja usa UltraVNC:
+   Copie o vncviewer.exe do UltraVNC para C:\Util\VNCViewer.exe
+   E edite gmais-vnc.ps1: trocar   $Style = 'tightvnc'   por   $Style = 'ultravnc'
+
+
+SENHA
+-----
+
+A senha VNC de cada maquina vem do cadastro no portal (Central VNC ->
+editar). A maioria dos PDVs usa 123456; as diferentes so cadastrar a
+senha certa na maquina. O viewer recebe a senha e conecta direto.
+
+
+PROBLEMAS
+---------
+
+- "nada abriu": o .reg nao foi importado nesse PC, ou o Chrome bloqueou.
+  Repetir passo 2 e clicar de novo.
+- Erro em popup: ver  C:\Util\gmais-vnc.log
+- Viewer abre mas pede senha: a senha cadastrada no portal esta errada/vazia,
+  ou o viewer nao aceita o formato (conferir TightVNC x UltraVNC no $Style).
+
+
+DISTRIBUIR EM MASSA (futuro)
+---------------------------
+
+Jogar VNCViewer.exe + gmais-vnc.ps1 em C:\Util via GPO/script de logon e
+importar o .reg com:  reg import "\\servidor\share\gmaisvnc.reg"
+(ou versao HKLM do .reg rodando como SYSTEM).

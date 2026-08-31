@@ -456,6 +456,8 @@ if ($action) {
     .btn-auto:hover{background:#6d28d9;}
     .btn-manual{background:#6b7280;color:white;}
     .btn-manual:hover{background:#4b5563;}
+    .btn-nativo{background:#059669;color:white;text-decoration:none;}
+    .btn-nativo:hover{background:#047857;}
     .btn-config{background:transparent;border:none;color:#9ca3af;cursor:pointer;padding:.3rem;border-radius:6px;font-size:.85rem;}
     .btn-config:hover{background:#f3f4f6;color:#374151;}
     .card-add{border:2px dashed #d1d5db;background:transparent;border-radius:10px;padding:1.25rem;text-align:center;color:#9ca3af;cursor:pointer;margin-bottom:.5rem;transition:all .15s;}
@@ -679,9 +681,10 @@ function renderLista(maqs) {
           </div>
         </div>
         <div class="maq-actions">
+          <a class="btn-rdp btn-nativo" href="vnc_launch.php?id=${m.id}" title="Abre o VNC Viewer instalado no seu PC (C:\\Util\\VNCViewer.exe)"><i class="bi bi-display-fill"></i>Abrir no VNC</a>
           ${temGuac
-            ? `<a class="btn-rdp btn-auto" href="guacamole_conectar.php?id=${m.id}"><i class="bi bi-lightning-charge-fill"></i>Conectar</a>`
-            : `<a class="btn-rdp btn-manual" href="#"><i class="bi bi-download"></i>Sem Guacamole</a>`
+            ? `<a class="btn-rdp btn-auto" href="guacamole_conectar.php?id=${m.id}"><i class="bi bi-globe2"></i>Guacamole</a>`
+            : ''
           }
           ${isAdmin ? `<button class="btn-config" onclick="editar(${m.id})"><i class="bi bi-pencil-fill"></i></button><button class="btn-config" onclick="excluir(${m.id})" style="color:#ef4444"><i class="bi bi-trash-fill"></i></button>` : ''}
         </div>
