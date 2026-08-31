@@ -78,7 +78,7 @@ if ($action) {
     if ($action === 'list') {
         $sql = "SELECT id, nome, ip, descricao, usuario,
                        CASE WHEN senha IS NOT NULL AND senha != '' THEN 1 ELSE 0 END as has_senha,
-                       categoria, ordem, guac_id
+                       categoria, ordem
                 FROM portal_rdp_maquinas WHERE ativo=1 AND protocolo='vnc'";
         $params = [];
         $categoria = $_GET['categoria'] ?? '';
@@ -98,268 +98,40 @@ if ($action) {
         $body = json_decode(file_get_contents('php://input'), true) ?? [];
         $n = trim($body['nome']??''); $i = trim($body['ip']??'');
         $d = trim($body['descricao']??''); $s = $body['senha'] ?? '';
-        $g = $body['guac_id'] ?? null;
         $c = $body['categoria']??'';
         if (!$n||!$i) { echo json_encode(['ok'=>false,'msg'=>'Preencha nome e IP']); exit; }
         if (!in_array($c, $cat_lista)) $c = $cat_lista[0] ?? 'Servidores';
         $senha_enc = $s ? rdp_encrypt($s) : null;
 
-        // Se não informou guac_id, tenta criar automaticamente no Guacamole
-        $guac_log = '';
-        if (false) { // Guacamole desativado — VNC é sempre nativo agora
-            $guac_url = rtrim(GUACAMOLE_URL, '/');
-            $ch = curl_init($guac_url . '/api/tokens');
-            curl_setopt_array($ch, [
-                CURLOPT_POST => true,
-                CURLOPT_POSTFIELDS => http_build_query(['username' => GUACAMOLE_USER, 'password' => GUACAMOLE_PASS]),
-                CURLOPT_RETURNTRANSFER => true, CURLOPT_TIMEOUT => 5,
-                CURLOPT_HTTPHEADER => ['Content-Type: application/x-www-form-urlencoded'],
-            ]);
-            $resp = curl_exec($ch);
-            $http = curl_getinfo($ch, CURLINFO_HTTP_CODE);
-            curl_close($ch);
-
-            if ($http === 200 && $resp) {
-                $auth = json_decode($resp, true);
-                $token = $auth['authToken'] ?? '';
-                $ds = $auth['dataSource'] ?? 'mysql';
-
-                if ($token) {
-                    // Função auxiliar: monta payload VNC
-                    $guac_payload = function() use ($n, $i, $s) {
-                        return [
-                            'parentIdentifier' => 'ROOT',
-                            'name' => $n,
-                            'protocol' => 'vnc',
-                            'attributes' => [
-                                'max-connections' => '', 'max-connections-per-user' => '',
-                                'weight' => '', 'failover-only' => '',
-                                'guacd-hostname' => '', 'guacd-port' => '',
-                            ],
-                            'parameters' => [
-                                'hostname' => $i, 'port' => '5900',
-                                'password' => $s, 'color-depth' => '16',
-                                'read-only' => '', 'swap-red-blue' => '',
-                                'cursor' => '',
-                            ],
-                        ];
-                    };
-
-                    // Busca se já existe conexão com esse nome
-                    $ch3 = curl_init("{$guac_url}/api/session/data/{$ds}/connections");
-                    curl_setopt_array($ch3, [
-                        CURLOPT_RETURNTRANSFER => true, CURLOPT_TIMEOUT => 5,
-                        CURLOPT_HTTPHEADER => ["Guacamole-Token: {$token}"],
-                    ]);
-                    $resLista = curl_exec($ch3);
-                    curl_close($ch3);
-                    $lista = json_decode($resLista, true) ?? [];
-                    foreach ($lista as $connId => $conn) {
-                        if (($conn['name'] ?? '') === $n) {
-                            $g = (int)$connId;
-                            $guac_log = 'guac_existente:' . $g;
-                            // Atualiza parâmetros
-                            $ch_upd = curl_init("{$guac_url}/api/session/data/{$ds}/connections/{$g}");
-                            curl_setopt_array($ch_upd, [
-                                CURLOPT_CUSTOMREQUEST => 'PUT',
-                                CURLOPT_POSTFIELDS => json_encode($guac_payload()),
-                                CURLOPT_RETURNTRANSFER => true, CURLOPT_TIMEOUT => 5,
-                                CURLOPT_HTTPHEADER => ['Content-Type: application/json', "Guacamole-Token: {$token}"],
-                            ]);
-                            curl_exec($ch_upd);
-                            $upd_code = curl_getinfo($ch_upd, CURLINFO_HTTP_CODE);
-                            curl_close($ch_upd);
-                            $guac_log .= ($upd_code >= 200 && $upd_code < 300) ? '|atualizado' : '|upd_http_' . $upd_code;
-                            break;
-                        }
-                    }
-                    if (!$g) {
-                        $ch2 = curl_init("{$guac_url}/api/session/data/{$ds}/connections");
-                        curl_setopt_array($ch2, [
-                            CURLOPT_POST => true,
-                            CURLOPT_POSTFIELDS => json_encode($guac_payload()),
-                            CURLOPT_RETURNTRANSFER => true, CURLOPT_TIMEOUT => 5,
-                            CURLOPT_HTTPHEADER => ['Content-Type: application/json', "Guacamole-Token: {$token}"],
-                        ]);
-                        $resp2 = curl_exec($ch2);
-                        $code2 = curl_getinfo($ch2, CURLINFO_HTTP_CODE);
-                        curl_close($ch2);
-                        if ($code2 >= 200 && $code2 < 300) {
-                            $novo = json_decode($resp2, true);
-                            if (!empty($novo['identifier'])) {
-                                $g = (int)$novo['identifier'];
-                                $guac_log = 'guac_novo:' . $g;
-                            } else {
-                                $guac_log = 'guac_sem_id_na_resposta';
-                            }
-                        } else {
-                            $guac_log = 'guac_http_' . $code2;
-                        }
-                    }
-                } else {
-                    $guac_log = 'guac_sem_token';
-                }
-            } else {
-                $guac_log = 'guac_login_' . $http;
-            }
-        }
-
-        $guac_val = ($g !== '' && $g !== null) ? (int)$g : null;
         $mo = $pdo->query("SELECT COALESCE(MAX(ordem),0)+1 FROM portal_rdp_maquinas WHERE protocolo='vnc'")->fetchColumn();
-        $pdo->prepare("INSERT INTO portal_rdp_maquinas (nome,ip,descricao,usuario,senha,protocolo,guac_id,categoria,ordem) VALUES (?,?,?,?,?,'vnc',?,?,?)")
-            ->execute([$n,$i,$d,'',$senha_enc,$guac_val,$c,$mo]);
-        echo json_encode(['ok'=>true, 'id'=>$pdo->lastInsertId(), 'guac_id'=>$g, 'guac_auto'=>($g !== null && $g > 0), 'guac_log'=>$guac_log]); exit;
+        $pdo->prepare("INSERT INTO portal_rdp_maquinas (nome,ip,descricao,usuario,senha,protocolo,categoria,ordem) VALUES (?,?,?,?,?,'vnc',?,?)")
+            ->execute([$n,$i,$d,'',$senha_enc,$c,$mo]);
+        echo json_encode(['ok'=>true, 'id'=>$pdo->lastInsertId()]); exit;
     }
 
     // ── Editar ─────────────────────────────────────────────────
     if ($action === 'edit') {
         $body = json_decode(file_get_contents('php://input'), true) ?? [];
         $id=(int)($body['id']??0); $n=trim($body['nome']??''); $i=trim($body['ip']??'');
-        $d=trim($body['descricao']??''); $s = $body['senha'] ?? ''; $g = $body['guac_id'] ?? null;
+        $d=trim($body['descricao']??''); $s = $body['senha'] ?? '';
         $c=$body['categoria']??'';
         if (!$id||!$n||!$i) { echo json_encode(['ok'=>false,'msg'=>'Preencha nome e IP']); exit; }
         if (!in_array($c, $cat_lista)) $c = $cat_lista[0] ?? 'Servidores';
 
-        // Se não tem guac_id, tenta buscar/criar no Guacamole
-        $guac_log = '';
-        if (false) { // Guacamole desativado — VNC é sempre nativo agora
-            $guac_url = rtrim(GUACAMOLE_URL, '/');
-            $ch = curl_init($guac_url . '/api/tokens');
-            curl_setopt_array($ch, [
-                CURLOPT_POST => true,
-                CURLOPT_POSTFIELDS => http_build_query(['username' => GUACAMOLE_USER, 'password' => GUACAMOLE_PASS]),
-                CURLOPT_RETURNTRANSFER => true, CURLOPT_TIMEOUT => 5,
-                CURLOPT_HTTPHEADER => ['Content-Type: application/x-www-form-urlencoded'],
-            ]);
-            $resp = curl_exec($ch);
-            $http = curl_getinfo($ch, CURLINFO_HTTP_CODE);
-            curl_close($ch);
-            if ($http === 200 && $resp) {
-                $auth = json_decode($resp, true);
-                $token = $auth['authToken'] ?? '';
-                $ds = $auth['dataSource'] ?? 'mysql';
-                if ($token) {
-                    $guac_payload = function() use ($n, $i, $s) {
-                        return [
-                            'parentIdentifier' => 'ROOT',
-                            'name' => $n,
-                            'protocol' => 'vnc',
-                            'attributes' => [
-                                'max-connections' => '', 'max-connections-per-user' => '',
-                                'weight' => '', 'failover-only' => '',
-                                'guacd-hostname' => '', 'guacd-port' => '',
-                            ],
-                            'parameters' => [
-                                'hostname' => $i, 'port' => '5900',
-                                'password' => $s, 'color-depth' => '16',
-                                'read-only' => '', 'swap-red-blue' => '',
-                                'cursor' => '',
-                            ],
-                        ];
-                    };
-                    $ch3 = curl_init("{$guac_url}/api/session/data/{$ds}/connections");
-                    curl_setopt_array($ch3, [
-                        CURLOPT_RETURNTRANSFER => true, CURLOPT_TIMEOUT => 5,
-                        CURLOPT_HTTPHEADER => ["Guacamole-Token: {$token}"],
-                    ]);
-                    $resLista = curl_exec($ch3);
-                    curl_close($ch3);
-                    $lista = json_decode($resLista, true) ?? [];
-                    foreach ($lista as $connId => $conn) {
-                        if (($conn['name'] ?? '') === $n) {
-                            $g = (int)$connId;
-                            $guac_log = 'guac_existente:' . $g;
-                            $ch_upd = curl_init("{$guac_url}/api/session/data/{$ds}/connections/{$g}");
-                            curl_setopt_array($ch_upd, [
-                                CURLOPT_CUSTOMREQUEST => 'PUT',
-                                CURLOPT_POSTFIELDS => json_encode($guac_payload()),
-                                CURLOPT_RETURNTRANSFER => true, CURLOPT_TIMEOUT => 5,
-                                CURLOPT_HTTPHEADER => ['Content-Type: application/json', "Guacamole-Token: {$token}"],
-                            ]);
-                            curl_exec($ch_upd);
-                            $upd_code = curl_getinfo($ch_upd, CURLINFO_HTTP_CODE);
-                            curl_close($ch_upd);
-                            $guac_log .= ($upd_code >= 200 && $upd_code < 300) ? '|atualizado' : '|upd_http_' . $upd_code;
-                            break;
-                        }
-                    }
-                    if (!$g) {
-                        $ch2 = curl_init("{$guac_url}/api/session/data/{$ds}/connections");
-                        curl_setopt_array($ch2, [
-                            CURLOPT_POST => true,
-                            CURLOPT_POSTFIELDS => json_encode($guac_payload()),
-                            CURLOPT_RETURNTRANSFER => true, CURLOPT_TIMEOUT => 5,
-                            CURLOPT_HTTPHEADER => ['Content-Type: application/json', "Guacamole-Token: {$token}"],
-                        ]);
-                        $resp2 = curl_exec($ch2);
-                        $code2 = curl_getinfo($ch2, CURLINFO_HTTP_CODE);
-                        curl_close($ch2);
-                        if ($code2 >= 200 && $code2 < 300) {
-                            $novo = json_decode($resp2, true);
-                            if (!empty($novo['identifier'])) {
-                                $g = (int)$novo['identifier'];
-                                $guac_log = 'guac_novo:' . $g;
-                            }
-                        } else {
-                            $guac_log = 'guac_http_' . $code2;
-                        }
-                    }
-                }
-            }
-        }
-
-        $guac_val = ($g !== '' && $g !== null) ? (int)$g : null;
         if ($s !== '') {
-            $senha_enc = $s ? rdp_encrypt($s) : null;
-            $pdo->prepare("UPDATE portal_rdp_maquinas SET nome=?,ip=?,descricao=?,senha=?,guac_id=?,categoria=? WHERE id=?")
-                ->execute([$n,$i,$d,$senha_enc,$guac_val,$c,$id]);
+            $pdo->prepare("UPDATE portal_rdp_maquinas SET nome=?,ip=?,descricao=?,senha=?,categoria=? WHERE id=?")
+                ->execute([$n,$i,$d,rdp_encrypt($s),$c,$id]);
         } else {
-            $pdo->prepare("UPDATE portal_rdp_maquinas SET nome=?,ip=?,descricao=?,guac_id=?,categoria=? WHERE id=?")
-                ->execute([$n,$i,$d,$guac_val,$c,$id]);
+            $pdo->prepare("UPDATE portal_rdp_maquinas SET nome=?,ip=?,descricao=?,categoria=? WHERE id=?")
+                ->execute([$n,$i,$d,$c,$id]);
         }
-        echo json_encode(['ok'=>true, 'guac_id'=>$guac_val, 'guac_log'=>$guac_log]); exit;
+        echo json_encode(['ok'=>true]); exit;
     }
 
     // ── Excluir ────────────────────────────────────────────────
     if ($action === 'delete' && isset($_GET['id'])) {
-        $del_id = (int)$_GET['id'];
-        $st_del = $pdo->prepare("SELECT guac_id FROM portal_rdp_maquinas WHERE id=?");
-        $st_del->execute([$del_id]);
-        $row_del = $st_del->fetch(PDO::FETCH_ASSOC);
-        $del_guac = ($row_del && !empty($row_del['guac_id'])) ? (int)$row_del['guac_id'] : 0;
-        $pdo->prepare("DELETE FROM portal_rdp_maquinas WHERE id=?")->execute([$del_id]);
-        $del_guac_log = '';
-        if ($del_guac > 0) {
-            $guac_url = rtrim(GUACAMOLE_URL, '/');
-            $ch = curl_init($guac_url . '/api/tokens');
-            curl_setopt_array($ch, [
-                CURLOPT_POST => true,
-                CURLOPT_POSTFIELDS => http_build_query(['username' => GUACAMOLE_USER, 'password' => GUACAMOLE_PASS]),
-                CURLOPT_RETURNTRANSFER => true, CURLOPT_TIMEOUT => 5,
-                CURLOPT_HTTPHEADER => ['Content-Type: application/x-www-form-urlencoded'],
-            ]);
-            $resp = curl_exec($ch);
-            $http = curl_getinfo($ch, CURLINFO_HTTP_CODE);
-            curl_close($ch);
-            if ($http === 200 && $resp) {
-                $auth = json_decode($resp, true);
-                $token = $auth['authToken'] ?? '';
-                $ds = $auth['dataSource'] ?? 'mysql';
-                if ($token) {
-                    $ch2 = curl_init("{$guac_url}/api/session/data/{$ds}/connections/{$del_guac}");
-                    curl_setopt_array($ch2, [
-                        CURLOPT_CUSTOMREQUEST => 'DELETE',
-                        CURLOPT_RETURNTRANSFER => true, CURLOPT_TIMEOUT => 5,
-                        CURLOPT_HTTPHEADER => ["Guacamole-Token: {$token}"],
-                    ]);
-                    curl_exec($ch2);
-                    $del_code = curl_getinfo($ch2, CURLINFO_HTTP_CODE);
-                    curl_close($ch2);
-                    $del_guac_log = ($del_code >= 200 && $del_code < 300) ? 'guac_removido' : 'guac_del_http_' . $del_code;
-                }
-            }
-        }
-        echo json_encode(['ok'=>true, 'guac_del'=>$del_guac_log ?: 'sem_guac']); exit;
+        $pdo->prepare("DELETE FROM portal_rdp_maquinas WHERE id=?")->execute([(int)$_GET['id']]);
+        echo json_encode(['ok'=>true]); exit;
     }
 
     // ── Listar grupos ───────────────────────────────────────────
@@ -494,7 +266,7 @@ if ($action) {
 </div>
 <div class="hero">
   <h1><i class="bi bi-camera-video-fill me-2"></i>Acesso Remoto VNC</h1>
-  <p>Clique em <strong>Conectar</strong> para acesso via Guacamole no navegador</p>
+  <p>Clique em <strong>Abrir no VNC</strong> para conectar com o VNC Viewer do seu PC</p>
 </div>
 
 <div class="wrap" id="app">
@@ -525,7 +297,7 @@ if ($action) {
             <input type="password" class="form-control" id="edit-senha" placeholder="Deixe em branco para pedir ao conectar"/>
             <button class="btn btn-outline-secondary" type="button" onclick="toggleSenha()" style="font-size:.75rem"><i class="bi bi-eye-fill"></i></button>
           </div>
-          <div class="form-text text-muted small">Senha criptografada. Se deixar em branco, o Guacamole vai solicitar ao conectar.</div>
+          <div class="form-text text-muted small">Senha criptografada. Se deixar em branco, o VNC Viewer pede ao conectar.</div>
         </div>
         <div class="mb-2">
           <label class="form-label fw-semibold">Categoria</label>
@@ -535,11 +307,6 @@ if ($action) {
               <i class="bi bi-gear-fill"></i>
             </button>
           </div>
-        </div>
-        <div class="mb-2">
-          <label class="form-label fw-semibold">ID Conexão Guacamole <span class="text-muted small">(opcional)</span></label>
-          <input type="number" class="form-control" id="edit-guac-id" placeholder="Deixe 0 se não tiver" min="0"/>
-          <div class="form-text text-muted small">ID da conexão criada no Guacamole para esta máquina.</div>
         </div>
       </div>
       <div class="modal-footer">
@@ -681,7 +448,6 @@ function renderLista(maqs) {
       <div class="section-body ${isOpen?'open':''}" id="corpo-${c}">
         <div class="section-body-inner">`;
     itens.forEach(m => {
-      const temGuac = m.guac_id > 0;
       html += `<div class="maq-card" id="maq-${m.id}">
         <div class="maq-info">
           <div class="maq-icon" style="background:${getColor(c)};color:${getBg(c)}"><i class="${getIcon(c)}"></i></div>
@@ -729,7 +495,7 @@ function toggleCategoria(cat) {
 }
 
 function abrirModal() {
-  ['edit-id','edit-nome','edit-ip','edit-desc','edit-senha','edit-guac-id'].forEach(id => document.getElementById(id).value = '');
+  ['edit-id','edit-nome','edit-ip','edit-desc','edit-senha'].forEach(id => document.getElementById(id).value = '');
   if (GRUPOS.length) document.getElementById('edit-categoria').value = GRUPOS[0].nome;
   document.getElementById('modal-label').innerHTML = '<i class="bi bi-plus-circle-fill me-2"></i>Nova Máquina VNC';
   modalMaq.show();
@@ -744,7 +510,6 @@ async function editar(id) {
   document.getElementById('edit-ip').value = item.ip;
   document.getElementById('edit-desc').value = item.descricao || '';
   document.getElementById('edit-senha').value = '';
-  document.getElementById('edit-guac-id').value = item.guac_id || '0';
   document.getElementById('edit-categoria').value = item.categoria;
   document.getElementById('modal-label').innerHTML = '<i class="bi bi-pencil-fill me-2"></i>' + esc(item.nome);
   if (item.has_senha == 1) {
@@ -760,22 +525,17 @@ async function salvar() {
   const ip = document.getElementById('edit-ip').value.trim();
   const desc = document.getElementById('edit-desc').value.trim();
   const senha = document.getElementById('edit-senha').value;
-  const guac_id = document.getElementById('edit-guac-id').value.trim();
   const categoria = document.getElementById('edit-categoria').value;
   if (!nome || !ip) { toast('Preencha nome e IP', 'danger'); return; }
   const action = id ? 'edit' : 'add';
   const r = await fetch('vnc_central.php?action=' + action, {
     method: 'POST', headers: {'Content-Type': 'application/json'},
-    body: JSON.stringify({id: parseInt(id)||0, nome, ip, descricao: desc, senha, guac_id: parseInt(guac_id)||null, categoria})
+    body: JSON.stringify({id: parseInt(id)||0, nome, ip, descricao: desc, senha, categoria})
   });
   const d = await r.json();
   if (d.ok) {
     modalMaq.hide();
-    if (d.guac_auto) toast('✅ ' + (id ? 'Atualizada!' : 'Adicionada!') + ' Guacamole (' + d.guac_log + ')', 'success');
-    else if (d.guac_log && d.guac_log.indexOf('http_') > -1) toast('⚠️ ' + (id ? 'Atualizada' : 'Adicionada') + ' — Guacamole: ' + d.guac_log, 'warning');
-    else if (d.guac_log && d.guac_log.indexOf('sem_') > -1) toast('⚠️ ' + (id ? 'Atualizada' : 'Adicionada') + ' — Guacamole: ' + d.guac_log, 'warning');
-    else if (!id) toast('✅ Adicionada!', 'success');
-    else toast('✅ Atualizada!', 'success');
+    toast(id ? '✅ Atualizada!' : '✅ Adicionada!', 'success');
     carregarMaquinas();
   } else toast(d.msg || 'Erro', 'danger');
   } catch(e) {
@@ -787,7 +547,7 @@ async function salvar() {
 async function excluir(id) {
   if (!confirm('Excluir esta máquina VNC?')) return;
   const r = await fetch('vnc_central.php?action=delete&id=' + id), d = await r.json();
-  if (d.ok) { toast('🗑️ Excluída' + (d.guac_del === 'guac_removido' ? ' + Guacamole removido' : '')); carregarMaquinas(); }
+  if (d.ok) { toast('🗑️ Excluída'); carregarMaquinas(); }
   else toast('Erro', 'danger');
 }
 
