@@ -7,11 +7,11 @@ require_once __DIR__ . '/auth_guard.php';
 if (empty($_SESSION['autenticado'])) { header('Location: auth.php'); exit; }
 if (($_SESSION['perfil'] ?? '') === 'self-service') { header('Location: dashboard.php'); exit; }
 
-$base = 'https://' . ($_SERVER['HTTP_HOST'] ?: 'ti.grupogmais.com:7412')
-      . preg_replace('~/[^/]*$~', '', $_SERVER['SCRIPT_NAME'] ?? '/glpi2/portal-glpi/vnc_setup.php');
+// URL canônica do portal (nginx entrega Host sem a porta 7412 — não dá pra derivar de HTTP_HOST)
+$base = 'https://ti.grupogmais.com:7412/glpi2/portal-glpi';
 $setupUrl = $base . '/util_get.php?f=gmais-vnc-setup.ps1';
 
-$oneLiner = "powershell -NoProfile -ExecutionPolicy Bypass -Command \"[Net.ServicePointManager]::SecurityProtocol='Tls12'; iwr '$setupUrl' -UseBasicParsing | iex\"";
+$oneLiner = "powershell -NoProfile -ExecutionPolicy Bypass -Command \"[Net.ServicePointManager]::SecurityProtocol='Tls12'; iex ((New-Object Net.WebClient).DownloadString('$setupUrl'))\"";
 
 if (($_GET['get'] ?? '') === 'cmd') {
     $cmd = "@echo off\r\n"
