@@ -6,6 +6,8 @@ $user_id_sessao = (int)($_SESSION['user_id'] ?? 0);
 $cards_portal   = $_SESSION['portal_perfil_cards'] ?? null;
 $agenda_modo    = ($cards_portal !== null) ? ($cards_portal['agenda'] ?? 'ouvinte') : 'interagir';
 $is_ouvinte     = ($agenda_modo === 'ouvinte');
+// Permissão de perfil: agendar / mover / editar eventos em datas passadas
+$libera_data_passada = ($cards_portal === null) || (($cards_portal['agenda_data_passada'] ?? '') === 'interagir');
 ?>
 <!DOCTYPE html>
 <html lang="pt-BR">
@@ -1203,7 +1205,7 @@ document.addEventListener('DOMContentLoaded', function() {
     // Criação de eventos só é permitida em datas de hoje em diante.
     dateClick(info) {
       if (MODO_OUVINTE) return;
-      if (dataNoPassado(info.date)) {
+      if (!LIBERA_DATA_PASSADA && dataNoPassado(info.date)) {
         toast('âš ï¸ Não é possível agendar em datas passadas.', 'danger');
         return;
       }
@@ -1239,7 +1241,7 @@ document.addEventListener('DOMContentLoaded', function() {
 
       // âš ï¸ REGRA PROTEGIDA — N?ƒO ALTERAR SEM PERMISS?ƒO DO RESPONSÁVEL âš ï¸
       // Chamados arrastados do sidebar não podem ser soltos em datas passadas.
-      if (dataNoPassado(start)) {
+      if (!LIBERA_DATA_PASSADA && dataNoPassado(start)) {
         ev.remove();
         document.querySelectorAll('.ticket-card.dragging').forEach(c => c.classList.remove('dragging'));
         toast('âš ï¸ Não é possível agendar em datas passadas.', 'danger');
@@ -1307,7 +1309,7 @@ document.addEventListener('DOMContentLoaded', function() {
     // Nenhum evento pode ser movido/solto em datas anteriores ao dia atual.
     // Eventos concluídos já são bloqueados antes via editable:false (não chegam aqui).
     eventAllow(dropInfo) {
-      return !dataNoPassado(dropInfo.start);
+      return LIBERA_DATA_PASSADA || !dataNoPassado(dropInfo.start);
     },
 
     // Evento movido/redimensionado → salva automaticamente
@@ -2102,6 +2104,7 @@ function filtrarTickets() {
 // ──────────────────────────────────────────
 let _draggableIniciado = false;
 const MODO_OUVINTE = <?= $is_ouvinte ? 'true' : 'false' ?>;
+const LIBERA_DATA_PASSADA = <?= $libera_data_passada ? 'true' : 'false' ?>;
 
 function iniciarDrag() {
   if (MODO_OUVINTE) return; // ouvinte não pode arrastar

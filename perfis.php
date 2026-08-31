@@ -50,6 +50,9 @@ $SECOES = [
         'contratos'     => ['label' => 'Contratos',              'icon' => 'bi-file-earmark-text-fill', 'css' => 'card-contratos'],
         'licencas'      => ['label' => 'Licenças de Software',   'icon' => 'bi-key-fill',            'css' => 'card-licencas'],
     ],
+    'Permissões da Agenda' => [
+        'agenda_data_passada' => ['label' => 'Agendar / editar em datas passadas', 'icon' => 'bi-calendar-x', 'css' => 'card-agenda'],
+    ],
     'Configuração' => [
         'usuarios'      => ['label' => 'Gestão de Usuários',     'icon' => 'bi-people-fill',         'css' => 'card-usuarios'],
         'categorias'    => ['label' => 'Categorias',             'icon' => 'bi-tags-fill',           'css' => 'card-categorias'],
