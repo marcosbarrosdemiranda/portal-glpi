@@ -28,8 +28,12 @@ try {
     if (-not (Test-Path $Viewer)) { throw "VNC Viewer nao encontrado em $Viewer" }
 
     $tok = $Uri -replace '^gmaisvnc:/*', ''
+    $tok = ($tok -replace '/$', '')
     $tok = [Uri]::UnescapeDataString($tok)
-    $raw = [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String($tok))
+    # base64url -> base64
+    $b = $tok.Replace('-', '+').Replace('_', '/')
+    switch ($b.Length % 4) { 2 { $b += '==' } 3 { $b += '=' } }
+    $raw = [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String($b))
     $p   = $raw -split ([char]0x1F)
 
     $ip   = $p[0]

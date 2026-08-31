@@ -28,8 +28,10 @@ $porta = '5900';
 $senha = $m['senha'] ? vnc_decrypt($m['senha']) : '';
 
 $US      = "\x1f";
-$payload = rawurlencode(base64_encode($ip . $US . $porta . $US . $senha));
-$uri     = 'gmaisvnc://' . $payload;
+// base64url sem padding + sem "//" — o payload fica na parte opaca do URI
+// (se fosse gmaisvnc://<b64> o Windows trataria o b64 como hostname e faria lowercase, quebrando o base64)
+$payload = rtrim(strtr(base64_encode($ip . $US . $porta . $US . $senha), '+/', '-_'), '=');
+$uri     = 'gmaisvnc:' . $payload;
 $h = fn($s) => htmlspecialchars((string)$s, ENT_QUOTES, 'UTF-8');
 ?>
 <!DOCTYPE html>
