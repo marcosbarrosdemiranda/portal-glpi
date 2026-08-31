@@ -50,6 +50,9 @@ config_projetos.local.php
 /vendor/
 /node_modules/
 
+# ── Binários de terceiros servidos pelo portal (deploy via scp) ─
+util/VNCViewer.exe
+
 # Spec-Driven Agent
 .claude/sda/hooks/state.json
 .claude/sda/hooks/state.history.log

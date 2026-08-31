@@ -1,46 +1,47 @@
 CENTRAL VNC — abrir PDV no VNC Viewer nativo (1 clique)
 =======================================================
 
+Viewer: RealVNC Viewer 6 (VNCViewer.exe da RP Info), servido pelo portal.
+
 Como fica pro usuario:
-   Portal -> Central VNC -> "Abrir no VNC" -> o VNC Viewer abre conectado.
-   Sem download, sem SmartScreen, sem digitar senha.
+   Central VNC -> "Abrir no VNC" -> o RealVNC Viewer abre conectado,
+   com a senha do cadastro. Sem download, sem digitar senha.
 
 
-SETUP (uma vez so, centralizado — NAO e PC a PC)
-------------------------------------------------
+SETUP
+-----
 
-1. No SERVIDOR, colocar em ...\portal-glpi\util\ :
-     - VNCViewer.exe        (o viewer de verdade; UltraVNC ou TightVNC)
-     - gmais-vnc.ps1        (ja esta no repo)
-     - gmais-vnc-setup.ps1  (ja esta no repo)
-   (via scp, igual aos outros arquivos do portal)
+A) PC NO DOMINIO
+   GPO -> Config. do Usuario -> Scripts (Logon) -> gmais-vnc-setup.ps1
+   (uma vez so; todo PC se configura no proximo login, PC novo idem)
 
-2. Na GPO do dominio:
-     Config. do Usuario -> Politicas -> Config. do Windows -> Scripts (Logon)
-     -> Adicionar -> Script do PowerShell -> gmais-vnc-setup.ps1
-   (pode apontar direto pro \\dominio\NETLOGON\gmais-vnc-setup.ps1 — copie
-    esse arquivo pra la, ou referencie de um share.)
+B) PC FORA DO DOMINIO
+   Central VNC -> "Configurar este PC" -> Baixar configurador
+   -> rodar configurar-vnc.cmd (1x por PC)
 
-Pronto. Em cada login, o PC:
-   - baixa o VNCViewer.exe pra C:\Util se nao tiver
-   - baixa/atualiza o C:\Util\gmais-vnc.ps1
-   - registra o protocolo gmaisvnc:// no perfil do usuario
-Tudo idempotente e silencioso. PC novo entra no esquema sozinho.
+Os dois fazem a mesma coisa: garantem C:\Util\VNCViewer.exe + o handler
+gmais-vnc.ps1 + o registro do protocolo gmaisvnc:// (HKCU, sem admin).
+O VNCViewer.exe e baixado do portal se o PC nao tiver.
 
 
-SEM DOMINIO / PC AVULSO
------------------------
-Rodar uma vez, no PC:
-   powershell -ExecutionPolicy Bypass -File \\servidor\...\gmais-vnc-setup.ps1
+NO SERVIDOR (ja feito)
+----------------------
+util\VNCViewer.exe  ..... o RealVNC Viewer (NAO vai pro git; subir via scp)
+util\gmais-vnc.ps1  ..... handler
+util\gmais-vnc-setup.ps1  script de setup
+util_get.php ............ serve .ps1/.exe (Apache do GLPI bloqueia direto)
 
 
 SENHA
 -----
-Vem do cadastro no portal (Central VNC -> editar). Maioria = 123456.
+Vem do cadastro (Central VNC -> editar maquina). Maioria = 123456.
+O handler gera um arquivo de senha ofuscado (formato VNC padrao) e passa
+pro viewer via -PasswordFile; apaga depois de 8s.
 
 
-VIEWER
-------
-gmais-vnc.ps1 esta em  $Style = 'ultravnc'  (padrao RP Info).
-Se o VNCViewer.exe for TightVNC, trocar pra  $Style = 'tightvnc'  e subir de novo.
-Log no cliente: C:\Util\gmais-vnc.log
+PROBLEMAS
+---------
+- popup de erro: ver C:\Util\gmais-vnc.log
+- viewer abre e pede senha: senha no portal vazia/errada
+- "conexao nao criptografada": ja passo -WarnUnencrypted=0; se aparecer,
+  RealVNC atualizou o comportamento — avisar TI
