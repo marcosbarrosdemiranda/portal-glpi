@@ -1,62 +1,46 @@
-CENTRAL VNC — abrir PDV direto no VNC Viewer nativo
-===================================================
+CENTRAL VNC — abrir PDV no VNC Viewer nativo (1 clique)
+=======================================================
 
-Em vez do Guacamole no navegador, o botao "Abrir no VNC" da Central VNC
-abre o VNC Viewer instalado no proprio PC da TI. Mais leve e mais rapido
-na rede local.
-
-
-INSTALACAO (uma vez por PC da TI)
----------------------------------
-
-1. Criar a pasta  C:\Util  e copiar pra dentro dela:
-
-   - VNCViewer.exe    -> o VNC Viewer (ver abaixo onde baixar)
-   - gmais-vnc.ps1    -> deste mesmo diretorio util\
-   - gmaisvnc.reg     -> deste mesmo diretorio util\
-
-2. Duplo-clique em  gmaisvnc.reg  ->  "Sim"
-   (registra o protocolo gmaisvnc:// so pro usuario atual, nao pede admin)
-
-3. Testar: no portal -> Central VNC -> "Abrir no VNC" numa maquina.
-   O Chrome/Edge pergunta "Abrir gmaisvnc?" -> marcar "sempre permitir" -> Abrir.
+Como fica pro usuario:
+   Portal -> Central VNC -> "Abrir no VNC" -> o VNC Viewer abre conectado.
+   Sem download, sem SmartScreen, sem digitar senha.
 
 
-ONDE BAIXAR O VIEWER
---------------------
+SETUP (uma vez so, centralizado — NAO e PC a PC)
+------------------------------------------------
 
-TightVNC Viewer (recomendado):
-   https://www.tightvnc.com/download.php
-   Instale o "TightVNC for Windows" e copie
-   C:\Program Files\TightVNC\tvnviewer.exe  para  C:\Util\VNCViewer.exe
-   (so o viewer; nao precisa do server)
+1. No SERVIDOR, colocar em ...\portal-glpi\util\ :
+     - VNCViewer.exe        (o viewer de verdade; UltraVNC ou TightVNC)
+     - gmais-vnc.ps1        (ja esta no repo)
+     - gmais-vnc-setup.ps1  (ja esta no repo)
+   (via scp, igual aos outros arquivos do portal)
 
-Se a TI ja usa UltraVNC:
-   Copie o vncviewer.exe do UltraVNC para C:\Util\VNCViewer.exe
-   E edite gmais-vnc.ps1: trocar   $Style = 'tightvnc'   por   $Style = 'ultravnc'
+2. Na GPO do dominio:
+     Config. do Usuario -> Politicas -> Config. do Windows -> Scripts (Logon)
+     -> Adicionar -> Script do PowerShell -> gmais-vnc-setup.ps1
+   (pode apontar direto pro \\dominio\NETLOGON\gmais-vnc-setup.ps1 — copie
+    esse arquivo pra la, ou referencie de um share.)
+
+Pronto. Em cada login, o PC:
+   - baixa o VNCViewer.exe pra C:\Util se nao tiver
+   - baixa/atualiza o C:\Util\gmais-vnc.ps1
+   - registra o protocolo gmaisvnc:// no perfil do usuario
+Tudo idempotente e silencioso. PC novo entra no esquema sozinho.
+
+
+SEM DOMINIO / PC AVULSO
+-----------------------
+Rodar uma vez, no PC:
+   powershell -ExecutionPolicy Bypass -File \\servidor\...\gmais-vnc-setup.ps1
 
 
 SENHA
 -----
-
-A senha VNC de cada maquina vem do cadastro no portal (Central VNC ->
-editar). A maioria dos PDVs usa 123456; as diferentes so cadastrar a
-senha certa na maquina. O viewer recebe a senha e conecta direto.
+Vem do cadastro no portal (Central VNC -> editar). Maioria = 123456.
 
 
-PROBLEMAS
----------
-
-- "nada abriu": o .reg nao foi importado nesse PC, ou o Chrome bloqueou.
-  Repetir passo 2 e clicar de novo.
-- Erro em popup: ver  C:\Util\gmais-vnc.log
-- Viewer abre mas pede senha: a senha cadastrada no portal esta errada/vazia,
-  ou o viewer nao aceita o formato (conferir TightVNC x UltraVNC no $Style).
-
-
-DISTRIBUIR EM MASSA (futuro)
----------------------------
-
-Jogar VNCViewer.exe + gmais-vnc.ps1 em C:\Util via GPO/script de logon e
-importar o .reg com:  reg import "\\servidor\share\gmaisvnc.reg"
-(ou versao HKLM do .reg rodando como SYSTEM).
+VIEWER
+------
+gmais-vnc.ps1 esta em  $Style = 'ultravnc'  (padrao RP Info).
+Se o VNCViewer.exe for TightVNC, trocar pra  $Style = 'tightvnc'  e subir de novo.
+Log no cliente: C:\Util\gmais-vnc.log
