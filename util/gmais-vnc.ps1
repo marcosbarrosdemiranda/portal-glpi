@@ -19,7 +19,7 @@ function New-VncPasswordFile([string]$plain) {
     $des.Padding = [Security.Cryptography.PaddingMode]::None
     $des.Key = $key
     $enc = $des.CreateEncryptor().TransformFinalBlock($data, 0, 8)
-    $file = Join-Path $env:TEMP ('gv_' + [Guid]::NewGuid().ToString('N').Substring(0,8) + '.vncpwd')
+    $file = 'C:\Util\gv_' + [Guid]::NewGuid().ToString('N').Substring(0,8) + '.vncpwd'
     [IO.File]::WriteAllBytes($file, $enc)
     return $file
 }
@@ -46,10 +46,12 @@ try {
     $pwFile = $null
     if ($pass) {
         $pwFile = New-VncPasswordFile $pass
-        $args += @('-PasswordFile', $pwFile)
+        $args += "-PasswordFile=$pwFile"
+        Log "pwfile=$pwFile existe=$(Test-Path $pwFile) bytes=$((Get-Item $pwFile -ErrorAction SilentlyContinue).Length)"
     }
+    Log ("args: " + ($args -join ' '))
 
-    $proc = Start-Process -FilePath $Viewer -ArgumentList $args -PassThru
+    Start-Process -FilePath $Viewer -ArgumentList $args
     if ($pwFile) {
         Start-Sleep -Seconds 8
         Remove-Item $pwFile -ErrorAction SilentlyContinue
