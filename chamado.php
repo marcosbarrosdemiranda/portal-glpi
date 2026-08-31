@@ -1,6 +1,7 @@
 <?php
 require_once __DIR__ . '/auth_guard.php';
 if (empty($_SESSION['autenticado'])) { header('Location: auth.php'); exit; }
+header('Cache-Control: no-store, must-revalidate');
 
 $ticket_id = (int)($_GET['id'] ?? 0);
 if (!$ticket_id) { header('Location: historico.php'); exit; }
@@ -636,12 +637,16 @@ foreach ($atribuidos as $a) {
     fd.set('ticket_id', '<?= $ticket_id ?>');
     document.querySelectorAll('.imp-edit').forEach(i => fd.set(i.dataset.campo, i.value || 0));
     fetch('chamado.php?id=<?= $ticket_id ?>', { method: 'POST', body: fd })
-      .then(r => r.json())
+      .then(async r => {
+        const txt = await r.text();
+        try { return JSON.parse(txt); }
+        catch { throw new Error('Resposta inesperada (HTTP ' + r.status + '): ' + txt.slice(0, 200)); }
+      })
       .then(d => {
         if (d.ok) { location.reload(); }
-        else alert('Erro: ' + (d.msg || 'falha'));
+        else alert('Erro ao salvar: ' + (d.msg || 'falha'));
       })
-      .catch(e => alert('Erro de rede: ' + e.message));
+      .catch(e => alert('Falha: ' + e.message));
   }
   </script>
   <?php endif; ?>
