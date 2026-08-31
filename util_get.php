@@ -14,8 +14,9 @@ if (!isset($allow[$f])) { http_response_code(404); exit('nao encontrado'); }
 $path = __DIR__ . '/util/' . $f;
 if (!is_file($path)) { http_response_code(404); exit('nao encontrado'); }
 
+clearstatcache(true, $path);
 header('Content-Type: ' . $allow[$f]);
 header('Content-Length: ' . filesize($path));
 header('Content-Disposition: inline; filename="' . $f . '"');
-header('Cache-Control: public, max-age=300');
+header('Cache-Control: no-store, must-revalidate');
 if (($_SERVER['REQUEST_METHOD'] ?? 'GET') !== 'HEAD') readfile($path);
