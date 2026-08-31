@@ -110,6 +110,48 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'edita
     exit;
 }
 
+// ── Handler: editar quantidades de impressão (funciona mesmo com chamado fechado) ──
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'save_impressao') {
+    header('Content-Type: application/json');
+    if ($cham_ouvinte) { echo json_encode(['ok'=>false,'msg'=>'Sem permissão']); exit; }
+    $tid = (int)($_POST['ticket_id'] ?? 0);
+    if (!$tid) { echo json_encode(['ok'=>false,'msg'=>'ticket_id inválido']); exit; }
+
+    require_once __DIR__ . '/agenda/db.php';
+    $imp_fields = [
+        'qtdimpressesafourfvfield','qtdimpressesafourffield',
+        'qtdimpressesathreefvfield','qtdimpressesathreeffield',
+        'qtdimpafouradesivofield','qtdimpafourplacasfield',
+        'qtdetiquetafivefield','qtdimpathreeplacafield','qtdimpathreeadesivofield',
+    ];
+    $vals = [];
+    foreach ($imp_fields as $f) $vals[$f] = max(0, (int)($_POST[$f] ?? 0));
+
+    try {
+        $chk = $pdo->prepare("SELECT id FROM glpi_plugin_fields_ticketqtdimpressesafourfrenteversos WHERE items_id = ?");
+        $chk->execute([$tid]);
+        if ($chk->fetchColumn()) {
+            $sets = implode(',', array_map(fn($f) => "`$f`=:$f", $imp_fields));
+            $pdo->prepare("UPDATE glpi_plugin_fields_ticketqtdimpressesafourfrenteversos SET $sets WHERE items_id=:items_id")
+                ->execute(array_merge($vals, ['items_id' => $tid]));
+        } else {
+            $entRow = $pdo->prepare("SELECT entities_id FROM glpi_tickets WHERE id = ? LIMIT 1");
+            $entRow->execute([$tid]);
+            $entities_id = (int)($entRow->fetchColumn() ?: 0);
+            $cols = implode(',', array_map(fn($f) => "`$f`", $imp_fields));
+            $phs  = implode(',', array_map(fn($f) => ":$f", $imp_fields));
+            $pdo->prepare("INSERT INTO glpi_plugin_fields_ticketqtdimpressesafourfrenteversos
+                           (items_id,itemtype,plugin_fields_containers_id,entities_id,$cols)
+                           VALUES (:items_id,'Ticket',1,:entities_id,$phs)")
+                ->execute(array_merge($vals, ['items_id' => $tid, 'entities_id' => $entities_id]));
+        }
+        echo json_encode(['ok'=>true, 'msg'=>'Impressões atualizadas!', 'total'=>array_sum($vals)]);
+    } catch (\Throwable $e) {
+        echo json_encode(['ok'=>false, 'msg'=>'Erro ao gravar: ' . $e->getMessage()]);
+    }
+    exit;
+}
+
 function glpi_req(string $url, string $token): array {
     $ch = curl_init($url);
     curl_setopt_array($ch, [
@@ -555,23 +597,53 @@ foreach ($atribuidos as $a) {
   ?>
   <div class="card-glpi">
     <div class="card-header-glpi"><i class="bi bi-printer"></i> Impressões / Placas
-      <?php if ($total_imp > 0): ?>
-        <span class="badge bg-primary ms-2"><?= number_format($total_imp, 0, ',', '.') ?> un.</span>
+      <span class="badge bg-primary ms-2" id="imp-total"><?= number_format($total_imp, 0, ',', '.') ?> un.</span>
+      <?php if (!$cham_ouvinte): ?>
+      <button type="button" class="btn btn-sm btn-outline-primary ms-auto" id="btn-editar-imp" onclick="toggleEditImp()" style="float:right;font-size:.75rem;padding:.15rem .6rem"><i class="bi bi-pencil-fill me-1"></i>Editar</button>
       <?php endif; ?>
     </div>
     <div class="card-body-glpi">
-      <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:.6rem">
+      <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:.6rem" id="imp-grid">
         <?php foreach ($imp_labels as $campo => $label):
           $val = (int)($campos_impressao[$campo] ?? 0);
         ?>
         <div style="background:<?= $val > 0 ? '#eff6ff' : '#f9fafb' ?>;border:1px solid <?= $val > 0 ? '#bfdbfe' : '#e5e7eb' ?>;border-radius:8px;padding:.5rem .8rem">
           <div style="font-size:.72rem;font-weight:600;color:#6b7280;text-transform:uppercase;margin-bottom:.1rem"><?= $label ?></div>
-          <div style="font-size:1.2rem;font-weight:700;color:<?= $val > 0 ? '#1d4ed8' : '#9ca3af' ?>"><?= number_format($val, 0, ',', '.') ?></div>
+          <div class="imp-view" style="font-size:1.2rem;font-weight:700;color:<?= $val > 0 ? '#1d4ed8' : '#9ca3af' ?>"><?= number_format($val, 0, ',', '.') ?></div>
+          <input type="number" min="0" class="imp-edit form-control form-control-sm" data-campo="<?= $campo ?>" value="<?= $val ?>" style="display:none;font-size:1.05rem;font-weight:700"/>
         </div>
         <?php endforeach; ?>
       </div>
+      <?php if (!$cham_ouvinte): ?>
+      <div id="imp-acoes" style="display:none;margin-top:.8rem;text-align:right">
+        <button type="button" class="btn btn-sm btn-secondary" onclick="toggleEditImp()">Cancelar</button>
+        <button type="button" class="btn btn-sm btn-primary" onclick="salvarImpressoes()"><i class="bi bi-check-lg me-1"></i>Salvar impressões</button>
+      </div>
+      <?php endif; ?>
     </div>
   </div>
+  <script>
+  function toggleEditImp() {
+    const editando = document.querySelector('.imp-edit').style.display !== 'none';
+    document.querySelectorAll('.imp-view').forEach(e => e.style.display = editando ? '' : 'none');
+    document.querySelectorAll('.imp-edit').forEach(e => e.style.display = editando ? 'none' : '');
+    document.getElementById('imp-acoes').style.display = editando ? 'none' : '';
+    document.getElementById('btn-editar-imp').style.display = editando ? '' : 'none';
+  }
+  function salvarImpressoes() {
+    const fd = new FormData();
+    fd.set('action', 'save_impressao');
+    fd.set('ticket_id', '<?= $ticket_id ?>');
+    document.querySelectorAll('.imp-edit').forEach(i => fd.set(i.dataset.campo, i.value || 0));
+    fetch('chamado.php?id=<?= $ticket_id ?>', { method: 'POST', body: fd })
+      .then(r => r.json())
+      .then(d => {
+        if (d.ok) { location.reload(); }
+        else alert('Erro: ' + (d.msg || 'falha'));
+      })
+      .catch(e => alert('Erro de rede: ' + e.message));
+  }
+  </script>
   <?php endif; ?>
 
   <!-- ── Acompanhamentos (followups) ── -->
