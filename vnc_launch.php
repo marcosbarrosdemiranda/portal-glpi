@@ -55,7 +55,7 @@ $h = fn($s) => htmlspecialchars((string)$s, ENT_QUOTES, 'UTF-8');
   <h1>Abrindo <?= $h($m['nome']) ?></h1>
   <div class="ip"><?= $h($ip) ?>:<?= $porta ?></div>
   <a class="btn" href="<?= $h($uri) ?>" id="go"><i class="bi bi-box-arrow-up-right"></i> Abrir VNC Viewer</a>
-  <div class="hint">Não abriu? O PC ainda não passou pelo login com a GPO. Reinicie a sessão ou avise o TI.</div>
+  <div class="hint">Não abriu? Este PC ainda não foi configurado — <a href="vnc_setup.php">clique aqui para configurar</a> (1 vez só).</div>
   <a class="volta" href="vnc_central.php">← Central VNC</a>
 </div>
 <script>

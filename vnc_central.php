@@ -476,6 +476,7 @@ if ($action) {
 <div class="topbar">
   <div class="brand"><i class="bi bi-camera-video-fill me-1"></i> Central VNC</div>
   <div style="display:flex;gap:.5rem">
+    <a href="vnc_setup.php"><i class="bi bi-gear-fill me-1"></i>Configurar este PC</a>
     <a href="acessos.php"><i class="bi bi-grid-3x3-gap-fill me-1"></i>Acessos</a>
     <a href="dashboard.php"><i class="bi bi-grid me-1"></i>Início</a>
   </div>
