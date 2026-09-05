@@ -377,6 +377,7 @@ body {
   <button class="tab-btn" data-tab="rotinas"><i class="bi bi-arrow-repeat"></i> Rotinas</button>
   <button class="tab-btn" data-tab="projetos"><i class="bi bi-folder"></i> Projetos</button>
   <button class="tab-btn" data-tab="impressoes"><i class="bi bi-printer"></i> Impressões</button>
+  <button class="tab-btn" data-tab="equipamentos"><i class="bi bi-hdd-network"></i> Equipamentos</button>
 </div>
 
 <!-- ═══════════════════ Content ══════════════════════════ -->
@@ -595,6 +596,55 @@ body {
       <h3 id="imp-ano-titulo">Acumulado <span id="imp-ano-label"></span></h3>
       <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:.75rem;margin-bottom:1.5rem" id="imp-acum-cards"></div>
       <div class="chart-wrap" id="chart-imp-mensal" style="min-height:300px"></div>
+    </div>
+  </div>
+
+  <!-- ════════════════════════════════════════════════════ -->
+  <!-- PAINEL: EQUIPAMENTOS — histórico de chamados         -->
+  <!-- ════════════════════════════════════════════════════ -->
+  <div class="painel" id="painel-equipamentos">
+    <div class="painel-title"><i class="bi bi-hdd-network"></i>Histórico de Chamados por Equipamento</div>
+
+    <div class="kpi-row">
+      <div class="kpi-card accent-cyan"><div class="kpi-label">🖥️ Equipamentos c/ chamado</div><div class="kpi-val" id="eq-kpi-equip">—</div><div class="kpi-sub">no período filtrado</div></div>
+      <div class="kpi-card accent-gold"><div class="kpi-label">🔗 Chamados vinculados</div><div class="kpi-val" id="eq-kpi-vinc">—</div><div class="kpi-sub">total de vínculos</div></div>
+      <div class="kpi-card accent-red"><div class="kpi-label">🔥 Mais acionado</div><div class="kpi-val" id="eq-kpi-top" style="font-size:1.1rem">—</div><div class="kpi-sub" id="eq-kpi-top-sub">—</div></div>
+    </div>
+
+    <div style="display:flex;flex-wrap:wrap;gap:.75rem;align-items:flex-end;margin-bottom:1rem">
+      <div class="campo" style="display:flex;flex-direction:column;gap:.25rem">
+        <label style="font-size:.68rem;color:var(--text-dim);text-transform:uppercase;letter-spacing:.06em;font-weight:700">Categoria</label>
+        <select id="eq-filtro-cat" onchange="renderEquipTabela()" style="background:var(--bg-elevated);color:var(--text);border:1px solid var(--border);border-radius:8px;padding:.4rem .75rem;font-size:.82rem;color-scheme:dark;min-width:180px">
+          <option value="">Todas as categorias</option>
+        </select>
+      </div>
+      <div class="campo" style="display:flex;flex-direction:column;gap:.25rem">
+        <label style="font-size:.68rem;color:var(--text-dim);text-transform:uppercase;letter-spacing:.06em;font-weight:700">Buscar</label>
+        <input type="text" id="eq-filtro-busca" oninput="renderEquipTabela()" placeholder="Nome do equipamento…" style="background:var(--bg-elevated);color:var(--text);border:1px solid var(--border);border-radius:8px;padding:.4rem .75rem;font-size:.82rem;min-width:200px"/>
+      </div>
+      <span style="font-size:.75rem;color:var(--text-dim)">Loja: use o filtro do topo</span>
+    </div>
+
+    <div class="chart-grid-2" style="margin-bottom:1rem">
+      <div class="chart-card"><h3>Chamados por Categoria de Equipamento</h3><div class="chart-wrap" id="eq-chart-cat"></div></div>
+      <div class="chart-card"><h3>Resumo por Categoria</h3>
+        <div style="overflow-x:auto"><table class="tabela-bi">
+          <thead><tr><th>Categoria</th><th>Equip.</th><th>Chamados</th></tr></thead>
+          <tbody id="eq-tbody-cat"></tbody>
+        </table></div>
+      </div>
+    </div>
+
+    <div class="chart-card full-width">
+      <h3>📋 Equipamentos <span id="eq-tabela-count" style="color:var(--text-dim)"></span></h3>
+      <div style="overflow-x:auto"><table class="tabela-bi" id="eq-tabela">
+        <thead><tr><th></th><th>Equipamento</th><th>Categoria</th><th>Loja</th><th>Chamados</th><th>Abertos</th><th>Último</th></tr></thead>
+        <tbody id="eq-tbody"></tbody>
+      </table></div>
+      <div id="eq-vazio" style="text-align:center;padding:2rem;color:var(--text-dim);display:none">
+        <i class="bi bi-inbox" style="font-size:2rem;display:block;margin-bottom:.5rem"></i>
+        Nenhum equipamento com chamado vinculado no período. Vincule equipamentos nos chamados ou no Inventário.
+      </div>
     </div>
   </div>
 
@@ -1335,6 +1385,7 @@ async function carregarDados() {
     renderRotinas(data);
     carregarProjetos();
     carregarImpressoes();
+    carregarEquipamentos();
   } catch (err) {
     document.getElementById('loading-state').style.display = 'none';
     document.getElementById('painel-erro').classList.add('active');
@@ -1383,6 +1434,110 @@ async function carregarProjetos() {
   } catch (err) {
     container.innerHTML = '<i class="bi bi-exclamation-triangle" style="font-size:2rem;display:block;margin-bottom:.75rem;color:var(--red)"></i><p style="color:var(--text-dim)">Erro: ' + err.message + '</p>';
   }
+}
+
+// ══════════════════════════════════════════════════════════════
+// EQUIPAMENTOS — histórico de chamados
+// ══════════════════════════════════════════════════════════════
+let equipCache = [];
+const EQ_STATUS_COR = { 1:'#06b6d4', 2:'#f97316', 3:'#8b5cf6', 4:'#ef4444', 5:'#22c55e', 6:'#7a8aaa' };
+
+async function carregarEquipamentos() {
+  try {
+    const res = await fetch('relatorios_equipamentos.php?' + getParams());
+    if (!res.ok) throw new Error('HTTP ' + res.status);
+    const d = await res.json();
+    if (!d.ok) throw new Error(d.error || 'falha');
+
+    equipCache = d.equipamentos || [];
+
+    document.getElementById('eq-kpi-equip').textContent = d.kpis.equip_com_chamado;
+    document.getElementById('eq-kpi-vinc').textContent  = d.kpis.total_vinculos;
+    document.getElementById('eq-kpi-top').textContent   = d.kpis.top_qtd > 0 ? d.kpis.top_nome : '—';
+    document.getElementById('eq-kpi-top-sub').textContent = d.kpis.top_qtd > 0 ? d.kpis.top_qtd + ' chamado(s)' : '—';
+
+    // Select de categorias
+    const sel = document.getElementById('eq-filtro-cat');
+    const atual = sel.value;
+    sel.innerHTML = '<option value="">Todas as categorias</option>' +
+      (d.categorias || []).map(c => `<option value="${escHtml(c)}">${escHtml(c)}</option>`).join('');
+    if (atual) sel.value = atual;
+
+    // Resumo por categoria + gráfico
+    const pc = d.por_categoria || [];
+    document.getElementById('eq-tbody-cat').innerHTML = pc.length
+      ? pc.map(x => `<tr><td>${escHtml(x.categoria)}</td><td>${x.equipamentos}</td><td style="font-weight:700;color:var(--gold)">${x.chamados}</td></tr>`).join('')
+      : '<tr><td colspan="3" style="color:var(--text-dim)">Sem dados</td></tr>';
+
+    if (charts.eqCat) charts.eqCat.destroy();
+    if (pc.length) {
+      charts.eqCat = new ApexCharts(document.getElementById('eq-chart-cat'), {
+        ...APEX_DARK,
+        chart: { ...APEX_DARK.chart, type: 'bar', height: 260 },
+        series: [{ name: 'Chamados', data: pc.map(x => x.chamados) }],
+        colors: ['#06b6d4'],
+        xaxis: { categories: pc.map(x => x.categoria) },
+        plotOptions: { bar: { borderRadius: 4, horizontal: true, barHeight: '65%' } },
+        dataLabels: { enabled: true, style: { colors: ['#fff'], fontWeight: 700 } },
+        tooltip: { ...APEX_DARK.tooltip, y: { formatter: v => v + ' chamados' } },
+      });
+      charts.eqCat.render();
+    } else {
+      document.getElementById('eq-chart-cat').innerHTML = '<p style="color:var(--text-dim);text-align:center;padding:2rem">Sem dados</p>';
+    }
+
+    renderEquipTabela();
+  } catch (err) {
+    document.getElementById('eq-tbody').innerHTML =
+      `<tr><td colspan="7" style="color:var(--red)">Erro: ${escHtml(err.message)}</td></tr>`;
+  }
+}
+
+function renderEquipTabela() {
+  const cat = document.getElementById('eq-filtro-cat').value;
+  const q   = document.getElementById('eq-filtro-busca').value.trim().toLowerCase();
+  const rows = equipCache.filter(e =>
+    (!cat || e.categoria === cat) &&
+    (!q || (e.nome || '').toLowerCase().includes(q))
+  );
+
+  const tbody = document.getElementById('eq-tbody');
+  const vazio = document.getElementById('eq-vazio');
+  document.getElementById('eq-tabela-count').textContent = rows.length ? `(${rows.length})` : '';
+
+  if (!rows.length) { tbody.innerHTML = ''; vazio.style.display = 'block'; return; }
+  vazio.style.display = 'none';
+
+  tbody.innerHTML = rows.map((e, i) => {
+    const det = e.chamados.map(c => `
+      <tr class="eq-det eq-det-${i}" style="display:none;background:rgba(255,255,255,.02)">
+        <td></td>
+        <td colspan="3" style="padding-left:1.4rem">
+          <a href="chamado.php?id=${c.id}" target="_blank" style="color:var(--cyan);text-decoration:none;font-weight:700">#${c.id}</a>
+          <span style="color:var(--text);margin-left:.5rem">${escHtml(c.titulo || '')}</span>
+        </td>
+        <td><span style="font-size:.7rem;font-weight:700;color:${EQ_STATUS_COR[c.status] || '#7a8aaa'}">${escHtml(c.status_nome)}</span></td>
+        <td colspan="2" style="color:var(--text-dim);font-size:.75rem">Aberto ${c.data}${c.fechado ? ' · Fechado ' + c.fechado : ''}</td>
+      </tr>`).join('');
+    return `
+      <tr class="eq-head" style="cursor:pointer" onclick="toggleEquipDet(${i}, this)">
+        <td><i class="bi bi-chevron-right eq-chev-${i}" style="display:inline-block;transition:.15s;color:var(--text-dim)"></i></td>
+        <td style="font-weight:600;color:var(--text-bright)">${escHtml(e.nome)}</td>
+        <td>${escHtml(e.categoria)}</td>
+        <td>${escHtml(e.loja)}</td>
+        <td style="font-weight:700;color:var(--gold)">${e.num_chamados}</td>
+        <td style="color:${e.abertos ? 'var(--red)' : 'var(--text-dim)'};font-weight:700">${e.abertos}</td>
+        <td style="color:var(--text-dim)">${e.ultimo || '—'}</td>
+      </tr>${det}`;
+  }).join('');
+}
+
+function toggleEquipDet(i, tr) {
+  const dets = document.querySelectorAll('.eq-det-' + i);
+  const abrir = dets.length && dets[0].style.display === 'none';
+  dets.forEach(d => d.style.display = abrir ? 'table-row' : 'none');
+  const chev = document.querySelector('.eq-chev-' + i);
+  if (chev) chev.style.transform = abrir ? 'rotate(90deg)' : '';
 }
 
 // ══════════════════════════════════════════════════════════════
