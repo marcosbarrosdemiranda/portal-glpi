@@ -196,6 +196,32 @@ if ($ghAction) {
         exit;
     }
 
+    if ($ghAction === 'commits_full') {
+        $body     = json_decode(file_get_contents('php://input'), true) ?? [];
+        $contaId  = (int)($body['conta_id'] ?? 0);
+        $repoNome = trim($body['repo_nome'] ?? '');
+        if (!$repoNome) { echo json_encode(['ok'=>false,'msg'=>'Repositório inválido']); exit; }
+
+        $st = $pdo->prepare("SELECT * FROM portal_github_contas WHERE id=? AND user_id=?");
+        $st->execute([$contaId, $uid]);
+        $conta = $st->fetch(PDO::FETCH_ASSOC);
+        if (!$conta) { echo json_encode(['ok'=>false,'msg'=>'Conta não encontrada']); exit; }
+
+        require_once __DIR__ . '/github_cache.php';
+        $token  = vault_decrypt($conta['token_enc']);
+        $ghUser = $conta['usuario_github'];
+        $commits = gh_cached($pdo, "commits_full:$contaId:$repoNome", 600,
+            fn() => github_commits_completo($token, $ghUser, $repoNome, 3));
+
+        echo json_encode([
+            'ok'      => true,
+            'commits' => $commits,
+            'total'   => count($commits),
+            'repoUrl' => 'https://github.com/' . rawurlencode($ghUser) . '/' . rawurlencode($repoNome) . '/commits',
+        ], JSON_UNESCAPED_UNICODE);
+        exit;
+    }
+
     if ($ghAction === 'conta_delete') {
         $body = json_decode(file_get_contents('php://input'), true) ?? [];
         $id   = (int)($body['id'] ?? 0);
@@ -900,6 +926,17 @@ body  { background:#f0f4f9; font-family:'Segoe UI',sans-serif; font-size:.9rem; 
 .gh-proj-det-list .gh-det-mais { color:#9ca3af; font-style:italic; }
 .gh-lbl { display:inline-block; background:#eef2ff; color:#3730a3; border-radius:8px;
           padding:0 .4rem; font-size:.62rem; font-weight:600; margin-left:.25rem; }
+.commit-hist { list-style:none; margin:0; padding:0; font-size:.8rem; }
+.commit-hist-dia { position:sticky; top:57px; background:#f3f4f6; color:#374151; font-weight:700;
+                   font-size:.72rem; padding:.3rem .9rem; border-bottom:1px solid #e5e7eb; }
+.commit-hist-item { display:flex; align-items:baseline; gap:.5rem; padding:.4rem .9rem;
+                    border-bottom:1px solid #f3f4f6; flex-wrap:wrap; }
+.commit-hist-item:hover { background:#f9fafb; }
+.commit-hist-hora { color:#9ca3af; font-size:.72rem; white-space:nowrap; font-variant-numeric:tabular-nums; }
+.commit-hist-sha { font-family:monospace; font-size:.72rem; color:#1a237e; text-decoration:none; }
+.commit-hist-sha:hover { text-decoration:underline; }
+.commit-hist-msg { flex:1; min-width:200px; color:#374151; }
+.commit-hist-autor { color:#9ca3af; font-size:.72rem; white-space:nowrap; }
 .gh-proj-meta { display:flex; flex-wrap:wrap; gap:.6rem; margin-top:auto;
                 padding-top:.6rem; border-top:1px solid #f3f4f6; }
 
@@ -1143,6 +1180,7 @@ body  { background:#f0f4f9; font-family:'Segoe UI',sans-serif; font-size:.9rem; 
                       <i class="bi bi-journal-text me-1"></i><?= esc($repo['nome']) ?>
                     </a>
                     <div class="gh-proj-acoes">
+                      <button type="button" class="gh-proj-icon-btn" title="Histórico de commits" onclick="abrirCommits(<?= (int)$repo['conta_id'] ?>,'<?= esc($repo['nome']) ?>')"><i class="bi bi-clock-history"></i></button>
                       <a href="<?= esc($repo['url']) ?>" target="_blank" rel="noopener" class="gh-proj-icon-btn" title="Abrir no GitHub"><i class="bi bi-github"></i></a>
                       <div class="dropdown">
                         <button type="button" class="gh-proj-menu" data-bs-toggle="dropdown" aria-expanded="false"><i class="bi bi-three-dots-vertical"></i></button>
@@ -1698,15 +1736,122 @@ document.getElementById('filtroConta')?.addEventListener('change', aplicarFiltro
   </div>
 </div>
 
+<!-- Modal: histórico de commits -->
+<div class="modal fade" id="modalCommits" tabindex="-1">
+  <div class="modal-dialog modal-dialog-centered modal-lg modal-dialog-scrollable">
+    <div class="modal-content">
+      <div class="modal-header" style="background:linear-gradient(135deg,#1a237e,#1565c0);color:white">
+        <h5 class="modal-title fw-bold" id="modalCommitsTitulo"><i class="bi bi-clock-history me-2"></i>Histórico de commits</h5>
+        <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body p-0">
+        <div class="p-3 d-flex align-items-center gap-2 border-bottom" style="position:sticky;top:0;background:#fff;z-index:2">
+          <input type="text" id="commitsBusca" class="form-control form-control-sm" placeholder="Filtrar por mensagem, autor ou branch…" style="max-width:340px" oninput="filtrarCommits()"/>
+          <span class="text-muted small ms-auto" id="commitsContagem"></span>
+        </div>
+        <div id="modalCommitsCorpo"><div class="text-muted small p-3">Carregando…</div></div>
+      </div>
+      <div class="modal-footer">
+        <a href="#" target="_blank" rel="noopener" class="btn btn-outline-secondary me-auto" id="modalCommitsGithub"><i class="bi bi-github me-1"></i>Ver no GitHub</a>
+        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Fechar</button>
+      </div>
+    </div>
+  </div>
+</div>
+
 <script>
 let modalConta;
 let modalDoc;
+let modalCommits;
+let _commitsCache = [];
 document.addEventListener('DOMContentLoaded', () => {
   const elConta = document.getElementById('modalConta');
   if (elConta) modalConta = new bootstrap.Modal(elConta);
   const elDoc = document.getElementById('modalDoc');
   if (elDoc) modalDoc = new bootstrap.Modal(elDoc);
+  const elCommits = document.getElementById('modalCommits');
+  if (elCommits) modalCommits = new bootstrap.Modal(elCommits);
 });
+
+function _fmtDataHora(iso) {
+  if (!iso) return '—';
+  const d = new Date(iso);
+  if (isNaN(d)) return iso;
+  const p = n => String(n).padStart(2, '0');
+  return `${p(d.getDate())}/${p(d.getMonth()+1)}/${d.getFullYear()} ${p(d.getHours())}:${p(d.getMinutes())}`;
+}
+
+function _escCommit(s) {
+  const el = document.createElement('div');
+  el.textContent = s == null ? '' : String(s);
+  return el.innerHTML;
+}
+
+function renderCommits(lista) {
+  const corpo = document.getElementById('modalCommitsCorpo');
+  if (!lista.length) { corpo.innerHTML = '<div class="text-muted small p-3">Nenhum commit.</div>'; return; }
+  let ultimoDia = '';
+  let html = '<ul class="commit-hist">';
+  lista.forEach(c => {
+    const dia = (c.data || '').slice(0, 10);
+    if (dia && dia !== ultimoDia) {
+      ultimoDia = dia;
+      const dd = _fmtDataHora(c.data).slice(0, 10);
+      html += `<li class="commit-hist-dia">${dd}</li>`;
+    }
+    const br = c.branch && c.branch !== 'main' && c.branch !== 'master'
+      ? `<span class="gh-lbl">${_escCommit(c.branch)}</span>` : '';
+    html += `<li class="commit-hist-item">
+      <span class="commit-hist-hora">${_fmtDataHora(c.data).slice(11)}</span>
+      <a href="${_escCommit(c.url)}" target="_blank" rel="noopener" class="commit-hist-sha">${_escCommit(c.sha)}</a>
+      ${br}
+      <span class="commit-hist-msg">${_escCommit(c.msg)}</span>
+      <span class="commit-hist-autor">${_escCommit(c.autor)}</span>
+    </li>`;
+  });
+  html += '</ul>';
+  corpo.innerHTML = html;
+}
+
+function filtrarCommits() {
+  const q = document.getElementById('commitsBusca').value.trim().toLowerCase();
+  const f = !q ? _commitsCache : _commitsCache.filter(c =>
+    (c.msg || '').toLowerCase().includes(q) ||
+    (c.autor || '').toLowerCase().includes(q) ||
+    (c.branch || '').toLowerCase().includes(q));
+  document.getElementById('commitsContagem').textContent = f.length + ' de ' + _commitsCache.length;
+  renderCommits(f);
+}
+
+async function abrirCommits(contaId, repoNome) {
+  document.getElementById('modalCommitsTitulo').innerHTML = '<i class="bi bi-clock-history me-2"></i>' + repoNome;
+  document.getElementById('modalCommitsCorpo').innerHTML = '<div class="text-muted small p-3">Carregando histórico…</div>';
+  document.getElementById('commitsBusca').value = '';
+  document.getElementById('commitsContagem').textContent = '';
+  document.getElementById('modalCommitsGithub').href = '#';
+  _commitsCache = [];
+  modalCommits.show();
+
+  try {
+    const r = await fetch('projetos.php?gh_action=commits_full', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ conta_id: contaId, repo_nome: repoNome }),
+    });
+    const d = await r.json();
+    if (!d.ok) {
+      document.getElementById('modalCommitsCorpo').innerHTML =
+        `<p class="text-danger small p-3">${_escCommit(d.msg || 'Erro ao carregar')}</p>`;
+      return;
+    }
+    _commitsCache = d.commits || [];
+    document.getElementById('modalCommitsGithub').href = d.repoUrl;
+    document.getElementById('commitsContagem').textContent = _commitsCache.length + ' commits';
+    renderCommits(_commitsCache);
+  } catch (e) {
+    document.getElementById('modalCommitsCorpo').innerHTML =
+      `<p class="text-danger small p-3">Falha de rede: ${_escCommit(e.message)}</p>`;
+  }
+}
 
 async function abrirDocumentacao(ev, contaId, repoNome) {
   ev.preventDefault();

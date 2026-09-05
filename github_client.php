@@ -255,6 +255,47 @@ function github_commits_recentes(string $token, string $owner, string $repo, int
     return array_slice($out, 0, $n);
 }
 
+/**
+ * Histórico completo de commits (todos os branches), com data/hora.
+ * [{sha, msg, autor, data (ISO), branch, url}], mais recente primeiro.
+ * $paginas = quantas páginas de 100 por branch (default 3 = ~300/branch).
+ */
+function github_commits_completo(string $token, string $owner, string $repo, int $paginas = 3): array {
+    $base = 'https://api.github.com/repos/' . rawurlencode($owner) . '/' . rawurlencode($repo);
+
+    [$code, $branches] = github_http_get($base . '/branches?per_page=100', $token);
+    $refs = ($code === 200 && $branches)
+        ? array_slice(array_column($branches, 'name'), 0, 8)
+        : [null];
+
+    $porSha = [];
+    foreach ($refs as $ref) {
+        for ($p = 1; $p <= max(1, $paginas); $p++) {
+            $url = $base . '/commits?per_page=100&page=' . $p
+                . ($ref !== null ? '&sha=' . rawurlencode($ref) : '');
+            [$c, $data] = github_http_get($url, $token);
+            if ($c !== 200 || !$data) break;
+            foreach ($data as $cm) {
+                $sha = $cm['sha'] ?? '';
+                if ($sha === '' || isset($porSha[$sha])) continue;
+                $porSha[$sha] = [
+                    'sha'    => substr($sha, 0, 7),
+                    'msg'    => trim(explode("\n", $cm['commit']['message'] ?? '')[0]),
+                    'autor'  => $cm['commit']['author']['name'] ?? ($cm['author']['login'] ?? ''),
+                    'data'   => $cm['commit']['author']['date'] ?? ($cm['commit']['committer']['date'] ?? null),
+                    'branch' => $ref ?? '',
+                    'url'    => $cm['html_url'] ?? '',
+                ];
+            }
+            if (count($data) < 100) break;
+        }
+    }
+
+    $out = array_values($porSha);
+    usort($out, fn($a, $b) => strcmp($b['data'] ?? '', $a['data'] ?? ''));
+    return $out;
+}
+
 function github_obter_readme_html(string $token, string $owner, string $repo): array {
     $ch = curl_init('https://api.github.com/repos/' . rawurlencode($owner) . '/' . rawurlencode($repo) . '/readme');
     curl_setopt_array($ch, [
