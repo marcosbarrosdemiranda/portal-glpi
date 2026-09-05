@@ -554,7 +554,7 @@ $H = 'inv_h';
       </div>
       <div class="fld"><label>Fabricante</label><input type="text" id="f-fabricante" list="dl-fab"/></div>
       <div class="fld"><label>Modelo</label><input type="text" id="f-modelo"/></div>
-      <div class="fld"><label><?= $fonte === 'phone' ? 'Nº da linha' : 'Nº de série' ?></label><input type="text" id="f-serial"/></div>
+      <div class="fld"><label><?= $fonte === 'phone' ? 'Nº da linha' : 'Nº de série' ?></label><input type="text" id="f-serial"<?= $fonte === 'phone' ? ' inputmode="numeric" maxlength="16" placeholder="(67) 99802-3041"' : '' ?>/></div>
       <div class="fld"><label>Patrimônio</label><input type="text" id="f-otherserial"/></div>
       <div class="fld full"><label>Observação</label><textarea id="f-comment" rows="2"></textarea></div>
       <?php foreach ($fields as $f): ?>
@@ -622,7 +622,23 @@ $H = 'inv_h';
 
 <script>
 const CAT = <?= json_encode($slug) ?>;
+const FONTE = <?= json_encode($fonte) ?>;
 const $ = s => document.querySelector(s);
+
+function formatFoneBR(v) {
+  const d = (v || '').replace(/\D/g, '').slice(0, 11);
+  if (!d) return '';
+  if (d.length <= 2)  return '(' + d;
+  if (d.length <= 6)  return '(' + d.slice(0,2) + ') ' + d.slice(2);
+  if (d.length <= 10) return '(' + d.slice(0,2) + ') ' + d.slice(2,6) + '-' + d.slice(6);
+  return '(' + d.slice(0,2) + ') ' + d.slice(2,7) + '-' + d.slice(7);
+}
+if (FONTE === 'phone') {
+  document.addEventListener('DOMContentLoaded', () => {
+    const el = document.getElementById('f-serial');
+    if (el) el.addEventListener('input', () => { el.value = formatFoneBR(el.value); });
+  });
+}
 
 function toast(txt, ok = true) {
   const d = document.createElement('div');
@@ -649,7 +665,7 @@ function abrirModal(id) {
         $('#f-subcat').value = it.subcat_id || 0;
         $('#f-fabricante').value = it.fabricante || '';
         $('#f-modelo').value = it.modelo || '';
-        $('#f-serial').value = it.serial || '';
+        $('#f-serial').value = FONTE === 'phone' ? formatFoneBR(it.serial || '') : (it.serial || '');
         $('#f-otherserial').value = it.otherserial || '';
         $('#f-comment').value = it.comment || '';
         document.querySelectorAll('[data-campo]').forEach(el => {
