@@ -7,8 +7,16 @@ require_once __DIR__ . '/agenda/db.php';
 require_once __DIR__ . '/agenda/config.php';
 require_once __DIR__ . '/vault_crypto.php';
 require_once __DIR__ . '/github_client.php';
+require_once __DIR__ . '/github_cache.php';
 
 $uid = (int)($_SESSION['user_id'] ?? 0);
+
+// Botão "Atualizar" da seção GitHub → zera o cache e recarrega
+if (isset($_GET['gh_refresh'])) {
+    gh_cache_limpar($pdo);
+    header('Location: projetos.php');
+    exit;
+}
 
 // ── Tabelas de contas GitHub e status manual dos projetos ──────
 $pdo->exec("
@@ -879,6 +887,19 @@ body  { background:#f0f4f9; font-family:'Segoe UI',sans-serif; font-size:.9rem; 
 .gh-proj-progress-fill { height:100%; border-radius:3px; background:#1a237e; transition:width .4s ease; }
 .gh-proj-progress-label { font-size:.68rem; color:#9ca3af; margin-top:.2rem; display:block; }
 .gh-proj-previsao { font-size:.72rem; color:#6b7280; margin-top:.2rem; }
+.gh-proj-det { margin-top:.4rem; font-size:.75rem; }
+.gh-proj-det > summary { cursor:pointer; color:#374151; font-weight:600; list-style:none; padding:.15rem 0;
+                         display:flex; align-items:center; gap:.35rem; }
+.gh-proj-det > summary::-webkit-details-marker { display:none; }
+.gh-proj-det[open] > summary { margin-bottom:.25rem; }
+.gh-proj-det-list { list-style:none; margin:0; padding:0 0 0 .2rem; display:flex; flex-direction:column; gap:.2rem;
+                    max-height:180px; overflow-y:auto; }
+.gh-proj-det-list li { color:#4b5563; line-height:1.35; }
+.gh-proj-det-list a { color:#1a237e; text-decoration:none; font-weight:600; margin-right:.25rem; }
+.gh-proj-det-list .gh-commit-data { color:#9ca3af; font-size:.68rem; margin-right:.3rem; white-space:nowrap; }
+.gh-proj-det-list .gh-det-mais { color:#9ca3af; font-style:italic; }
+.gh-lbl { display:inline-block; background:#eef2ff; color:#3730a3; border-radius:8px;
+          padding:0 .4rem; font-size:.62rem; font-weight:600; margin-left:.25rem; }
 .gh-proj-meta { display:flex; flex-wrap:wrap; gap:.6rem; margin-top:auto;
                 padding-top:.6rem; border-top:1px solid #f3f4f6; }
 
@@ -1031,7 +1052,7 @@ body  { background:#f0f4f9; font-family:'Segoe UI',sans-serif; font-size:.9rem; 
       foreach ($minhasContas as $conta) {
           if (!$conta['ativo']) continue;
           $token      = vault_decrypt($conta['token_enc']);
-          $resultado  = github_listar_repos($token);
+          $resultado  = gh_cached($pdo, "repos:{$conta['id']}", 300, fn() => github_listar_repos($token));
           if (isset($resultado['erro'])) {
               $errosContas[] = ['apelido' => $conta['apelido'], 'msg' => $resultado['erro']];
               $pdo->prepare("UPDATE portal_github_contas SET ultimo_teste_ok=0, ultima_verificacao=NOW() WHERE id=?")
@@ -1048,11 +1069,31 @@ body  { background:#f0f4f9; font-family:'Segoe UI',sans-serif; font-size:.9rem; 
               $repo['conta_id']      = $conta['id'];
               $repo['conta_apelido'] = $conta['apelido'];
 
-              $analiseReadme = github_analisar_readme($token, $conta['usuario_github'], $repo['nome']);
-              $repo['descricao'] = $analiseReadme['descricao'] !== '' ? $analiseReadme['descricao'] : $repo['descricao'];
-              $repo['progresso'] = $analiseReadme['progresso'];
+              $ghUser = $conta['usuario_github'];
+              $ck = "{$conta['id']}:{$repo['nome']}";
 
-              $repo['previsao'] = github_obter_previsao($token, $conta['usuario_github'], $repo['nome']);
+              $analiseReadme = gh_cached($pdo, "readme:$ck", 600, fn() => github_analisar_readme($token, $ghUser, $repo['nome']));
+              $repo['descricao'] = $analiseReadme['descricao'] !== '' ? $analiseReadme['descricao'] : $repo['descricao'];
+
+              $issues  = gh_cached($pdo, "issues:$ck",  600, fn() => github_issues($token, $ghUser, $repo['nome']));
+              $commits = gh_cached($pdo, "commits:$ck", 600, fn() => github_commits_recentes($token, $ghUser, $repo['nome'], 8));
+              $repo['issues_data'] = $issues;
+              $repo['commits']     = $commits;
+
+              // Progresso: issues fechadas / total. Sem issues → cai pro checklist do README.
+              $totIss = $issues['total_abertas'] + $issues['total_fechadas'];
+              if ($totIss > 0) {
+                  $repo['progresso'] = [
+                      'feitas' => $issues['total_fechadas'],
+                      'total'  => $totIss,
+                      'pct'    => (int)round($issues['total_fechadas'] / $totIss * 100),
+                      'fonte'  => 'issues',
+                  ];
+              } else {
+                  $repo['progresso'] = $analiseReadme['progresso'] + ['fonte' => 'readme'];
+              }
+
+              $repo['previsao'] = gh_cached($pdo, "milestone:$ck", 600, fn() => github_obter_previsao($token, $ghUser, $repo['nome']));
 
               $reposPorSecao[$status][] = $repo;
           }
@@ -1076,6 +1117,11 @@ body  { background:#f0f4f9; font-family:'Segoe UI',sans-serif; font-size:.9rem; 
   <?php if (!$minhasContas): ?>
     <div class="text-muted small mt-4">Cadastre uma conta GitHub acima para ver seus projetos aqui.</div>
   <?php else: ?>
+    <div class="d-flex justify-content-end mb-2">
+      <a href="projetos.php?gh_refresh=1" class="btn btn-sm btn-outline-secondary" style="font-size:.72rem">
+        <i class="bi bi-arrow-clockwise me-1"></i>Atualizar do GitHub
+      </a>
+    </div>
     <?php foreach ($secoesInfo as $chaveSecao => $info):
       $abertoPorPadrao = ($chaveSecao === 'em_execucao');
     ?>
@@ -1111,14 +1157,53 @@ body  { background:#f0f4f9; font-family:'Segoe UI',sans-serif; font-size:.9rem; 
                   <?php if ($repo['descricao']): ?>
                     <div class="gh-proj-desc"><?= esc($repo['descricao']) ?></div>
                   <?php endif; ?>
-                  <?php if ($repo['progresso']['total'] > 0): ?>
+                  <?php if (($repo['progresso']['total'] ?? 0) > 0): ?>
                     <div class="gh-proj-progress">
                       <div class="gh-proj-progress-bar"><div class="gh-proj-progress-fill" style="width:<?= (int)$repo['progresso']['pct'] ?>%"></div></div>
-                      <span class="gh-proj-progress-label">Tarefas: <?= (int)$repo['progresso']['feitas'] ?>/<?= (int)$repo['progresso']['total'] ?> concluídas</span>
+                      <span class="gh-proj-progress-label">
+                        <?= ($repo['progresso']['fonte'] ?? '') === 'issues' ? 'Issues' : 'Checklist README' ?>:
+                        <?= (int)$repo['progresso']['feitas'] ?>/<?= (int)$repo['progresso']['total'] ?>
+                        <?= ($repo['progresso']['fonte'] ?? '') === 'issues' ? 'fechadas' : 'concluídas' ?>
+                      </span>
                     </div>
                   <?php endif; ?>
                   <?php if ($repo['previsao']): ?>
                     <div class="gh-proj-previsao"><i class="bi bi-calendar-event me-1"></i>Previsão: <?= esc(date('d/m/Y', strtotime($repo['previsao']))) ?></div>
+                  <?php endif; ?>
+
+                  <?php $iss = $repo['issues_data'] ?? null; ?>
+                  <?php if ($iss && $iss['total_abertas'] > 0): ?>
+                    <details class="gh-proj-det">
+                      <summary><i class="bi bi-list-check text-danger"></i> Pendências (<?= (int)$iss['total_abertas'] ?>)</summary>
+                      <ul class="gh-proj-det-list">
+                        <?php foreach (array_slice($iss['abertas'], 0, 12) as $it): ?>
+                          <li>
+                            <a href="<?= esc($it['url']) ?>" target="_blank" rel="noopener">#<?= (int)$it['numero'] ?></a>
+                            <?= esc($it['titulo']) ?>
+                            <?php foreach ($it['labels'] as $lb): if ($lb === '') continue; ?><span class="gh-lbl"><?= esc($lb) ?></span><?php endforeach; ?>
+                          </li>
+                        <?php endforeach; ?>
+                        <?php if ($iss['total_abertas'] > 12): ?><li class="gh-det-mais">… e mais <?= $iss['total_abertas'] - 12 ?></li><?php endif; ?>
+                      </ul>
+                    </details>
+                  <?php endif; ?>
+
+                  <?php if (!empty($repo['commits'])): ?>
+                    <details class="gh-proj-det">
+                      <summary><i class="bi bi-clock-history text-success"></i> Feito recentemente</summary>
+                      <ul class="gh-proj-det-list">
+                        <?php foreach ($repo['commits'] as $cm): ?>
+                          <li>
+                            <span class="gh-commit-data"><?= esc(dataRelativa($cm['data'])) ?></span>
+                            <?php if (!empty($cm['branch']) && $cm['branch'] !== 'main' && $cm['branch'] !== 'master'): ?><span class="gh-lbl"><?= esc($cm['branch']) ?></span><?php endif; ?>
+                            <?= esc($cm['msg']) ?>
+                          </li>
+                        <?php endforeach; ?>
+                        <?php foreach (array_slice($iss['fechadas_recentes'] ?? [], 0, 4) as $it): ?>
+                          <li><span class="gh-commit-data">✓ #<?= (int)$it['numero'] ?></span> <?= esc($it['titulo']) ?></li>
+                        <?php endforeach; ?>
+                      </ul>
+                    </details>
                   <?php endif; ?>
                   <div class="gh-proj-meta">
                     <?php if ($repo['linguagem']): ?><span class="meta-pill"><i class="bi bi-circle-fill" style="font-size:.5rem"></i><?= esc($repo['linguagem']) ?></span><?php endif; ?>

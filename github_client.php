@@ -149,6 +149,112 @@ function github_obter_previsao(string $token, string $owner, string $repo): ?str
     return $data[0]['due_on'];
 }
 
+/**
+ * Issues do repo (state=all). Ignora Pull Requests. Sem paginação — trunca em 100.
+ * Retorna abertas (pendências), fechadas recentes (feito) e as contagens.
+ */
+function github_issues(string $token, string $owner, string $repo): array {
+    $vazio = ['abertas' => [], 'fechadas_recentes' => [], 'total_abertas' => 0, 'total_fechadas' => 0];
+
+    $ch = curl_init('https://api.github.com/repos/' . rawurlencode($owner) . '/' . rawurlencode($repo)
+        . '/issues?state=all&per_page=100&sort=updated&direction=desc');
+    curl_setopt_array($ch, [
+        CURLOPT_RETURNTRANSFER => true,
+        CURLOPT_TIMEOUT        => 8,
+        CURLOPT_HTTPHEADER     => [
+            'Authorization: Bearer ' . $token,
+            'Accept: application/vnd.github+json',
+            'User-Agent: portal-glpi',
+        ],
+    ]);
+    $body = curl_exec($ch);
+    $code = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+    curl_close($ch);
+    if ($code !== 200) return $vazio;
+
+    $data = json_decode($body, true);
+    if (!is_array($data)) return $vazio;
+
+    $abertas = $fechadas = [];
+    foreach ($data as $i) {
+        if (isset($i['pull_request'])) continue; // PR, não issue
+        $item = [
+            'numero'     => (int)($i['number'] ?? 0),
+            'titulo'     => $i['title'] ?? '(sem título)',
+            'url'        => $i['html_url'] ?? '',
+            'labels'     => array_values(array_map(fn($l) => $l['name'] ?? '', $i['labels'] ?? [])),
+            'atualizado' => $i['updated_at'] ?? null,
+            'fechado'    => $i['closed_at'] ?? null,
+        ];
+        if (($i['state'] ?? '') === 'open') $abertas[] = $item;
+        else $fechadas[] = $item;
+    }
+    // fechadas: mais recentes primeiro (por data de fechamento)
+    usort($fechadas, fn($a, $b) => strcmp($b['fechado'] ?? '', $a['fechado'] ?? ''));
+
+    return [
+        'abertas'           => array_slice($abertas, 0, 20),
+        'fechadas_recentes' => array_slice($fechadas, 0, 8),
+        'total_abertas'     => count($abertas),
+        'total_fechadas'    => count($fechadas),
+    ];
+}
+
+function github_http_get(string $url, string $token): array {
+    $ch = curl_init($url);
+    curl_setopt_array($ch, [
+        CURLOPT_RETURNTRANSFER => true,
+        CURLOPT_TIMEOUT        => 8,
+        CURLOPT_HTTPHEADER     => [
+            'Authorization: Bearer ' . $token,
+            'Accept: application/vnd.github+json',
+            'User-Agent: portal-glpi',
+        ],
+    ]);
+    $body = curl_exec($ch);
+    $code = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+    curl_close($ch);
+    $data = json_decode($body, true);
+    return [$code, is_array($data) ? $data : []];
+}
+
+/**
+ * "Feito recentemente" — últimos commits considerando TODOS os branches
+ * (o trabalho costuma estar num branch de feature, não no padrão).
+ * [{sha, msg, autor, data, branch, url}], mais recente primeiro.
+ */
+function github_commits_recentes(string $token, string $owner, string $repo, int $n = 8): array {
+    $base = 'https://api.github.com/repos/' . rawurlencode($owner) . '/' . rawurlencode($repo);
+
+    [$code, $branches] = github_http_get($base . '/branches?per_page=100', $token);
+    $refs = ($code === 200 && $branches)
+        ? array_slice(array_column($branches, 'name'), 0, 6)
+        : [null];   // null = branch padrão
+
+    $porSha = [];
+    foreach ($refs as $ref) {
+        $url = $base . '/commits?per_page=4' . ($ref !== null ? '&sha=' . rawurlencode($ref) : '');
+        [$c, $data] = github_http_get($url, $token);
+        if ($c !== 200) continue;
+        foreach ($data as $cm) {
+            $sha = $cm['sha'] ?? '';
+            if ($sha === '' || isset($porSha[$sha])) continue;
+            $porSha[$sha] = [
+                'sha'    => substr($sha, 0, 7),
+                'msg'    => trim(explode("\n", $cm['commit']['message'] ?? '')[0]),
+                'autor'  => $cm['commit']['author']['name'] ?? ($cm['author']['login'] ?? ''),
+                'data'   => $cm['commit']['author']['date'] ?? ($cm['commit']['committer']['date'] ?? null),
+                'branch' => $ref ?? '',
+                'url'    => $cm['html_url'] ?? '',
+            ];
+        }
+    }
+
+    $out = array_values($porSha);
+    usort($out, fn($a, $b) => strcmp($b['data'] ?? '', $a['data'] ?? ''));
+    return array_slice($out, 0, $n);
+}
+
 function github_obter_readme_html(string $token, string $owner, string $repo): array {
     $ch = curl_init('https://api.github.com/repos/' . rawurlencode($owner) . '/' . rawurlencode($repo) . '/readme');
     curl_setopt_array($ch, [

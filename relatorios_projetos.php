@@ -12,6 +12,7 @@ require_once __DIR__ . '/agenda/db.php';
 require_once __DIR__ . '/agenda/config.php';
 require_once __DIR__ . '/vault_crypto.php';
 require_once __DIR__ . '/github_client.php';
+require_once __DIR__ . '/github_cache.php';
 
 $statusLabel = ['futuro' => 'Futuro', 'em_execucao' => 'Em Execução', 'concluido' => 'Concluído'];
 
@@ -33,8 +34,9 @@ if ($contaIds) {
 
 $projetos = [];
 foreach ($contas as $conta) {
-    $token     = vault_decrypt($conta['token_enc']);
-    $resultado = github_listar_repos($token);
+    $token  = vault_decrypt($conta['token_enc']);
+    $ghUser = $conta['usuario_github'];
+    $resultado = gh_cached($pdo, "repos:{$conta['id']}", 300, fn() => github_listar_repos($token));
     if (isset($resultado['erro'])) continue; // conta com token invalido/GitHub indisponivel — pula
 
     foreach ($resultado as $repo) {
@@ -42,15 +44,27 @@ foreach ($contas as $conta) {
         if (($visivelMap[$chave] ?? 1) === 0) continue; // ocultado pelo técnico
 
         $status   = $statusMap[$chave] ?? 'em_execucao';
-        $analise  = github_analisar_readme($token, $conta['usuario_github'], $repo['nome']);
-        $previsao = github_obter_previsao($token, $conta['usuario_github'], $repo['nome']);
+        $previsao = gh_cached($pdo, "milestone:$chave", 600, fn() => github_obter_previsao($token, $ghUser, $repo['nome']));
+
+        // Progresso: issues fechadas / total; sem issues → checklist do README
+        $issues = gh_cached($pdo, "issues:$chave", 600, fn() => github_issues($token, $ghUser, $repo['nome']));
+        $totIss = $issues['total_abertas'] + $issues['total_fechadas'];
+        if ($totIss > 0) {
+            $pct = (int)round($issues['total_fechadas'] / $totIss * 100);
+            $tarefas = $totIss;
+        } else {
+            $analise = gh_cached($pdo, "readme:$chave", 600, fn() => github_analisar_readme($token, $ghUser, $repo['nome']));
+            $pct = $analise['progresso']['pct'] ?? 0;
+            $tarefas = $analise['progresso']['total'] ?? 0;
+        }
 
         $projetos[] = [
             'nome'      => $repo['nome'],
-            'progresso' => $analise['progresso']['pct'] ?? 0,
+            'progresso' => $pct,
             'status'    => $statusLabel[$status] ?? 'Em Execução',
             'prazo'     => $previsao ? date('d/m/Y', strtotime($previsao)) : '',
-            'tarefas'   => $analise['progresso']['total'] ?? 0,
+            'tarefas'   => $tarefas,
+            'pendentes' => $issues['total_abertas'],
             'equipe'    => $conta['apelido'],
         ];
     }
