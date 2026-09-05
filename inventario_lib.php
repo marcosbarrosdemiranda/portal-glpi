@@ -105,6 +105,25 @@ function inv_bootstrap(PDO $pdo): void {
         $pdo->exec("ALTER TABLE portal_inv_cards MODIFY fonte ENUM('peripheral','phone','computer') NOT NULL DEFAULT 'peripheral'");
     }
 
+    // Campo "Departamento" (setor da loja) nos Celulares — idempotente.
+    // As opções são editáveis em Inventário → Configurar.
+    $celId = (int)($pdo->query("SELECT id FROM portal_inv_cards WHERE slug = 'celulares'")->fetchColumn() ?: 0);
+    if ($celId) {
+        $temDep = $pdo->prepare("SELECT COUNT(*) FROM portal_inv_fields WHERE card_id = ? AND chave = 'departamento'");
+        $temDep->execute([$celId]);
+        if (!$temDep->fetchColumn()) {
+            $opcoesDep = implode("\n", [
+                'Frente de Caixa', 'Açougue', 'Padaria', 'Hortifruti', 'Mercearia',
+                'Frios e Laticínios', 'Depósito / Recebimento', 'Adega', 'Peixaria',
+                'Rotisseria', 'Prevenção de Perdas', 'Administrativo', 'Gerência',
+                'RH', 'Fiscal', 'TI',
+            ]);
+            $pdo->prepare("INSERT INTO portal_inv_fields (card_id, chave, label, tipo, opcoes, obrigatorio, na_lista, ordem)
+                           VALUES (?, 'departamento', 'Departamento', 'select', ?, 0, 1, 20)")
+                ->execute([$celId, $opcoesDep]);
+        }
+    }
+
     // Garante os cards de computadores (mesmo que a semente geral já tenha rodado)
     $temCard = $pdo->prepare("SELECT COUNT(*) FROM portal_inv_cards WHERE slug = ?");
     $insC2   = $pdo->prepare("INSERT INTO portal_inv_cards (slug,titulo,descricao,icone,cor,fonte,ordem) VALUES (?,?,?,?,?,'computer',?)");
