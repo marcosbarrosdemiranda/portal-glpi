@@ -467,6 +467,7 @@ function inv_srv_set(PDO $pdo, int $computerId, string $papel, ?int $hostId): vo
 function inv_computers_do_card(PDO $pdo, string $cardSlug, string $view = 'ativos'): array {
     $cond = $view === 'baixados' ? 'bx.id IS NOT NULL' : 'bx.id IS NULL';
     $sql = "SELECT c.id, c.name, c.serial, c.otherserial, c.contact, c.entities_id,
+                   c.last_inventory_update AS ultimo_inv,
                    e.completename AS entidade, t.name AS tipo_hw,
                    m.name AS fabricante, md.name AS modelo, pc.categoria AS cat_salva,
                    bx.motivo AS baixa_motivo, bx.observacao AS baixa_obs,

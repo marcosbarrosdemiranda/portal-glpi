@@ -176,22 +176,41 @@ if ($action === 'detalhe') {
 }
 
 /* ─────────── PÁGINA ─────────── */
-$ignMode     = isset($_GET['ignorados']);
-$listaSlug   = $ignMode ? '__ignorado__' : $slug;
-$view        = ($_GET['view'] ?? 'ativos') === 'baixados' ? 'baixados' : 'ativos';
-$loja_filtro = (int)($_GET['loja'] ?? 0);
-$busca       = mb_strtolower(trim($_GET['busca'] ?? ''));
+$ignMode      = isset($_GET['ignorados']);
+$listaSlug    = $ignMode ? '__ignorado__' : $slug;
+$view         = ($_GET['view'] ?? 'ativos') === 'baixados' ? 'baixados' : 'ativos';
+$loja_filtro  = (int)($_GET['loja'] ?? 0);
+$busca        = mb_strtolower(trim($_GET['busca'] ?? ''));
+$stale_filtro = isset($_GET['stale']);
+
+const INV_STALE_DIAS = 7;
+/** Dias desde o último inventário do GLPI. null = nunca reportou. */
+function inv_dias_sem_inv(?string $ts): ?int {
+    if (!$ts || $ts[0] === '0') return null;
+    $t = strtotime($ts);
+    if (!$t) return null;
+    return (int) floor((time() - $t) / 86400);
+}
+function inv_stale(?string $ts): bool {
+    $d = inv_dias_sem_inv($ts);
+    return $d === null || $d > INV_STALE_DIAS;
+}
 
 $qtdIgnorados = count(inv_computers_do_card($pdo, '__ignorado__', 'ativos'));
 
 $todos     = inv_computers_do_card($pdo, $listaSlug, $view);
 $totalOutra = count(inv_computers_do_card($pdo, $listaSlug, $view === 'ativos' ? 'baixados' : 'ativos'));
 
-$rows = array_values(array_filter($todos, function ($r) use ($loja_filtro, $busca) {
+$rows = array_values(array_filter($todos, function ($r) use ($loja_filtro, $busca, $stale_filtro) {
     if ($loja_filtro && (int)$r['entities_id'] !== $loja_filtro) return false;
     if ($busca !== '' && !str_contains(mb_strtolower($r['name'] . ' ' . $r['serial'] . ' ' . $r['otherserial']), $busca)) return false;
+    if ($stale_filtro && !inv_stale($r['ultimo_inv'] ?? null)) return false;
     return true;
 }));
+
+// Máquinas sem receber inventário há mais de 7 dias (sobre a categoria toda, view atual)
+$staleCount = 0;
+foreach ($todos as $r) if (inv_stale($r['ultimo_inv'] ?? null)) $staleCount++;
 
 // Card de servidores: visão em árvore (servidor físico → VMs). Sempre carrega todos os
 // físicos (mesmo os filtrados fora) pra montar o dropdown de host.
@@ -212,7 +231,8 @@ $totalBaixados = $view === 'baixados' ? $totalGeral : $totalOutra;
 $entidades = $pdo->query("SELECT id, completename FROM glpi_entities ORDER BY completename")->fetchAll();
 $entMap = [];
 foreach ($entidades as $e) $entMap[(int)$e['id']] = $e['completename'];
-$qsView = $view === 'baixados' ? '&view=baixados' : '';
+$qsView  = $view === 'baixados' ? '&view=baixados' : '';
+$qsStale = $stale_filtro ? '&stale=1' : '';
 ?>
 <!DOCTYPE html>
 <html lang="pt-BR">
@@ -296,6 +316,9 @@ $qsView = $view === 'baixados' ? '&view=baixados' : '';
     .det-bar > span { display:block; height:100%; border-radius:3px; }
     .text-muted { color:#80868b; }
     .text-danger { color:#c62828; }
+    .inv-stale { display:inline-block; margin-left:.4rem; font-size:.68rem; font-weight:700;
+                 background:#fff3e0; color:#b45309; border:1px solid #fcd9a8; border-radius:8px;
+                 padding:.02rem .4rem; white-space:nowrap; vertical-align:middle; }
   </style>
 </head>
 <body>
@@ -347,15 +370,24 @@ $qsView = $view === 'baixados' ? '&view=baixados' : '';
       <button type="button" class="chip active" onclick="toggleTodosGrupos()">Todas as lojas <i class="bi bi-arrows-expand"></i></button>
     <?php endif; ?>
     <?php foreach ($cntPorLoja as $eid => $n): if (!$eid) continue; ?>
-      <a class="chip <?= $loja_filtro == $eid ? 'active' : '' ?>" href="?cat=<?= $H($slug) ?>&loja=<?= (int)$eid ?><?= $qsView . $qsIgn ?>">
+      <a class="chip <?= $loja_filtro == $eid ? 'active' : '' ?>" href="?cat=<?= $H($slug) ?>&loja=<?= (int)$eid ?><?= $qsView . $qsIgn . $qsStale ?>">
         <?= $H(apelido_entidade($entMap[$eid] ?? '—')) ?> <?= (int)$n ?>
       </a>
     <?php endforeach; ?>
+    <?php if (!$ignMode && $staleCount): ?>
+      <a class="chip <?= $stale_filtro ? 'active' : '' ?>"
+         style="border-color:#f9a825;<?= $stale_filtro ? 'background:#fff8e1;color:#8a6d00;font-weight:600' : 'color:#8a6d00' ?>"
+         href="?cat=<?= $H($slug) ?><?= $qsView . ($stale_filtro ? '' : '&stale=1') . ($loja_filtro ? '&loja='.$loja_filtro : '') ?>"
+         title="Máquinas que não reportam inventário ao GLPI há mais de <?= INV_STALE_DIAS ?> dias">
+        <i class="bi bi-exclamation-triangle-fill"></i> Sem inventário +<?= INV_STALE_DIAS ?>d: <?= $staleCount ?>
+      </a>
+    <?php endif; ?>
     <form class="busca" method="get">
       <input type="hidden" name="cat" value="<?= $H($slug) ?>"/>
       <?php if ($ignMode): ?><input type="hidden" name="ignorados" value="1"/><?php endif; ?>
       <?php if ($view === 'baixados'): ?><input type="hidden" name="view" value="baixados"/><?php endif; ?>
       <?php if ($loja_filtro): ?><input type="hidden" name="loja" value="<?= $loja_filtro ?>"/><?php endif; ?>
+      <?php if ($stale_filtro): ?><input type="hidden" name="stale" value="1"/><?php endif; ?>
       <input type="text" name="busca" value="<?= $H($_GET['busca'] ?? '') ?>" placeholder="Nome, série, patrimônio..."/>
     </form>
   </div>
@@ -370,9 +402,19 @@ $qsView = $view === 'baixados' ? '&view=baixados' : '';
         <th></th>
       </tr></thead>
       <tbody>
-      <?php foreach ($list as $a): $cat = $a['cat_salva'] ?: 'pcs-retaguarda'; ?>
+      <?php foreach ($list as $a): $cat = $a['cat_salva'] ?: 'pcs-retaguarda';
+        $_di = inv_dias_sem_inv($a['ultimo_inv'] ?? null); ?>
         <tr>
-          <td><?= $H($a['name'] ?: '(sem nome)') ?></td>
+          <td>
+            <?= $H($a['name'] ?: '(sem nome)') ?>
+            <?php if ($view !== 'baixados'):
+              if ($_di === null): ?>
+                <span class="inv-stale" title="Nunca recebeu inventário do GLPI"><i class="bi bi-exclamation-triangle-fill"></i> sem inventário</span>
+              <?php elseif ($_di > INV_STALE_DIAS): ?>
+                <span class="inv-stale" title="Último inventário há <?= $_di ?> dias — <?= $H(substr((string)$a['ultimo_inv'], 0, 10)) ?>"><i class="bi bi-exclamation-triangle-fill"></i> <?= $_di ?>d sem reportar</span>
+              <?php endif;
+            endif; ?>
+          </td>
           <td>
             <?php if ($view === 'baixados'): ?>
               <?= $H(INV_PC_CATS[$cat] ?? $cat) ?>
@@ -679,7 +721,14 @@ function verDetalhe(id) {
     if (c.contact)      ident += linha('Usuário', escD(c.contact + (c.contact_num ? ' · ' + c.contact_num : '')));
     if (c.os_nome)      ident += linha('Sistema', escD([c.os_nome, c.os_versao, c.os_arch].filter(Boolean).join(' ')));
     if (c.os_key)       ident += linha('Chave do SO', `<code>${escD(c.os_key)}</code>`);
-    ident += linha('Último inventário', escD(c.last_inventory_update ? c.last_inventory_update.slice(0, 16) : '—'));
+    (function () {
+      const ts = c.last_inventory_update;
+      if (!ts || ts[0] === '0') { ident += linha('Último inventário', '<span style="color:#b45309;font-weight:600">nunca reportou</span>'); return; }
+      const dias = Math.floor((Date.now() - new Date(ts.replace(' ', 'T')).getTime()) / 86400000);
+      const alerta = dias > 7;
+      ident += linha('Último inventário',
+        `${escD(ts.slice(0, 16))} <span style="color:${alerta ? '#b45309' : '#80868b'};font-weight:${alerta ? 700 : 400}">(há ${dias}d${alerta ? ' ⚠' : ''})</span>`);
+    })();
 
     let hw = '';
     d.cpu.forEach(p => hw += linha('Processador', `${escD(p.designation)} ${p.nbcores ? '· ' + p.nbcores + 'C/' + p.nbthreads + 'T' : ''} ${p.mhz ? '· ' + (p.mhz / 1000).toFixed(2) + ' GHz' : ''}`));
