@@ -1440,6 +1440,32 @@ document.addEventListener('DOMContentLoaded', function() {
     document.head.appendChild(style);
   })();
 
+  // ── Faixa do horário atual: fundo amarelo claro no slot de "agora" ──
+  // Complementa a setinha vermelha do nowIndicator. Atualiza a cada 30s e
+  // ao navegar (prev/next/hoje), sobrevivendo aos re-renders do FullCalendar.
+  (function() {
+    const st = document.createElement('style');
+    st.textContent = '.fc-timegrid-slots .fc-timegrid-slot.slot-agora{background:#fef7c3!important}';
+    document.head.appendChild(st);
+
+    function marcarAgora() {
+      const d = new Date();
+      const nowMin = d.getHours() * 60 + d.getMinutes();
+      document.querySelectorAll('.fc-timegrid-slot[data-time]').forEach(td => {
+        const [h, m] = td.getAttribute('data-time').split(':').map(Number);
+        const ini = h * 60 + m;
+        td.classList.toggle('slot-agora', nowMin >= ini && nowMin < ini + 15);
+      });
+    }
+    marcarAgora();
+    setInterval(marcarAgora, 30000);
+    document.addEventListener('click', function(e) {
+      if (e.target.closest('.fc-prev-button, .fc-next-button, .fc-today-button')) {
+        setTimeout(marcarAgora, 200);
+      }
+    });
+  })();
+
   // ── Almoço: células compactas (11h-13h) ──
   aplicarCompactacaoAlmoco();
 
