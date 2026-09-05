@@ -1123,12 +1123,17 @@ const COR_TIPO = {
   chamado:    { bg: '#d93025', border: '#a52218' }, // Vermelho
   projeto:    { bg: '#00897b', border: '#00695c' }, // Verde-azulado
   concluido:  { bg: '#1e8e3e', border: '#155a2e' }, // Verde
-  atrasado:   { bg: '#f9a825', border: '#c6790a' }, // Amarelo (atrasado/não concluído)
+  pendente:   { bg: '#f9a825', border: '#c6790a' }, // Ambar — chamado/requisicao ainda no prazo
+  atrasado:   { bg: '#d93025', border: '#a52218' }, // Vermelho — vencido e nao concluido
 };
 
+// 2026-09: esquema revisado a pedido do responsavel.
+//   chamado/requisicao no prazo, nao concluido -> AMBAR (pendente)
+//   qualquer um vencido e nao concluido        -> VERMELHO (atrasado)
 function corDoEvento(tipo, concluido, atrasado) {
   if (concluido) return COR_TIPO.concluido;
   if (atrasado)  return COR_TIPO.atrasado;
+  if (tipo === 'chamado' || tipo === 'requisicao') return COR_TIPO.pendente;
   return COR_TIPO[tipo] || COR_TIPO.evento;
 }
 
