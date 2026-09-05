@@ -26,6 +26,7 @@ $pdo->exec("
 $action = $_GET['action'] ?? '';
 if ($action) {
     header('Content-Type: application/json');
+    header('Cache-Control: no-store, must-revalidate');
     try {
 
         if ($action === 'list') {
@@ -255,19 +256,23 @@ const PODE_INTERAGIR = <?= $pode_interagir ? 'true' : 'false' ?>;
 let reunioes = [];
 
 function carregar() {
-  fetch('reunioes_rp.php?action=list')
+  fetch('reunioes_rp.php?action=list&_=' + Date.now(), { cache: 'no-store' })
     .then(r => r.json())
     .then(data => {
       document.getElementById('lista-loading').style.display = 'none';
       if (!data.ok) { alert('Erro ao carregar: ' + (data.msg || '')); return; }
       reunioes = data.dados || [];
       document.getElementById('stat-total').textContent = reunioes.length;
+      const lista = document.getElementById('lista');
+      const semDados = document.getElementById('sem-dados');
       if (reunioes.length === 0) {
-        document.getElementById('sem-dados').style.display = '';
+        lista.style.display = 'none';
+        semDados.style.display = '';
         return;
       }
-      document.getElementById('lista').style.display = '';
-      document.getElementById('lista').innerHTML = reunioes.map(renderCard).join('');
+      semDados.style.display = 'none';
+      lista.style.display = '';
+      lista.innerHTML = reunioes.map(renderCard).join('');
     })
     .catch(err => {
       document.getElementById('lista-loading').innerHTML =
