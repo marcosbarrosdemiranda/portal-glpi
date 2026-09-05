@@ -152,6 +152,65 @@ if ($action === 'reativar') {
     exit;
 }
 
+/* ── Manutenção: chamados vinculados ao equipamento (glpi_items_tickets) ── */
+if ($action === 'chamados') {
+    header('Content-Type: application/json; charset=utf-8');
+    $id = (int)($_GET['id'] ?? 0);
+    $st = $pdo->prepare("
+        SELECT t.id, t.name, t.status, t.date, t.closedate,
+               u.name AS tecnico_user, u.realname AS tecnico_realname, u.firstname AS tecnico_firstname
+        FROM glpi_items_tickets it
+        JOIN glpi_tickets t ON t.id = it.tickets_id
+        LEFT JOIN glpi_tickets_users tu ON tu.tickets_id = t.id AND tu.type = 2
+        LEFT JOIN glpi_users u ON u.id = tu.users_id
+        WHERE it.itemtype = ? AND it.items_id = ? AND t.is_deleted = 0
+        GROUP BY t.id
+        ORDER BY t.date DESC");
+    $st->execute([$itemtype, $id]);
+    $rows = [];
+    foreach ($st as $r) {
+        $tec = trim(($r['tecnico_firstname'] ?? '') . ' ' . ($r['tecnico_realname'] ?? '')) ?: ($r['tecnico_user'] ?? '');
+        $rows[] = [
+            'id'        => (int)$r['id'],
+            'name'      => $r['name'],
+            'status'    => (int)$r['status'],
+            'date'      => $r['date'] ? substr($r['date'], 0, 10) : '',
+            'closedate' => $r['closedate'] ? substr($r['closedate'], 0, 10) : '',
+            'tecnico'   => $tec,
+        ];
+    }
+    echo json_encode(['ok' => true, 'chamados' => $rows]);
+    exit;
+}
+
+if ($action === 'link_chamado') {
+    header('Content-Type: application/json; charset=utf-8');
+    $id  = (int)($_POST['id'] ?? 0);
+    $tid = (int)($_POST['ticket_id'] ?? 0);
+    if (!$id || !$tid) { echo json_encode(['ok' => false, 'erro' => 'Informe o nº do chamado']); exit; }
+    $tk = $pdo->prepare("SELECT id FROM glpi_tickets WHERE id = ? AND is_deleted = 0");
+    $tk->execute([$tid]);
+    if (!$tk->fetchColumn()) { echo json_encode(['ok' => false, 'erro' => "Chamado #$tid não existe"]); exit; }
+    $ex = $pdo->prepare("SELECT id FROM glpi_items_tickets WHERE itemtype = ? AND items_id = ? AND tickets_id = ?");
+    $ex->execute([$itemtype, $id, $tid]);
+    if (!$ex->fetchColumn()) {
+        $pdo->prepare("INSERT INTO glpi_items_tickets (itemtype, items_id, tickets_id) VALUES (?,?,?)")
+            ->execute([$itemtype, $id, $tid]);
+    }
+    echo json_encode(['ok' => true]);
+    exit;
+}
+
+if ($action === 'unlink_chamado') {
+    header('Content-Type: application/json; charset=utf-8');
+    $id  = (int)($_POST['id'] ?? 0);
+    $tid = (int)($_POST['ticket_id'] ?? 0);
+    $pdo->prepare("DELETE FROM glpi_items_tickets WHERE itemtype = ? AND items_id = ? AND tickets_id = ?")
+        ->execute([$itemtype, $id, $tid]);
+    echo json_encode(['ok' => true]);
+    exit;
+}
+
 /* ─────────────────────── PÁGINA ─────────────────────── */
 
 // resolve tipos que ainda não têm id no GLPI (uma vez; tolera falha)
@@ -515,6 +574,14 @@ $H = 'inv_h';
           <?php endif; ?>
         </div>
       <?php endforeach; ?>
+      <div class="fld full" id="box-chamados" style="display:none">
+        <label><i class="bi bi-wrench-adjustable"></i> Manutenção / Chamados vinculados</label>
+        <div id="chamados-lista" style="border:1px solid #e0e4ea;border-radius:8px;padding:.5rem .6rem;font-size:.82rem;max-height:180px;overflow-y:auto"></div>
+        <div style="display:flex;gap:.4rem;margin-top:.4rem">
+          <input type="number" id="f-novo-chamado" placeholder="Nº do chamado" style="flex:1"/>
+          <button type="button" class="btn btn-ghost" onclick="vincularChamado()"><i class="bi bi-link-45deg"></i> Vincular</button>
+        </div>
+      </div>
     </div>
     <footer>
       <button class="btn btn-ghost" onclick="fecharModal()">Cancelar</button>
@@ -569,6 +636,8 @@ function abrirModal(id) {
   limparForm();
   $('#modalTitulo').textContent = id ? 'Editar ativo' : 'Novo ativo';
   $('#f-id').value = id || '';
+  if (id) { $('#box-chamados').style.display = ''; carregarChamados(id); }
+  else    { $('#box-chamados').style.display = 'none'; $('#chamados-lista').innerHTML = ''; }
   if (id) {
     fetch(`inventario_glpi.php?cat=${CAT}&action=form&id=${id}`)
       .then(r => r.json())
@@ -592,9 +661,65 @@ function abrirModal(id) {
 }
 function fecharModal() { $('#modalBack').classList.remove('show'); }
 function limparForm() {
-  ['f-name','f-fabricante','f-modelo','f-serial','f-otherserial','f-comment'].forEach(i => $('#'+i).value = '');
+  ['f-name','f-fabricante','f-modelo','f-serial','f-otherserial','f-comment','f-novo-chamado'].forEach(i => $('#'+i).value = '');
   $('#f-entidade').value = 0; $('#f-subcat').value = 0;
   document.querySelectorAll('[data-campo]').forEach(el => el.value = '');
+}
+
+function escHtml(s) { const d = document.createElement('div'); d.textContent = s == null ? '' : String(s); return d.innerHTML; }
+
+const TK_STATUS = {1:['Novo','#1a73e8'],2:['Em atendimento','#e8710a'],3:['Planejado','#8e24aa'],4:['Pendente','#c62828'],5:['Solucionado','#1e8e3e'],6:['Fechado','#5f6368']};
+
+function carregarChamados(id) {
+  const box = $('#chamados-lista');
+  box.innerHTML = '<span style="color:#9aa0a6">Carregando…</span>';
+  fetch(`inventario_glpi.php?cat=${CAT}&action=chamados&id=${id}`)
+    .then(r => r.json())
+    .then(d => {
+      if (!d.ok) { box.innerHTML = '<span style="color:#c62828">Erro ao carregar</span>'; return; }
+      if (!d.chamados.length) { box.innerHTML = '<span style="color:#9aa0a6">Nenhum chamado vinculado a este equipamento.</span>'; return; }
+      box.innerHTML = d.chamados.map(c => {
+        const st = TK_STATUS[c.status] || ['?', '#9aa0a6'];
+        const tec = c.tecnico ? `<span style="font-size:.72rem;color:#9aa0a6;white-space:nowrap">${escHtml(c.tecnico)}</span>` : '';
+        return `<div style="display:flex;align-items:center;gap:.5rem;padding:.3rem 0;border-bottom:1px dashed #eef1f5">
+          <a href="chamado.php?id=${c.id}" target="_blank" style="font-weight:700;color:#1a237e;text-decoration:none">#${c.id}</a>
+          <span style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${escHtml(c.name)}</span>
+          <span style="font-size:.7rem;background:${st[1]}22;color:${st[1]};border-radius:10px;padding:.1rem .5rem;white-space:nowrap">${st[0]}</span>
+          <span style="font-size:.72rem;color:#9aa0a6;white-space:nowrap">${c.date || ''}</span>
+          ${tec}
+          <button type="button" title="Desvincular" onclick="desvincularChamado(${c.id})" style="border:none;background:none;color:#c62828;cursor:pointer;font-size:1.1rem;line-height:1">&times;</button>
+        </div>`;
+      }).join('');
+    })
+    .catch(() => { box.innerHTML = '<span style="color:#c62828">Erro de rede</span>'; });
+}
+
+function vincularChamado() {
+  const id = $('#f-id').value;
+  const tid = parseInt($('#f-novo-chamado').value || 0);
+  if (!id) { toast('Salve o equipamento primeiro', false); return; }
+  if (!tid) { toast('Informe o nº do chamado', false); return; }
+  const fd = new FormData();
+  fd.set('action', 'link_chamado'); fd.set('id', id); fd.set('ticket_id', tid);
+  fetch(`inventario_glpi.php?cat=${CAT}`, { method: 'POST', body: fd })
+    .then(r => r.json())
+    .then(d => {
+      if (!d.ok) { toast(d.erro || 'Erro ao vincular', false); return; }
+      $('#f-novo-chamado').value = '';
+      carregarChamados(id);
+      toast('Chamado vinculado');
+    })
+    .catch(e => toast('Erro de rede: ' + e.message, false));
+}
+
+function desvincularChamado(tid) {
+  const id = $('#f-id').value;
+  if (!confirm(`Desvincular o chamado #${tid} deste equipamento?\n\nO chamado no GLPI continua existindo — só o vínculo é removido.`)) return;
+  const fd = new FormData();
+  fd.set('action', 'unlink_chamado'); fd.set('id', id); fd.set('ticket_id', tid);
+  fetch(`inventario_glpi.php?cat=${CAT}`, { method: 'POST', body: fd })
+    .then(r => r.json())
+    .then(d => { if (d.ok) carregarChamados(id); else toast('Erro ao desvincular', false); });
 }
 
 function salvar() {
