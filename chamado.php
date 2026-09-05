@@ -153,6 +153,59 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'save_
     exit;
 }
 
+// ── Equipamentos do inventário vinculados ao chamado (glpi_items_tickets) ──
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && in_array($_POST['action'] ?? '', ['equip_search','equip_link','equip_unlink'], true)) {
+    header('Content-Type: application/json');
+    if ($cham_ouvinte) { echo json_encode(['ok'=>false,'msg'=>'Sem permissão']); exit; }
+    $act = $_POST['action'];
+    $tid = (int)($_POST['ticket_id'] ?? $ticket_id);
+    $EQ_TABELAS = ['Computer'=>'glpi_computers', 'Phone'=>'glpi_phones', 'Peripheral'=>'glpi_peripherals'];
+    require_once __DIR__ . '/agenda/db.php';
+    try {
+        if ($act === 'equip_search') {
+            $q = trim($_POST['q'] ?? '');
+            if (mb_strlen($q) < 2) { echo json_encode(['ok'=>true,'itens'=>[]]); exit; }
+            $like = '%' . $q . '%';
+            $ent  = (int)($pdo->query("SELECT entities_id FROM glpi_tickets WHERE id = " . $tid)->fetchColumn() ?: 0);
+            $out  = [];
+            foreach ($EQ_TABELAS as $itype => $tbl) {
+                $st = $pdo->prepare("SELECT p.id, p.name, p.serial, p.otherserial, e.completename ent
+                                     FROM `$tbl` p LEFT JOIN glpi_entities e ON e.id = p.entities_id
+                                     WHERE p.is_deleted = 0 AND p.is_template = 0
+                                       AND (p.name LIKE ? OR p.serial LIKE ? OR p.otherserial LIKE ?)
+                                     ORDER BY (p.entities_id = ?) DESC, p.name LIMIT 12");
+                $st->execute([$like, $like, $like, $ent]);
+                foreach ($st as $r) {
+                    $out[] = ['itemtype'=>$itype, 'id'=>(int)$r['id'], 'name'=>$r['name'],
+                              'serial'=>$r['serial'] ?: $r['otherserial'] ?: '', 'ent'=>$r['ent'] ?: ''];
+                }
+            }
+            echo json_encode(['ok'=>true, 'itens'=>$out]);
+            exit;
+        }
+
+        $itype = $_POST['itemtype'] ?? '';
+        $iid   = (int)($_POST['items_id'] ?? 0);
+        if (!isset($EQ_TABELAS[$itype]) || !$iid || !$tid) { echo json_encode(['ok'=>false,'msg'=>'Dados inválidos']); exit; }
+
+        if ($act === 'equip_link') {
+            $ex = $pdo->prepare("SELECT id FROM glpi_items_tickets WHERE itemtype=? AND items_id=? AND tickets_id=?");
+            $ex->execute([$itype, $iid, $tid]);
+            if (!$ex->fetchColumn()) {
+                $pdo->prepare("INSERT INTO glpi_items_tickets (itemtype, items_id, tickets_id) VALUES (?,?,?)")
+                    ->execute([$itype, $iid, $tid]);
+            }
+        } else { // equip_unlink
+            $pdo->prepare("DELETE FROM glpi_items_tickets WHERE itemtype=? AND items_id=? AND tickets_id=?")
+                ->execute([$itype, $iid, $tid]);
+        }
+        echo json_encode(['ok'=>true]);
+    } catch (\Throwable $e) {
+        echo json_encode(['ok'=>false, 'msg'=>'Erro: ' . $e->getMessage()]);
+    }
+    exit;
+}
+
 function glpi_req(string $url, string $token): array {
     $ch = curl_init($url);
     curl_setopt_array($ch, [
@@ -205,6 +258,32 @@ try {
     $stImp->execute([$ticket_id]);
     $campos_impressao = $stImp->fetch(PDO::FETCH_ASSOC) ?: null;
 } catch (\Throwable $e) { /* silencioso se tabela não existir */ }
+
+// Equipamentos do inventário vinculados a este chamado (glpi_items_tickets)
+$equipamentos = [];
+try {
+    require_once __DIR__ . '/agenda/db.php';
+    $eq_defs = [
+        ['Computer',   'glpi_computers',   'bi-pc-display', 'PC'],
+        ['Phone',      'glpi_phones',      'bi-phone',      'Celular'],
+        ['Peripheral', 'glpi_peripherals', 'bi-usb-plug',   'Periférico'],
+    ];
+    foreach ($eq_defs as [$itype, $tbl, $icon, $rot]) {
+        $stEq = $pdo->prepare("SELECT p.id, p.name, p.serial, p.otherserial, e.completename ent
+                               FROM glpi_items_tickets it
+                               JOIN `$tbl` p ON p.id = it.items_id AND p.is_deleted = 0
+                               LEFT JOIN glpi_entities e ON e.id = p.entities_id
+                               WHERE it.itemtype = ? AND it.tickets_id = ?
+                               ORDER BY p.name");
+        $stEq->execute([$itype, $ticket_id]);
+        foreach ($stEq as $r) {
+            $equipamentos[] = [
+                'itemtype' => $itype, 'rotulo' => $rot, 'icone' => $icon, 'id' => (int)$r['id'],
+                'name' => $r['name'], 'serial' => $r['serial'] ?: $r['otherserial'] ?: '', 'ent' => $r['ent'] ?: '',
+            ];
+        }
+    }
+} catch (\Throwable $e) { /* silencioso */ }
 
 // Documentos ligados diretamente ao Ticket (raramente usados)
 $doc_items_ticket = glpi_req(GLPI_URL.'/apirest.php/Ticket/'.$ticket_id.'/Document_Item', $token);
@@ -648,6 +727,101 @@ foreach ($atribuidos as $a) {
       })
       .catch(e => alert('Falha: ' + e.message));
   }
+  </script>
+  <?php endif; ?>
+
+  <!-- ── Equipamentos do Inventário ── -->
+  <div class="card-glpi">
+    <div class="card-header-glpi"><i class="bi bi-hdd-network"></i> Equipamentos
+      <span class="badge bg-secondary ms-1" id="equip-count"><?= count($equipamentos) ?></span>
+      <?php if (!$cham_ouvinte): ?>
+      <button type="button" class="btn btn-sm btn-outline-primary" id="btn-add-equip" onclick="toggleAddEquip()" style="float:right;font-size:.75rem;padding:.15rem .6rem"><i class="bi bi-plus-lg me-1"></i>Vincular</button>
+      <?php endif; ?>
+    </div>
+    <div class="card-body-glpi">
+      <?php if (!$cham_ouvinte): ?>
+      <div id="equip-add-box" style="display:none;margin-bottom:.8rem">
+        <input type="text" class="form-control form-control-sm" id="equip-busca" placeholder="Buscar equipamento por nome, série ou patrimônio…" autocomplete="off" oninput="buscarEquip()"/>
+        <div id="equip-resultados" style="border:1px solid #e5e7eb;border-radius:8px;margin-top:.3rem;max-height:220px;overflow-y:auto;display:none"></div>
+      </div>
+      <?php endif; ?>
+      <div id="equip-lista">
+        <?php if (empty($equipamentos)): ?>
+          <p class="empty-msg" id="equip-vazio">Nenhum equipamento vinculado a este chamado.</p>
+        <?php else: foreach ($equipamentos as $eq): ?>
+          <div class="equip-item" data-itemtype="<?= $eq['itemtype'] ?>" data-id="<?= $eq['id'] ?>" style="display:flex;align-items:center;gap:.6rem;padding:.45rem .2rem;border-bottom:1px dashed #e5e7eb">
+            <i class="bi <?= $eq['icone'] ?>" style="color:#1a237e;font-size:1.05rem"></i>
+            <div style="flex:1;min-width:0">
+              <div style="font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap"><?= htmlspecialchars($eq['name']) ?></div>
+              <div style="font-size:.74rem;color:#6b7280"><?= htmlspecialchars($eq['rotulo']) ?><?= $eq['serial'] ? ' · ' . htmlspecialchars($eq['serial']) : '' ?><?= $eq['ent'] ? ' · ' . htmlspecialchars(apelido_entidade($eq['ent'])) : '' ?></div>
+            </div>
+            <?php if (!$cham_ouvinte): ?>
+            <button type="button" title="Desvincular" onclick="desvincularEquip('<?= $eq['itemtype'] ?>', <?= $eq['id'] ?>)" style="border:none;background:none;color:#d93025;cursor:pointer;font-size:1.1rem;line-height:1">&times;</button>
+            <?php endif; ?>
+          </div>
+        <?php endforeach; endif; ?>
+      </div>
+    </div>
+  </div>
+  <?php if (!$cham_ouvinte): ?>
+  <script>
+  const EQ_ICON = { Computer: 'bi-pc-display', Phone: 'bi-phone', Peripheral: 'bi-usb-plug' };
+  const EQ_ROT  = { Computer: 'PC', Phone: 'Celular', Peripheral: 'Periférico' };
+  let equipBuscaTimer = null;
+
+  function toggleAddEquip() {
+    const box = document.getElementById('equip-add-box');
+    const abrir = box.style.display === 'none';
+    box.style.display = abrir ? '' : 'none';
+    if (abrir) document.getElementById('equip-busca').focus();
+  }
+
+  function buscarEquip() {
+    clearTimeout(equipBuscaTimer);
+    const q = document.getElementById('equip-busca').value.trim();
+    const cx = document.getElementById('equip-resultados');
+    if (q.length < 2) { cx.style.display = 'none'; return; }
+    equipBuscaTimer = setTimeout(() => {
+      const fd = new FormData();
+      fd.set('action', 'equip_search'); fd.set('ticket_id', '<?= $ticket_id ?>'); fd.set('q', q);
+      fetch('chamado.php?id=<?= $ticket_id ?>', { method: 'POST', body: fd })
+        .then(r => r.json())
+        .then(d => {
+          if (!d.ok) { cx.innerHTML = '<div style="padding:.5rem;color:#d93025">' + (d.msg || 'Erro') + '</div>'; cx.style.display = ''; return; }
+          if (!d.itens.length) { cx.innerHTML = '<div style="padding:.5rem;color:#6b7280">Nada encontrado.</div>'; cx.style.display = ''; return; }
+          cx.innerHTML = d.itens.map(it =>
+            '<div onclick="vincularEquip(\'' + it.itemtype + '\',' + it.id + ')" style="padding:.45rem .6rem;border-bottom:1px solid #f1f1f1;cursor:pointer" onmouseover="this.style.background=\'#f5f8ff\'" onmouseout="this.style.background=\'\'">' +
+            '<i class="bi ' + (EQ_ICON[it.itemtype] || 'bi-box') + ' me-2" style="color:#1a237e"></i>' +
+            '<span style="font-weight:600">' + escHtmlEq(it.name) + '</span>' +
+            '<span style="font-size:.74rem;color:#6b7280"> · ' + (EQ_ROT[it.itemtype] || '') + (it.serial ? ' · ' + escHtmlEq(it.serial) : '') + (it.ent ? ' · ' + escHtmlEq(it.ent) : '') + '</span>' +
+            '</div>'
+          ).join('');
+          cx.style.display = '';
+        })
+        .catch(e => { cx.innerHTML = '<div style="padding:.5rem;color:#d93025">Falha: ' + e.message + '</div>'; cx.style.display = ''; });
+    }, 300);
+  }
+
+  function vincularEquip(itemtype, id) {
+    const fd = new FormData();
+    fd.set('action', 'equip_link'); fd.set('ticket_id', '<?= $ticket_id ?>');
+    fd.set('itemtype', itemtype); fd.set('items_id', id);
+    fetch('chamado.php?id=<?= $ticket_id ?>', { method: 'POST', body: fd })
+      .then(r => r.json())
+      .then(d => { if (d.ok) location.reload(); else alert('Erro: ' + (d.msg || 'falha')); });
+  }
+
+  function desvincularEquip(itemtype, id) {
+    if (!confirm('Desvincular este equipamento do chamado?\n\nO equipamento e o chamado continuam existindo — só o vínculo é removido.')) return;
+    const fd = new FormData();
+    fd.set('action', 'equip_unlink'); fd.set('ticket_id', '<?= $ticket_id ?>');
+    fd.set('itemtype', itemtype); fd.set('items_id', id);
+    fetch('chamado.php?id=<?= $ticket_id ?>', { method: 'POST', body: fd })
+      .then(r => r.json())
+      .then(d => { if (d.ok) location.reload(); else alert('Erro: ' + (d.msg || 'falha')); });
+  }
+
+  function escHtmlEq(s) { const d = document.createElement('div'); d.textContent = s == null ? '' : String(s); return d.innerHTML; }
   </script>
   <?php endif; ?>
 
