@@ -442,38 +442,58 @@ $H = 'inv_h';
   <?php
   $MOT = ['quebrado'=>'Quebrado','vendido'=>'Vendido','descartado'=>'Descartado','outro'=>'Outro'];
 
-  $tabela = function(array $rows, bool $showLoja) use ($view, $fonte, $MOT, $H, $GLPI_BASE, $glpiForm, $fieldsLista, $valsAll) { ?>
+  $tabela = function(array $rows, bool $showLoja) use ($view, $fonte, $MOT, $H, $GLPI_BASE, $glpiForm, $fieldsLista, $valsAll) {
+    // Celulares: layout próprio — sem Subcategoria/Patrimônio, Fabricante e Modelo
+    // em colunas separadas, campos personalizados (Cargo, Departamento) logo após o Nome.
+    $isPhone = ($fonte === 'phone');
+    ?>
     <table>
       <thead><tr>
         <th>Nome</th>
         <?php if ($showLoja): ?><th>Loja</th><?php endif; ?>
-        <th>Subcategoria</th><th>Fabricante / Modelo</th>
-        <?php foreach ($fieldsLista as $f): ?><th><?= $H($f['label']) ?></th><?php endforeach; ?>
+        <?php if (!$isPhone): ?><th>Subcategoria</th><?php endif; ?>
+        <?php if ($isPhone): ?>
+          <?php foreach ($fieldsLista as $f): ?><th><?= $H($f['label']) ?></th><?php endforeach; ?>
+          <th>Fabricante</th><th>Modelo</th>
+        <?php else: ?>
+          <th>Fabricante / Modelo</th>
+          <?php foreach ($fieldsLista as $f): ?><th><?= $H($f['label']) ?></th><?php endforeach; ?>
+        <?php endif; ?>
         <?php if ($view === 'baixados'): ?>
           <th>Motivo</th><th>Baixa</th>
         <?php else: ?>
-          <th><?= $fonte === 'phone' ? 'Nº linha' : 'Série' ?></th><th>Patrimônio</th>
+          <th><?= $isPhone ? 'Nº linha' : 'Série' ?></th>
+          <?php if (!$isPhone): ?><th>Patrimônio</th><?php endif; ?>
         <?php endif; ?>
         <th></th>
       </tr></thead>
       <tbody>
-      <?php foreach ($rows as $a): ?>
+      <?php foreach ($rows as $a):
+        $campoTds = '';
+        foreach ($fieldsLista as $f) {
+            $v = $valsAll[(int)$a['id']][(int)$f['id']] ?? '';
+            if ($f['tipo'] === 'checkbox') $v = ($v === '1' || $v === 1) ? 'Sim' : ($v === '' ? '' : 'Não');
+            $campoTds .= '<td>' . $H($v !== '' ? $v : '—') . '</td>';
+        }
+      ?>
         <tr>
           <td><?= $H($a['name'] ?: '(sem nome)') ?><?php if ($a['contact']): ?><div class="sub"><?= $H($a['contact']) ?></div><?php endif; ?></td>
           <?php if ($showLoja): ?><td><?= $H(apelido_entidade($a['entidade'] ?? '—')) ?></td><?php endif; ?>
-          <td><?= $H($a['subcategoria'] ?: '—') ?></td>
-          <td><?= $H($a['fabricante'] ?: '—') ?><?php if ($a['modelo']): ?><div class="sub"><?= $H($a['modelo']) ?></div><?php endif; ?></td>
-          <?php foreach ($fieldsLista as $f):
-              $v = $valsAll[(int)$a['id']][(int)$f['id']] ?? '';
-              if ($f['tipo'] === 'checkbox') $v = ($v === '1' || $v === 1) ? 'Sim' : ($v === '' ? '' : 'Não'); ?>
-            <td><?= $H($v !== '' ? $v : '—') ?></td>
-          <?php endforeach; ?>
+          <?php if (!$isPhone): ?><td><?= $H($a['subcategoria'] ?: '—') ?></td><?php endif; ?>
+          <?php if ($isPhone): ?>
+            <?= $campoTds ?>
+            <td><?= $H($a['fabricante'] ?: '—') ?></td>
+            <td><?= $H($a['modelo'] ?: '—') ?></td>
+          <?php else: ?>
+            <td><?= $H($a['fabricante'] ?: '—') ?><?php if ($a['modelo']): ?><div class="sub"><?= $H($a['modelo']) ?></div><?php endif; ?></td>
+            <?= $campoTds ?>
+          <?php endif; ?>
           <?php if ($view === 'baixados'): ?>
             <td><?= $H($MOT[$a['baixa_motivo']] ?? $a['baixa_motivo']) ?><?php if ($a['baixa_obs']): ?><div class="sub"><?= $H($a['baixa_obs']) ?></div><?php endif; ?></td>
             <td><?= $H($a['baixa_data'] ?: '—') ?><?php if ($a['baixa_por']): ?><div class="sub"><?= $H($a['baixa_por']) ?></div><?php endif; ?></td>
           <?php else: ?>
             <td><?= $H($a['serial'] ?: '—') ?></td>
-            <td><?= $H($a['otherserial'] ?: '—') ?></td>
+            <?php if (!$isPhone): ?><td><?= $H($a['otherserial'] ?: '—') ?></td><?php endif; ?>
           <?php endif; ?>
           <td><div class="row-act">
             <?php if ($view === 'baixados'): ?>
