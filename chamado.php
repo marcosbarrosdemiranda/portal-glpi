@@ -154,14 +154,35 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'save_
 }
 
 // ── Equipamentos do inventário vinculados ao chamado (glpi_items_tickets) ──
-if ($_SERVER['REQUEST_METHOD'] === 'POST' && in_array($_POST['action'] ?? '', ['equip_search','equip_link','equip_unlink'], true)) {
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && in_array($_POST['action'] ?? '', ['equip_list','equip_search','equip_link','equip_unlink'], true)) {
     header('Content-Type: application/json');
-    if ($cham_ouvinte) { echo json_encode(['ok'=>false,'msg'=>'Sem permissão']); exit; }
     $act = $_POST['action'];
     $tid = (int)($_POST['ticket_id'] ?? $ticket_id);
     $EQ_TABELAS = ['Computer'=>'glpi_computers', 'Phone'=>'glpi_phones', 'Peripheral'=>'glpi_peripherals'];
+    $EQ_META    = ['Computer'=>['bi-pc-display','PC'], 'Phone'=>['bi-phone','Celular'], 'Peripheral'=>['bi-usb-plug','Periférico']];
     require_once __DIR__ . '/agenda/db.php';
     try {
+        if ($act === 'equip_list') {
+            $out = [];
+            foreach ($EQ_TABELAS as $itype => $tbl) {
+                $st = $pdo->prepare("SELECT p.id, p.name, p.serial, p.otherserial, e.completename ent
+                                     FROM glpi_items_tickets it
+                                     JOIN `$tbl` p ON p.id = it.items_id AND p.is_deleted = 0
+                                     LEFT JOIN glpi_entities e ON e.id = p.entities_id
+                                     WHERE it.itemtype = ? AND it.tickets_id = ? ORDER BY p.name");
+                $st->execute([$itype, $tid]);
+                foreach ($st as $r) {
+                    $out[] = ['itemtype'=>$itype, 'icone'=>$EQ_META[$itype][0], 'rotulo'=>$EQ_META[$itype][1],
+                              'id'=>(int)$r['id'], 'name'=>$r['name'],
+                              'serial'=>$r['serial'] ?: $r['otherserial'] ?: '', 'ent'=>$r['ent'] ?: ''];
+                }
+            }
+            echo json_encode(['ok'=>true, 'itens'=>$out]);
+            exit;
+        }
+
+        if ($cham_ouvinte) { echo json_encode(['ok'=>false,'msg'=>'Sem permissão']); exit; }
+
         if ($act === 'equip_search') {
             $q = trim($_POST['q'] ?? '');
             if (mb_strlen($q) < 2) { echo json_encode(['ok'=>true,'itens'=>[]]); exit; }

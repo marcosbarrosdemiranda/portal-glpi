@@ -752,6 +752,18 @@ $libera_data_passada = ($cards_portal === null) || (($cards_portal['agenda_data_
             </label>
             <div id="ev-anexos" class="anexo-grid"></div>
           </div>
+          <div class="col-12" id="campo-equipamentos" style="display:none">
+            <label class="form-label d-flex align-items-center gap-2">
+              <i class="bi bi-hdd-network text-primary"></i> Equipamentos
+              <span class="badge bg-secondary" id="ev-equip-count">0</span>
+            </label>
+            <div id="ev-equip-lista" style="font-size:.85rem"></div>
+            <div id="ev-equip-add" style="margin-top:.4rem;display:none">
+              <input type="text" class="form-control form-control-sm" id="ev-equip-busca" autocomplete="off"
+                     placeholder="Buscar equipamento por nome, série ou patrimônio…" oninput="buscarEquipAgenda()"/>
+              <div id="ev-equip-resultados" style="border:1px solid #dee2e6;border-radius:6px;margin-top:.3rem;max-height:200px;overflow-y:auto;display:none"></div>
+            </div>
+          </div>
           <!-- Anexos na criação/edição -->
           <div class="col-12" id="campo-anexos-criar">
             <label class="form-label fw-semibold">Anexar arquivos (imagens, docs, prints)</label>
@@ -2283,6 +2295,83 @@ function carregarAnexosEvento(eventId, concluido) {
     .catch(() => {});
 }
 
+// ── Equipamentos vinculados ao chamado (glpi_items_tickets, via ../chamado.php) ──
+let _equipBuscaTimer = null;
+const _EQ_ICON = { Computer: 'bi-pc-display', Phone: 'bi-phone', Peripheral: 'bi-usb-plug' };
+const _EQ_ROT  = { Computer: 'PC', Phone: 'Celular', Peripheral: 'Periférico' };
+
+function _equipPost(ticketId, extra) {
+  const fd = new FormData();
+  fd.set('ticket_id', ticketId);
+  for (const k in extra) fd.set(k, extra[k]);
+  return fetch('../chamado.php?id=' + encodeURIComponent(ticketId), { method: 'POST', body: fd }).then(r => r.json());
+}
+
+function carregarEquipAgenda(ticketId) {
+  const campo = document.getElementById('campo-equipamentos');
+  const lista = document.getElementById('ev-equip-lista');
+  const addBox = document.getElementById('ev-equip-add');
+  campo.style.display = '';
+  addBox.style.display = MODO_OUVINTE ? 'none' : '';
+  lista.innerHTML = '<span class="text-muted">Carregando…</span>';
+  _equipPost(ticketId, { action: 'equip_list' })
+    .then(d => {
+      if (!d.ok) { lista.innerHTML = '<span class="text-danger">Erro ao carregar</span>'; return; }
+      document.getElementById('ev-equip-count').textContent = d.itens.length;
+      if (!d.itens.length) { lista.innerHTML = '<span class="text-muted">Nenhum equipamento vinculado.</span>'; return; }
+      lista.innerHTML = d.itens.map(it => `
+        <div style="display:flex;align-items:center;gap:.5rem;padding:.35rem 0;border-bottom:1px dashed #e5e7eb">
+          <i class="bi ${it.icone || 'bi-box'} text-primary"></i>
+          <div style="flex:1;min-width:0">
+            <div style="font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${escHtml(it.name)}</div>
+            <div style="font-size:.74rem;color:#6b7280">${escHtml(it.rotulo || '')}${it.serial ? ' · ' + escHtml(it.serial) : ''}${it.ent ? ' · ' + escHtml(apelidoEntidade(it.ent)) : ''}</div>
+          </div>
+          ${MODO_OUVINTE ? '' : `<button type="button" title="Desvincular" onclick="desvincularEquipAgenda('${it.itemtype}',${it.id},${ticketId})" style="border:none;background:none;color:#dc3545;cursor:pointer;font-size:1.1rem;line-height:1">&times;</button>`}
+        </div>`).join('');
+    })
+    .catch(() => { lista.innerHTML = '<span class="text-danger">Erro de rede</span>'; });
+}
+
+function buscarEquipAgenda() {
+  clearTimeout(_equipBuscaTimer);
+  const ticketId = document.getElementById('ev-ticket-id').value;
+  const q = document.getElementById('ev-equip-busca').value.trim();
+  const cx = document.getElementById('ev-equip-resultados');
+  if (!ticketId || q.length < 2) { cx.style.display = 'none'; return; }
+  _equipBuscaTimer = setTimeout(() => {
+    _equipPost(ticketId, { action: 'equip_search', q })
+      .then(d => {
+        if (!d.ok) { cx.innerHTML = '<div class="p-2 text-danger">' + escHtml(d.msg || 'Erro') + '</div>'; cx.style.display = ''; return; }
+        if (!d.itens.length) { cx.innerHTML = '<div class="p-2 text-muted">Nada encontrado.</div>'; cx.style.display = ''; return; }
+        cx.innerHTML = d.itens.map(it =>
+          `<div onclick="vincularEquipAgenda('${it.itemtype}',${it.id},${ticketId})" style="padding:.4rem .6rem;border-bottom:1px solid #f1f1f1;cursor:pointer" onmouseover="this.style.background='#f5f8ff'" onmouseout="this.style.background=''">
+            <i class="bi ${_EQ_ICON[it.itemtype] || 'bi-box'} text-primary me-2"></i>
+            <span style="font-weight:600">${escHtml(it.name)}</span>
+            <span style="font-size:.74rem;color:#6b7280"> · ${_EQ_ROT[it.itemtype] || ''}${it.serial ? ' · ' + escHtml(it.serial) : ''}${it.ent ? ' · ' + escHtml(apelidoEntidade(it.ent)) : ''}</span>
+          </div>`).join('');
+        cx.style.display = '';
+      })
+      .catch(e => { cx.innerHTML = '<div class="p-2 text-danger">Falha: ' + escHtml(e.message) + '</div>'; cx.style.display = ''; });
+  }, 300);
+}
+
+function vincularEquipAgenda(itemtype, id, ticketId) {
+  _equipPost(ticketId, { action: 'equip_link', itemtype, items_id: id })
+    .then(d => {
+      if (!d.ok) { toast('Erro ao vincular: ' + (d.msg || 'falha')); return; }
+      document.getElementById('ev-equip-busca').value = '';
+      document.getElementById('ev-equip-resultados').style.display = 'none';
+      carregarEquipAgenda(ticketId);
+      toast('Equipamento vinculado ao chamado.');
+    });
+}
+
+function desvincularEquipAgenda(itemtype, id, ticketId) {
+  if (!confirm('Desvincular este equipamento do chamado?')) return;
+  _equipPost(ticketId, { action: 'equip_unlink', itemtype, items_id: id })
+    .then(d => { if (d.ok) carregarEquipAgenda(ticketId); else toast('Erro ao desvincular'); });
+}
+
 function salvarEventoObjAsync(dados) {
   return fetch('eventos.php?action=save', {
     method: 'POST',
@@ -2458,9 +2547,15 @@ function preencherModal(dados) {
   document.getElementById('campo-followups').style.display = 'none';
   document.getElementById('ev-anexos').innerHTML = '';
   document.getElementById('campo-anexos').style.display = 'none';
+  document.getElementById('ev-equip-lista').innerHTML = '';
+  document.getElementById('campo-equipamentos').style.display = 'none';
+  document.getElementById('ev-equip-add').style.display = 'none';
+  document.getElementById('ev-equip-resultados').style.display = 'none';
+  document.getElementById('ev-equip-busca').value = '';
 
   // Busca dados completos do ticket no GLPI (descrição, entidade, categoria, requerente)
   if (dados.ticket_id) {
+    carregarEquipAgenda(dados.ticket_id);
     _ticketFetchCtrl = new AbortController();
     document.getElementById('ev-descricao').value = '';
     document.getElementById('ev-setor').value = dados.setor || '';
