@@ -102,6 +102,79 @@ if ($action === 'reativar') {
     echo json_encode(['ok' => true]); exit;
 }
 
+/* Detalhe completo do equipamento (config de hardware + rede) — lê o inventário do GLPI */
+if ($action === 'detalhe') {
+    header('Content-Type: application/json; charset=utf-8');
+    $id = (int)($_GET['id'] ?? 0);
+
+    $st = $pdo->prepare("SELECT c.name, c.serial, c.otherserial, c.uuid, c.contact, c.contact_num,
+                                c.comment, c.last_inventory_update,
+                                m.name AS fabricante, md.name AS modelo, t.name AS tipo_hw, e.completename AS loja,
+                                os.name AS os_nome, osv.name AS os_versao, osa.name AS os_arch, ios.license_number AS os_key
+                         FROM glpi_computers c
+                         LEFT JOIN glpi_manufacturers m  ON m.id  = c.manufacturers_id
+                         LEFT JOIN glpi_computermodels md ON md.id = c.computermodels_id
+                         LEFT JOIN glpi_computertypes  t  ON t.id  = c.computertypes_id
+                         LEFT JOIN glpi_entities e ON e.id = c.entities_id
+                         LEFT JOIN glpi_items_operatingsystems ios ON ios.itemtype='Computer' AND ios.items_id = c.id
+                         LEFT JOIN glpi_operatingsystems os ON os.id = ios.operatingsystems_id
+                         LEFT JOIN glpi_operatingsystemversions osv ON osv.id = ios.operatingsystemversions_id
+                         LEFT JOIN glpi_operatingsystemarchitectures osa ON osa.id = ios.operatingsystemarchitectures_id
+                         WHERE c.id = ? LIMIT 1");
+    $st->execute([$id]);
+    $comp = $st->fetch(PDO::FETCH_ASSOC);
+    if (!$comp) { echo json_encode(['ok' => false, 'erro' => 'Não encontrado']); exit; }
+
+    $q = function (string $sql) use ($pdo, $id) {
+        $s = $pdo->prepare($sql); $s->execute([$id]); return $s->fetchAll(PDO::FETCH_ASSOC);
+    };
+
+    $cpu = $q("SELECT dp.designation, ip.nbcores, ip.nbthreads,
+                      GREATEST(COALESCE(ip.frequency,0), COALESCE(dp.frequence,0)) AS mhz
+               FROM glpi_items_deviceprocessors ip
+               JOIN glpi_deviceprocessors dp ON dp.id = ip.deviceprocessors_id
+               WHERE ip.itemtype='Computer' AND ip.items_id = ?");
+
+    $ram = $q("SELECT dm.designation, im.size, dmt.name AS tipo
+               FROM glpi_items_devicememories im
+               JOIN glpi_devicememories dm ON dm.id = im.devicememories_id
+               LEFT JOIN glpi_devicememorytypes dmt ON dmt.id = dm.devicememorytypes_id
+               WHERE im.itemtype='Computer' AND im.items_id = ?");
+
+    $hd = $q("SELECT dh.designation, ih.capacity, it.name AS interface
+             FROM glpi_items_deviceharddrives ih
+             JOIN glpi_deviceharddrives dh ON dh.id = ih.deviceharddrives_id
+             LEFT JOIN glpi_interfacetypes it ON it.id = dh.interfacetypes_id
+             WHERE ih.itemtype='Computer' AND ih.items_id = ?");
+
+    $vol = $q("SELECT name, totalsize, freesize, mountpoint
+              FROM glpi_items_disks
+              WHERE itemtype='Computer' AND items_id = ? AND totalsize > 1024
+              ORDER BY totalsize DESC");
+
+    $net = $q("SELECT DISTINCT np.name AS porta, np.mac, ia.name AS ip
+             FROM glpi_networkports np
+             LEFT JOIN glpi_networknames nn ON nn.itemtype='NetworkPort' AND nn.items_id = np.id
+             LEFT JOIN glpi_ipaddresses ia ON ia.itemtype='NetworkName' AND ia.items_id = nn.id
+             WHERE np.itemtype='Computer' AND np.items_id = ?
+               AND (ia.name IS NULL OR ia.name NOT LIKE 'fe80:%')
+             ORDER BY (ia.name LIKE '%:%'), ia.name");
+
+    $ram_total = 0; foreach ($ram as $r) $ram_total += (int)$r['size'];
+
+    echo json_encode([
+        'ok'        => true,
+        'comp'      => $comp,
+        'cpu'       => $cpu,
+        'ram'       => $ram,
+        'ram_total' => $ram_total,
+        'hd'        => $hd,
+        'volumes'   => $vol,
+        'rede'      => $net,
+    ], JSON_UNESCAPED_UNICODE);
+    exit;
+}
+
 /* ─────────── PÁGINA ─────────── */
 $ignMode     = isset($_GET['ignorados']);
 $listaSlug   = $ignMode ? '__ignorado__' : $slug;
@@ -209,6 +282,20 @@ $qsView = $view === 'baixados' ? '&view=baixados' : '';
     .btn-primary { background:#1a237e; color:#fff; }
     .btn-ghost { background:#f1f3f4; color:#3c4043; }
     #msg { position:fixed; bottom:1.2rem; right:1.2rem; z-index:1100; }
+    .det-sec { margin-bottom:1rem; }
+    .det-sec:last-child { margin-bottom:0; }
+    .det-sec-tit { font-size:.72rem; font-weight:700; text-transform:uppercase; letter-spacing:.5px; color:#1a237e;
+                   border-bottom:1px solid #e5e7eb; padding-bottom:.3rem; margin-bottom:.5rem;
+                   display:flex; align-items:center; gap:.4rem; }
+    .det-linha { display:flex; gap:.75rem; padding:.28rem 0; font-size:.83rem; align-items:baseline; }
+    .det-lbl { min-width:150px; color:#5f6368; flex-shrink:0; }
+    .det-val { color:#202124; flex:1; word-break:break-word; }
+    .det-val code { background:#f1f3f4; padding:.05rem .35rem; border-radius:4px; font-size:.82em; }
+    .det-bar { display:inline-block; width:90px; height:6px; background:#e5e7eb; border-radius:3px; overflow:hidden;
+               vertical-align:middle; margin-left:.4rem; }
+    .det-bar > span { display:block; height:100%; border-radius:3px; }
+    .text-muted { color:#80868b; }
+    .text-danger { color:#c62828; }
   </style>
 </head>
 <body>
@@ -314,7 +401,7 @@ $qsView = $view === 'baixados' ? '&view=baixados' : '';
               <button title="Dar baixa" onclick="abrirBaixa(<?= (int)$a['id'] ?>, '<?= $H(addslashes($a['name'])) ?>')"><i class="bi bi-box-arrow-in-down"></i></button>
             <?php endif; ?>
             <button class="del" title="Excluir" onclick="excluir(<?= (int)$a['id'] ?>, '<?= $H(addslashes($a['name'])) ?>')"><i class="bi bi-trash3"></i></button>
-            <a href="/glpi2/front/computer.form.php?id=<?= (int)$a['id'] ?>" target="_blank" rel="noopener" title="Abrir no GLPI"><i class="bi bi-box-arrow-up-right"></i></a>
+            <button title="Ver configuração completa" onclick="verDetalhe(<?= (int)$a['id'] ?>)"><i class="bi bi-info-circle"></i></button>
           </div></td>
         </tr>
       <?php endforeach; ?>
@@ -352,7 +439,7 @@ $qsView = $view === 'baixados' ? '&view=baixados' : '';
         <button title="Editar" onclick="abrirModal(<?= (int)$a['id'] ?>)"><i class="bi bi-pencil"></i></button>
         <button title="Dar baixa" onclick="abrirBaixa(<?= (int)$a['id'] ?>, '<?= $H(addslashes($a['name'])) ?>')"><i class="bi bi-box-arrow-in-down"></i></button>
         <button class="del" title="Excluir" onclick="excluir(<?= (int)$a['id'] ?>, '<?= $H(addslashes($a['name'])) ?>')"><i class="bi bi-trash3"></i></button>
-        <a href="/glpi2/front/computer.form.php?id=<?= (int)$a['id'] ?>" target="_blank" rel="noopener" title="Abrir no GLPI"><i class="bi bi-box-arrow-up-right"></i></a>
+        <button title="Ver configuração completa" onclick="verDetalhe(<?= (int)$a['id'] ?>)"><i class="bi bi-info-circle"></i></button>
       </div></td>
     </tr>
   <?php };
@@ -470,6 +557,16 @@ $qsView = $view === 'baixados' ? '&view=baixados' : '';
   </div>
 </div>
 
+<div class="modal-back" id="detBack">
+  <div class="modal-card" style="width:640px">
+    <header><h3 id="det-titulo"><i class="bi bi-pc-display"></i> Configuração</h3><button onclick="fecharDet()">&times;</button></header>
+    <div class="modal-body" style="display:block;max-height:70vh;overflow-y:auto" id="det-corpo">
+      <p class="text-muted" style="font-size:.85rem">Carregando…</p>
+    </div>
+    <footer><button class="btn btn-ghost" onclick="fecharDet()">Fechar</button></footer>
+  </div>
+</div>
+
 <div id="msg"></div>
 
 <script>
@@ -554,6 +651,68 @@ function toggleTodosGrupos() {
 }
 $('#modalBack').addEventListener('click', e => { if (e.target === $('#modalBack')) fecharModal(); });
 $('#baixaBack').addEventListener('click', e => { if (e.target === $('#baixaBack')) fecharBaixa(); });
+$('#detBack').addEventListener('click', e => { if (e.target === $('#detBack')) fecharDet(); });
+
+// ── Detalhe / configuração completa do equipamento ──
+function escD(s) { const d = document.createElement('div'); d.textContent = s == null ? '' : String(s); return d.innerHTML; }
+function gb(mb) { const n = Number(mb) || 0; if (!n) return '—'; return n >= 1024 ? (n / 1024).toFixed(n >= 10240 ? 0 : 1) + ' GB' : n + ' MB'; }
+function fecharDet() { $('#detBack').classList.remove('show'); }
+
+function verDetalhe(id) {
+  $('#det-titulo').innerHTML = '<i class="bi bi-pc-display"></i> Configuração';
+  $('#det-corpo').innerHTML = '<p class="text-muted" style="font-size:.85rem">Carregando…</p>';
+  $('#detBack').classList.add('show');
+  fetch(`inventario_pc.php?cat=${CAT}&action=detalhe&id=${id}`).then(r => r.json()).then(d => {
+    if (!d.ok) { $('#det-corpo').innerHTML = `<p class="text-danger" style="font-size:.85rem">${escD(d.erro || 'Erro')}</p>`; return; }
+    const c = d.comp;
+    $('#det-titulo').innerHTML = `<i class="bi bi-pc-display"></i> ${escD(c.name || '(sem nome)')}`;
+
+    const linha = (lbl, val) => `<div class="det-linha"><span class="det-lbl">${lbl}</span><span class="det-val">${val}</span></div>`;
+    const sec = (titulo, ic, html) => `<div class="det-sec"><div class="det-sec-tit"><i class="bi ${ic}"></i> ${titulo}</div>${html}</div>`;
+
+    let ident = '';
+    ident += linha('Loja', escD(c.loja || '—'));
+    ident += linha('Fabricante / Modelo', escD([c.fabricante, c.modelo].filter(Boolean).join(' ') || '—'));
+    ident += linha('Tipo', escD(c.tipo_hw || '—'));
+    if (c.serial)       ident += linha('Nº de série', escD(c.serial));
+    if (c.otherserial)  ident += linha('Patrimônio', escD(c.otherserial));
+    if (c.contact)      ident += linha('Usuário', escD(c.contact + (c.contact_num ? ' · ' + c.contact_num : '')));
+    if (c.os_nome)      ident += linha('Sistema', escD([c.os_nome, c.os_versao, c.os_arch].filter(Boolean).join(' ')));
+    if (c.os_key)       ident += linha('Chave do SO', `<code>${escD(c.os_key)}</code>`);
+    ident += linha('Último inventário', escD(c.last_inventory_update ? c.last_inventory_update.slice(0, 16) : '—'));
+
+    let hw = '';
+    d.cpu.forEach(p => hw += linha('Processador', `${escD(p.designation)} ${p.nbcores ? '· ' + p.nbcores + 'C/' + p.nbthreads + 'T' : ''} ${p.mhz ? '· ' + (p.mhz / 1000).toFixed(2) + ' GHz' : ''}`));
+    hw += linha('Memória RAM', `<strong>${gb(d.ram_total)}</strong>` + (d.ram.length > 1 ? ` <span class="text-muted">(${d.ram.length} pentes)</span>` : ''));
+    d.ram.forEach(m => hw += linha('', `<span class="text-muted">${gb(m.size)} ${escD(m.tipo || m.designation || '')}</span>`));
+    d.hd.forEach(h => hw += linha('Disco', `${gb(h.capacity)} ${escD(h.designation || '')} ${h.interface ? '· ' + escD(h.interface) : ''}`));
+    if (!d.cpu.length && !d.ram.length && !d.hd.length) hw = '<p class="text-muted" style="font-size:.82rem;margin:0">Sem dados de hardware no inventário.</p>';
+
+    let vol = '';
+    d.volumes.forEach(v => {
+      const usado = v.totalsize - v.freesize;
+      const pct = v.totalsize ? Math.round(usado / v.totalsize * 100) : 0;
+      vol += `<div class="det-linha"><span class="det-lbl">${escD(v.mountpoint || v.name)}</span>
+        <span class="det-val">${gb(usado)} / ${gb(v.totalsize)}
+        <span class="det-bar"><span style="width:${pct}%;background:${pct >= 90 ? '#c62828' : pct >= 75 ? '#f9a825' : '#1a237e'}"></span></span></span></div>`;
+    });
+
+    let rede = '';
+    if (d.rede.length) {
+      d.rede.forEach(n => {
+        if (!n.ip && !n.mac) return;
+        rede += linha(escD(n.porta || 'Rede'), `${n.ip ? '<strong>' + escD(n.ip) + '</strong>' : ''} ${n.mac ? '<span class="text-muted">· ' + escD(n.mac) + '</span>' : ''}`);
+      });
+    }
+    if (!rede) rede = '<p class="text-muted" style="font-size:.82rem;margin:0">Sem dados de rede.</p>';
+
+    $('#det-corpo').innerHTML =
+      sec('Identificação', 'bi-tag', ident) +
+      sec('Hardware', 'bi-cpu', hw) +
+      (vol ? sec('Armazenamento (uso)', 'bi-hdd', vol) : '') +
+      sec('Rede', 'bi-ethernet', rede);
+  }).catch(e => { $('#det-corpo').innerHTML = `<p class="text-danger" style="font-size:.85rem">Falha: ${escD(e.message)}</p>`; });
+}
 </script>
 </body>
 </html>
