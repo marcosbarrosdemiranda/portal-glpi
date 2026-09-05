@@ -178,6 +178,9 @@ function pode_ver(string $key, ?array $cards): bool {
     .card-licencas    { border-top-color: #0288d1; }
     .card-licencas    .card-icon { background: #e1f5fe; color: #0288d1; }
 
+    .card-reunioes-rp { border-top-color: #6a1b9a; }
+    .card-reunioes-rp .card-icon { background: #f3e5f5; color: #6a1b9a; }
+
     .card-sla         { border-top-color: #e53935; }
     .card-sla         .card-icon { background: #ffebee; color: #e53935; }
 
@@ -400,7 +403,7 @@ function pode_ver(string $key, ?array $cards): bool {
   <?php endif; ?>
 
   <!-- ── GESTÃO DE TI ── -->
-  <?php if (pode_ver('projetos',$perfil_cards)||pode_ver('equipe',$perfil_cards)||pode_ver('orcamento',$perfil_cards)||pode_ver('contratos',$perfil_cards)||pode_ver('licencas',$perfil_cards)): ?>
+  <?php if (pode_ver('projetos',$perfil_cards)||pode_ver('equipe',$perfil_cards)||pode_ver('orcamento',$perfil_cards)||pode_ver('contratos',$perfil_cards)||pode_ver('licencas',$perfil_cards)||pode_ver('reunioes_rp',$perfil_cards)): ?>
   <div class="section-label"><i class="bi bi-briefcase me-2"></i>Gestão de TI</div>
   <?php endif; ?>
 
@@ -441,6 +444,14 @@ function pode_ver(string $key, ?array $cards): bool {
     <div class="card-icon"><i class="bi bi-key-fill"></i></div>
     <h5>Licenças de Software</h5>
     <p>Controle de licenças: quantidade usada vs disponível, vencimentos e compliance.</p>
+  </a>
+  <?php endif; ?>
+
+  <?php if (pode_ver('reunioes_rp', $perfil_cards)): ?>
+  <a href="reunioes_rp.php" class="dash-card card-reunioes-rp">
+    <div class="card-icon"><i class="bi bi-people-fill"></i></div>
+    <h5>Reuniões RP</h5>
+    <p>Registro de reuniões com a RP Info: participantes, pauta e decisões/pendências.</p>
   </a>
   <?php endif; ?>
 

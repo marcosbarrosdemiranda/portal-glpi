@@ -49,6 +49,7 @@ $SECOES = [
         'orcamento'     => ['label' => 'Orçamento',              'icon' => 'bi-cash-coin',           'css' => 'card-orcamento'],
         'contratos'     => ['label' => 'Contratos',              'icon' => 'bi-file-earmark-text-fill', 'css' => 'card-contratos'],
         'licencas'      => ['label' => 'Licenças de Software',   'icon' => 'bi-key-fill',            'css' => 'card-licencas'],
+        'reunioes_rp'   => ['label' => 'Reuniões RP',            'icon' => 'bi-people-fill',         'css' => 'card-reunioes-rp'],
     ],
     'Permissões da Agenda' => [
         'agenda_data_passada' => ['label' => 'Agendar / editar em datas passadas', 'icon' => 'bi-calendar-x', 'css' => 'card-agenda'],
