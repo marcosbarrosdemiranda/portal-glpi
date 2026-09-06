@@ -195,6 +195,18 @@
       o que precisa de atenção, plano de investimento sugerido
 - [ ] Chat: "quais PCs da Lj 030 precisam de upgrade?" respondido com base no inventário
 
+**5. Chamado automático a partir de alerta**
+> Quando um alerta é gerado, abrir um chamado no GLPI sozinho (com regra por tipo de alerta:
+> abre / só notifica / abre se persistir X dias), evitando duplicado para o mesmo equipamento+problema.
+- [ ] Disco cheio → chamado "Disco cheio em <máquina> (<loja>)" com categoria e prioridade
+- [ ] Falha de hardware detectada comparando inventários (ex: caiu de 2 para 1 pente de RAM,
+      sumiu um disco, GPU trocou) → chamado "Possível falha de hardware em <máquina>"
+- [ ] Máquina que deveria ficar ligada 24h (servidor, PDV de plantão, câmera/DVR) desligando
+      sem motivo → chamado + registro de quantas vezes/quando caiu
+- [ ] SO fora de suporte / config abaixo do mínimo → chamado de planejamento (baixa prioridade)
+- [ ] Marcar no equipamento quais alertas geram chamado e qual a regra (configurável por card/categoria)
+- [ ] Fechar/atualizar o chamado automático quando o alerta se resolve sozinho (disco liberou, etc.)
+
 ---
 
 ## 📚 Módulo 6 — Área do Conhecimento
