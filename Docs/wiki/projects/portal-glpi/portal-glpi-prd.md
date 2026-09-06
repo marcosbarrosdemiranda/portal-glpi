@@ -168,6 +168,12 @@
 - [ ] Alerta de equipamento acima da vida útil da categoria
 - [ ] Painel único de alertas do parque + histórico
 
+**1b. Status ligado/desligado na própria listagem**
+- [ ] Bolinha por equipamento na lista de PCs/PDVs: 🟢 ligado / 🔴 desligado (ping TCP/ICMP)
+- [ ] Botão "Sincronizar / verificar agora" — re-testa o status na hora (sem esperar o ciclo)
+- [ ] Reaproveitar a lógica do `inventario_pcs.php` (hoje em Acessos → Infraestrutura), trazendo pra dentro do card
+- [ ] Contador no topo: X ligados / Y desligados por loja
+
 **2. KPIs de Inventário (painel próprio no BI)**
 - [ ] Saúde da coleta: % de máquinas reportando / atrasadas / nunca reportaram
 - [ ] Distribuição da frota por idade, por SO, por categoria, por loja
