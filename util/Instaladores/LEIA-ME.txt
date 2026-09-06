@@ -1,34 +1,38 @@
-GLPI Agent - instalador para PCs FORA do dominio (manual)
-=========================================================
+GLPI Agent - PCs fora do dominio (manual)
+=========================================
 
-SERVER do inventario: http://192.168.1.198/glpi2/
-  (HTTP no IP interno de proposito: os PCs de loja nao resolvem
-   ti.grupogmais.com pro IP interno. A porta 80 do servidor faz proxy
-   so do trafego do agente pro container - ver docker/nginx.conf.)
+Endereco do inventario: https://192.168.1.198:7412/glpi2/
+  (IP interno + porta, com validacao de certificado desligada - os PCs de loja
+   nao resolvem ti.grupogmais.com pro IP interno.)
 
-Agente JA instalado, so mudou de endereco?  ->  "Repontar agente.bat"
-  (nao reinstala, so troca a URL no registro + forca um envio)
 
-Como usar:
-  1. Copie esta pasta inteira para o PC (ex: pen drive ou rede).
-  2. Botao direito em "Executar Inventario.bat" -> Executar como administrador.
-     (o .bat se auto-eleva via UAC se necessario)
-  3. Aguarde. No fim ele mostra as ultimas linhas do log do agente.
-  4. Confira em https://ti.grupogmais.com:7412/glpi2 -> Ativos -> Computadores,
-     ou no portal: Inventario -> PCs/PDVs (o aviso "sem inventario" some em ate 24h).
+>>> NA MAIORIA DOS CASOS voce so precisa de 2 arquivos:
 
-Arquivos:
-  Executar Inventario.bat .......... instala/reconfigura o agente + envia 1o inventario
-  deploy-glpi-agent.ps1 ............ o script chamado pelo .bat
-  Repontar agente.bat .............. so troca a URL do agente ja instalado + forca envio
-  Repontar agente.ps1 ............. o script chamado por ele
-  Executar forcar atualizacao.bat .. so forca um novo envio (sem trocar URL)
-  Forcar atualizacao.ps1 .......... o script chamado por ele
+    Repontar agente.bat
+    Repontar agente.ps1
 
-O MSI (GLPI-Agent-1.15-x64.msi):
-  - se estiver nesta pasta, o script usa ele;
-  - senao, baixa automatico de github.com/glpi-project/glpi-agent/releases
-  - para uso offline, baixe o MSI e coloque aqui antes de rodar.
+O agente JA esta instalado em quase todos os PCs, so ficou apontando pro
+endereco velho (que morreu no corte pro Docker em 18/07). O "Repontar" so
+troca o endereco e forca um envio - NAO reinstala nada.
 
-Trocar a URL (raro): passe -ServerUrl no .bat/.ps1, ex:
-  powershell -File deploy-glpi-agent.ps1 -ServerUrl "http://192.168.1.198/glpi2/"
+Como usar (em cada PC):
+  1. Copie os 2 arquivos "Repontar agente.*" para o PC (pen drive / rede).
+  2. Botao direito em "Repontar agente.bat" -> Executar como administrador.
+  3. Espere terminar. Ele mostra as ultimas linhas do log.
+  4. Em alguns minutos confira no portal: Inventario -> PCs Retaguarda / PDVs
+     (o aviso "sem inventario ha +Nd" some quando o PC reporta).
+
+
+>>> SO se o agente NAO estiver instalado (PC novo ou agente removido):
+
+    deploy-glpi-agent.ps1
+    Executar Inventario.bat
+    GLPI-Agent-1.15-x64.msi   (NAO vem no git; baixe de
+                               github.com/glpi-project/glpi-agent/releases/tag/1.15
+                               e coloque nesta pasta. Sem ele, o script baixa da
+                               internet - so funciona se o PC tiver acesso.)
+
+  Botao direito em "Executar Inventario.bat" -> Executar como administrador.
+
+
+Trocar o endereco (se um dia mudar): passe -ServerUrl nos .bat/.ps1.
