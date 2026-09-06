@@ -122,6 +122,22 @@ function inv_bootstrap(PDO $pdo): void {
                            VALUES (?, 'departamento', 'Departamento', 'select', ?, 0, 1, 20)")
                 ->execute([$celId, $opcoesDep]);
         }
+
+        // 3 subcategorias dos Celulares — idempotente.
+        // "Linha com celular" + "Somente linha" = em uso; "Chip livre" = sobra.
+        $pdo->prepare("UPDATE portal_inv_subcats SET nome = 'Linha com celular' WHERE card_id = ? AND nome = 'Celular'")
+            ->execute([$celId]);
+        try { $pdo->exec("UPDATE glpi_phonetypes SET name = 'Linha com celular' WHERE name = 'Celular'"); } catch (\Throwable $e) {}
+
+        $st = $pdo->prepare("SELECT nome FROM portal_inv_subcats WHERE card_id = ?");
+        $st->execute([$celId]);
+        $subNomes = $st->fetchAll(PDO::FETCH_COLUMN);
+        $insSubCel = $pdo->prepare("INSERT INTO portal_inv_subcats (card_id, nome, ordem) VALUES (?, ?, ?)");
+        $updSubCel = $pdo->prepare("UPDATE portal_inv_subcats SET ordem = ? WHERE card_id = ? AND nome = ?");
+        foreach (['Linha com celular' => 10, 'Somente linha' => 20, 'Chip livre' => 30] as $sn => $so) {
+            if (in_array($sn, $subNomes, true)) $updSubCel->execute([$so, $celId, $sn]);
+            else                                $insSubCel->execute([$celId, $sn, $so]);
+        }
     }
 
     // Garante os cards de computadores (mesmo que a semente geral já tenha rodado)
