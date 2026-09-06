@@ -2930,7 +2930,7 @@ function abrirModalResposta() {
   document.getElementById('resp-texto').value         = '';
   document.getElementById('resp-arquivos').value      = '';
   document.getElementById('lista-arquivos').innerHTML = '';
-  document.getElementById('resp-concluido').checked   = false;
+  document.getElementById('resp-concluido').checked   = true;  // padrão: responder ja conclui
   arquivosAnexos = [];
 
   // Checklist para chamados recorrentes
