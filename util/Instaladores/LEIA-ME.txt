@@ -1,7 +1,13 @@
 GLPI Agent - instalador para PCs FORA do dominio (manual)
 =========================================================
 
-SERVER do inventario: https://ti.grupogmais.com:7412/glpi2/
+SERVER do inventario: http://192.168.1.198/glpi2/
+  (HTTP no IP interno de proposito: os PCs de loja nao resolvem
+   ti.grupogmais.com pro IP interno. A porta 80 do servidor faz proxy
+   so do trafego do agente pro container - ver docker/nginx.conf.)
+
+Agente JA instalado, so mudou de endereco?  ->  "Repontar agente.bat"
+  (nao reinstala, so troca a URL no registro + forca um envio)
 
 Como usar:
   1. Copie esta pasta inteira para o PC (ex: pen drive ou rede).
@@ -14,7 +20,9 @@ Como usar:
 Arquivos:
   Executar Inventario.bat .......... instala/reconfigura o agente + envia 1o inventario
   deploy-glpi-agent.ps1 ............ o script chamado pelo .bat
-  Executar forcar atualizacao.bat .. so forca um novo envio (agente ja instalado)
+  Repontar agente.bat .............. so troca a URL do agente ja instalado + forca envio
+  Repontar agente.ps1 ............. o script chamado por ele
+  Executar forcar atualizacao.bat .. so forca um novo envio (sem trocar URL)
   Forcar atualizacao.ps1 .......... o script chamado por ele
 
 O MSI (GLPI-Agent-1.15-x64.msi):

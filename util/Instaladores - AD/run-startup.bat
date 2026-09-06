@@ -11,7 +11,7 @@ if exist "%SystemRoot%\Sysnative\WindowsPowerShell\v1.0\powershell.exe" (
 )
 
 set "PS1=%~dp0deploy-glpi-agent.ps1"
-"%PWSH%" -NoProfile -ExecutionPolicy Bypass -File "%PS1%" -ServerUrl "https://ti.grupogmais.com:7412/glpi2/" -Version 1.15 -Freq daily
+"%PWSH%" -NoProfile -ExecutionPolicy Bypass -File "%PS1%" -ServerUrl "http://192.168.1.198/glpi2/" -Version 1.15 -Freq daily
 
 echo [%date% %time%] (startup) fim. erro=%errorlevel% >> "%BATLOG%"
 endlocal

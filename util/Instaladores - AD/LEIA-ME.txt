@@ -1,7 +1,9 @@
 GLPI Agent - instalador para PCs DENTRO do dominio (via GPO)
 ===========================================================
 
-SERVER do inventario: https://ti.grupogmais.com:7412/glpi2/
+SERVER do inventario: http://192.168.1.198/glpi2/
+  (HTTP no IP interno: os PCs de loja nao resolvem o DNS interno. A porta 80
+   do servidor faz proxy so do trafego do agente - ver docker/nginx.conf.)
 
 Conteudo:
   deploy-glpi-agent.ps1 ...... instala/atualiza o agente a partir do MSI desta pasta

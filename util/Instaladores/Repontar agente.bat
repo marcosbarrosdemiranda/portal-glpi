@@ -1,11 +1,9 @@
 @echo off
 setlocal
-rem Forca um envio de inventario AGORA, sem reinstalar o agente.
-rem Roda o "Forcar atualizacao.ps1" que esta NA MESMA PASTA deste .bat.
-
-set "PS1=%~dp0Forcar atualizacao.ps1"
+rem So troca a URL do GLPI Agent ja instalado e forca um envio (nao reinstala).
+set "PS1=%~dp0Repontar agente.ps1"
 set "SERVERURL=http://192.168.1.198/glpi2/"
-set "LOG=%SystemRoot%\Temp\glpi-agent-forcar.log"
+set "LOG=%SystemRoot%\Temp\glpi-agent-repontar.log"
 
 if exist "%SystemRoot%\Sysnative\WindowsPowerShell\v1.0\powershell.exe" (
   set "PWSH=%SystemRoot%\Sysnative\WindowsPowerShell\v1.0\powershell.exe"
@@ -21,8 +19,7 @@ if %errorlevel% neq 0 (
 )
 
 echo Executando %PS1%
-echo Log: %LOG%
-"%PWSH%" -NoProfile -ExecutionPolicy Bypass -File "%PS1%" -ServerUrl "%SERVERURL%" -Verbose > "%LOG%" 2>&1
-echo Saida do PowerShell: %errorlevel%
+"%PWSH%" -NoProfile -ExecutionPolicy Bypass -File "%PS1%" -ServerUrl "%SERVERURL%" > "%LOG%" 2>&1
+echo Saida: %errorlevel%   Log: %LOG%
 type "%LOG%"
 pause

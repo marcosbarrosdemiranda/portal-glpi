@@ -1,15 +1,38 @@
-# deploy-glpi-agent.ps1 (v4) - instala/reconfigura o GLPI Agent e dispara o 1o inventario.
+# deploy-glpi-agent.ps1 (v5) - instala/reconfigura o GLPI Agent e dispara o 1o inventario.
 # Uso (fora do dominio / manual). Rode como Administrador.
 #   .\deploy-glpi-agent.ps1
-#   .\deploy-glpi-agent.ps1 -ServerUrl "https://ti.grupogmais.com:7412/glpi2/"
+#   .\deploy-glpi-agent.ps1 -ServerUrl "http://192.168.1.198/glpi2/"
+#
+# OBS: o endereco e HTTP no IP interno porque os PCs de loja NAO resolvem
+# ti.grupogmais.com pro IP interno. A porta 80 do 192.168.1.198 faz proxy
+# so do trafego do agente pro container (ver docker/nginx.conf, bloco "listen 80").
 param(
   [string]$Version   = '1.15',
-  [string]$ServerUrl = 'https://ti.grupogmais.com:7412/glpi2/',
+  [string]$ServerUrl = 'http://192.168.1.198/glpi2/',
   [string]$Freq      = 'daily'
 )
 
 $ErrorActionPreference = 'Stop'
 try { [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12 } catch {}
+
+function Set-GlpiConfig([string]$url) {
+  # O SERVER= do MSI so pega em instalacao limpa; num agente ja instalado
+  # precisa escrever direto no registro.
+  foreach ($k in 'HKLM:\SOFTWARE\GLPI-Agent','HKLM:\SOFTWARE\WOW6432Node\GLPI-Agent') {
+    if (Test-Path $k) {
+      Set-ItemProperty -Path $k -Name server -Value $url
+      Set-ItemProperty -Path $k -Name 'no-ssl-check' -Value 0 -ErrorAction SilentlyContinue
+    }
+  }
+  $cfg = 'C:\Program Files\GLPI-Agent\etc\agent.cfg'
+  if (-not (Test-Path $cfg)) { $cfg = 'C:\Program Files (x86)\GLPI-Agent\etc\agent.cfg' }
+  if (Test-Path $cfg) {
+    $c = Get-Content $cfg
+    if ($c -match '^\s*server\s*=') { $c = $c -replace '^\s*server\s*=.*', "server = $url" } else { $c += "server = $url" }
+    $c = $c -replace '^\s*no-ssl-check\s*=.*', 'no-ssl-check = 0'
+    Set-Content $cfg $c -Encoding ASCII
+  }
+}
 
 $arch    = if ([Environment]::Is64BitOperatingSystem) { 'x64' } else { 'x86' }
 $msiName = "GLPI-Agent-$Version-$arch.msi"
@@ -32,7 +55,7 @@ if (-not $msiPath) {
 }
 Write-Host "[INFO ] MSI: $msiPath" -ForegroundColor Cyan
 
-# --- instala / reconfigura silencioso (RUNNOW=1 ja envia um inventario)
+# --- instala / reconfigura silencioso
 $msiArgs = @(
   '/i', "`"$msiPath`"", '/qn',
   "SERVER=$ServerUrl",
@@ -47,8 +70,12 @@ if ($p.ExitCode -ne 0) {
   exit $p.ExitCode
 }
 
-# --- localiza o glpi-agent.bat (64 ou 32 bits)
-$bat = Join-Path "${env:ProgramFiles}\GLPI-Agent\bin" 'glpi-agent.bat'
+# --- garante a URL no registro/cfg (o MSI nao troca se o agente ja existia)
+Set-GlpiConfig $ServerUrl
+
+# --- localiza o glpi-agent.bat
+$bat = 'C:\Program Files\GLPI-Agent\glpi-agent.bat'
+if (-not (Test-Path $bat)) { $bat = Join-Path "${env:ProgramFiles}\GLPI-Agent\bin" 'glpi-agent.bat' }
 if (-not (Test-Path $bat)) { $bat = Join-Path "${env:ProgramFiles(x86)}\GLPI-Agent\bin" 'glpi-agent.bat' }
 
 # --- reinicia o servico e forca um envio imediato

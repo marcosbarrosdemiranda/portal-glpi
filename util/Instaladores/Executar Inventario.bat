@@ -4,7 +4,7 @@ rem Instala/reconfigura o GLPI Agent e envia o 1o inventario.
 rem Roda o deploy-glpi-agent.ps1 que esta NA MESMA PASTA deste .bat.
 
 set "PS1=%~dp0deploy-glpi-agent.ps1"
-set "SERVERURL=https://ti.grupogmais.com:7412/glpi2/"
+set "SERVERURL=http://192.168.1.198/glpi2/"
 set "LOG=%SystemRoot%\Temp\glpi-agent-deploy.log"
 
 rem -- PowerShell 64-bit mesmo se o .bat abrir em contexto 32-bit

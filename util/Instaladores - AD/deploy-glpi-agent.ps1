@@ -1,7 +1,9 @@
 # deploy-glpi-agent.ps1 - instala/atualiza o GLPI Agent via GPO (startup script).
 # O MSI tem que estar NESTA MESMA PASTA (SYSVOL da GPO).
 param(
-  [string]$ServerUrl = 'https://ti.grupogmais.com:7412/glpi2/',
+  # HTTP no IP interno: os PCs de loja nao resolvem ti.grupogmais.com pro IP
+  # interno. A porta 80 do 192.168.1.198 faz proxy so do trafego do agente.
+  [string]$ServerUrl = 'http://192.168.1.198/glpi2/',
   [string]$Version   = '1.15',
   [string]$Freq      = 'daily'
 )
@@ -37,8 +39,25 @@ Log "Instalando/Atualizando agente..."
 $proc = Start-Process msiexec -ArgumentList $msiArgs -PassThru -Wait
 Log "msiexec exitcode=$($proc.ExitCode)"
 
+# 2b) Garante a URL no registro (o SERVER= do MSI so pega em instalacao limpa)
+foreach ($k in 'HKLM:\SOFTWARE\GLPI-Agent','HKLM:\SOFTWARE\WOW6432Node\GLPI-Agent') {
+  if (Test-Path $k) {
+    Set-ItemProperty -Path $k -Name server -Value $ServerUrl
+    Set-ItemProperty -Path $k -Name 'no-ssl-check' -Value 0 -ErrorAction SilentlyContinue
+  }
+}
+$cfg = 'C:\Program Files\GLPI-Agent\etc\agent.cfg'
+if (-not (Test-Path $cfg)) { $cfg = 'C:\Program Files (x86)\GLPI-Agent\etc\agent.cfg' }
+if (Test-Path $cfg) {
+  $cc = Get-Content $cfg
+  if ($cc -match '^\s*server\s*=') { $cc = $cc -replace '^\s*server\s*=.*', "server = $ServerUrl" } else { $cc += "server = $ServerUrl" }
+  Set-Content $cfg $cc -Encoding ASCII
+}
+Log "URL forcada no registro/cfg: $ServerUrl"
+
 # 3) Reinicia servico e agenda envio forcado no proximo ciclo do servico
-$bat = Join-Path "${env:ProgramFiles}\GLPI-Agent\bin" "glpi-agent.bat"
+$bat = 'C:\Program Files\GLPI-Agent\glpi-agent.bat'
+if (-not (Test-Path $bat)) { $bat = Join-Path "${env:ProgramFiles}\GLPI-Agent\bin" "glpi-agent.bat" }
 if (-not (Test-Path $bat)) { $bat = Join-Path "${env:ProgramFiles(x86)}\GLPI-Agent\bin" "glpi-agent.bat" }
 if (Test-Path $bat) {
   try {

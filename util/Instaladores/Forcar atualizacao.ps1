@@ -1,7 +1,7 @@
 # Forcar atualizacao.ps1 - dispara um inventario completo e forcado (sem reinstalar o agente).
 # Uso: .\Forcar atualizacao.ps1   (ou passe -ServerUrl para sobrescrever)
 param(
-  [string]$ServerUrl = 'https://ti.grupogmais.com:7412/glpi2/'
+  [string]$ServerUrl = 'http://192.168.1.198/glpi2/'
 )
 
 $ErrorActionPreference = 'Continue'
