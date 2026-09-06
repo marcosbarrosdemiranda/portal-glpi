@@ -1,0 +1,26 @@
+GLPI Agent - instalador para PCs FORA do dominio (manual)
+=========================================================
+
+SERVER do inventario: https://ti.grupogmais.com:7412/glpi2/
+
+Como usar:
+  1. Copie esta pasta inteira para o PC (ex: pen drive ou rede).
+  2. Botao direito em "Executar Inventario.bat" -> Executar como administrador.
+     (o .bat se auto-eleva via UAC se necessario)
+  3. Aguarde. No fim ele mostra as ultimas linhas do log do agente.
+  4. Confira em https://ti.grupogmais.com:7412/glpi2 -> Ativos -> Computadores,
+     ou no portal: Inventario -> PCs/PDVs (o aviso "sem inventario" some em ate 24h).
+
+Arquivos:
+  Executar Inventario.bat .......... instala/reconfigura o agente + envia 1o inventario
+  deploy-glpi-agent.ps1 ............ o script chamado pelo .bat
+  Executar forcar atualizacao.bat .. so forca um novo envio (agente ja instalado)
+  Forcar atualizacao.ps1 .......... o script chamado por ele
+
+O MSI (GLPI-Agent-1.15-x64.msi):
+  - se estiver nesta pasta, o script usa ele;
+  - senao, baixa automatico de github.com/glpi-project/glpi-agent/releases
+  - para uso offline, baixe o MSI e coloque aqui antes de rodar.
+
+Trocar a URL (raro): passe -ServerUrl no .bat/.ps1, ex:
+  powershell -File deploy-glpi-agent.ps1 -ServerUrl "http://192.168.1.198/glpi2/"

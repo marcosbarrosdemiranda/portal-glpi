@@ -53,6 +53,10 @@ config_projetos.local.php
 # ── Binários de terceiros servidos pelo portal (deploy via scp) ─
 util/VNCViewer.exe
 
+# Instalador do GLPI Agent (baixe do GitHub releases do glpi-agent, ~22MB)
+util/Instaladores - AD/*.msi
+util/Instaladores/*.msi
+
 # Spec-Driven Agent
 .claude/sda/hooks/state.json
 .claude/sda/hooks/state.history.log

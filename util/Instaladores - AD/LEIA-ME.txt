@@ -1,0 +1,26 @@
+GLPI Agent - instalador para PCs DENTRO do dominio (via GPO)
+===========================================================
+
+SERVER do inventario: https://ti.grupogmais.com:7412/glpi2/
+
+Conteudo:
+  deploy-glpi-agent.ps1 ...... instala/atualiza o agente a partir do MSI desta pasta
+  run-startup.bat ............ script de startup da GPO (chama o .ps1)
+  GLPI-Agent-1.15-x64.msi .... NAO versionado no git. Baixe de
+                               github.com/glpi-project/glpi-agent/releases/tag/1.15
+                               e coloque aqui (mesma pasta) antes de publicar no SYSVOL.
+
+Como aplicar:
+  1. Copie os 3 arquivos (ps1 + bat + msi) para uma pasta no SYSVOL, ex:
+     \\dominio\NETLOGON\glpi-agent\  ou  \\dominio\SYSVOL\...\scripts\glpi-agent\
+  2. GPO -> Configuracao do Computador -> Politicas -> Configuracoes do Windows
+     -> Scripts (Inicializacao/Encerramento) -> Inicializacao
+     -> Adicionar: run-startup.bat (com o caminho UNC da pasta acima)
+  3. Vincule a GPO nas OUs dos PCs. gpupdate /force + reboot para testar em 1 maquina.
+
+Verificacao:
+  - Log no cliente: C:\Windows\Temp\glpi-gpo.log e glpi-agent-install.log
+  - GLPI: Ativos -> Computadores (last_inventory_update recente)
+  - Portal: Inventario -> PCs/PDVs (o aviso "sem inventario +7d" some em ate 24h)
+
+Nao baixa nada da internet - so usa o MSI da pasta (por isso o MSI tem que estar la).
