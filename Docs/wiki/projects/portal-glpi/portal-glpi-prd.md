@@ -141,14 +141,53 @@
 - [x] Programas instalados (via GLPI)
 - [x] IPs via NetworkPort → NetworkName → IPAddress
 - [x] Balanças — servidores MGV 6 com CRUD, sync SQL Server + Firebird, cards com status online/offline, firmware e carga
+- [x] Filtro por loja/entidade (chips) e por tipo (subcategorias/abas)
+- [x] Cards por categoria: Celulares (3 subgrupos), PCs Retaguarda, Notebooks, PDVs, Servidores/VMs, + 13 cards de periféricos
+- [x] Campos personalizados por card (ex: Cargo, Departamento nos Celulares)
+- [x] Histórico de chamados por equipamento (glpi_items_tickets) — no Inventário, no chamado e na Agenda
+- [x] Relatório "Histórico de chamados por equipamento" no Painel BI (filtro por categoria e loja)
+- [x] Botão "ver configuração completa" (CPU/RAM/disco/volumes/rede) nos PCs/PDVs
+- [x] Marca máquina sem reportar inventário ao GLPI há +7 dias (badge + filtro)
+- [x] Baixa/desativação de equipamento com motivo + data; view "Baixados"; PDF por card
 
 ### Pendente
-- [ ] Filtro por loja/entidade
-- [ ] Filtro por tipo de equipamento
-- [ ] Histórico de manutenções do equipamento
 - [ ] Alertas de garantia próxima do vencimento
 - [ ] QR Code por equipamento
 - [ ] Exportação do inventário (Excel)
+- [ ] SMART / saúde do disco quando o GLPI coletar
+
+### 🚀 Futuras Inovações — Gestão da Frota
+> Aproveitar os dados de inventário do GLPI (já coletados por 122 agentes) para
+> transformar o Inventário de um cadastro passivo numa ferramenta de gestão.
+
+**1. Monitoramento e alertas (saúde do parque)**
+- [ ] Alerta de disco quase cheio (volume > 90 %) — por máquina e agregado por loja
+- [ ] Alerta de máquina sem reportar inventário há +X dias (evoluir o badge atual para notificação/e-mail)
+- [ ] Alerta de configuração abaixo do mínimo para a função (ex: PDV com < 4 GB de RAM, retaguarda com HD e não SSD)
+- [ ] Alerta de SO fora de suporte (Windows 10 EOL, Windows 7, etc.)
+- [ ] Alerta de equipamento acima da vida útil da categoria
+- [ ] Painel único de alertas do parque + histórico
+
+**2. KPIs de Inventário (painel próprio no BI)**
+- [ ] Saúde da coleta: % de máquinas reportando / atrasadas / nunca reportaram
+- [ ] Distribuição da frota por idade, por SO, por categoria, por loja
+- [ ] Nº de máquinas candidatas a troca ou upgrade (e custo estimado)
+- [ ] Evolução mensal (entradas, baixas, upgrades)
+- [ ] Ranking dos equipamentos mais problemáticos (cruzar com histórico de chamados)
+
+**3. Idade do equipamento**
+- [ ] Calcular idade por data de compra / 1ª aparição no inventário / ano do modelo
+- [ ] Vida útil de referência por categoria (ex: PDV 5 anos, retaguarda 4, notebook 3, servidor 6)
+- [ ] Coluna "idade" e "situação" (novo / ok / renovar / vencido) na listagem
+- [ ] Ranking dos mais velhos por loja
+
+**4. IA — avaliação de configuração e plano de renovação**
+- [ ] Analisar a config de cada PC vs. o papel dele (PDV, retaguarda, servidor)
+- [ ] Sugerir o que atualizar (RAM, SSD, SO) e a prioridade de cada um
+- [ ] Estimar impacto e custo aproximado de cada upgrade
+- [ ] Gerar relatório executivo "estado da frota" (para diretoria): o que está ok,
+      o que precisa de atenção, plano de investimento sugerido
+- [ ] Chat: "quais PCs da Lj 030 precisam de upgrade?" respondido com base no inventário
 
 ---
 
