@@ -206,8 +206,8 @@
 - [x] Botão "Verificar agora" — re-testa tudo na hora (8 em paralelo, escalonado)
 - [x] Contador no topo: X ligados / Y desligados / sem IP
 - [x] Também na visão de servidores/VMs
+- [x] ICMP funcionando (iputils-ping no Dockerfile; ICMP primeiro, TCP fallback) — commit `5a9e18c`
 - [ ] Contador quebrado por loja (hoje é geral)
-- [ ] ICMP como fallback real (falta o binário `ping` no container glpi-web — só TCP hoje)
 
 **2. KPIs de Inventário (painel próprio no BI)**
 - [ ] Saúde da coleta: % de máquinas reportando / atrasadas / nunca reportaram
