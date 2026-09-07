@@ -1,12 +1,15 @@
 GLPI Agent - instalador para PCs DENTRO do dominio (via GPO)
 ===========================================================
 
-SERVER do inventario: http://192.168.1.198/glpi2/
-  (HTTP no IP interno: os PCs de loja nao resolvem o DNS interno. A porta 80
-   do servidor faz proxy so do trafego do agente - ver docker/nginx.conf.)
+SERVER do inventario: https://192.168.1.198:7412/glpi2/
+  (IP interno + porta 7412, HTTPS com validacao de certificado desligada
+   - o cert e para ti.grupogmais.com, nao para o IP, e os PCs de loja nao
+   resolvem o DNS interno. E o mesmo endereco da pasta "util/Instaladores".
+   A porta 80 do proxy foi removida do nginx - nao use mais.)
 
 Conteudo:
   deploy-glpi-agent.ps1 ...... instala/atualiza o agente a partir do MSI desta pasta
+                               e ja RE-APONTA um agente que estava no endereco velho
   run-startup.bat ............ script de startup da GPO (chama o .ps1)
   GLPI-Agent-1.15-x64.msi .... NAO versionado no git. Baixe de
                                github.com/glpi-project/glpi-agent/releases/tag/1.15
@@ -19,6 +22,11 @@ Como aplicar:
      -> Scripts (Inicializacao/Encerramento) -> Inicializacao
      -> Adicionar: run-startup.bat (com o caminho UNC da pasta acima)
   3. Vincule a GPO nas OUs dos PCs. gpupdate /force + reboot para testar em 1 maquina.
+
+Trocar o servidor depois:
+  O script reescreve a URL no registro + agent.cfg a CADA inicializacao. Para
+  mudar o endereco, edite o -ServerUrl na linha do run-startup.bat, republique
+  os 3 arquivos no SYSVOL: todo PC do dominio se re-aponta no proximo boot.
 
 Verificacao:
   - Log no cliente: C:\Windows\Temp\glpi-gpo.log e glpi-agent-install.log
