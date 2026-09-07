@@ -91,6 +91,32 @@
 - [ ] Abertura de chamado pelo próprio usuário (portal do requerente)
 - [ ] Anexar arquivos na abertura
 
+### 🚀 Futuras Inovações — Canal WhatsApp
+> **Voltar a ter** o WhatsApp como canal (já existiu; a infra Evolution API já roda em container).
+> Dois lados: entrada (abrir chamado) e saída (disparos).
+
+**Entrada — abrir chamado pelo WhatsApp**
+- [ ] Número dedicado do TI; usuário manda mensagem → bot cria o chamado no GLPI
+- [ ] Identificar o requerente pelo telefone (cruzar com `glpi_users` / cadastro por loja)
+- [ ] Fluxo guiado: loja → tipo/categoria → descrição → anexos (foto do problema)
+- [ ] Aceitar foto/áudio/documento como anexo do chamado
+- [ ] Responder no WhatsApp com o nº do chamado aberto
+- [ ] Acompanhamento: usuário manda "status 10830" → bot responde a situação
+- [ ] Followup: resposta do técnico no GLPI chega como mensagem pro requerente
+
+**Saída — disparos**
+- [ ] Notificar o requerente por WhatsApp em cada mudança do chamado (aberto, atribuído, resolvido, fechado)
+- [ ] Alertas do inventário/monitoramento (blocos 1, 5, 14-16) → mensagem pro grupo/plantão do TI
+- [ ] Disparo em massa (aviso de manutenção programada, instabilidade, comunicado) por loja/grupo
+- [ ] Lembrete de chamado parado / SLA estourando pro técnico responsável
+- [ ] Resumo diário pro encarregado (abertos, fechados, pendências)
+
+**Infra**
+- [ ] Reusar Evolution API (`evolution_api` / `evolution_postgres` já em container)
+- [ ] Endpoint de webhook no portal recebendo mensagens do Evolution
+- [ ] Tabela de sessões de conversa (estado do fluxo por telefone) + log de disparos
+- [ ] Painel de disparos no portal (enviar, agendar, ver entregues/lidos)
+
 ---
 
 ## 📋 Módulo 3 — Histórico de Chamados
