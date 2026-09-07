@@ -233,25 +233,35 @@ if ($_pcIds && $view !== 'baixados') {
         return false;
     };
 
+    // Só placas físicas: Ethernet e WiFi. Ignora VPN/TAP/loopback/agregados.
+    $rankTipo = ['NetworkPortEthernet' => 0, 'NetworkPortWifi' => 1];
+
     $ph = implode(',', array_fill(0, count($_pcIds), '?'));
-    $stIp = $pdo->prepare("SELECT np.items_id AS cid, ia.name AS ip
+    $stIp = $pdo->prepare("SELECT np.items_id AS cid, np.instantiation_type AS tipo, ia.name AS ip
                            FROM glpi_networkports np
                            JOIN glpi_networknames nn ON nn.itemtype='NetworkPort' AND nn.items_id = np.id
                            JOIN glpi_ipaddresses ia  ON ia.itemtype='NetworkName' AND ia.items_id = nn.id
                            WHERE np.itemtype='Computer' AND np.items_id IN ($ph)
                              AND ia.name LIKE '%.%'
+                             AND np.instantiation_type IN ('NetworkPortEthernet','NetworkPortWifi')
                            ORDER BY np.id");
     $stIp->execute($_pcIds);
+    $porCid = [];  // cid => [ [ip, rankTipo], ... ]
     foreach ($stIp as $r) {
         $cid = (int)$r['cid']; $ip = trim($r['ip']);
         if ($ipDescartar($ip)) continue;
-        if (!isset($ipsPorPc[$cid])) $ipsPorPc[$cid] = [];
-        if (!in_array($ip, $ipsPorPc[$cid], true)) $ipsPorPc[$cid][] = $ip;
+        $porCid[$cid][] = [$ip, $rankTipo[$r['tipo']] ?? 2];
     }
-    // prioriza a subnet do servidor, limita a 4
-    foreach ($ipsPorPc as $cid => $lista) {
-        usort($lista, fn($x, $y) =>
-            ($_srvNet && str_starts_with($y, $_srvNet) ? 1 : 0) - ($_srvNet && str_starts_with($x, $_srvNet) ? 1 : 0));
+    foreach ($porCid as $cid => $itens) {
+        // ordena: Ethernet antes de WiFi; dentro do tipo, subnet do servidor primeiro
+        usort($itens, function ($x, $y) use ($_srvNet) {
+            if ($x[1] !== $y[1]) return $x[1] - $y[1];
+            $sx = str_starts_with($x[0], $_srvNet) ? 0 : 1;
+            $sy = str_starts_with($y[0], $_srvNet) ? 0 : 1;
+            return $sx - $sy;
+        });
+        $lista = [];
+        foreach ($itens as $it) if (!in_array($it[0], $lista, true)) $lista[] = $it[0];
         $ipsPorPc[$cid] = array_slice($lista, 0, 4);
     }
 }
