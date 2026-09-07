@@ -28,6 +28,7 @@ $SECOES = [
         'abrir_chamado' => ['label' => 'Abrir Chamado',          'icon' => 'bi-headset',             'css' => 'card-atendente'],
         'historico'     => ['label' => 'Histórico de Chamados',  'icon' => 'bi-clock-history',       'css' => 'card-historico'],
         'pendencias'    => ['label' => 'Pendências e Anotações', 'icon' => 'bi-sticky-fill',         'css' => 'card-pendencias'],
+        'alertas'       => ['label' => 'Central de Alertas',     'icon' => 'bi-bell-fill',           'css' => 'card-alertas'],
     ],
     'KPIs' => [
         'relatorios'    => ['label' => 'Painel de Relatórios',   'icon' => 'bi-bar-chart-fill',      'css' => 'card-relatorio'],

@@ -151,6 +151,9 @@ function pode_ver(string $key, ?array $cards): bool {
     .card-historico { border-top-color: #7b1fa2; }
     .card-historico .card-icon { background: #f3e5f5; color: #7b1fa2; }
 
+    .card-alertas   { border-top-color: #e53935; }
+    .card-alertas   .card-icon { background: #ffebee; color: #e53935; }
+
     .card-pendencias { border-top-color: #e65100; }
     .card-pendencias .card-icon { background: #fff3e0; color: #e65100; }
 
@@ -286,7 +289,7 @@ function pode_ver(string $key, ?array $cards): bool {
 <?php if (!$is_self): /* perfil portal ou técnico — mostra cards do perfil */ ?>
 
   <!-- ── ATENDIMENTO ── -->
-  <?php if (pode_ver('agenda',$perfil_cards) || (pode_ver('abrir_chamado',$perfil_cards) && !$is_self_glpi) || pode_ver('historico',$perfil_cards) || pode_ver('pendencias',$perfil_cards)): ?>
+  <?php if (pode_ver('agenda',$perfil_cards) || (pode_ver('abrir_chamado',$perfil_cards) && !$is_self_glpi) || pode_ver('historico',$perfil_cards) || pode_ver('pendencias',$perfil_cards) || pode_ver('alertas',$perfil_cards)): ?>
   <div class="section-label"><i class="bi bi-headset me-2"></i>Atendimento</div>
   <?php endif; ?>
 
@@ -320,6 +323,14 @@ function pode_ver(string $key, ?array $cards): bool {
     <div class="card-icon"><i class="bi bi-sticky-fill"></i></div>
     <h5>Pendências e Anotações</h5>
     <p>Anotações por loja: lembretes de visita, itens pendentes — converta em chamado quando necessário.</p>
+  </a>
+  <?php endif; ?>
+
+  <?php if (pode_ver('alertas', $perfil_cards)): ?>
+  <a href="alertas.php" class="dash-card card-alertas">
+    <div class="card-icon"><i class="bi bi-bell-fill"></i></div>
+    <h5>Central de Alertas</h5>
+    <p>Equipamentos e sistemas fora do ar, disco cheio, VPN de loja caída, inventário atrasado — num lugar só.</p>
   </a>
   <?php endif; ?>
 
