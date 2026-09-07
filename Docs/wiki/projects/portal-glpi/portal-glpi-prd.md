@@ -207,6 +207,57 @@
 - [ ] Marcar no equipamento quais alertas geram chamado e qual a regra (configurável por card/categoria)
 - [ ] Fechar/atualizar o chamado automático quando o alerta se resolve sozinho (disco liberou, etc.)
 
+**6. Área de Análise / Relatórios por Equipamento**
+> Além dos alertas, uma aba dentro de cada equipamento só para consultar os dados e a evolução dele.
+- [ ] Aba "Análise" no detalhe do equipamento: linha do tempo de mudanças (RAM, disco, SO, software, IP)
+- [ ] Uso do disco ao longo do tempo (gráfico) — prever quando enche
+- [ ] Histórico de uptime / quedas / reinícios
+- [ ] Software instalado/removido com data
+- [ ] Comparar este equipamento com a média da categoria (está abaixo? acima?)
+- [ ] Botão "gerar relatório PDF do equipamento" (ficha técnica + histórico + chamados)
+- [ ] KPIs no topo do detalhe: idade, saúde (disco/RAM/SO), nº de chamados, dias sem reportar
+
+**7. Compliance de software e licenças**
+- [ ] Inventário de todo software instalado na frota, com busca ("quem tem X instalado?")
+- [ ] Software não autorizado (jogos, torrent, acesso remoto extra tipo RustDesk/TeamViewer free em uso comercial)
+- [ ] Contagem real de licenças em uso vs. contratado (Office, cliente ERP, antivírus) — alimenta o Módulo 13
+- [ ] Apps obrigatórios faltando por função (PC sem antivírus, PDV sem software da balança/PDV, retaguarda sem cliente ERP)
+- [ ] Software fim de vida (Java/Chrome/.NET antigos)
+
+**8. Segurança — postura da frota**
+- [ ] Antivírus: presente + ligado + assinatura atualizada (por máquina e por loja)
+- [ ] Windows Update: máquinas sem patch crítico há +X dias
+- [ ] Firewall ligado/desligado
+- [ ] Auditoria de contas de admin local (quem tem admin onde)
+- [ ] BitLocker / criptografia de disco
+- [ ] USB de armazenamento conectado em PDV (vetor de malware / vazamento)
+- [ ] Múltiplas ferramentas de acesso remoto num mesmo PC (risco)
+
+**9. Padronização e provisionamento**
+- [ ] Nome fora do padrão (ex: PDV### esperado, nome aleatório)
+- [ ] PC fora do domínio que deveria estar
+- [ ] Fuso horário / idioma errado
+- [ ] Monitores: quantidade, tamanhos, quais PDVs têm monitor duplo
+
+**10. Detecção de mudança / furto de peça**
+- [ ] SSD trocado por HD entre dois PDVs; disco que sumiu
+- [ ] RAM "andou" (2 pentes → 1)
+- [ ] Monitor movido entre lojas (rastreio por serial)
+- [ ] Aparelho novo inesperado na rede
+
+**11. Garantia, nota fiscal e contabilidade**
+- [ ] Vincular serial → NF / fornecedor / data de compra (campos de Contrato do GLPI)
+- [ ] Garantias vencendo nos próximos 90 dias
+- [ ] Depreciação para contabilidade
+
+**12. Priorização de investimento por loja**
+- [ ] Ranking das lojas com o parque mais velho / fraco → onde investir primeiro
+- [ ] Relatório "estado da frota" por loja num documento só
+
+**13. Energia e custo operacional**
+- [ ] Estimativa de consumo de energia da frota (PCs antigos gastam mais)
+- [ ] Máquinas ligadas 24h que não precisam
+
 ---
 
 ## 📚 Módulo 6 — Área do Conhecimento
