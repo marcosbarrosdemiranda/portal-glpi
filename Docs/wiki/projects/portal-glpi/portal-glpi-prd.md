@@ -378,9 +378,17 @@
 - [ ] Tabelas `portal_alerta_tipos`, `portal_alerta_regras`, `portal_alerta_destinos`, `portal_alerta_log`
 - [ ] Permissão no perfil pra quem pode mexer nas regras de alerta
 
----
-
-## 📚 Módulo 6 — Área do Conhecimento
+**20. Monitoramento de equipamentos operacionais da loja**
+> Equipamentos de rede que afetam a operação/venda direto — se caem, a loja
+> sente na hora. Reusa o ping (bloco 1b) / The Dude (14) + o motor de alertas (19).
+- [ ] **Busca-preço** (terminais de consulta de preço) — por loja, ligado/respondendo
+- [ ] **Antenas / APs UniFi** — já tem a integração em `inventario_redes.php`; falta o ALERTA
+      quando um AP cai (hoje só mostra status) → grupo TI + histórico
+- [ ] **Painel de LED** (preço/promoção) — online, e se possível "está exibindo conteúdo"
+- [ ] **TVs de ofertas / digital signage** — online, player rodando, conteúdo atualizado
+- [ ] **Balanças** — já tem card; incluir no motor de alertas (offline / firmware / carga)
+- [ ] Agrupar por loja: "Lj 030 — 2 busca-preço, 4 APs, 3 TVs de oferta: tudo ok / 1 fora"
+- [ ] Cada tipo vira uma categoria no Inventário de Redes com bolinha de status + alerta configurável
 > Base de conhecimento interna da equipe com artigos, procedimentos e tutoriais.
 > **Prazo:** 01/07/2026
 
