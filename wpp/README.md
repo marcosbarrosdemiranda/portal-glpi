@@ -9,7 +9,8 @@ C:\docker\glpi-portal\. Comandos de host sao PowerShell; os comandos
 
 O QUE E A FASE 1
 --------------------------------------------------------------------
-  * Sobe o container evolution-api (gateway WhatsApp, so na rede interna).
+  * Sobe os containers evolution-db (MariaDB 11 dedicado) e evolution-api
+    (gateway WhatsApp, so na rede interna).
   * Tela config_whatsapp.php, duas abas:
       - Conexao: parear a linha WhatsApp dedicada do TI via QR code.
       - Grupos:  escolher o grupo de Alertas e o de Chamados.
@@ -31,54 +32,32 @@ DEPLOY NO SERVIDOR
        le ".env" do diretorio de onde e chamado, nunca de subpasta).
        Modelo em docker\.env.example do repo. Conteudo:
          EVOLUTION_API_KEY=<chave-gerada>
-[ ] 3. Crie o database "evolution" a mao (o compose nao cria mais nada
-       automaticamente):
-         docker exec glpi-db mariadb -uroot -proot_password -e "CREATE DATABASE IF NOT EXISTS evolution CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;"
-[ ] 4. Crie wpp\config.php a partir do exemplo e ajuste:
+[ ] 3. Crie wpp\config.php a partir do exemplo e ajuste:
          Copy-Item C:\docker\glpi-portal\glpi2\portal-glpi\wpp\config.example.php C:\docker\glpi-portal\glpi2\portal-glpi\wpp\config.php
        EVO_API_KEY = a MESMA chave do EVOLUTION_API_KEY do .env.
        EVO_URL e EVO_INSTANCE ja vem certos.
-[ ] 5. Suba so a Evolution:
-         docker compose up -d evolution-api
-[ ] 6. Confira os logs (aguarde ~20s):
+[ ] 4. Suba a Evolution (o database "evolution" e criado sozinho pelo
+       container evolution-db):
+         docker compose up -d evolution-db evolution-api
+[ ] 5. Confira os logs (o evolution-api reinicia algumas vezes enquanto
+       o evolution-db termina de subir - normal; aguarde ~40s):
          docker compose logs evolution-api
-       Erro de Prisma/migration => va em FALLBACK. Sem esse erro = ok.
-[ ] 7. Teste a conectividade de dentro do glpi-web (a imagem nao tem
+       Deve terminar em "start:prod" / "node dist/main", sem erro de
+       Prisma/migration.
+[ ] 6. Teste a conectividade de dentro do glpi-web (a imagem nao tem
        curl; use o PHP):
          docker exec glpi-web php -r "echo @file_get_contents('http://evolution-api:8080/');"
-       Qualquer resposta HTTP (ate 404) serve; "failed to open stream"
-       = ainda nao respondendo.
+       Deve devolver um JSON "Welcome to the Evolution API...".
 
-FALLBACK: MARIADB 10.4 NAO ACEITA AS MIGRATIONS
+POR QUE UM BANCO DEDICADO (evolution-db)
 --------------------------------------------------------------------
-Se o passo 6 der erro de Prisma/migration, o MariaDB 10.4 do glpi-db
-nao serve. Suba um MariaDB 11 dedicado.
-[ ] 1. No docker-compose.yml do servidor (mesma pasta do .env,
-       C:\docker\glpi-portal\) adicione o servico (o compose so usa
-       bind mount; nao ha bloco "volumes:" no topo):
-
-  evolution-db:
-    image: mariadb:11
-    container_name: evolution-db
-    restart: unless-stopped
-    environment:
-      MARIADB_ROOT_PASSWORD: root_password_evolution
-      MARIADB_DATABASE: evolution
-    volumes:
-      - C:\docker\glpi-portal\evolution-db-data:/var/lib/mysql
-    networks:
-      - glpi-net
-[ ] 2. No servico evolution-api, troque a URI e o depends_on:
-      environment:
-        DATABASE_CONNECTION_URI: "mysql://root:root_password_evolution@evolution-db:3306/evolution"
-      depends_on:
-        - evolution-db
-[ ] 3. Recrie so o evolution-api (NAO use "docker compose down" - isso
-       derruba a stack GLPI inteira):
-         docker compose stop evolution-api
-         docker compose rm -f evolution-api
-         docker compose up -d evolution-db evolution-api
-[ ] 4. Confira de novo:  docker compose logs evolution-api
+O MariaDB 10.4 do glpi-db NAO roda as migrations do Prisma da Evolution
+(a migration 20240813153900_add_unique_index_for_remoted_jid... derruba
+a conexao - erro P1017). MariaDB 11 aplica as 18 migrations sem
+problema. Por isso o compose ja traz o servico evolution-db separado
+(mariadb:11, senha root "evolution_pw", volume
+C:\docker\glpi-portal\evolution-db-data). Fica isolado do banco do GLPI.
+Confirmado no deploy da Fase 1 (2026-09-07).
 
 TESTES
 --------------------------------------------------------------------
@@ -133,7 +112,11 @@ R: evolution-api rodando? wpp\config.php com EVO_URL
    "http://evolution-api:8080" e a chave igual a do .env do servidor?
    Recarregue a tela (F5).
 P: Erro de Prisma/migration nos logs do evolution-api.
-R: MariaDB 10.4 nao serve; siga a secao FALLBACK.
+R: Confirme que a URI aponta pro evolution-db (mariadb:11), nao pro
+   glpi-db. Se o database ficou sujo de uma tentativa anterior:
+   docker compose stop evolution-api && docker exec evolution-db mariadb
+   -uroot -pevolution_pw -e "DROP DATABASE evolution; CREATE DATABASE
+   evolution;" && docker compose up -d evolution-api
 P: A lista de grupos vem vazia.
 R: A linha pareada precisa ser MEMBRO dos grupos. Confira no WhatsApp e
    clique de novo em "Recarregar lista de grupos".
@@ -147,8 +130,10 @@ P: Como reiniciar a Fase 1 do zero?
 R: 1) Aba Conexao -> "Desconectar".
    2) Zere os grupos: deixe os dois selects vazios e "Salvar", ou:
         docker exec glpi-db mariadb -uroot -proot_password glpi2 -e "DELETE FROM portal_wpp_config WHERE chave IN ('grupo_alertas_jid','grupo_chamados_jid');"
-   3) Pra zerar a Evolution: DROP DATABASE evolution, recrie (passo 3)
-      e "docker compose up -d evolution-api".
+   3) Pra zerar a Evolution:
+      docker compose stop evolution-api
+      docker exec evolution-db mariadb -uroot -pevolution_pw -e "DROP DATABASE evolution; CREATE DATABASE evolution;"
+      docker compose up -d evolution-api
 
 ====================================================================
  FIM DO RUNBOOK

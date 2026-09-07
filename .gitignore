@@ -26,8 +26,6 @@ Documentação e Backup*/
 *.zip
 *.bak
 *.sql
-# Exceção: init script do database da Evolution API precisa ser versionado
-!docker/init-evolution-db.sql
 
 # ── Arquivos aposentados aguardando exclusão (nunca versionar) ─
 # Ex.: integracao GLPI-WhatsApp antiga (ws_glpi_*.js) - tem tokens hardcoded
