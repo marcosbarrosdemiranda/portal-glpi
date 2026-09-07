@@ -258,6 +258,20 @@
 - [ ] Estimativa de consumo de energia da frota (PCs antigos gastam mais)
 - [ ] Máquinas ligadas 24h que não precisam
 
+**14. Inventário de Redes — integração com o The Dude (MikroTik)**
+> Hoje o Inventário de Redes (`inventario_redes.php`) só integra com UniFi (APs).
+> O The Dude roda como pacote no RouterOS e já tem o mapa da rede descoberto,
+> com status ao vivo de switches, servidores, PDVs, impressoras, DVRs, etc.
+- [ ] Tabela `portal_dude_servers` (host RouterOS, usuário, senha via vault_crypto) — padrão igual UniFi/GitHub
+- [ ] **Pull:** ler `/dude/device` via RouterOS API (v7 REST `/rest/dude/device` ou API binária 8728/8729)
+      → cada dispositivo vira linha no Inventário de Redes com status 🟢/🔴/🟡, tipo, IP, "pai" (topologia)
+- [ ] Cache curto do resultado (mesmo esquema do cache do GitHub/UniFi)
+- [ ] Dados SNMP que o Dude já coleta: tráfego por porta, CPU/temperatura de switch gerenciável
+- [ ] **Push:** notificação do Dude → script RouterOS `/tool fetch` POST → endpoint do portal
+      (`dude_evento.php`) → registra queda/volta, linha do tempo, e alimenta o chamado automático (item 5)
+- [ ] Mapa/topologia simples no portal a partir dos `/dude/link`
+- [ ] Reaproveitar a UI de grupos + bolinha de status que já existe no `inventario_redes.php`
+
 ---
 
 ## 📚 Módulo 6 — Área do Conhecimento
