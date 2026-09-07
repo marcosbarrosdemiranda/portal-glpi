@@ -274,6 +274,27 @@
 - [ ] Pré-requisito: mover o Dude pro servidor (idealmente onde o portal consiga ler o `dude.db`,
       ex: o próprio host do Docker/GLPI ou um share SMB)
 
+**15. Integrações externas — Intelbras**
+> CFTV da Intelbras é OEM Dahua → API HTTP/CGI + ONVIF + SDK.
+- [ ] **CFTV (DVR/NVR):** status do gravador online/offline, **saúde do HD de gravação** (crítico —
+      DVR com disco falhando = supermercado sem imagem), canais/câmeras online, perda de vídeo, últimas gravações
+- [ ] Eventos do DVR (movimento, video loss, erro de HD) → alerta + chamado automático (item 5)
+- [ ] Card "CFTV" no Inventário de Redes com bolinha de status por gravador e por loja
+- [ ] **Controle de acesso** (catracas/fechaduras Intelbras): status de porta, eventos de acesso
+- [ ] **Central de alarme** (AMT): armado/desarmado, disparos, status de setores
+- [ ] **PABX** (Impacta/UnniTI): status de ramais, registro de chamadas
+
+**16. Integrações externas — Home Assistant**
+> HA expõe API REST (`/api/states`, token de longa duração) + webhooks + MQTT.
+- [ ] **Temperatura de câmara fria / freezer** — leitura contínua; alerta se passar do limite
+      (freezer caindo de madrugada = milhares em produto perdido) → chamado + notificação
+- [ ] **Monitoramento de energia** por circuito/loja — consumo, quedas de energia, retorno
+- [ ] Sensores de porta (câmara, sala de servidor, cofre), vazamento de água, UPS/nobreak
+- [ ] Temperatura da sala de servidores / rack
+- [ ] Webhook HA → portal em qualquer automação disparada → linha do tempo + chamado automático
+- [ ] KPIs ambientais no BI (temperatura média, nº de alertas, tempo fora da faixa)
+- [ ] Tabela `portal_ha_sensores` (config: entidade HA, tipo, limite, loja) + `portal_ha_leituras`
+
 ---
 
 ## 📚 Módulo 6 — Área do Conhecimento
