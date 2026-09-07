@@ -26,10 +26,13 @@ DEPLOY NO SERVIDOR
 [ ] 1. Gere a chave da Evolution API, numa maquina com openssl:
          openssl rand -hex 24
        Sem openssl: qualquer string aleatoria de 48 digitos hex.
-[ ] 2. Em docker\.env (crie a partir de docker\.env.example):
+[ ] 2. Crie o arquivo .env na MESMA pasta do docker-compose.yml do
+       servidor - ou seja C:\docker\glpi-portal\.env (o "docker compose"
+       le ".env" do diretorio de onde e chamado, nunca de subpasta).
+       Modelo em docker\.env.example do repo. Conteudo:
          EVOLUTION_API_KEY=<chave-gerada>
-[ ] 3. Crie o database "evolution" (em producao o initdb nao roda,
-       porque o mysql-data ja existe):
+[ ] 3. Crie o database "evolution" a mao (o compose nao cria mais nada
+       automaticamente):
          docker exec glpi-db mariadb -uroot -proot_password -e "CREATE DATABASE IF NOT EXISTS evolution CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;"
 [ ] 4. Crie wpp\config.php a partir do exemplo e ajuste:
          Copy-Item C:\docker\glpi-portal\glpi2\portal-glpi\wpp\config.example.php C:\docker\glpi-portal\glpi2\portal-glpi\wpp\config.php
@@ -50,8 +53,9 @@ FALLBACK: MARIADB 10.4 NAO ACEITA AS MIGRATIONS
 --------------------------------------------------------------------
 Se o passo 6 der erro de Prisma/migration, o MariaDB 10.4 do glpi-db
 nao serve. Suba um MariaDB 11 dedicado.
-[ ] 1. Em docker\docker-compose.yml adicione o servico (o compose so
-       usa bind mount; nao ha bloco "volumes:" no topo):
+[ ] 1. No docker-compose.yml do servidor (mesma pasta do .env,
+       C:\docker\glpi-portal\) adicione o servico (o compose so usa
+       bind mount; nao ha bloco "volumes:" no topo):
 
   evolution-db:
     image: mariadb:11
@@ -126,7 +130,7 @@ FAQ
 --------------------------------------------------------------------
 P: O QR code nao aparece.
 R: evolution-api rodando? wpp\config.php com EVO_URL
-   "http://evolution-api:8080" e a chave igual a do docker\.env?
+   "http://evolution-api:8080" e a chave igual a do .env do servidor?
    Recarregue a tela (F5).
 P: Erro de Prisma/migration nos logs do evolution-api.
 R: MariaDB 10.4 nao serve; siga a secao FALLBACK.

@@ -1,5 +1,10 @@
 <?php
 // Cliente REST da Evolution API. Sem HTML, sem sessão. Nunca lança.
+// Erro amigável se o operador pulou a etapa do runbook (config.php é gitignored).
+if (!file_exists(__DIR__ . '/config.php')) {
+    http_response_code(500);
+    exit('wpp/config.php não encontrado — crie a partir de wpp/config.example.php (ver wpp/README.md).');
+}
 require_once __DIR__ . '/config.php';
 
 function evo_url(string $path): string {
@@ -8,6 +13,9 @@ function evo_url(string $path): string {
 
 function evo_request(string $method, string $path, ?array $json = null, int $timeout = 20): array {
     $ch = curl_init(evo_url($path));
+    if ($ch === false) {
+        return ['ok' => false, 'status' => 0, 'data' => null, 'erro' => 'URL inválida (EVO_URL)'];
+    }
     $headers = ['apikey: ' . EVO_API_KEY];
     $opts = [
         CURLOPT_RETURNTRANSFER => true,
@@ -58,7 +66,7 @@ function evo_groups(): array {
         if (!isset($g['id'])) continue;
         $lista[] = [
             'jid'      => $g['id'],
-            'nome'     => $g['subject'] ?? '(sem nome)',
+            'nome'     => is_string($g['subject'] ?? null) ? $g['subject'] : '(sem nome)',
             'tamanho'  => (int) ($g['size'] ?? 0),
         ];
     }

@@ -13,6 +13,34 @@ if (($_SESSION['perfil'] ?? '') === 'self-service') { header('Location: dashboar
 require_once __DIR__ . '/wpp/db.php';
 require_once __DIR__ . '/wpp/evo_api.php';
 
+// ── Checagem defensiva de permissão de perfil ──────────────────────────────
+// Espelha config_notificacoes.php: se o usuário tem perfil restrito do portal
+// e não possui a permissão 'notificacoes_config', volta pro dashboard.
+// Fica ANTES do dispatch de ?action= para que as chamadas AJAX também sejam
+// barradas (QR, logout, save_groups).
+$cards = null;
+if (array_key_exists('portal_perfil_cards', $_SESSION)) {
+    // auth_guard.php já carregou (null = sem perfil; array = cards do perfil)
+    $cards = $_SESSION['portal_perfil_cards'];
+} else {
+    require_once __DIR__ . '/agenda/db.php';
+    $uid = (int)($_SESSION['user_id'] ?? 0);
+    try {
+        $st = $pdo->prepare("
+            SELECT pp.cards FROM portal_perfil_usuarios pu
+            JOIN portal_perfis pp ON pp.id = pu.perfil_id
+            WHERE pu.user_id = ?
+        ");
+        $st->execute([$uid]);
+        $row = $st->fetch();
+        if ($row) $cards = json_decode($row['cards'] ?? '{}', true) ?: [];
+    } catch (Exception $e) { /* tabelas ainda não existem — ignora */ }
+}
+if ($cards !== null && !isset($cards['notificacoes_config'])) {
+    header('Location: dashboard.php');
+    exit;
+}
+
 $H = fn($s) => htmlspecialchars((string)$s, ENT_QUOTES, 'UTF-8');
 
 /* ─────────── Handlers AJAX (antes de qualquer HTML) ─────────── */
@@ -30,12 +58,17 @@ if ($action !== '') {
             echo json_encode(evo_qr());
             break;
         case 'logout':
+            // ação destrutiva: exige POST (evita logout via GET/URL)
+            if ($_SERVER['REQUEST_METHOD'] !== 'POST') { echo json_encode(['ok' => false, 'erro' => 'método inválido']); exit; }
             echo json_encode(evo_logout());
             break;
         case 'groups':
             echo json_encode(evo_groups());
             break;
         case 'save_groups':
+            // ação destrutiva (regrava os JIDs): exige POST — um GET com
+            // parâmetros vazios apagaria silenciosamente os dois grupos
+            if ($_SERVER['REQUEST_METHOD'] !== 'POST') { echo json_encode(['ok' => false, 'erro' => 'método inválido']); exit; }
             $a = trim($_POST['alertas_jid'] ?? '');
             $c = trim($_POST['chamados_jid'] ?? '');
             // aceita só JID de grupo do WhatsApp (dígitos, opcionalmente com hífen, + @g.us) ou string vazia
@@ -196,6 +229,10 @@ $chamados_jid = wpp_cfg_get('grupo_chamados_jid', '');
   };
   var estadoAtual = 'desconhecido';
   var pollTimer = null;
+  var pollTentativas = 0;          // total de polls desta rodada
+  var pollTerminais = 0;           // estados terminais (close/desconhecido) seguidos
+  var POLL_MAX = 40;               // ~2 min a cada 3s
+  var POLL_TERMINAIS_MAX = 5;      // desiste após 5 estados terminais seguidos
 
   function $(id) { return document.getElementById(id); }
 
@@ -277,30 +314,59 @@ $chamados_jid = wpp_cfg_get('grupo_chamados_jid', '');
 
   function iniciarPoll() {
     pararPoll();
+    pollTentativas = 0;
+    pollTerminais = 0;
     pollTimer = setInterval(pollStatus, 3000);
   }
   function pararPoll() {
     if (pollTimer) { clearInterval(pollTimer); pollTimer = null; }
   }
   function pollStatus() {
-    fetch(PAGE + '?action=status')
-      .then(function (r) { return r.json(); })
-      .then(function (d) {
-        if (d.estado === 'open') {
-          feedback($('fb-conexao'), 'ok', 'Conectado com sucesso.');
-          pintarEstado('open');
-        } else {
-          pintarEstado(d.estado);
-        }
+    pollTentativas++;
+    if (pollTentativas > POLL_MAX) {
+      pararPoll();
+      feedback($('fb-conexao'), 'err', 'Pareamento expirado — tente de novo.');
+      return;
+    }
+    // bg=1: polling de fundo NÃO renova o relógio de inatividade (auth_guard.php)
+    fetch(PAGE + '?action=status&bg=1')
+      .then(function (r) {
+        // 440 (ou qualquer não-OK) = sessão do portal expirou
+        if (r.status === 440 || !r.ok) { throw new Error('timeout'); }
+        return r.json();
       })
-      .catch(function () {});
+      .then(function (d) {
+        if (d && d.timeout) { throw new Error('timeout'); }
+        if (d.estado === 'open') {
+          pollTerminais = 0;
+          feedback($('fb-conexao'), 'ok', 'Conectado com sucesso.');
+          pintarEstado('open'); // pintarEstado já chama pararPoll()
+          return;
+        }
+        if (d.estado === 'close' || d.estado === 'desconhecido') {
+          pollTerminais++;
+          if (pollTerminais >= POLL_TERMINAIS_MAX) {
+            pararPoll();
+            feedback($('fb-conexao'), 'err', 'Pareamento expirado — tente de novo.');
+          }
+        } else {
+          pollTerminais = 0;
+        }
+        pintarEstado(d.estado);
+      })
+      .catch(function (err) {
+        if (err && err.message === 'timeout') {
+          pararPoll();
+          feedback($('fb-conexao'), 'err', 'Sessão expirada — recarregue a página.');
+        }
+      });
   }
 
   function desconectar() {
     if (!confirm('Desconectar a linha do WhatsApp? Será preciso escanear o QR de novo para reconectar.')) { return; }
     var btn = $('btn-desconectar');
     btn.disabled = true;
-    fetch(PAGE + '?action=logout')
+    fetch(PAGE + '?action=logout', { method: 'POST' })
       .then(function (r) { return r.json(); })
       .then(function (d) {
         btn.disabled = false;

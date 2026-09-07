@@ -17,9 +17,6 @@ services:
       MYSQL_DATABASE: glpi2
     volumes:
       - C:\docker\glpi-portal\mysql-data:/var/lib/mysql
-      # Cria o database "evolution" só em volumes novos (initdb). Em produção o
-      # mysql-data já existe, então esse database é criado à mão uma vez (ver wpp/README.md).
-      - ./init-evolution-db.sql:/docker-entrypoint-initdb.d/init-evolution-db.sql:ro
     networks:
       - glpi-net
 
@@ -69,7 +66,7 @@ services:
     depends_on:
       - glpi-db
     environment:
-      AUTHENTICATION_API_KEY: ${EVOLUTION_API_KEY}
+      AUTHENTICATION_API_KEY: ${EVOLUTION_API_KEY:?defina EVOLUTION_API_KEY em docker/.env}
       DATABASE_ENABLED: "true"
       DATABASE_PROVIDER: mysql
       DATABASE_CONNECTION_URI: "mysql://root:root_password@glpi-db:3306/evolution"
