@@ -467,7 +467,7 @@ function pode_ver(string $key, ?array $cards): bool {
   <?php endif; ?>
 
   <!-- ── CONFIGURAÇÃO ── -->
-  <?php if (pode_ver('usuarios',$perfil_cards)||pode_ver('categorias',$perfil_cards)||pode_ver('entidades',$perfil_cards)||pode_ver('sla',$perfil_cards)||pode_ver('logs',$perfil_cards)||pode_ver('manutencao',$perfil_cards)||pode_ver('perfis',$perfil_cards)): ?>
+  <?php if (pode_ver('usuarios',$perfil_cards)||pode_ver('categorias',$perfil_cards)||pode_ver('entidades',$perfil_cards)||pode_ver('sla',$perfil_cards)||pode_ver('logs',$perfil_cards)||pode_ver('manutencao',$perfil_cards)||pode_ver('perfis',$perfil_cards)||pode_ver('notificacoes_config',$perfil_cards)): ?>
   <div class="section-label"><i class="bi bi-gear-wide-connected me-2"></i>Configuração</div>
   <?php endif; ?>
 
@@ -524,6 +524,14 @@ function pode_ver(string $key, ?array $cards): bool {
     <div class="card-icon"><i class="bi bi-tools"></i></div>
     <h5>Manutenção</h5>
     <p>Limpeza de cache, sincronia manual e diagnósticos do sistema.</p>
+  </a>
+  <?php endif; ?>
+
+  <?php if (pode_ver('notificacoes_config', $perfil_cards)): ?>
+  <a href="config_notificacoes.php" class="dash-card card-logs">
+    <div class="card-icon"><i class="bi bi-bell-fill"></i></div>
+    <h5>Notificações</h5>
+    <p>WhatsApp — conexão da linha do TI, grupos de Alertas e Chamados.</p>
   </a>
   <?php endif; ?>
 

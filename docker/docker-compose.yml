@@ -57,6 +57,36 @@ services:
     networks:
       - glpi-net
 
+  # Evolution API — gateway WhatsApp. Sem "ports:": só acessível de dentro de
+  # glpi-net (consumida pelo glpi-web). Usa o próprio glpi-db (database "evolution").
+  evolution-api:
+    image: evoapicloud/evolution-api:latest
+    container_name: evolution-api
+    restart: unless-stopped
+    depends_on:
+      - glpi-db
+    environment:
+      AUTHENTICATION_API_KEY: ${EVOLUTION_API_KEY:?defina EVOLUTION_API_KEY em docker/.env}
+      DATABASE_ENABLED: "true"
+      DATABASE_PROVIDER: mysql
+      DATABASE_CONNECTION_URI: "mysql://root:root_password@glpi-db:3306/evolution"
+      DATABASE_SAVE_DATA_INSTANCE: "true"
+      DATABASE_SAVE_DATA_NEW_MESSAGE: "false"
+      DATABASE_SAVE_MESSAGE_UPDATE: "false"
+      DATABASE_SAVE_DATA_CONTACTS: "false"
+      DATABASE_SAVE_DATA_CHATS: "false"
+      CACHE_REDIS_ENABLED: "false"
+      CACHE_LOCAL_ENABLED: "true"
+      CONFIG_SESSION_PHONE_CLIENT: "Portal TI"
+      DEL_INSTANCE: "false"
+      # Log enxuto
+      LOG_LEVEL: "ERROR"
+      LOG_BAILEYS: "error"
+    volumes:
+      - C:\docker\glpi-portal\evolution-instances:/evolution/instances
+    networks:
+      - glpi-net
+
 networks:
   glpi-net:
     driver: bridge
