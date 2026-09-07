@@ -105,11 +105,16 @@
 - [ ] Followup: resposta do técnico no GLPI chega como mensagem pro requerente
 
 **Saída — disparos**
-- [ ] Notificar o requerente por WhatsApp em cada mudança do chamado (aberto, atribuído, resolvido, fechado)
+- [ ] **Grupo TI:** todo chamado aberto (por qualquer canal) dispara mensagem no grupo do WhatsApp
+      da equipe — nº, loja, requerente, categoria, resumo, link pro chamado no portal
+- [ ] **Individual pro atendente:** quando o chamado é atribuído a um técnico, ele recebe DM
+      no WhatsApp com os dados + link
+- [ ] Notificar o **requerente** em cada mudança do chamado (atribuído, respondido, resolvido, fechado)
 - [ ] Alertas do inventário/monitoramento (blocos 1, 5, 14-16) → mensagem pro grupo/plantão do TI
 - [ ] Disparo em massa (aviso de manutenção programada, instabilidade, comunicado) por loja/grupo
 - [ ] Lembrete de chamado parado / SLA estourando pro técnico responsável
 - [ ] Resumo diário pro encarregado (abertos, fechados, pendências)
+- [ ] Config de quem/qual grupo recebe cada tipo de disparo (mapa telefone/grupo ↔ evento)
 
 **Infra**
 - [ ] Reusar Evolution API (`evolution_api` / `evolution_postgres` já em container)
