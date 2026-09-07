@@ -343,6 +343,18 @@
 - [ ] Cobrir também dependências: banco, DNS resolvendo, certificado perto de vencer
 - [ ] Tabela `portal_svc_monitor` (config) + `portal_svc_checks` (histórico)
 
+**18. Monitoramento da VPN entre lojas**
+> Cada loja liga na matriz por túnel VPN (MikroTik ↔ MikroTik). Se o túnel cai,
+> a loja fica isolada — PDVs não sincronizam, sem acesso remoto, sem inventário.
+- [ ] Status do túnel por loja: 🟢 conectado / 🔴 caído / 🟡 instável
+- [ ] Fonte: RouterOS API do MikroTik (`/interface` running, `/ip ipsec active-peers`,
+      `/interface wireguard peers`, `/ppp active`) OU ping a um IP fixo dentro de cada loja
+- [ ] Alerta quando cai → grupo TI no WhatsApp + chamado automático "Loja X sem VPN"
+- [ ] Alerta de "voltou" + duração da queda; histórico de estabilidade por loja
+- [ ] Latência/perda de pacote do túnel ao longo do tempo (loja "instável" antes de cair)
+- [ ] Painel-mapa: todas as lojas e o estado do link de cada uma
+- [ ] Reaproveita a integração do The Dude (bloco 14) se ele já monitora os túneis
+
 ---
 
 ## 📚 Módulo 6 — Área do Conhecimento
