@@ -212,6 +212,22 @@ $rows = array_values(array_filter($todos, function ($r) use ($loja_filtro, $busc
 $staleCount = 0;
 foreach ($todos as $r) if (inv_stale($r['ultimo_inv'] ?? null)) $staleCount++;
 
+// IPv4 principal de cada máquina (pro status ligado/desligado via ping.php)
+$ipPorPc = [];
+$_pcIds = array_values(array_filter(array_map(fn($r) => (int)$r['id'], $rows)));
+if ($_pcIds && $view !== 'baixados') {
+    $ph = implode(',', array_fill(0, count($_pcIds), '?'));
+    $stIp = $pdo->prepare("SELECT np.items_id AS cid, ia.name AS ip
+                           FROM glpi_networkports np
+                           JOIN glpi_networknames nn ON nn.itemtype='NetworkPort' AND nn.items_id = np.id
+                           JOIN glpi_ipaddresses ia  ON ia.itemtype='NetworkName' AND ia.items_id = nn.id
+                           WHERE np.itemtype='Computer' AND np.items_id IN ($ph)
+                             AND ia.name LIKE '%.%' AND ia.name NOT LIKE '127.%' AND ia.name NOT LIKE '169.254.%'
+                           ORDER BY np.id");
+    $stIp->execute($_pcIds);
+    foreach ($stIp as $r) { $cid = (int)$r['cid']; if (!isset($ipPorPc[$cid])) $ipPorPc[$cid] = $r['ip']; }
+}
+
 // Card de servidores: visão em árvore (servidor físico → VMs). Sempre carrega todos os
 // físicos (mesmo os filtrados fora) pra montar o dropdown de host.
 $IS_SRV = ($slug === 'maquinas-virtuais' && !$ignMode && $view === 'ativos');
@@ -319,6 +335,18 @@ $qsStale = $stale_filtro ? '&stale=1' : '';
     .inv-stale { display:inline-block; margin-left:.4rem; font-size:.68rem; font-weight:700;
                  background:#fff3e0; color:#b45309; border:1px solid #fcd9a8; border-radius:8px;
                  padding:.02rem .4rem; white-space:nowrap; vertical-align:middle; }
+    .pc-dot { display:inline-block; width:9px; height:9px; border-radius:50%; margin-right:.45rem;
+              vertical-align:middle; background:#f59e0b; }
+    .pc-dot.online  { background:#16a34a; box-shadow:0 0 5px #16a34a; }
+    .pc-dot.offline { background:#dc2626; }
+    .pc-dot.sem-ip  { background:#cbd5e1; }
+    .pc-dot.checking { background:#f59e0b; animation:pcpulse 1s infinite; }
+    @keyframes pcpulse { 0%,100%{opacity:1} 50%{opacity:.35} }
+    .btn-verificar { background:#0f766e; color:#fff; border:none; border-radius:9px; padding:.5rem 1rem;
+                     font-size:.85rem; display:inline-flex; align-items:center; gap:.45rem; cursor:pointer; }
+    .btn-verificar:hover { background:#115e59; }
+    .pc-cnt { font-size:.8rem; color:#5f6368; display:flex; align-items:center; gap:.75rem; margin:.4rem 0 .6rem; }
+    .pc-cnt b { font-weight:700; }
   </style>
 </head>
 <body>
@@ -351,6 +379,15 @@ $qsStale = $stale_filtro ? '&stale=1' : '';
       <?php endif; ?>
     </div>
   </div>
+
+  <?php if ($view !== 'baixados'): ?>
+  <div class="pc-cnt">
+    <button type="button" class="btn-verificar" id="btn-verificar" onclick="verificarTodos()"><i class="bi bi-arrow-repeat"></i> Verificar agora</button>
+    <span><span class="pc-dot online" style="margin-right:.2rem"></span>Ligados: <b id="pc-cnt-on">—</b></span>
+    <span><span class="pc-dot offline" style="margin-right:.2rem"></span>Desligados: <b id="pc-cnt-off">—</b></span>
+    <span style="color:#9aa0a6">sem IP: <b id="pc-cnt-noip">—</b></span>
+  </div>
+  <?php endif; ?>
 
   <?php if (!$ignMode): ?>
   <div class="tabs">
@@ -394,7 +431,7 @@ $qsStale = $stale_filtro ? '&stale=1' : '';
 
   <?php
   $catAtual = $slug;
-  $tabela = function(array $list) use ($view, $H, $MOT, $catAtual) { ?>
+  $tabela = function(array $list) use ($view, $H, $MOT, $catAtual, $ipPorPc) { ?>
     <table>
       <thead><tr>
         <th>Nome</th><th>Categoria</th><th>Tipo (HW)</th><th>Fabricante / Modelo</th>
@@ -403,9 +440,11 @@ $qsStale = $stale_filtro ? '&stale=1' : '';
       </tr></thead>
       <tbody>
       <?php foreach ($list as $a): $cat = $a['cat_salva'] ?: 'pcs-retaguarda';
-        $_di = inv_dias_sem_inv($a['ultimo_inv'] ?? null); ?>
+        $_di = inv_dias_sem_inv($a['ultimo_inv'] ?? null);
+        $_ip = $ipPorPc[(int)$a['id']] ?? ''; ?>
         <tr>
           <td>
+            <?php if ($view !== 'baixados'): ?><span class="pc-dot<?= $_ip ? '' : ' sem-ip' ?>" data-ip="<?= $H($_ip) ?>" data-pcid="<?= (int)$a['id'] ?>" title="<?= $_ip ? 'Verificando…' : 'Sem IP conhecido' ?>"></span><?php endif; ?>
             <?= $H($a['name'] ?: '(sem nome)') ?>
             <?php if ($view !== 'baixados'):
               if ($_di === null): ?>
@@ -454,10 +493,11 @@ $qsStale = $stale_filtro ? '&stale=1' : '';
 
   <?php
   // linha de máquina na visão de servidores (com papel + host)
-  $linhaSrv = function(array $a) use ($H, $srvFisicos) {
-      $papel = $a['papel'] ?? 'fisico'; ?>
+  $linhaSrv = function(array $a) use ($H, $srvFisicos, $ipPorPc) {
+      $papel = $a['papel'] ?? 'fisico';
+      $_ip = $ipPorPc[(int)$a['id']] ?? ''; ?>
     <tr>
-      <td><?= $papel === 'virtual' ? '<span style="color:#9aa0a6">└─ </span>' : '<i class="bi bi-hdd-rack-fill" style="color:#5e35b1"></i> ' ?><?= $H($a['name'] ?: '(sem nome)') ?></td>
+      <td><span class="pc-dot<?= $_ip ? '' : ' sem-ip' ?>" data-ip="<?= $H($_ip) ?>" data-pcid="<?= (int)$a['id'] ?>"></span> <?= $papel === 'virtual' ? '<span style="color:#9aa0a6">└─ </span>' : '<i class="bi bi-hdd-rack-fill" style="color:#5e35b1"></i> ' ?><?= $H($a['name'] ?: '(sem nome)') ?></td>
       <td>
         <select class="cat" onchange="mudarSrv(<?= (int)$a['id'] ?>, this.value, null)">
           <option value="fisico" <?= $papel === 'fisico' ? 'selected' : '' ?>>Servidor físico</option>
@@ -694,6 +734,56 @@ function toggleTodosGrupos() {
 $('#modalBack').addEventListener('click', e => { if (e.target === $('#modalBack')) fecharModal(); });
 $('#baixaBack').addEventListener('click', e => { if (e.target === $('#baixaBack')) fecharBaixa(); });
 $('#detBack').addEventListener('click', e => { if (e.target === $('#detBack')) fecharDet(); });
+
+// ── Status ligado/desligado (ping) ──────────────────────────────
+function pingDot(dot) {
+  const ip = dot.dataset.ip;
+  if (!ip) { dot.className = 'pc-dot sem-ip'; return Promise.resolve(); }
+  dot.className = 'pc-dot checking';
+  dot.title = 'Verificando ' + ip + '…';
+  return fetch('ping.php?ip=' + encodeURIComponent(ip), { cache: 'no-store' })
+    .then(r => r.json())
+    .then(d => {
+      dot.className = 'pc-dot ' + (d.online ? 'online' : 'offline');
+      dot.title = ip + (d.online ? ' — ligado' : ' — desligado / sem resposta');
+    })
+    .catch(() => { dot.className = 'pc-dot offline'; dot.title = ip + ' — erro ao verificar'; });
+}
+
+function atualizarContadoresPc() {
+  const dots = document.querySelectorAll('.pc-dot[data-pcid]');
+  let on = 0, off = 0, noip = 0;
+  dots.forEach(d => {
+    if (d.classList.contains('online')) on++;
+    else if (d.classList.contains('offline')) off++;
+    else if (d.classList.contains('sem-ip')) noip++;
+  });
+  const set = (id, v) => { const e = document.getElementById(id); if (e) e.textContent = v; };
+  set('pc-cnt-on', on); set('pc-cnt-off', off); set('pc-cnt-noip', noip);
+}
+
+let _pingando = false;
+function verificarTodos() {
+  if (_pingando) return;
+  _pingando = true;
+  const btn = document.getElementById('btn-verificar');
+  if (btn) { btn.disabled = true; btn.querySelector('i').classList.add('spinner-border', 'spinner-border-sm'); }
+  const dots = [...document.querySelectorAll('.pc-dot[data-pcid]')];
+  let i = 0, ativos = 0;
+  const proximo = () => {
+    while (ativos < 8 && i < dots.length) {
+      const d = dots[i++]; ativos++;
+      pingDot(d).finally(() => { ativos--; atualizarContadoresPc(); proximo(); });
+    }
+    if (i >= dots.length && ativos === 0) {
+      _pingando = false;
+      if (btn) { btn.disabled = false; btn.querySelector('i').classList.remove('spinner-border', 'spinner-border-sm'); }
+      atualizarContadoresPc();
+    }
+  };
+  proximo();
+}
+document.addEventListener('DOMContentLoaded', verificarTodos);
 
 // ── Detalhe / configuração completa do equipamento ──
 function escD(s) { const d = document.createElement('div'); d.textContent = s == null ? '' : String(s); return d.innerHTML; }

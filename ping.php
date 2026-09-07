@@ -21,15 +21,18 @@ if (!filter_var($ip, FILTER_VALIDATE_IP)) {
 
 $online = false;
 
-// ── Método 1: TCP socket (porta 445 = SMB Windows) ────────────
-// Timeout de 1 segundo — muito mais rápido que ping ICMP em host offline
-$conn = @fsockopen($ip, 445, $errno, $errstr, 1);
-if ($conn !== false) {
-    fclose($conn);
-    $online = true;
+// ── Método 1: TCP socket em portas comuns de Windows ligado ────
+// 445 SMB · 3389 RDP · 135 RPC · 139 NetBIOS. Timeout curto (0.7s) por porta.
+foreach ([445, 3389, 135, 139] as $porta) {
+    $conn = @fsockopen($ip, $porta, $errno, $errstr, 0.7);
+    if ($conn !== false) {
+        fclose($conn);
+        $online = true;
+        break;
+    }
 }
 
-// ── Método 2: fallback ICMP ping ──────────────────────────────
+// ── Método 2: fallback ICMP ping (quando o binário existe) ─────
 if (!$online) {
     $ip_safe = escapeshellarg($ip);
 
