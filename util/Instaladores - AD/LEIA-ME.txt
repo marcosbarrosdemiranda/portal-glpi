@@ -1,39 +1,120 @@
 GLPI Agent - instalador para PCs DENTRO do dominio (via GPO)
 ===========================================================
 
+Dominio: intranet.grupogmais.com
 SERVER do inventario: https://192.168.1.198:7412/glpi2/
   (IP interno + porta 7412, HTTPS com validacao de certificado desligada
    - o cert e para ti.grupogmais.com, nao para o IP, e os PCs de loja nao
-   resolvem o DNS interno. E o mesmo endereco da pasta "util/Instaladores".
+   resolvem o DNS interno. E o MESMO endereco da pasta "util/Instaladores".
    A porta 80 do proxy foi removida do nginx - nao use mais.)
 
-Conteudo:
-  deploy-glpi-agent.ps1 ...... instala/atualiza o agente a partir do MSI desta pasta
-                               e ja RE-APONTA um agente que estava no endereco velho
-  run-startup.bat ............ script de startup da GPO (chama o .ps1)
-  GLPI-Agent-1.15-x64.msi .... NAO versionado no git. Baixe de
-                               github.com/glpi-project/glpi-agent/releases/tag/1.15
-                               e coloque aqui (mesma pasta) antes de publicar no SYSVOL.
+Conteudo desta pasta:
+  deploy-glpi-agent.ps1 ...... instala/atualiza o agente a partir do MSI desta
+                               pasta E re-aponta um agente que ja existe (mesmo
+                               que esteja no endereco velho da porta 80).
+  run-startup.bat ........... script de Inicializacao da GPO (chama o .ps1).
+  GLPI-Agent-1.15-x64.msi ... NAO vem no git. Baixe de
+                              github.com/glpi-project/glpi-agent/releases/tag/1.15
+                              e coloque nesta pasta ANTES de publicar no NETLOGON.
+                              (o startup roda como SYSTEM, antes do login, muitas
+                               vezes sem internet - por isso nunca baixa nada.)
 
-Dominio: intranet.grupogmais.com
 
-Como aplicar:
-  1. Copie os 3 arquivos (ps1 + bat + msi) para uma pasta no NETLOGON, ex:
-     \\intranet.grupogmais.com\NETLOGON\glpi-agent\
-  2. GPO -> Configuracao do Computador -> Politicas -> Configuracoes do Windows
-     -> Scripts (Inicializacao/Encerramento) -> Inicializacao
-     -> Adicionar: \\intranet.grupogmais.com\NETLOGON\glpi-agent\run-startup.bat
-  3. Vincule a GPO nas OUs dos PCs. gpupdate /force + reboot para testar em 1 maquina.
+-------------------------------------------------------------
+1) COMO FUNCIONA NO DOMINIO
+-------------------------------------------------------------
+A GPO tem um "Script de Inicializacao" (Computer Startup Script). Caracteristicas:
 
-Trocar o servidor depois:
-  O script reescreve a URL no registro + agent.cfg a CADA inicializacao. Para
-  mudar o endereco, edite o -ServerUrl na linha do run-startup.bat, republique
-  no \\intranet.grupogmais.com\NETLOGON\glpi-agent\: todo PC do dominio se
-  re-aponta no proximo boot.
+  - Roda no BOOT, antes de qualquer usuario logar, como conta SYSTEM (admin total).
+  - Roda em TODO boot, nao so uma vez. O deploy-glpi-agent.ps1 e idempotente:
+      * se o agente nao existe -> instala do MSI da pasta
+      * se ja existe          -> so reescreve server + no-ssl-check no registro
+                                 e no agent.cfg, e forca um envio de inventario
+  - So se aplica aos PCs cujas contas de computador estao numa OU onde a GPO
+    esta VINCULADA (ou que herda a GPO de uma OU pai).
+  - A politica atualiza sozinha a cada ~90 min, MAS script de inicializacao so
+    dispara no proximo BOOT da maquina. gpupdate /force NAO executa o script.
 
-Verificacao:
-  - Log no cliente: C:\Windows\Temp\glpi-gpo.log e glpi-agent-install.log
-  - GLPI: Ativos -> Computadores (last_inventory_update recente)
-  - Portal: Inventario -> PCs/PDVs (o aviso "sem inventario +7d" some em ate 24h)
+Passo a passo (no controlador de dominio):
 
-Nao baixa nada da internet - so usa o MSI da pasta (por isso o MSI tem que estar la).
+  1. Copie os 3 arquivos (ps1 + bat + msi) para o NETLOGON:
+       \\intranet.grupogmais.com\NETLOGON\glpi-agent\
+     (o NETLOGON ja replica para todos os DCs e ja e legivel por todas as
+      maquinas do dominio - nao precisa mexer em permissao de pasta.)
+
+  2. GPMC (gpmc.msc) -> botao direito na OU dos PCs (ou na raiz do dominio)
+     -> "Criar um GPO neste dominio e vincula-lo aqui"
+     -> nome: "GLPI Agent - Inventario"
+
+  3. Botao direito na GPO -> Editar:
+     Configuracao do Computador -> Politicas -> Configuracoes do Windows
+       -> Scripts (Inicializacao/Encerramento) -> Inicializacao
+       -> aba "Scripts" (NAO a aba "Scripts do PowerShell")
+       -> Adicionar -> Nome do script (caminho UNC completo):
+          \\intranet.grupogmais.com\NETLOGON\glpi-agent\run-startup.bat
+       -> OK
+
+  4. Vincule a GPO nas OUs que contem os PCs (Retaguarda, PDV, etc).
+     Se quiser aplicar em TODOS os PCs, vincule na raiz do dominio e exclua os
+     servidores por filtro (grupo de seguranca ou filtro WMI de SO cliente).
+
+  5. Teste em 1 maquina:
+       gpupdate /force   e depois REINICIAR (o script so roda no boot)
+     Logs no cliente:
+       C:\Windows\Temp\glpi-gpo.log         (o .ps1)
+       C:\Windows\Temp\glpi-gpo-bat.log     (o .bat)
+       C:\Windows\Temp\glpi-agent-install.log (o msiexec)
+
+  6. Confirme:
+       GLPI   -> Ativos -> Computadores (last_inventory_update recente)
+       Portal -> Inventario -> PCs/PDVs (o aviso "sem inventario +Nd" some)
+
+
+-------------------------------------------------------------
+2) MAQUINA NOVA ENTRA SOZINHA?
+-------------------------------------------------------------
+SIM, sem executar nada na mao, DESDE QUE:
+
+  a) a conta de computador da maquina caia numa OU onde a GPO esta vinculada;
+  b) o GLPI-Agent-1.15-x64.msi esteja no \\...\NETLOGON\glpi-agent\;
+  c) a maquina alcance 192.168.1.198:7412 na rede.
+
+Fluxo: PC entra no dominio -> primeiro boot -> startup script instala o agente
+-> agente manda o 1o inventario -> o computador aparece no GLPI automatico
+(o GLPI cria a ficha sozinho ao receber o primeiro inventario).
+
+PEGADINHA: maquina recem-adicionada por padrao vai para o container
+"Computers" (CN=Computers), e NAO da para vincular GPO num container - so em OU.
+Solucoes:
+  - vincular a GPO na raiz do dominio (herda para o container), OU
+  - redirecionar contas novas para uma OU com "redircmp":
+      redircmp "OU=Computadores,DC=intranet,DC=grupogmais,DC=com"
+
+
+-------------------------------------------------------------
+3) MAQUINAS QUE JA RECEBERAM O ARQUIVO COM A PORTA ANTIGA (80)
+-------------------------------------------------------------
+Nao precisa fazer nada manual nessas maquinas.
+
+O deploy-glpi-agent.ps1 novo reescreve server + no-ssl-check no registro e no
+agent.cfg em TODA execucao, ignorando o que estava la antes. Entao:
+
+  - publique os 3 arquivos corrigidos no \\...\NETLOGON\glpi-agent\
+  - no proximo boot de cada PC, o script troca o endereco para :7412 sozinho
+    e forca um envio.
+
+Para consertar UMA maquina agora, sem esperar o reboot (rode como admin nela):
+    \\intranet.grupogmais.com\NETLOGON\glpi-agent\run-startup.bat
+  ou o "Repontar agente.bat" da pasta util/Instaladores.
+
+Para nao esperar os reboots naturais de todas: reinicio remoto agendado, ou
+uma Tarefa Agendada "Imediata" via Preferencias de Politica de Grupo chamando
+o mesmo run-startup.bat uma vez.
+
+
+-------------------------------------------------------------
+TROCAR O SERVIDOR NO FUTURO
+-------------------------------------------------------------
+Edite o -ServerUrl na linha do run-startup.bat, republique no
+\\intranet.grupogmais.com\NETLOGON\glpi-agent\ : todo PC do dominio se
+re-aponta no proximo boot (o script reescreve registro + agent.cfg sempre).
