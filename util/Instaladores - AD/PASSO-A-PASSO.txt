@@ -1,0 +1,142 @@
+====================================================================
+ GLPI AGENT NO DOMINIO - PASSO A PASSO
+ Dominio: intranet.grupogmais.com
+ Servidor do inventario: https://192.168.1.198:7412/glpi2/
+====================================================================
+
+Objetivo: instalar/atualizar o GLPI Agent em todos os PCs do dominio
+via GPO, sem tocar em maquina.
+
+
+--------------------------------------------------------------------
+PARTE 1 - COPIAR OS ARQUIVOS PARA O NETLOGON  (uma vez)
+--------------------------------------------------------------------
+
+[ ] 1. Baixe o instalador:
+       github.com/glpi-project/glpi-agent/releases/tag/1.15
+       arquivo: GLPI-Agent-1.15-x64.msi
+
+[ ] 2. Logado como Admin de Dominio, abra no Explorer:
+       \\intranet.grupogmais.com\NETLOGON\
+
+[ ] 3. Crie a pasta:  glpi-agent
+
+[ ] 4. Copie os 3 arquivos para \\...\NETLOGON\glpi-agent\ :
+         deploy-glpi-agent.ps1
+         run-startup.bat
+         GLPI-Agent-1.15-x64.msi
+
+   (essa pasta e o SYSVOL do DC: C:\Windows\SYSVOL\domain\scripts\glpi-agent\
+    - replica sozinha para todos os DCs.)
+
+
+--------------------------------------------------------------------
+PARTE 2 - CRIAR A GPO  (uma vez)
+--------------------------------------------------------------------
+
+[ ] 5. Abra o Gerenciamento de Politica de Grupo (gpmc.msc) no DC.
+
+[ ] 6. Botao direito em "intranet.grupogmais.com" (raiz do dominio)
+       -> Criar um GPO neste dominio e vincula-lo aqui
+       -> Nome: GLPI Agent
+
+[ ] 7. Selecione a GPO "GLPI Agent" -> aba ESCOPO -> Filtros de Seguranca.
+       Opcao A (todos os PCs): deixe "Usuarios Autenticados".
+       Opcao B (controle manual): remova "Usuarios Autenticados" e
+         adicione o grupo  GPO-GLPI-Agent-Computers
+         (so os PCs desse grupo recebem a GPO).
+
+       >>> SE ESCOLHER A OPCAO B, FACA O PASSO 8. <<<
+       (Se deixou "Usuarios Autenticados", pule para o 9.)
+
+[ ] 8. ATENCAO (MS16-072) - so para a Opcao B:
+       aba DELEGACAO -> confirme que "Usuarios Autenticados" (ou
+       "Computadores do Dominio") aparece com permissao "Ler".
+       Se nao aparecer: Adicionar -> Computadores do Dominio -> Ler.
+       Sem isso a GPO NAO aplica em ninguem, nem em quem esta no grupo.
+
+[ ] 9. Botao direito na GPO "GLPI Agent" -> Editar.
+       Navegue ate:
+         Configuracao do Computador
+           -> Politicas
+             -> Configuracoes do Windows
+               -> Scripts (Inicializacao/Encerramento)
+                 -> Inicializacao
+
+[ ] 10. 2 cliques em "Inicializacao" -> aba "Scripts"
+        (NAO a aba "Scripts do Windows PowerShell")
+        -> Adicionar
+        -> Nome do script:
+             \\intranet.grupogmais.com\NETLOGON\glpi-agent\run-startup.bat
+        -> Parametros do script:  (DEIXE EM BRANCO)
+        -> OK -> OK -> feche o editor.
+
+
+--------------------------------------------------------------------
+PARTE 3 - TESTAR EM 1 MAQUINA
+--------------------------------------------------------------------
+
+[ ] 11. (So se usou a Opcao B do passo 7) adicione o PC de teste ao
+        grupo  GPO-GLPI-Agent-Computers  no Usuarios e Computadores
+        do AD. Reinicie o PC uma vez para ele pegar o novo grupo.
+
+[ ] 12. No PC de teste, prompt de comando como admin:
+          gpupdate /force
+        depois REINICIE o PC (script de inicializacao so roda no boot;
+        gpupdate sozinho nao executa).
+
+[ ] 13. Apos o boot, no PC de teste, confira os logs:
+          C:\Windows\Temp\glpi-gpo.log         (deve terminar com
+                                                "Deploy GLPI Agent finalizado")
+          C:\Windows\Temp\glpi-gpo-bat.log
+          C:\Windows\Temp\glpi-agent-install.log
+        e Painel de Controle -> Programas -> deve ter "GLPI Agent".
+
+[ ] 14. Em ~minutos:
+          GLPI   -> Ativos -> Computadores  (last_inventory_update recente)
+          Portal -> Inventario -> PCs/PDVs  (aviso "sem inventario" some)
+
+
+--------------------------------------------------------------------
+PARTE 4 - LIBERAR PARA OS DEMAIS
+--------------------------------------------------------------------
+
+[ ] 15. Opcao A: ja esta valendo para todos - so aguardar cada PC
+        reiniciar (nas lojas reiniciam sozinhos, ~diario).
+        Opcao B: va adicionando os PCs ao grupo GPO-GLPI-Agent-Computers.
+
+[ ] 16. Para forcar sem esperar o reboot natural de um PC (como admin nele):
+          \\intranet.grupogmais.com\NETLOGON\glpi-agent\run-startup.bat
+
+
+====================================================================
+ PERGUNTAS FREQUENTES
+====================================================================
+
+P: Maquina nova entra sozinha?
+R: Opcao A (filtro "Usuarios Autenticados"): SIM. Entra no dominio,
+   no 1o boot o script instala e manda inventario, o GLPI cria a ficha.
+   Opcao B (filtro por grupo): so depois de adicionar o PC ao grupo
+   GPO-GLPI-Agent-Computers.
+
+P: Precisa rodar algo na maquina?
+R: Nao. O startup script roda sozinho no boot, como SYSTEM.
+
+P: E os PCs que ja rodaram a versao antiga (porta 80)?
+R: Nada manual. O deploy-glpi-agent.ps1 reescreve o endereco no
+   registro e no agent.cfg em TODA execucao. No proximo boot eles
+   trocam para :7412 sozinhos. Para consertar um agora: rode o
+   run-startup.bat nele como admin.
+
+P: Preciso de parametro no script da GPO?
+R: Nao. O run-startup.bat ja tem tudo dentro (servidor :7412,
+   no-ssl-check, versao 1.15). Campo "Parametros do script" em branco.
+
+P: Trocar o servidor no futuro?
+R: Edite o -ServerUrl na linha do run-startup.bat, salve por cima em
+   \\intranet.grupogmais.com\NETLOGON\glpi-agent\ . Todo PC se
+   re-aponta no proximo boot.
+
+P: gpupdate /force resolve?
+R: Nao para o primeiro deploy - script de inicializacao SO roda no
+   boot. Tem que reiniciar a maquina.
