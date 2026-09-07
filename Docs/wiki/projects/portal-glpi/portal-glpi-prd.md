@@ -258,19 +258,21 @@
 - [ ] Estimativa de consumo de energia da frota (PCs antigos gastam mais)
 - [ ] Máquinas ligadas 24h que não precisam
 
-**14. Inventário de Redes — integração com o The Dude (MikroTik)**
+**14. Inventário de Redes — integração com o The Dude**
+> Decisão do usuário (set/2026): **manter o The Dude standalone (Windows, v4.0 beta 3)** — já
+> está funcionando com as redes configuradas e pré-nomeadas, muito trabalho investido. Só será
+> movido do PC atual para um servidor. NÃO migrar pro pacote do RouterOS.
 > Hoje o Inventário de Redes (`inventario_redes.php`) só integra com UniFi (APs).
-> O The Dude roda como pacote no RouterOS e já tem o mapa da rede descoberto,
-> com status ao vivo de switches, servidores, PDVs, impressoras, DVRs, etc.
-- [ ] Tabela `portal_dude_servers` (host RouterOS, usuário, senha via vault_crypto) — padrão igual UniFi/GitHub
-- [ ] **Pull:** ler `/dude/device` via RouterOS API (v7 REST `/rest/dude/device` ou API binária 8728/8729)
-      → cada dispositivo vira linha no Inventário de Redes com status 🟢/🔴/🟡, tipo, IP, "pai" (topologia)
-- [ ] Cache curto do resultado (mesmo esquema do cache do GitHub/UniFi)
-- [ ] Dados SNMP que o Dude já coleta: tráfego por porta, CPU/temperatura de switch gerenciável
-- [ ] **Push:** notificação do Dude → script RouterOS `/tool fetch` POST → endpoint do portal
-      (`dude_evento.php`) → registra queda/volta, linha do tempo, e alimenta o chamado automático (item 5)
-- [ ] Mapa/topologia simples no portal a partir dos `/dude/link`
+- [ ] Confirmar o formato do `dude.db` da v4.0 beta 3 (SQLite ou binário proprietário)
+- [ ] Se SQLite: **Pull** — script no servidor GLPI lê o `dude.db` (cópia read-only) a cada X min
+      → cada device vira linha no Inventário de Redes com status 🟢/🔴/🟡, tipo, IP, "pai"
+- [ ] Se binário: alternativa = ligar o servidor web embutido do Dude e raspar as páginas de status
+- [ ] **Push:** notificação do Dude (tipo "Execute" / HTTP) → endpoint `dude_evento.php` no portal
+      → registra queda/volta, linha do tempo, e alimenta o chamado automático (item 5)
+- [ ] Tabela `portal_dude_devices` (cache) + `portal_dude_eventos` (histórico de quedas)
 - [ ] Reaproveitar a UI de grupos + bolinha de status que já existe no `inventario_redes.php`
+- [ ] Pré-requisito: mover o Dude pro servidor (idealmente onde o portal consiga ler o `dude.db`,
+      ex: o próprio host do Docker/GLPI ou um share SMB)
 
 ---
 
