@@ -1,9 +1,12 @@
 # deploy-glpi-agent.ps1 - instala/atualiza o GLPI Agent via GPO (startup script).
-# O MSI tem que estar NESTA MESMA PASTA (SYSVOL da GPO).
+# O MSI tem que estar NESTA MESMA PASTA (SYSVOL da GPO). Nunca baixa da internet.
 param(
-  # HTTP no IP interno: os PCs de loja nao resolvem ti.grupogmais.com pro IP
-  # interno. A porta 80 do 192.168.1.198 faz proxy so do trafego do agente.
-  [string]$ServerUrl = 'http://192.168.1.198/glpi2/',
+  # IP interno + porta 7412 (HTTPS), com no-ssl-check: o certificado e para
+  # ti.grupogmais.com, nao para o IP - e os PCs de loja nao resolvem o DNS
+  # interno. E o unico endereco que funciona de dentro sem mexer no servidor.
+  # (A porta 80 do proxy foi removida do nginx - ver commit b149b18.)
+  [string]$ServerUrl = 'https://192.168.1.198:7412/glpi2/',
+  [int]$NoSslCheck   = 1,
   [string]$Version   = '1.15',
   [string]$Freq      = 'daily'
 )
@@ -14,7 +17,7 @@ try { [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::
 $Log = "$env:WINDIR\Temp\glpi-gpo.log"
 function Log($m){ "$((Get-Date).ToString('yyyy-MM-dd HH:mm:ss')) [INFO] $m" | Out-File -FilePath $Log -Append -Encoding utf8 }
 
-Log "Deploy GLPI Agent iniciado. Server=$ServerUrl | Version=$Version | Freq=$Freq | PSScriptRoot=$PSScriptRoot"
+Log "Deploy GLPI Agent iniciado. Server=$ServerUrl | NoSslCheck=$NoSslCheck | Version=$Version | Freq=$Freq | PSScriptRoot=$PSScriptRoot"
 
 # 1) MSI: so na pasta da GPO (SYSVOL) - nunca baixa da internet num startup script
 $msiExact = Join-Path $PSScriptRoot "GLPI-Agent-$Version-x64.msi"
@@ -39,11 +42,13 @@ Log "Instalando/Atualizando agente..."
 $proc = Start-Process msiexec -ArgumentList $msiArgs -PassThru -Wait
 Log "msiexec exitcode=$($proc.ExitCode)"
 
-# 2b) Garante a URL no registro (o SERVER= do MSI so pega em instalacao limpa)
+# 2b) Garante a URL no registro (o SERVER= do MSI so pega em instalacao limpa;
+#     num agente ja instalado - inclusive um que ficou no endereco velho -
+#     precisa escrever direto no registro/cfg)
 foreach ($k in 'HKLM:\SOFTWARE\GLPI-Agent','HKLM:\SOFTWARE\WOW6432Node\GLPI-Agent') {
   if (Test-Path $k) {
     Set-ItemProperty -Path $k -Name server -Value $ServerUrl
-    Set-ItemProperty -Path $k -Name 'no-ssl-check' -Value 0 -ErrorAction SilentlyContinue
+    Set-ItemProperty -Path $k -Name 'no-ssl-check' -Value $NoSslCheck -ErrorAction SilentlyContinue
   }
 }
 $cfg = 'C:\Program Files\GLPI-Agent\etc\agent.cfg'
@@ -51,9 +56,10 @@ if (-not (Test-Path $cfg)) { $cfg = 'C:\Program Files (x86)\GLPI-Agent\etc\agent
 if (Test-Path $cfg) {
   $cc = Get-Content $cfg
   if ($cc -match '^\s*server\s*=') { $cc = $cc -replace '^\s*server\s*=.*', "server = $ServerUrl" } else { $cc += "server = $ServerUrl" }
+  if ($cc -match '^\s*no-ssl-check\s*=') { $cc = $cc -replace '^\s*no-ssl-check\s*=.*', "no-ssl-check = $NoSslCheck" } else { $cc += "no-ssl-check = $NoSslCheck" }
   Set-Content $cfg $cc -Encoding ASCII
 }
-Log "URL forcada no registro/cfg: $ServerUrl"
+Log "URL forcada no registro/cfg: $ServerUrl (no-ssl-check=$NoSslCheck)"
 
 # 3) Reinicia servico e agenda envio forcado no proximo ciclo do servico
 $bat = 'C:\Program Files\GLPI-Agent\glpi-agent.bat'
@@ -64,7 +70,9 @@ if (Test-Path $bat) {
     Log "Reiniciando servico glpi-agent..."
     Stop-Service glpi-agent -Force -ErrorAction SilentlyContinue
     Start-Service glpi-agent -ErrorAction SilentlyContinue
-    Log "Marcando forcerun..."
+    Log "Forcando envio de inventario para $ServerUrl ..."
+    $sslArg = if ($NoSslCheck -eq 1) { '--no-ssl-check' } else { '' }
+    & $bat --server $ServerUrl $sslArg --tasks=Inventory --full -f --debug 2>&1 | Out-File -FilePath $Log -Append -Encoding utf8
     & $bat --set-forcerun --debug 2>&1 | Out-File -FilePath $Log -Append -Encoding utf8
   } catch {
     Log "Falha ao acionar agente: $($_.Exception.Message)"
