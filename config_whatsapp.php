@@ -38,9 +38,9 @@ if ($action !== '') {
         case 'save_groups':
             $a = trim($_POST['alertas_jid'] ?? '');
             $c = trim($_POST['chamados_jid'] ?? '');
-            // aceita só JID de grupo (@g.us) ou string vazia
+            // aceita só JID de grupo do WhatsApp (dígitos, opcionalmente com hífen, + @g.us) ou string vazia
             foreach (['alertas' => $a, 'chamados' => $c] as $k => $v) {
-                if ($v !== '' && !str_ends_with($v, '@g.us')) {
+                if ($v !== '' && !preg_match('/^[0-9]+(-[0-9]+)?@g\.us$/', $v)) {
                     echo json_encode(['ok' => false, 'erro' => "JID de $k inválido"]);
                     exit;
                 }
@@ -189,9 +189,10 @@ $chamados_jid = wpp_cfg_get('grupo_chamados_jid', '');
 
   var PAGE = 'config_whatsapp.php';
   // JIDs salvos no banco (pré-seleção dos selects)
+  // Flags JSON_HEX_* escapam < / ' & — evita quebrar o <script> com valor persistido malicioso
   var SALVO = {
-    alertas:  <?= json_encode($alertas_jid) ?>,
-    chamados: <?= json_encode($chamados_jid) ?>
+    alertas:  <?= json_encode($alertas_jid, JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_QUOT | JSON_HEX_AMP) ?>,
+    chamados: <?= json_encode($chamados_jid, JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_QUOT | JSON_HEX_AMP) ?>
   };
   var estadoAtual = 'desconhecido';
   var pollTimer = null;
