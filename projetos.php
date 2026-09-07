@@ -44,6 +44,7 @@ $pdo->exec("
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
 ");
 $pdo->exec("ALTER TABLE portal_projetos_status ADD COLUMN IF NOT EXISTS visivel TINYINT(1) NOT NULL DEFAULT 1");
+$pdo->exec("ALTER TABLE portal_projetos_status ADD COLUMN IF NOT EXISTS previsao DATE NULL");
 
 // ── AJAX: contas GitHub (cada usuário só mexe nas próprias) ────
 $ghAction = $_GET['gh_action'] ?? '';
@@ -123,6 +124,74 @@ if ($ghAction) {
             ON DUPLICATE KEY UPDATE status = VALUES(status)
         ")->execute([$contaId, $repoNome, $status]);
         echo json_encode(['ok'=>true]);
+        exit;
+    }
+
+    if ($ghAction === 'set_previsao') {
+        $body     = json_decode(file_get_contents('php://input'), true) ?? [];
+        $contaId  = (int)($body['conta_id'] ?? 0);
+        $repoNome = trim($body['repo_nome'] ?? '');
+        $prev     = trim($body['previsao'] ?? '');
+        $prevSql  = ($prev !== '' && preg_match('/^\d{4}-\d{2}-\d{2}$/', $prev)) ? $prev : null;
+        if (!$repoNome) { echo json_encode(['ok'=>false,'msg'=>'Repositório inválido']); exit; }
+        $st = $pdo->prepare("SELECT id FROM portal_github_contas WHERE id=? AND user_id=?");
+        $st->execute([$contaId, $uid]);
+        if (!$st->fetch()) { echo json_encode(['ok'=>false,'msg'=>'Conta não encontrada']); exit; }
+        $pdo->prepare("INSERT INTO portal_projetos_status (conta_id, repo_nome, previsao) VALUES (?,?,?)
+                       ON DUPLICATE KEY UPDATE previsao = VALUES(previsao)")
+            ->execute([$contaId, $repoNome, $prevSql]);
+        echo json_encode(['ok'=>true]);
+        exit;
+    }
+
+    if ($ghAction === 'apresentacao') {
+        $body     = json_decode(file_get_contents('php://input'), true) ?? [];
+        $contaId  = (int)($body['conta_id'] ?? 0);
+        $repoNome = trim($body['repo_nome'] ?? '');
+
+        $doc = docPrdDoProjeto($repoNome);
+        if (!$doc) { echo json_encode(['ok'=>false,'msg'=>'Sem documentação (PRD) para o projeto ' . $repoNome . ' em Docs/wiki/projects/']); exit; }
+
+        // previsão: manual (portal) tem prioridade; senão a data-fim do "Prazo" do doc
+        $prevManual = null;
+        $st = $pdo->prepare("SELECT ps.previsao FROM portal_projetos_status ps
+                             JOIN portal_github_contas c ON c.id = ps.conta_id
+                             WHERE ps.repo_nome = ? AND c.user_id = ? AND ps.previsao IS NOT NULL LIMIT 1");
+        $st->execute([$repoNome, $uid]);
+        $prevManual = $st->fetchColumn() ?: null;
+        $previsao = '';
+        if ($prevManual) {
+            $previsao = date('d/m/Y', strtotime($prevManual));
+        } elseif (!empty($doc['prazo'])) {
+            [$ini, $fim] = parsePrazoRange($doc['prazo']);
+            if ($fim) $previsao = date('d/m/Y', $fim);
+        }
+
+        // agrupa por módulo → implementadas x futuras
+        $impl = []; $fut = [];
+        foreach ($doc['modulos'] as $m) {
+            $d = []; $f = [];
+            foreach ($m['tarefas'] as $t) {
+                $txt = trim(preg_replace('/\s+/', ' ', strip_tags($t['texto'])));
+                if ($txt === '') continue;
+                if ($t['done']) $d[] = $txt; else $f[] = $txt;
+            }
+            if ($d) $impl[] = ['modulo' => $m['nome'], 'itens' => $d];
+            if ($f) $fut[]  = ['modulo' => $m['nome'], 'itens' => $f];
+        }
+
+        echo json_encode([
+            'ok'        => true,
+            'titulo'    => $doc['titulo'],
+            'objetivo'  => $doc['objetivo'] ?? '',
+            'equipe'    => $doc['equipe'] ?? '',
+            'pct'       => (int)($doc['pct'] ?? 0),
+            'done'      => (int)($doc['done'] ?? 0),
+            'total'     => (int)($doc['total'] ?? 0),
+            'previsao'  => $previsao,
+            'implementadas' => $impl,
+            'futuras'   => $fut,
+        ], JSON_UNESCAPED_UNICODE);
         exit;
     }
 
@@ -467,6 +536,44 @@ $projetos  = [];
  * Todos os .md dentro de uma subpasta são mesclados em um único projeto
  * Pastas iniciadas com _ (underscore) são ignoradas (ex: _Documentação)
  */
+/**
+ * Retorna o PRD parseado de um projeto (pasta = nome do repo), SÓ o PRD —
+ * sem mesclar logs de sessão / ADRs. Fonte pro card e pra Apresentação.
+ */
+function docPrdDoProjeto(string $repoNome): ?array {
+    static $cache = [];
+    $chave = mb_strtolower($repoNome);
+    if (array_key_exists($chave, $cache)) return $cache[$chave];
+
+    $base = __DIR__ . '/Docs/wiki/projects';
+    $cfg  = __DIR__ . '/config_projetos.local.php';
+    if (file_exists($cfg)) { require_once $cfg; if (defined('ORIGEM_PROJETOS') && is_dir(ORIGEM_PROJETOS)) $base = ORIGEM_PROJETOS; }
+
+    $sub = null;
+    foreach (glob($base . '/*', GLOB_ONLYDIR) ?: [] as $sp) {
+        if (strcasecmp(basename($sp), $repoNome) === 0) { $sub = $sp; break; }
+    }
+    if (!$sub) return $cache[$chave] = null;
+
+    $cands = glob($sub . '/*.md') ?: [];
+    $norm  = fn($s) => mb_strtolower(str_replace(['-', '_', ' '], '', $s));
+    $pn    = $norm($repoNome);
+    $main  = null;
+    // 1) "<repo>-prd.md"  2) qualquer "*-prd.md" que contenha o nome do repo
+    // 3) "prd.md" / "PRD-<algo>.md"  4) arquivo com o nome do repo  5) README/index
+    foreach ($cands as $md) if ($norm(basename($md, '.md')) === $pn . 'prd') { $main = $md; break; }
+    if (!$main) foreach ($cands as $md) { $nb = $norm(basename($md, '.md'));
+        if (str_ends_with($nb, 'prd') && str_contains($nb, $pn)) { $main = $md; break; } }
+    if (!$main) foreach ($cands as $md) { $nb = $norm(basename($md, '.md'));
+        if ($nb === 'prd' || str_starts_with($nb, 'prd')) { $main = $md; break; } }
+    if (!$main) foreach ($cands as $md) if (str_contains($norm(basename($md, '.md')), $pn)) { $main = $md; break; }
+    if (!$main) foreach ($cands as $md) { $b = mb_strtolower(basename($md, '.md')); if ($b === 'readme' || $b === 'index') { $main = $md; break; } }
+    if (!$main) $main = $cands[0] ?? null;
+    if (!$main) return $cache[$chave] = null;
+
+    return $cache[$chave] = parseProjeto($main);
+}
+
 function carregarProjetosDaPasta(string $pasta): array {
     $result = [];
     if (!is_dir($pasta)) return $result;
@@ -926,6 +1033,38 @@ body  { background:#f0f4f9; font-family:'Segoe UI',sans-serif; font-size:.9rem; 
 .gh-proj-det-list .gh-det-mais { color:#9ca3af; font-style:italic; }
 .gh-lbl { display:inline-block; background:#eef2ff; color:#3730a3; border-radius:8px;
           padding:0 .4rem; font-size:.62rem; font-weight:600; margin-left:.25rem; }
+
+/* ── Apresentação do projeto (modal, pronto pra reunião) ── */
+.gh-btn-apres { color:#1a73e8 !important; }
+.apres-obj { font-size:1rem; color:#374151; margin:0 0 1.25rem; line-height:1.5; }
+.apres-topo { display:flex; gap:1.5rem; align-items:center; flex-wrap:wrap; margin-bottom:1.5rem;
+              padding:1rem 1.25rem; background:#f6f8fb; border-radius:12px; }
+.apres-prog { flex:1; min-width:240px; }
+.apres-prog-bar { height:14px; border-radius:8px; background:#e5e7eb; overflow:hidden; }
+.apres-prog-bar > span { display:block; height:100%; border-radius:8px;
+                         background:linear-gradient(90deg,#1a73e8,#1e8e3e); transition:width .5s; }
+.apres-prog-txt { margin-top:.4rem; font-size:.95rem; color:#374151; }
+.apres-prog-txt strong { font-size:1.35rem; color:#1a237e; }
+.apres-prev { text-align:center; font-size:.82rem; color:#6b7280; padding:0 .5rem; }
+.apres-prev strong { font-size:1.15rem; color:#c62828; }
+.apres-cols { display:grid; grid-template-columns:1fr 1fr; gap:1.5rem; }
+@media(max-width:800px){ .apres-cols { grid-template-columns:1fr; } }
+.apres-col-h { font-size:1rem; font-weight:800; padding:.5rem .75rem; border-radius:10px; margin-bottom:.75rem; }
+.apres-col-h span { font-weight:600; opacity:.75; }
+.apres-h-ok  { background:#e6f4ea; color:#1e6b30; }
+.apres-h-fut { background:#e8f0fe; color:#174ea6; }
+.apres-mod { margin-bottom:1rem; }
+.apres-mod-nome { font-size:.78rem; font-weight:700; text-transform:uppercase; letter-spacing:.04em;
+                  color:#6b7280; margin-bottom:.3rem; }
+.apres-lista { margin:0; padding-left:1.2rem; }
+.apres-lista li { font-size:.92rem; line-height:1.5; color:#374151; margin-bottom:.15rem; }
+.apres-lista.ok li  { list-style:'✓  '; }
+.apres-lista.fut li { list-style:'○  '; color:#4b5563; }
+@media print {
+  .modal-header, .modal-footer, body > *:not(.modal) { display:none !important; }
+  #modalApres { position:static; display:block !important; }
+  #modalApres .modal-dialog { max-width:100%; margin:0; }
+}
 .commit-hist { list-style:none; margin:0; padding:0; font-size:.8rem; }
 .commit-hist-dia { position:sticky; top:57px; background:#f3f4f6; color:#374151; font-weight:700;
                    font-size:.72rem; padding:.3rem .9rem; border-bottom:1px solid #e5e7eb; }
@@ -1077,13 +1216,15 @@ body  { background:#f0f4f9; font-family:'Segoe UI',sans-serif; font-size:.9rem; 
       $contaIds   = array_column($minhasContas, 'id');
       $statusMap  = [];
       $visivelMap = [];
+      $previsaoMap = [];
       $ph = implode(',', array_fill(0, count($contaIds), '?'));
-      $st = $pdo->prepare("SELECT conta_id, repo_nome, status, visivel FROM portal_projetos_status WHERE conta_id IN ($ph)");
+      $st = $pdo->prepare("SELECT conta_id, repo_nome, status, visivel, previsao FROM portal_projetos_status WHERE conta_id IN ($ph)");
       $st->execute($contaIds);
       foreach ($st->fetchAll(PDO::FETCH_ASSOC) as $row) {
           $chaveMap = $row['conta_id'] . ':' . $row['repo_nome'];
-          $statusMap[$chaveMap]  = $row['status'];
-          $visivelMap[$chaveMap] = (int)$row['visivel'];
+          $statusMap[$chaveMap]   = $row['status'];
+          $visivelMap[$chaveMap]  = (int)$row['visivel'];
+          $previsaoMap[$chaveMap] = $row['previsao'];
       }
 
       foreach ($minhasContas as $conta) {
@@ -1117,20 +1258,34 @@ body  { background:#f0f4f9; font-family:'Segoe UI',sans-serif; font-size:.9rem; 
               $repo['issues_data'] = $issues;
               $repo['commits']     = $commits;
 
-              // Progresso: issues fechadas / total. Sem issues → cai pro checklist do README.
+              // PRD local (Docs/wiki/projects/<repo>/<repo>-prd.md) — se existir, é a
+              // fonte mais confiável de progresso e de "funcionalidades feitas x futuras".
+              $doc = docPrdDoProjeto($repo['nome']);
+              $repo['tem_doc'] = (bool)$doc;
+
+              // Progresso: 1º doc local · 2º issues fechadas/total · 3º checklist README
               $totIss = $issues['total_abertas'] + $issues['total_fechadas'];
-              if ($totIss > 0) {
-                  $repo['progresso'] = [
-                      'feitas' => $issues['total_fechadas'],
-                      'total'  => $totIss,
-                      'pct'    => (int)round($issues['total_fechadas'] / $totIss * 100),
-                      'fonte'  => 'issues',
-                  ];
+              if ($doc && ($doc['total'] ?? 0) > 0) {
+                  $repo['progresso'] = ['feitas' => $doc['done'], 'total' => $doc['total'], 'pct' => (int)$doc['pct'], 'fonte' => 'doc'];
+              } elseif ($totIss > 0) {
+                  $repo['progresso'] = ['feitas' => $issues['total_fechadas'], 'total' => $totIss,
+                                        'pct' => (int)round($issues['total_fechadas'] / $totIss * 100), 'fonte' => 'issues'];
               } else {
                   $repo['progresso'] = $analiseReadme['progresso'] + ['fonte' => 'readme'];
               }
 
-              $repo['previsao'] = gh_cached($pdo, "milestone:$ck", 600, fn() => github_obter_previsao($token, $ghUser, $repo['nome']));
+              // Previsão de término: manual (portal) · doc "Prazo" (data-fim) · milestone GitHub
+              $prevManual = $previsaoMap[$ck] ?? null;
+              if ($prevManual) {
+                  $repo['previsao_txt'] = date('d/m/Y', strtotime($prevManual));
+              } elseif ($doc && !empty($doc['prazo'])) {
+                  [$pi, $pf] = parsePrazoRange($doc['prazo']);
+                  $repo['previsao_txt'] = $pf ? date('d/m/Y', $pf) : ($doc['prazo'] ?: '');
+              } else {
+                  $ms = gh_cached($pdo, "milestone:$ck", 600, fn() => github_obter_previsao($token, $ghUser, $repo['nome']));
+                  $repo['previsao_txt'] = $ms ? date('d/m/Y', strtotime($ms)) : '';
+              }
+              $repo['previsao'] = null; // legado, não usar mais
 
               $reposPorSecao[$status][] = $repo;
           }
@@ -1180,11 +1335,14 @@ body  { background:#f0f4f9; font-family:'Segoe UI',sans-serif; font-size:.9rem; 
                       <i class="bi bi-journal-text me-1"></i><?= esc($repo['nome']) ?>
                     </a>
                     <div class="gh-proj-acoes">
+                      <button type="button" class="gh-proj-icon-btn gh-btn-apres" title="Apresentação — funcionalidades e previsão" onclick="abrirApresentacao(<?= (int)$repo['conta_id'] ?>,'<?= esc($repo['nome']) ?>')"><i class="bi bi-easel2-fill"></i></button>
                       <button type="button" class="gh-proj-icon-btn" title="Histórico de commits" onclick="abrirCommits(<?= (int)$repo['conta_id'] ?>,'<?= esc($repo['nome']) ?>')"><i class="bi bi-clock-history"></i></button>
                       <a href="<?= esc($repo['url']) ?>" target="_blank" rel="noopener" class="gh-proj-icon-btn" title="Abrir no GitHub"><i class="bi bi-github"></i></a>
                       <div class="dropdown">
                         <button type="button" class="gh-proj-menu" data-bs-toggle="dropdown" aria-expanded="false"><i class="bi bi-three-dots-vertical"></i></button>
                         <ul class="dropdown-menu dropdown-menu-end">
+                          <li><a class="dropdown-item" href="#" onclick="definirPrevisao(event,<?= (int)$repo['conta_id'] ?>,'<?= esc($repo['nome']) ?>')"><i class="bi bi-calendar-event me-2"></i>Definir previsão de término</a></li>
+                          <li><hr class="dropdown-divider"></li>
                           <?php foreach ($secoesInfo as $optKey => $optInfo): ?>
                             <li><a class="dropdown-item" href="#" onclick="mudarStatus(event,<?= (int)$repo['conta_id'] ?>,'<?= esc($repo['nome']) ?>','<?= $optKey ?>')"><i class="bi <?= $optInfo['icon'] ?> me-2"></i><?= $optInfo['label'] ?></a></li>
                           <?php endforeach; ?>
@@ -1195,18 +1353,19 @@ body  { background:#f0f4f9; font-family:'Segoe UI',sans-serif; font-size:.9rem; 
                   <?php if ($repo['descricao']): ?>
                     <div class="gh-proj-desc"><?= esc($repo['descricao']) ?></div>
                   <?php endif; ?>
-                  <?php if (($repo['progresso']['total'] ?? 0) > 0): ?>
+                  <?php if (($repo['progresso']['total'] ?? 0) > 0):
+                    $fnt = $repo['progresso']['fonte'] ?? '';
+                    $lblFonte = $fnt === 'doc' ? 'Funcionalidades' : ($fnt === 'issues' ? 'Issues' : 'Checklist README');
+                    $lblVerbo = $fnt === 'issues' ? 'fechadas' : 'concluídas'; ?>
                     <div class="gh-proj-progress">
                       <div class="gh-proj-progress-bar"><div class="gh-proj-progress-fill" style="width:<?= (int)$repo['progresso']['pct'] ?>%"></div></div>
                       <span class="gh-proj-progress-label">
-                        <?= ($repo['progresso']['fonte'] ?? '') === 'issues' ? 'Issues' : 'Checklist README' ?>:
-                        <?= (int)$repo['progresso']['feitas'] ?>/<?= (int)$repo['progresso']['total'] ?>
-                        <?= ($repo['progresso']['fonte'] ?? '') === 'issues' ? 'fechadas' : 'concluídas' ?>
+                        <strong><?= (int)$repo['progresso']['pct'] ?>%</strong> · <?= $lblFonte ?>: <?= (int)$repo['progresso']['feitas'] ?>/<?= (int)$repo['progresso']['total'] ?> <?= $lblVerbo ?>
                       </span>
                     </div>
                   <?php endif; ?>
-                  <?php if ($repo['previsao']): ?>
-                    <div class="gh-proj-previsao"><i class="bi bi-calendar-event me-1"></i>Previsão: <?= esc(date('d/m/Y', strtotime($repo['previsao']))) ?></div>
+                  <?php if (!empty($repo['previsao_txt'])): ?>
+                    <div class="gh-proj-previsao"><i class="bi bi-calendar-event me-1"></i>Previsão de término: <strong><?= esc($repo['previsao_txt']) ?></strong></div>
                   <?php endif; ?>
 
                   <?php $iss = $repo['issues_data'] ?? null; ?>
@@ -1759,10 +1918,30 @@ document.getElementById('filtroConta')?.addEventListener('change', aplicarFiltro
   </div>
 </div>
 
+<!-- Modal: Apresentação do projeto -->
+<div class="modal fade" id="modalApres" tabindex="-1">
+  <div class="modal-dialog modal-dialog-centered modal-xl modal-dialog-scrollable">
+    <div class="modal-content">
+      <div class="modal-header" style="background:linear-gradient(135deg,#1a237e,#1565c0);color:white">
+        <h5 class="modal-title fw-bold" id="apresTitulo"><i class="bi bi-easel2-fill me-2"></i>Apresentação</h5>
+        <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body" id="apresCorpo" style="padding:1.5rem">
+        <div class="text-muted">Carregando…</div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-outline-primary me-auto" onclick="window.print()"><i class="bi bi-printer me-1"></i>Imprimir</button>
+        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Fechar</button>
+      </div>
+    </div>
+  </div>
+</div>
+
 <script>
 let modalConta;
 let modalDoc;
 let modalCommits;
+let modalApres;
 let _commitsCache = [];
 document.addEventListener('DOMContentLoaded', () => {
   const elConta = document.getElementById('modalConta');
@@ -1771,7 +1950,81 @@ document.addEventListener('DOMContentLoaded', () => {
   if (elDoc) modalDoc = new bootstrap.Modal(elDoc);
   const elCommits = document.getElementById('modalCommits');
   if (elCommits) modalCommits = new bootstrap.Modal(elCommits);
+  const elApres = document.getElementById('modalApres');
+  if (elApres) modalApres = new bootstrap.Modal(elApres);
 });
+
+function _escA(s) { const d = document.createElement('div'); d.textContent = s == null ? '' : String(s); return d.innerHTML; }
+
+async function abrirApresentacao(contaId, repoNome) {
+  document.getElementById('apresTitulo').innerHTML = '<i class="bi bi-easel2-fill me-2"></i>' + _escA(repoNome);
+  document.getElementById('apresCorpo').innerHTML = '<div class="text-muted">Carregando funcionalidades…</div>';
+  modalApres.show();
+  try {
+    const r = await fetch('projetos.php?gh_action=apresentacao', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ conta_id: contaId, repo_nome: repoNome }),
+    });
+    const d = await r.json();
+    if (!d.ok) {
+      document.getElementById('apresCorpo').innerHTML =
+        '<div class="alert alert-warning mb-0">' + _escA(d.msg || 'Sem dados') + '</div>';
+      return;
+    }
+    const grupo = (lista, cls) => lista.map(g =>
+      '<div class="apres-mod">' +
+        '<div class="apres-mod-nome">' + _escA(g.modulo) + '</div>' +
+        '<ul class="apres-lista ' + cls + '">' +
+          g.itens.map(i => '<li>' + _escA(i) + '</li>').join('') +
+        '</ul>' +
+      '</div>').join('') || '<div class="text-muted small">—</div>';
+
+    const nImpl = d.implementadas.reduce((s, g) => s + g.itens.length, 0);
+    const nFut  = d.futuras.reduce((s, g) => s + g.itens.length, 0);
+
+    document.getElementById('apresTitulo').innerHTML = '<i class="bi bi-easel2-fill me-2"></i>' + _escA(d.titulo || repoNome);
+    document.getElementById('apresCorpo').innerHTML =
+      (d.objetivo ? '<p class="apres-obj">' + _escA(d.objetivo) + '</p>' : '') +
+      '<div class="apres-topo">' +
+        '<div class="apres-prog">' +
+          '<div class="apres-prog-bar"><span style="width:' + d.pct + '%"></span></div>' +
+          '<div class="apres-prog-txt"><strong>' + d.pct + '%</strong> concluído · ' + d.done + ' de ' + d.total + ' funcionalidades</div>' +
+        '</div>' +
+        (d.previsao ? '<div class="apres-prev"><i class="bi bi-calendar-event me-1"></i>Previsão de término<br><strong>' + _escA(d.previsao) + '</strong></div>' : '') +
+      '</div>' +
+      '<div class="apres-cols">' +
+        '<div class="apres-col">' +
+          '<div class="apres-col-h apres-h-ok"><i class="bi bi-check-circle-fill me-1"></i>Funcionalidades implementadas <span>(' + nImpl + ')</span></div>' +
+          grupo(d.implementadas, 'ok') +
+        '</div>' +
+        '<div class="apres-col">' +
+          '<div class="apres-col-h apres-h-fut"><i class="bi bi-rocket-takeoff-fill me-1"></i>Próximas funcionalidades <span>(' + nFut + ')</span></div>' +
+          grupo(d.futuras, 'fut') +
+        '</div>' +
+      '</div>';
+  } catch (e) {
+    document.getElementById('apresCorpo').innerHTML =
+      '<div class="alert alert-danger mb-0">Erro: ' + _escA(e.message) + '</div>';
+  }
+}
+
+async function definirPrevisao(ev, contaId, repoNome) {
+  ev.preventDefault();
+  const atual = prompt('Previsão de término (dd/mm/aaaa). Deixe vazio para remover:', '');
+  if (atual === null) return;
+  let iso = '';
+  const m = atual.trim().match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
+  if (atual.trim() !== '') {
+    if (!m) { alert('Formato inválido. Use dd/mm/aaaa.'); return; }
+    iso = m[3] + '-' + m[2].padStart(2, '0') + '-' + m[1].padStart(2, '0');
+  }
+  const r = await fetch('projetos.php?gh_action=set_previsao', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ conta_id: contaId, repo_nome: repoNome, previsao: iso }),
+  });
+  const d = await r.json();
+  if (d.ok) location.reload(); else alert(d.msg || 'Erro ao salvar');
+}
 
 function _fmtDataHora(iso) {
   if (!iso) return '—';
