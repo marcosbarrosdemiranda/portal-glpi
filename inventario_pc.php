@@ -212,20 +212,48 @@ $rows = array_values(array_filter($todos, function ($r) use ($loja_filtro, $busc
 $staleCount = 0;
 foreach ($todos as $r) if (inv_stale($r['ultimo_inv'] ?? null)) $staleCount++;
 
-// IPv4 principal de cada máquina (pro status ligado/desligado via ping.php)
-$ipPorPc = [];
+// IPs candidatos de cada máquina (pro status ligado/desligado via ping.php).
+// Uma máquina pode ter várias placas/IPs — o JS pinga todos e considera online
+// se qualquer um responder. Filtra virtuais/VPN e prioriza a subnet do servidor.
+$ipsPorPc = [];
 $_pcIds = array_values(array_filter(array_map(fn($r) => (int)$r['id'], $rows)));
 if ($_pcIds && $view !== 'baixados') {
+    // subnet da LAN do servidor GLPI (192.168.1.198) — sempre alcançável do container.
+    // O gethostbyname aqui devolve o IP do bridge Docker (172.x), então é fixo.
+    $_srvNet = '192.168.1.';
+
+    $ipDescartar = function (string $ip): bool {
+        if (!filter_var($ip, FILTER_VALIDATE_IP, FILTER_FLAG_IPV4)) return true;
+        [$a, $b] = array_map('intval', explode('.', $ip));
+        if ($a === 127 || $a === 0) return true;
+        if ($a === 169 && $b === 254) return true;                 // APIPA
+        if ($a === 100 && $b >= 64 && $b <= 127) return true;      // Tailscale / CGNAT
+        if ($a === 172 && $b >= 16 && $b <= 31) return true;       // Docker
+        if ($a === 192 && $b === 168 && (int)explode('.', $ip)[2] === 56) return true; // VirtualBox
+        return false;
+    };
+
     $ph = implode(',', array_fill(0, count($_pcIds), '?'));
     $stIp = $pdo->prepare("SELECT np.items_id AS cid, ia.name AS ip
                            FROM glpi_networkports np
                            JOIN glpi_networknames nn ON nn.itemtype='NetworkPort' AND nn.items_id = np.id
                            JOIN glpi_ipaddresses ia  ON ia.itemtype='NetworkName' AND ia.items_id = nn.id
                            WHERE np.itemtype='Computer' AND np.items_id IN ($ph)
-                             AND ia.name LIKE '%.%' AND ia.name NOT LIKE '127.%' AND ia.name NOT LIKE '169.254.%'
+                             AND ia.name LIKE '%.%'
                            ORDER BY np.id");
     $stIp->execute($_pcIds);
-    foreach ($stIp as $r) { $cid = (int)$r['cid']; if (!isset($ipPorPc[$cid])) $ipPorPc[$cid] = $r['ip']; }
+    foreach ($stIp as $r) {
+        $cid = (int)$r['cid']; $ip = trim($r['ip']);
+        if ($ipDescartar($ip)) continue;
+        if (!isset($ipsPorPc[$cid])) $ipsPorPc[$cid] = [];
+        if (!in_array($ip, $ipsPorPc[$cid], true)) $ipsPorPc[$cid][] = $ip;
+    }
+    // prioriza a subnet do servidor, limita a 4
+    foreach ($ipsPorPc as $cid => $lista) {
+        usort($lista, fn($x, $y) =>
+            ($_srvNet && str_starts_with($y, $_srvNet) ? 1 : 0) - ($_srvNet && str_starts_with($x, $_srvNet) ? 1 : 0));
+        $ipsPorPc[$cid] = array_slice($lista, 0, 4);
+    }
 }
 
 // Card de servidores: visão em árvore (servidor físico → VMs). Sempre carrega todos os
@@ -431,7 +459,7 @@ $qsStale = $stale_filtro ? '&stale=1' : '';
 
   <?php
   $catAtual = $slug;
-  $tabela = function(array $list) use ($view, $H, $MOT, $catAtual, $ipPorPc) { ?>
+  $tabela = function(array $list) use ($view, $H, $MOT, $catAtual, $ipsPorPc) { ?>
     <table>
       <thead><tr>
         <th>Nome</th><th>Categoria</th><th>Tipo (HW)</th><th>Fabricante / Modelo</th>
@@ -441,10 +469,10 @@ $qsStale = $stale_filtro ? '&stale=1' : '';
       <tbody>
       <?php foreach ($list as $a): $cat = $a['cat_salva'] ?: 'pcs-retaguarda';
         $_di = inv_dias_sem_inv($a['ultimo_inv'] ?? null);
-        $_ip = $ipPorPc[(int)$a['id']] ?? ''; ?>
+        $_ips = $ipsPorPc[(int)$a['id']] ?? []; ?>
         <tr>
           <td>
-            <?php if ($view !== 'baixados'): ?><span class="pc-dot<?= $_ip ? '' : ' sem-ip' ?>" data-ip="<?= $H($_ip) ?>" data-pcid="<?= (int)$a['id'] ?>" title="<?= $_ip ? 'Verificando…' : 'Sem IP conhecido' ?>"></span><?php endif; ?>
+            <?php if ($view !== 'baixados'): ?><span class="pc-dot<?= $_ips ? '' : ' sem-ip' ?>" data-ips='<?= $H(json_encode($_ips)) ?>' data-pcid="<?= (int)$a['id'] ?>" title="<?= $_ips ? 'Verificando…' : 'Sem IP conhecido' ?>"></span><?php endif; ?>
             <?= $H($a['name'] ?: '(sem nome)') ?>
             <?php if ($view !== 'baixados'):
               if ($_di === null): ?>
@@ -493,11 +521,11 @@ $qsStale = $stale_filtro ? '&stale=1' : '';
 
   <?php
   // linha de máquina na visão de servidores (com papel + host)
-  $linhaSrv = function(array $a) use ($H, $srvFisicos, $ipPorPc) {
+  $linhaSrv = function(array $a) use ($H, $srvFisicos, $ipsPorPc) {
       $papel = $a['papel'] ?? 'fisico';
-      $_ip = $ipPorPc[(int)$a['id']] ?? ''; ?>
+      $_ips = $ipsPorPc[(int)$a['id']] ?? []; ?>
     <tr>
-      <td><span class="pc-dot<?= $_ip ? '' : ' sem-ip' ?>" data-ip="<?= $H($_ip) ?>" data-pcid="<?= (int)$a['id'] ?>"></span> <?= $papel === 'virtual' ? '<span style="color:#9aa0a6">└─ </span>' : '<i class="bi bi-hdd-rack-fill" style="color:#5e35b1"></i> ' ?><?= $H($a['name'] ?: '(sem nome)') ?></td>
+      <td><span class="pc-dot<?= $_ips ? '' : ' sem-ip' ?>" data-ips='<?= $H(json_encode($_ips)) ?>' data-pcid="<?= (int)$a['id'] ?>"></span> <?= $papel === 'virtual' ? '<span style="color:#9aa0a6">└─ </span>' : '<i class="bi bi-hdd-rack-fill" style="color:#5e35b1"></i> ' ?><?= $H($a['name'] ?: '(sem nome)') ?></td>
       <td>
         <select class="cat" onchange="mudarSrv(<?= (int)$a['id'] ?>, this.value, null)">
           <option value="fisico" <?= $papel === 'fisico' ? 'selected' : '' ?>>Servidor físico</option>
@@ -736,18 +764,35 @@ $('#baixaBack').addEventListener('click', e => { if (e.target === $('#baixaBack'
 $('#detBack').addEventListener('click', e => { if (e.target === $('#detBack')) fecharDet(); });
 
 // ── Status ligado/desligado (ping) ──────────────────────────────
+// Uma máquina pode ter vários IPs (Ethernet, WiFi...). Pinga em ordem e para
+// no primeiro que responder = ligado. Só marca desligado se nenhum responder.
 function pingDot(dot) {
-  const ip = dot.dataset.ip;
-  if (!ip) { dot.className = 'pc-dot sem-ip'; return Promise.resolve(); }
+  let ips = [];
+  try { ips = JSON.parse(dot.dataset.ips || '[]'); } catch (_) {}
+  if (!ips.length) { dot.className = 'pc-dot sem-ip'; dot.title = 'Sem IP conhecido'; return Promise.resolve(); }
   dot.className = 'pc-dot checking';
-  dot.title = 'Verificando ' + ip + '…';
-  return fetch('ping.php?ip=' + encodeURIComponent(ip), { cache: 'no-store' })
-    .then(r => r.json())
-    .then(d => {
-      dot.className = 'pc-dot ' + (d.online ? 'online' : 'offline');
-      dot.title = ip + (d.online ? ' — ligado' : ' — desligado / sem resposta');
-    })
-    .catch(() => { dot.className = 'pc-dot offline'; dot.title = ip + ' — erro ao verificar'; });
+  dot.title = 'Verificando…';
+
+  const tentar = (i) => {
+    if (i >= ips.length) {
+      dot.className = 'pc-dot offline';
+      dot.title = ips.join(', ') + ' — sem resposta';
+      return;
+    }
+    const ip = ips[i];
+    return fetch('ping.php?ip=' + encodeURIComponent(ip), { cache: 'no-store' })
+      .then(r => r.json())
+      .then(d => {
+        if (d.online) {
+          dot.className = 'pc-dot online';
+          dot.title = ip + ' — ligado' + (d.via ? ' (' + d.via + ')' : '');
+        } else {
+          return tentar(i + 1);
+        }
+      })
+      .catch(() => tentar(i + 1));
+  };
+  return tentar(0);
 }
 
 function atualizarContadoresPc() {
