@@ -25,6 +25,10 @@ Documentação e Backup*/
 *.bak
 *.sql
 
+# ── Arquivos aposentados aguardando exclusão (nunca versionar) ─
+# Ex.: integracao GLPI-WhatsApp antiga (ws_glpi_*.js) - tem tokens hardcoded
+APAGAR/
+
 # ── Ambiente local do Claude Code ─────────────────────────────
 .claude/
 
