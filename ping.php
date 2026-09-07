@@ -1,50 +1,46 @@
 <?php
 /**
- * ping.php — Verifica se um IP está acessível na rede
+ * ping.php — Verifica se um IP está acessível na rede.
  *
- * GET ?ip=192.168.x.x
- * Retorna: {"online": true|false}
+ * GET ?ip=192.168.x.x   →   {"online": true|false, "via": "icmp"|"tcp:445"|null}
  *
- * Método 1: TCP socket porta 445 (SMB — sempre aberta em Windows ligado)
- * Método 2: fallback ICMP ping via exec()
+ * 1) ICMP (mais universal — a maioria dos Windows/impressoras/DVR responde)
+ * 2) fallback TCP em portas comuns (host que bloqueia ICMP mas tem serviço)
+ *
+ * OBS: em produção roda no container Linux (php:8.2-apache). O binário `ping`
+ * vem do pacote iputils-ping no Dockerfile. Antes do corte pro Docker era XAMPP
+ * no Windows (ping.exe nativo) — por isso o ICMP "parou de funcionar" em jul/2026.
  */
 header('Content-Type: application/json');
 header('Cache-Control: no-store, no-cache');
 
 $ip = trim($_GET['ip'] ?? '');
-
-// Valida IP
 if (!filter_var($ip, FILTER_VALIDATE_IP)) {
     echo json_encode(['online' => false, 'erro' => 'IP inválido']);
     exit;
 }
 
 $online = false;
+$via    = null;
 
-// ── Método 1: TCP socket em portas comuns de Windows ligado ────
-// 445 SMB · 3389 RDP · 135 RPC · 139 NetBIOS. Timeout curto (0.7s) por porta.
-foreach ([445, 3389, 135, 139] as $porta) {
-    $conn = @fsockopen($ip, $porta, $errno, $errstr, 0.7);
-    if ($conn !== false) {
-        fclose($conn);
-        $online = true;
-        break;
-    }
-}
+// ── 1) ICMP ───────────────────────────────────────────────────
+$ip_safe = escapeshellarg($ip);
+$isWin   = strtoupper(substr(PHP_OS, 0, 3)) === 'WIN';
+$cmd     = $isWin ? "ping -n 1 -w 1000 $ip_safe" : "ping -c 1 -W 1 $ip_safe 2>/dev/null";
+@exec($cmd, $out, $code);
+if ($code === 0) { $online = true; $via = 'icmp'; }
 
-// ── Método 2: fallback ICMP ping (quando o binário existe) ─────
+// ── 2) fallback TCP ───────────────────────────────────────────
 if (!$online) {
-    $ip_safe = escapeshellarg($ip);
-
-    if (strtoupper(substr(PHP_OS, 0, 3)) === 'WIN') {
-        // Windows (XAMPP produção)
-        exec("ping -n 1 -w 1000 {$ip_safe}", $out, $code);
-    } else {
-        // Linux (Docker dev)
-        exec("ping -c 1 -W 1 {$ip_safe}", $out, $code);
+    foreach ([445, 3389, 135, 139, 80, 443, 22] as $porta) {
+        $conn = @fsockopen($ip, $porta, $errno, $errstr, 0.5);
+        if ($conn !== false) {
+            fclose($conn);
+            $online = true;
+            $via    = 'tcp:' . $porta;
+            break;
+        }
     }
-
-    $online = ($code === 0);
 }
 
-echo json_encode(['online' => $online]);
+echo json_encode(['online' => $online, 'via' => $via]);
