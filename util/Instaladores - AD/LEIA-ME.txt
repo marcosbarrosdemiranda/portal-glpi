@@ -15,18 +15,21 @@ Conteudo:
                                github.com/glpi-project/glpi-agent/releases/tag/1.15
                                e coloque aqui (mesma pasta) antes de publicar no SYSVOL.
 
+Dominio: intranet.grupogmais.com
+
 Como aplicar:
-  1. Copie os 3 arquivos (ps1 + bat + msi) para uma pasta no SYSVOL, ex:
-     \\dominio\NETLOGON\glpi-agent\  ou  \\dominio\SYSVOL\...\scripts\glpi-agent\
+  1. Copie os 3 arquivos (ps1 + bat + msi) para uma pasta no NETLOGON, ex:
+     \\intranet.grupogmais.com\NETLOGON\glpi-agent\
   2. GPO -> Configuracao do Computador -> Politicas -> Configuracoes do Windows
      -> Scripts (Inicializacao/Encerramento) -> Inicializacao
-     -> Adicionar: run-startup.bat (com o caminho UNC da pasta acima)
+     -> Adicionar: \\intranet.grupogmais.com\NETLOGON\glpi-agent\run-startup.bat
   3. Vincule a GPO nas OUs dos PCs. gpupdate /force + reboot para testar em 1 maquina.
 
 Trocar o servidor depois:
   O script reescreve a URL no registro + agent.cfg a CADA inicializacao. Para
   mudar o endereco, edite o -ServerUrl na linha do run-startup.bat, republique
-  os 3 arquivos no SYSVOL: todo PC do dominio se re-aponta no proximo boot.
+  no \\intranet.grupogmais.com\NETLOGON\glpi-agent\: todo PC do dominio se
+  re-aponta no proximo boot.
 
 Verificacao:
   - Log no cliente: C:\Windows\Temp\glpi-gpo.log e glpi-agent-install.log
