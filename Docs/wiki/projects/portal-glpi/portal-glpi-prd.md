@@ -201,11 +201,13 @@
 - [ ] Alerta de equipamento acima da vida útil da categoria
 - [ ] Painel único de alertas do parque + histórico
 
-**1b. Status ligado/desligado na própria listagem**
-- [ ] Bolinha por equipamento na lista de PCs/PDVs: 🟢 ligado / 🔴 desligado (ping TCP/ICMP)
-- [ ] Botão "Sincronizar / verificar agora" — re-testa o status na hora (sem esperar o ciclo)
-- [ ] Reaproveitar a lógica do `inventario_pcs.php` (hoje em Acessos → Infraestrutura), trazendo pra dentro do card
-- [ ] Contador no topo: X ligados / Y desligados por loja
+**1b. Status ligado/desligado na própria listagem** ✅ FEITO (commit `b0a8594`)
+- [x] Bolinha por equipamento na lista de PCs/PDVs: 🟢 ligado / 🔴 desligado / cinza sem IP (ping.php, TCP 445/3389/135/139)
+- [x] Botão "Verificar agora" — re-testa tudo na hora (8 em paralelo, escalonado)
+- [x] Contador no topo: X ligados / Y desligados / sem IP
+- [x] Também na visão de servidores/VMs
+- [ ] Contador quebrado por loja (hoje é geral)
+- [ ] ICMP como fallback real (falta o binário `ping` no container glpi-web — só TCP hoje)
 
 **2. KPIs de Inventário (painel próprio no BI)**
 - [ ] Saúde da coleta: % de máquinas reportando / atrasadas / nunca reportaram
