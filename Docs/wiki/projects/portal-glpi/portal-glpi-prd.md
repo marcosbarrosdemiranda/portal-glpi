@@ -343,17 +343,24 @@
 - [ ] Cobrir também dependências: banco, DNS resolvendo, certificado perto de vencer
 - [ ] Tabela `portal_svc_monitor` (config) + `portal_svc_checks` (histórico)
 
-**18. Monitoramento da VPN entre lojas**
-> Cada loja liga na matriz por túnel VPN (MikroTik ↔ MikroTik). Se o túnel cai,
-> a loja fica isolada — PDVs não sincronizam, sem acesso remoto, sem inventário.
-- [ ] Status do túnel por loja: 🟢 conectado / 🔴 caído / 🟡 instável
-- [ ] Fonte: RouterOS API do MikroTik (`/interface` running, `/ip ipsec active-peers`,
-      `/interface wireguard peers`, `/ppp active`) OU ping a um IP fixo dentro de cada loja
-- [ ] Alerta quando cai → grupo TI no WhatsApp + chamado automático "Loja X sem VPN"
-- [ ] Alerta de "voltou" + duração da queda; histórico de estabilidade por loja
-- [ ] Latência/perda de pacote do túnel ao longo do tempo (loja "instável" antes de cair)
-- [ ] Painel-mapa: todas as lojas e o estado do link de cada uma
-- [ ] Reaproveita a integração do The Dude (bloco 14) se ele já monitora os túneis
+**18. Monitoramento de conectividade das lojas (VPN + dois links)**
+> Cada loja liga na matriz por túnel VPN (MikroTik ↔ MikroTik) e tem **DOIS links
+> de internet** (principal + backup, failover). Dois problemas a pegar:
+> a) o túnel VPN cair (loja isolada); b) UM dos dois links cair — a loja continua
+> funcionando pelo outro, mas ninguém percebe até o segundo também cair.
+- [ ] **VPN:** status do túnel por loja (🟢 conectado / 🔴 caído / 🟡 instável) —
+      RouterOS API (`/ip ipsec active-peers`, `/interface wireguard peers`, `/ppp active`)
+      ou ping a um IP fixo dentro da loja
+- [ ] **Dois links:** estado de CADA link por loja (link1 / link2: no ar / caído),
+      qual está ativo no failover, há quanto tempo — RouterOS (`/interface` running,
+      `/ip route` gateway ativo, netwatch por gateway) ou The Dude
+- [ ] Alerta quando **um** link cai → grupo TI "Loja X rodando só no link de backup"
+      (sem redundância — prioridade média, não é emergência mas precisa resolver)
+- [ ] Alerta quando o **túnel** cai ou os **dois** links caem → emergência + chamado automático
+- [ ] Alerta de "voltou" + duração da queda; histórico de estabilidade e nº de quedas por loja/link
+- [ ] Latência / perda de pacote por link ao longo do tempo (link "degradando" antes de cair)
+- [ ] Painel-mapa: todas as lojas com VPN + link1 + link2, verde/amarelo/vermelho
+- [ ] Reaproveita a integração do The Dude (bloco 14)
 
 ---
 
