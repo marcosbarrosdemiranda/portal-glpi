@@ -362,6 +362,22 @@
 - [ ] Painel-mapa: todas as lojas com VPN + link1 + link2, verde/amarelo/vermelho
 - [ ] Reaproveita a integração do The Dude (bloco 14)
 
+**19. Card "Configuração de Alertas" (central)**
+> Um card só no dashboard pra configurar TODOS os alertas dos blocos 1, 5, 14–18 e
+> o canal WhatsApp num lugar só — sem espalhar config por cada tela.
+- [ ] Lista de tipos de alerta (disco cheio, sem inventário, falha de HW, PC/serviço fora,
+      VPN de loja, link de loja, HD de DVR, temperatura de freezer, etc.) — ligar/desligar cada um
+- [ ] Limite por tipo (ex: disco > 90 %, sem inventário > 7 dias, temperatura > -15 °C) editável
+- [ ] Destino de cada alerta: grupo(s) do WhatsApp, DM pra quem, e-mail — mapa evento ↔ destino
+- [ ] Regra de chamado: não abre / só notifica / abre / abre se persistir X dias / abre só em horário comercial
+- [ ] Prioridade e categoria do chamado por tipo de alerta
+- [ ] Silenciar (mute) um alerta por período (manutenção programada) — global ou por loja/equipamento
+- [ ] Horário de silêncio (não mandar alerta não-crítico de madrugada, só registrar)
+- [ ] Override por loja / por categoria de equipamento (ex: PDV tem limite de RAM diferente da retaguarda)
+- [ ] Log de disparos: o que foi enviado, pra onde, entregue/lido, e se virou chamado
+- [ ] Tabelas `portal_alerta_tipos`, `portal_alerta_regras`, `portal_alerta_destinos`, `portal_alerta_log`
+- [ ] Permissão no perfil pra quem pode mexer nas regras de alerta
+
 ---
 
 ## 📚 Módulo 6 — Área do Conhecimento
