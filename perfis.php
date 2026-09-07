@@ -62,6 +62,7 @@ $SECOES = [
         'sla'           => ['label' => 'SLAs',                   'icon' => 'bi-clock-fill',          'css' => 'card-sla-config'],
         'logs'          => ['label' => 'Logs do Portal',         'icon' => 'bi-journal-text',        'css' => 'card-logs'],
         'manutencao'    => ['label' => 'Manutenção',             'icon' => 'bi-tools',               'css' => 'card-manutencao'],
+        'notificacoes_config' => ['label' => 'Notificações',    'icon' => 'bi-bell-fill',           'css' => 'card-logs'],
         'perfis'        => ['label' => 'Perfis de Usuário',      'icon' => 'bi-shield-person-fill',  'css' => 'card-usuarios'],
     ],
 ];
