@@ -6,6 +6,8 @@
 # NUNCA versionar — contém senhas, tokens e caminhos de servidor
 agenda/config.php
 config_db_prod.php
+docker/.env
+wpp/config.php
 
 # Certificado Let's Encrypt (chave privada) — gerado localmente via certbot
 docker/certbot-etc/
@@ -24,6 +26,8 @@ Documentação e Backup*/
 *.zip
 *.bak
 *.sql
+# Exceção: init script do database da Evolution API precisa ser versionado
+!docker/init-evolution-db.sql
 
 # ── Arquivos aposentados aguardando exclusão (nunca versionar) ─
 # Ex.: integracao GLPI-WhatsApp antiga (ws_glpi_*.js) - tem tokens hardcoded
