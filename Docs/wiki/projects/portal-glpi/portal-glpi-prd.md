@@ -330,6 +330,19 @@
 - [ ] KPIs ambientais no BI (temperatura média, nº de alertas, tempo fora da faixa)
 - [ ] Tabela `portal_ha_sensores` (config: entidade HA, tipo, limite, loja) + `portal_ha_leituras`
 
+**17. Monitoramento de sistemas internos do grupo (uptime)**
+> Além dos equipamentos, monitorar os PRÓPRIOS sistemas do grupo que rodam em
+> servidor e são acessados por DNS: Checklist G+, controle de horas extras
+> (ponto-gmais), o próprio portal/GLPI, Evolution API, etc.
+- [ ] Cadastro de "serviço monitorado": nome, URL/DNS, porta, o que valida (HTTP 200, texto na página, TCP)
+- [ ] Verificação periódica (cron) + botão "verificar agora"
+- [ ] Card/painel de status dos serviços (🟢 no ar / 🔴 fora / 🟡 lento) com uptime %
+- [ ] Alerta quando cai → grupo TI no WhatsApp (bloco 5/WhatsApp) + chamado automático
+- [ ] Alerta de "voltou" quando normaliza; registra duração da queda
+- [ ] Latência/tempo de resposta ao longo do tempo (gráfico)
+- [ ] Cobrir também dependências: banco, DNS resolvendo, certificado perto de vencer
+- [ ] Tabela `portal_svc_monitor` (config) + `portal_svc_checks` (histórico)
+
 ---
 
 ## 📚 Módulo 6 — Área do Conhecimento
