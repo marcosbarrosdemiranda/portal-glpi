@@ -13,10 +13,10 @@
 
 require_once __DIR__ . '/alertas_lib.php';
 require_once __DIR__ . '/entidade_alias.php';
+require_once __DIR__ . '/agenda/db.php';
 
 // cria a tabela ao incluir (padrão do portal)
 (function () {
-    require_once __DIR__ . '/agenda/db.php';
     global $pdo;
     $pdo->exec("CREATE TABLE IF NOT EXISTS portal_alertas_config (
         tipo VARCHAR(40) PRIMARY KEY,

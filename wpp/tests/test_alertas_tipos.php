@@ -30,10 +30,10 @@ t_eq($c['notif_whatsapp'], false, 'com linha: notif_whatsapp=false');
 t_eq($c['lembrete_min'], 120, 'com linha: lembrete_min=120');
 $pdo->exec("DELETE FROM portal_alertas_config WHERE tipo = 'sem_inventario'");
 
-// params JSON inválido -> defaults
-$pdo->prepare("INSERT INTO portal_alertas_config (tipo,params) VALUES ('disco_cheio','xxx-nao-json')")->execute();
+// params não-objeto -> defaults (MariaDB valida json_valid na coluna JSON, então usamos JSON escalar válido)
+$pdo->prepare("INSERT INTO portal_alertas_config (tipo,params) VALUES ('disco_cheio','123')")->execute();
 $c = alertas_config_do_tipo($pdo, 'disco_cheio');
-t_eq($c['params']['pct'], 90, 'params JSON inválido cai no default');
+t_eq($c['params']['pct'], 90, 'params não-objeto cai no default');
 $pdo->exec("DELETE FROM portal_alertas_config WHERE tipo = 'disco_cheio'");
 
 // checks retornam array de ocorrências com as chaves obrigatórias
