@@ -235,6 +235,10 @@ $chamados_jid = wpp_cfg_get('grupo_chamados_jid', '');
     .aviso { background:#fff7ed; border:1px solid #fed7aa; color:#9a3412; border-radius:8px; padding:.6rem .9rem;
              font-size:.85rem; margin-bottom:1rem; }
     label.form-label { font-weight:600; font-size:.85rem; color:#374151; }
+    .gat-bloco { border:1px solid #e5e7eb; border-radius:10px; padding:.75rem .9rem; margin-bottom:.6rem; }
+    .gat-bloco .form-check-label { cursor:pointer; }
+    .gat-sub { margin-left:1.9rem; margin-top:.5rem; transition:opacity .15s; }
+    .gat-sub.off { opacity:.35; }
     footer { text-align:center; color:#bbb; font-size:.78rem; padding:2rem; }
   </style>
 </head>
@@ -353,49 +357,86 @@ $chamados_jid = wpp_cfg_get('grupo_chamados_jid', '');
     <!-- ─────────── Aba Gatilhos ─────────── -->
     <div class="tab-body" id="tab-gatilhos" style="display:none">
       <p class="small text-muted mb-3">
-        Ligue ou desligue cada notificação automática e ajuste os tempos. Vale de 1 a 1440 minutos/horas
-        (o atraso da DM pode ser 0 para envio imediato).
+        Marque as notificações que você quer. O ajuste de tempo de cada uma
+        só vale quando ela está marcada.
       </p>
 
-      <div class="form-check form-switch mb-2">
-        <input type="checkbox" class="form-check-input" id="g-on_novo">
-        <label class="form-check-label" for="g-on_novo">Chamado novo → grupo Chamados</label>
-      </div>
-      <div class="form-check form-switch mb-2">
-        <input type="checkbox" class="form-check-input" id="g-on_atribuido">
-        <label class="form-check-label" for="g-on_atribuido">Chamado atribuído → DM pro técnico</label>
-      </div>
-      <div class="form-check form-switch mb-2">
-        <input type="checkbox" class="form-check-input" id="g-on_alertas">
-        <label class="form-check-label" for="g-on_alertas">Alertas do parque → grupo Alertas</label>
-      </div>
-      <div class="form-check form-switch mb-3">
-        <input type="checkbox" class="form-check-input" id="g-on_sla">
-        <label class="form-check-label" for="g-on_sla">SLA / chamado parado → grupo Chamados</label>
+      <!-- Chamado novo -->
+      <div class="gat-bloco">
+        <div class="form-check">
+          <input type="checkbox" class="form-check-input gat-toggle" id="g-on_novo" data-dep="novo">
+          <label class="form-check-label fw-semibold" for="g-on_novo">Chamado novo → grupo Chamados</label>
+        </div>
+        <div class="gat-sub small text-muted">Avisa no grupo assim que um chamado é aberto. Sem ajuste.</div>
       </div>
 
-      <div class="row g-3">
-        <div class="col-sm-6">
-          <label class="form-label" for="g-cfg_delay_dm_min">Atraso da DM (min)</label>
-          <input type="number" min="0" max="1440" step="1" class="form-control form-control-sm" id="g-cfg_delay_dm_min">
+      <!-- Chamado atribuído -->
+      <div class="gat-bloco">
+        <div class="form-check">
+          <input type="checkbox" class="form-check-input gat-toggle" id="g-on_atribuido" data-dep="atribuido">
+          <label class="form-check-label fw-semibold" for="g-on_atribuido">Chamado atribuído → DM pro técnico</label>
         </div>
-        <div class="col-sm-6">
-          <label class="form-label" for="g-cfg_digest_alertas_min">Intervalo do digest de alertas (min)</label>
-          <input type="number" min="1" max="1440" step="1" class="form-control form-control-sm" id="g-cfg_digest_alertas_min">
-        </div>
-        <div class="col-sm-6">
-          <label class="form-label" for="g-cfg_sla_horas">Chamado parado após (horas)</label>
-          <input type="number" min="1" max="1440" step="1" class="form-control form-control-sm" id="g-cfg_sla_horas">
-        </div>
-        <div class="col-sm-6">
-          <label class="form-label" for="g-cfg_sla_prevenc_min">Aviso de pré-vencimento (min antes)</label>
-          <input type="number" min="1" max="1440" step="1" class="form-control form-control-sm" id="g-cfg_sla_prevenc_min">
-        </div>
-        <div class="col-sm-6">
-          <label class="form-label" for="g-cfg_offline_reset_min">Re-semear baseline após offline (min)</label>
-          <input type="number" min="1" max="1440" step="1" class="form-control form-control-sm" id="g-cfg_offline_reset_min">
+        <div class="gat-sub" data-dep="atribuido">
+          <label class="form-label mb-1" for="g-cfg_delay_dm_min">Atraso da DM</label>
+          <div class="input-group input-group-sm" style="max-width:230px">
+            <input type="number" min="0" max="1440" step="1" class="form-control" id="g-cfg_delay_dm_min">
+            <span class="input-group-text">min (0 = na hora)</span>
+          </div>
         </div>
       </div>
+
+      <!-- Alertas -->
+      <div class="gat-bloco">
+        <div class="form-check">
+          <input type="checkbox" class="form-check-input gat-toggle" id="g-on_alertas" data-dep="alertas">
+          <label class="form-check-label fw-semibold" for="g-on_alertas">Alertas do parque → grupo Alertas</label>
+        </div>
+        <div class="gat-sub" data-dep="alertas">
+          <label class="form-label mb-1" for="g-cfg_digest_alertas_min">Intervalo do resumo de alertas</label>
+          <div class="input-group input-group-sm" style="max-width:150px">
+            <input type="number" min="1" max="1440" step="1" class="form-control" id="g-cfg_digest_alertas_min">
+            <span class="input-group-text">min</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- SLA / parado -->
+      <div class="gat-bloco">
+        <div class="form-check">
+          <input type="checkbox" class="form-check-input gat-toggle" id="g-on_sla" data-dep="sla">
+          <label class="form-check-label fw-semibold" for="g-on_sla">SLA / chamado parado → grupo Chamados</label>
+        </div>
+        <div class="gat-sub" data-dep="sla">
+          <div class="row g-2" style="max-width:430px">
+            <div class="col-6">
+              <label class="form-label mb-1" for="g-cfg_sla_horas">Parado após</label>
+              <div class="input-group input-group-sm">
+                <input type="number" min="1" max="1440" step="1" class="form-control" id="g-cfg_sla_horas">
+                <span class="input-group-text">h</span>
+              </div>
+            </div>
+            <div class="col-6">
+              <label class="form-label mb-1" for="g-cfg_sla_prevenc_min">Aviso antes de vencer</label>
+              <div class="input-group input-group-sm">
+                <input type="number" min="1" max="1440" step="1" class="form-control" id="g-cfg_sla_prevenc_min">
+                <span class="input-group-text">min</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <details class="mt-2">
+        <summary class="small text-muted" style="cursor:pointer">Avançado</summary>
+        <div class="gat-sub mt-2" style="margin-left:0">
+          <label class="form-label mb-1" for="g-cfg_offline_reset_min">Re-semear baseline se o worker ficar offline por</label>
+          <div class="input-group input-group-sm" style="max-width:150px">
+            <input type="number" min="1" max="1440" step="1" class="form-control" id="g-cfg_offline_reset_min">
+            <span class="input-group-text">min</span>
+          </div>
+          <div class="text-muted small mt-1">Se o worker cair e voltar depois desse tempo, ele re-marca tudo como "já notificado" em vez de despejar o acúmulo.</div>
+        </div>
+      </details>
 
       <button class="btn btn-success btn-sm mt-3" id="btn-gatilhos-salvar" style="background:var(--wpp);border-color:var(--wpp)">
         <i class="bi bi-save me-1"></i>Salvar
@@ -832,6 +873,7 @@ $chamados_jid = wpp_cfg_get('grupo_chamados_jid', '');
         GAT_TOGGLES.forEach(function (k) { $('g-' + k).checked = (String(d.cfg[k]) === '1'); });
         GAT_NUMS.forEach(function (k) { $('g-' + k).value = parseInt(d.cfg[k], 10) || 0; });
         gatilhosCarregados = true;
+        sincronizarGatilhos();
         feedback($('fb-gatilhos'), 'ok', 'Configuração carregada.');
       })
       .catch(function (err) {
@@ -839,16 +881,41 @@ $chamados_jid = wpp_cfg_get('grupo_chamados_jid', '');
       });
   }
 
+  // apaga/desabilita os campos de tempo de um gatilho quando ele está desmarcado
+  function sincronizarGatilhos() {
+    ['atribuido', 'alertas', 'sla'].forEach(function (dep) {
+      var on = $('g-on_' + dep).checked;
+      document.querySelectorAll('.gat-sub[data-dep="' + dep + '"]').forEach(function (el) {
+        el.classList.toggle('off', !on);
+        el.querySelectorAll('input').forEach(function (i) { i.disabled = !on; });
+      });
+    });
+  }
+
   function salvarGatilhos() {
     var btn = $('btn-gatilhos-salvar');
     var params = new URLSearchParams();
     GAT_TOGGLES.forEach(function (k) { params.set(k, $('g-' + k).checked ? '1' : '0'); });
+    // qual gatilho "dono" de cada campo — se ele está desmarcado, não valida
+    var DONO = {
+      cfg_delay_dm_min: 'on_atribuido', cfg_digest_alertas_min: 'on_alertas',
+      cfg_sla_horas: 'on_sla', cfg_sla_prevenc_min: 'on_sla'
+    };
+    var LABEL = {
+      cfg_delay_dm_min: 'Atraso da DM', cfg_digest_alertas_min: 'Intervalo do resumo de alertas',
+      cfg_sla_horas: 'Parado após', cfg_sla_prevenc_min: 'Aviso antes de vencer',
+      cfg_offline_reset_min: 'Re-semear baseline'
+    };
     var erroLocal = null;
     GAT_NUMS.forEach(function (k) {
       var v = parseInt($('g-' + k).value, 10);
-      if (isNaN(v)) { v = 0; }
       var min = (k === 'cfg_delay_dm_min') ? 0 : 1; // só o atraso da DM aceita 0
-      if (v < min || v > 1440) { erroLocal = erroLocal || (k + ' fora do intervalo (' + min + '..1440)'); }
+      var ativo = !DONO[k] || $('g-' + DONO[k]).checked;
+      if (isNaN(v)) { v = min; }
+      if (ativo && (v < min || v > 1440)) {
+        erroLocal = erroLocal || (LABEL[k] + ': informe um valor de ' + min + ' a 1440');
+      }
+      if (!ativo && (v < min || v > 1440)) { v = min; } // gatilho off: só normaliza pra não travar o save
       params.set(k, v);
     });
     if (erroLocal) { feedback($('fb-gatilhos'), 'err', erroLocal); return; }
@@ -950,6 +1017,9 @@ $chamados_jid = wpp_cfg_get('grupo_chamados_jid', '');
   $('btn-salvar').addEventListener('click', salvarGrupos);
   $('btn-puxar-glpi').addEventListener('click', puxarDoGlpi);
   $('btn-gatilhos-salvar').addEventListener('click', salvarGatilhos);
+  document.querySelectorAll('.gat-toggle').forEach(function (t) {
+    t.addEventListener('change', sincronizarGatilhos);
+  });
   $('btn-log-atualizar').addEventListener('click', function () { carregarLog(false); });
   $('sel-log-limite').addEventListener('change', function () { carregarLog(false); });
   $('chk-log-auto').addEventListener('change', function () {
