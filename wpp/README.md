@@ -236,20 +236,16 @@ ADICIONAR O SERVICO WORKER AO COMPOSE
 
        portal-wpp-worker:
          build: .
-         entrypoint: while true; do php /var/www/html/glpi2/portal-glpi/wpp/worker.php; sleep 30; done
+         container_name: portal-wpp-worker
+         restart: unless-stopped
          depends_on:
            - glpi-db
            - evolution-api
+         volumes:
+           - C:\docker\glpi-portal\glpi2:/var/www/html/glpi2
+         entrypoint: ["sh", "-c", "while true; do php /var/www/html/glpi2/portal-glpi/wpp/worker.php; sleep 30; done"]
          networks:
            - glpi-net
-         restart: always
-         environment:
-           - GLPI_HOST=${GLPI_HOST}
-           - GLPI_PORT=${GLPI_PORT}
-           - GLPI_DB_HOST=${GLPI_DB_HOST}
-           - GLPI_DB_NAME=${GLPI_DB_NAME}
-           - GLPI_DB_USER=${GLPI_DB_USER}
-           - GLPI_DB_PASS=${GLPI_DB_PASS}
 
 SUBIR O WORKER
 ----
@@ -343,7 +339,7 @@ VERIFICACAO FINAL (CHECKLIST)
 [ ] Banco configurado:
       docker exec glpi-db mariadb -uroot -proot_password glpi2 \
         -e "SELECT chave,valor FROM portal_wpp_config WHERE chave IN
-             ('wpp_baseline_ok','wm_novo','wm_alertas_digest','wm_sla');"
+             ('wpp_baseline_ok','wm_novo','wm_alertas_digest');"
       Deve haver: wpp_baseline_ok = 1, wm_novo = 1 (ou ajuste conforme
       gatilhos ligados).
 [ ] Nenhum webhook de mensagem na Evolution (isso e Fase 3):
@@ -381,7 +377,7 @@ agendamentos, config, e re-semear baseline na proxima subida):
                DELETE FROM portal_wpp_dm_agendado; \
                DELETE FROM portal_wpp_config WHERE chave IN \
                ('wpp_baseline_ok','wpp_last_ok','wpp_snap_alertas', \
-                'wm_novo','wm_alertas_digest','wm_sla');"
+                'wm_novo','wm_alertas_digest');"
 [ ] 3. Subir novamente:
          docker compose up -d portal-wpp-worker
 [ ] 4. Aguarde a baseline ser semeada (veja os logs):
