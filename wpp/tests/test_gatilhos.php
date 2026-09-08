@@ -67,6 +67,141 @@ t_eq(
 );
 
 // ---------------------------------------------------------------------------
+// alertas_novos() — diff de snapshots (puro, sem banco)
+// ---------------------------------------------------------------------------
+$anteriorSnap = [
+    'sem_inventario' => [['name' => 'PC-A'], ['name' => 'PC-B']],
+    'disco_cheio'    => [['name' => 'PC-X', 'volume' => 'C:']],
+];
+$atualSnap = [
+    'sem_inventario' => [['name' => 'PC-B'], ['name' => 'PC-C']],   // PC-C novo, PC-A saiu
+    'disco_cheio'    => [
+        ['name' => 'PC-X', 'volume' => 'C:'],   // já existia
+        ['name' => 'PC-X', 'volume' => 'D:'],   // novo (mesma máquina, outro volume)
+    ],
+];
+$diff = alertas_novos($atualSnap, $anteriorSnap);
+t_eq(array_column($diff['inv'], 'name'), ['PC-C'], 'alertas_novos: só PC-C é novo no inventário');
+t_eq(count($diff['disco']), 1, 'alertas_novos: só um volume novo em disco');
+t_eq($diff['disco'][0]['volume'], 'D:', 'alertas_novos: o volume novo é o D: da mesma máquina');
+
+// anterior malformado -> tudo é novo
+$diffVazio = alertas_novos($atualSnap, ['lixo' => 1]);
+t_eq(count($diffVazio['inv']), 2, 'alertas_novos: anterior malformado -> todo inventário é novo');
+t_eq(count($diffVazio['disco']), 2, 'alertas_novos: anterior malformado -> todo disco é novo');
+
+// nada mudou -> nada novo
+$diffIgual = alertas_novos($anteriorSnap, $anteriorSnap);
+t_ok(!$diffIgual['inv'] && !$diffIgual['disco'], 'alertas_novos: snapshots iguais -> nada novo');
+
+// ---------------------------------------------------------------------------
+// gat_msg_digest() — montagem da mensagem (puro, sem banco)
+// ---------------------------------------------------------------------------
+$atualDigest = [
+    'sem_inventario' => [
+        ['name' => 'PC-CAIXA-01', 'loja' => 'Entidade raiz > Grupo Gmais > Supermercado Santos - JDM'],
+        ['name' => 'PC-RET-02',   'loja' => 'Loja sem apelido'],
+        ['name' => 'PC-RET-03',   'loja' => ''],
+    ],
+    'disco_cheio' => [
+        ['name' => 'SRV-01', 'loja' => 'Entidade raiz > Grupo Gmais > Supermercado Santos - BTO', 'volume' => 'D:', 'pct' => 95],
+    ],
+];
+$msgDigest = gat_msg_digest(
+    $atualDigest,
+    [$atualDigest['sem_inventario'][0], $atualDigest['sem_inventario'][2]],
+    $atualDigest['disco_cheio']
+);
+t_eq(
+    $msgDigest,
+    "🔔 *Alertas do parque*\n\n"
+    . "📉 Sem inventário +7d: 3 (novos: PC-CAIXA-01 (Lj 003), PC-RET-03)\n"
+    . "💾 Disco cheio: 1 (novos: SRV-01 (Lj 001) D: 95%)",
+    'gat_msg_digest: totais + listas de novos com apelido_entidade na loja'
+);
+
+// sem novos em nenhuma categoria -> só os totais
+t_eq(
+    gat_msg_digest($atualDigest, [], []),
+    "🔔 *Alertas do parque*\n\n📉 Sem inventário +7d: 3\n💾 Disco cheio: 1",
+    'gat_msg_digest: sem novos -> apenas os totais'
+);
+
+// truncamento em 5 com "…+N"
+$muitos = [];
+for ($i = 1; $i <= 7; $i++) $muitos[] = ['name' => "PC-{$i}", 'loja' => ''];
+$msgTrunc = gat_msg_digest(['sem_inventario' => $muitos, 'disco_cheio' => []], $muitos, []);
+t_eq(
+    $msgTrunc,
+    "🔔 *Alertas do parque*\n\n"
+    . "📉 Sem inventário +7d: 7 (novos: PC-1, PC-2, PC-3, PC-4, PC-5 …+2)\n"
+    . "💾 Disco cheio: 0",
+    'gat_msg_digest: lista de novos trunca em 5 com "…+2"'
+);
+
+// ---------------------------------------------------------------------------
+// gat_alertas() — throttle e branch "nada novo" (precisa de banco)
+// ---------------------------------------------------------------------------
+if (isset($pdo) && $pdo instanceof PDO) {
+    $oldOn    = wpp_cfg_get('on_alertas');
+    $oldGrp   = wpp_cfg_get('grupo_alertas_jid');
+    $oldInt   = wpp_cfg_get('cfg_digest_alertas_min');
+    $oldSnap  = wpp_cfg_get('wpp_snap_alertas');
+    $oldWm    = wpp_cfg_get('wm_alertas_digest');
+
+    try {
+        // toggle desligado -> não toca em nada
+        wpp_cfg_set('on_alertas', '0');
+        wpp_cfg_set('grupo_alertas_jid', '999888777@g.us');
+        $pdo->exec("DELETE FROM portal_wpp_config WHERE chave = 'wm_alertas_digest'");
+        $pdo->exec("DELETE FROM portal_wpp_config WHERE chave = 'wpp_snap_alertas'");
+        gat_alertas($pdo);
+        t_ok(
+            wpp_cfg_get('wpp_snap_alertas') === null && wpp_cfg_get('wm_alertas_digest') === null,
+            'gat_alertas: on_alertas=0 não grava snapshot nem watermark'
+        );
+
+        // grupo vazio -> sai sem tocar no snapshot
+        wpp_cfg_set('on_alertas', '1');
+        wpp_cfg_set('grupo_alertas_jid', '');
+        gat_alertas($pdo);
+        t_ok(
+            wpp_cfg_get('wpp_snap_alertas') === null && wpp_cfg_get('wm_alertas_digest') === null,
+            'gat_alertas: grupo vazio não grava snapshot nem watermark'
+        );
+
+        // throttle: watermark recente -> nem chega a montar snapshot
+        wpp_cfg_set('grupo_alertas_jid', '999888777@g.us');
+        wpp_cfg_set('cfg_digest_alertas_min', '15');
+        wpp_cfg_set('wm_alertas_digest', (string) $pdo->query("SELECT NOW()")->fetchColumn());
+        $outAntes = (int) $pdo->query("SELECT COUNT(*) FROM portal_wpp_log WHERE direcao='out'")->fetchColumn();
+        gat_alertas($pdo);
+        $outDepois = (int) $pdo->query("SELECT COUNT(*) FROM portal_wpp_log WHERE direcao='out'")->fetchColumn();
+        t_ok($outDepois === $outAntes, 'gat_alertas: dentro do intervalo não envia nada');
+        t_ok(wpp_cfg_get('wpp_snap_alertas') === null, 'gat_alertas: throttle não grava snapshot');
+
+        // branch "nada novo": snapshot == estado atual, sem watermark ->
+        // atualiza snapshot mas não envia nem grava watermark
+        $pdo->exec("DELETE FROM portal_wpp_config WHERE chave = 'wm_alertas_digest'");
+        wpp_cfg_set('wpp_snap_alertas', json_encode(alertas_snapshot($pdo)));
+        $outAntes = (int) $pdo->query("SELECT COUNT(*) FROM portal_wpp_log WHERE direcao='out'")->fetchColumn();
+        gat_alertas($pdo);
+        $outDepois = (int) $pdo->query("SELECT COUNT(*) FROM portal_wpp_log WHERE direcao='out'")->fetchColumn();
+        t_ok($outDepois === $outAntes, 'gat_alertas: nada novo -> não envia');
+        t_ok(wpp_cfg_get('wm_alertas_digest') === null, 'gat_alertas: nada novo -> não grava watermark');
+        t_ok(wpp_cfg_get('wpp_snap_alertas') !== null, 'gat_alertas: nada novo -> atualiza o snapshot');
+    } finally {
+        if ($oldOn   !== null) wpp_cfg_set('on_alertas', $oldOn);           else $pdo->exec("DELETE FROM portal_wpp_config WHERE chave = 'on_alertas'");
+        if ($oldGrp  !== null) wpp_cfg_set('grupo_alertas_jid', $oldGrp);   else $pdo->exec("DELETE FROM portal_wpp_config WHERE chave = 'grupo_alertas_jid'");
+        if ($oldInt  !== null) wpp_cfg_set('cfg_digest_alertas_min', $oldInt); else $pdo->exec("DELETE FROM portal_wpp_config WHERE chave = 'cfg_digest_alertas_min'");
+        if ($oldSnap !== null) wpp_cfg_set('wpp_snap_alertas', $oldSnap);   else $pdo->exec("DELETE FROM portal_wpp_config WHERE chave = 'wpp_snap_alertas'");
+        if ($oldWm   !== null) wpp_cfg_set('wm_alertas_digest', $oldWm);    else $pdo->exec("DELETE FROM portal_wpp_config WHERE chave = 'wm_alertas_digest'");
+    }
+} else {
+    echo "  -- gat_alertas(): banco indisponível, testes de throttle pulados\n";
+}
+
+// ---------------------------------------------------------------------------
 // gat_atribuido() — DM agendada vira 'cancelado' se a atribuição não vale mais
 // (precisa de banco: roda no deploy contra glpi2)
 // ---------------------------------------------------------------------------

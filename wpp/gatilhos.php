@@ -218,6 +218,145 @@ function gat_msg_atribuido(array $d): string
          . ($d['name'] ?? '(sem título)');
 }
 
-function gat_alertas(PDO $pdo): void {}    // Task 8
+/**
+ * Task 8 — digest de alertas do parque -> grupo "Alertas".
+ *
+ * A cada passada compara o snapshot atual (alertas_lib::alertas_snapshot) com o
+ * último snapshot salvo em portal_wpp_config.wpp_snap_alertas. Só manda mensagem
+ * quando há item NOVO (que não estava no snapshot anterior) E respeitando o
+ * intervalo cfg_digest_alertas_min (watermark wm_alertas_digest = hora do último
+ * digest efetivamente enviado).
+ *
+ * Chave estável usada no diff:
+ *   sem_inventario -> name (nome da máquina)
+ *   disco_cheio    -> name|volume
+ *
+ * Regras de snapshot/watermark:
+ *   - sem grupo configurado: sai sem tocar em nada (não perde o "novo" quando
+ *     o grupo for cadastrado);
+ *   - nada novo: atualiza o snapshot (pra refletir itens que saíram) e não envia;
+ *   - há novo mas o envio falhou/foi bloqueado: NÃO atualiza snapshot nem
+ *     watermark -> tenta de novo na próxima passada;
+ *   - envio OK: grava snapshot atual + watermark.
+ */
+function gat_alertas(PDO $pdo): void
+{
+    if (wpp_cfg_get('on_alertas', '1') !== '1') return;
+
+    $grupo = (string) wpp_cfg_get('grupo_alertas_jid', '');
+    if ($grupo === '') return;   // sem destino: não mexe no snapshot p/ não perder o "novo"
+
+    // Throttle do digest: no máximo 1 a cada cfg_digest_alertas_min minutos.
+    $intervalo = max(1, (int) wpp_cfg_get('cfg_digest_alertas_min', '15'));
+    $ultimo    = wpp_cfg_get('wm_alertas_digest');
+    if ($ultimo && (strtotime(wpp_agora_db($pdo)) - strtotime($ultimo)) < $intervalo * 60) {
+        return;   // ainda não é hora
+    }
+
+    $atual    = alertas_snapshot($pdo);
+    $anterior = json_decode((string) wpp_cfg_get('wpp_snap_alertas', '{}'), true);
+    if (!is_array($anterior)) $anterior = ['sem_inventario' => [], 'disco_cheio' => []];
+
+    $novos = alertas_novos($atual, $anterior);
+
+    if (!$novos['inv'] && !$novos['disco']) {
+        // Nada novo: atualiza o snapshot (reflete itens que saíram) mas não envia.
+        wpp_cfg_set('wpp_snap_alertas', json_encode($atual));
+        return;
+    }
+
+    $r = evo_send_text($grupo, gat_msg_digest($atual, $novos['inv'], $novos['disco']));
+    if (!empty($r['ok'])) {
+        wpp_cfg_set('wpp_snap_alertas', json_encode($atual));
+        wpp_cfg_set('wm_alertas_digest', wpp_agora_db($pdo));
+    }
+    // falhou/bloqueado: não grava snapshot nem watermark -> re-tenta na próxima passada
+}
+
+/**
+ * Diff puro entre dois snapshots de alertas. Retorna só as linhas de $atual
+ * cuja chave estável NÃO aparecia em $anterior.
+ *   sem_inventario -> chave = name
+ *   disco_cheio    -> chave = name|volume
+ *
+ * $anterior malformado/ausente (chaves faltando) é tratado como vazio -> todos
+ * os itens de $atual entram como "novos".
+ */
+function alertas_novos(array $atual, array $anterior): array
+{
+    $keysInv = [];
+    foreach ($anterior['sem_inventario'] ?? [] as $r) {
+        $keysInv[(string) ($r['name'] ?? '')] = true;
+    }
+    $keysDisco = [];
+    foreach ($anterior['disco_cheio'] ?? [] as $r) {
+        $keysDisco[($r['name'] ?? '') . '|' . ($r['volume'] ?? '')] = true;
+    }
+
+    $novosInv = [];
+    foreach ($atual['sem_inventario'] ?? [] as $r) {
+        if (!isset($keysInv[(string) ($r['name'] ?? '')])) $novosInv[] = $r;
+    }
+    $novosDisco = [];
+    foreach ($atual['disco_cheio'] ?? [] as $r) {
+        if (!isset($keysDisco[($r['name'] ?? '') . '|' . ($r['volume'] ?? '')])) $novosDisco[] = $r;
+    }
+
+    return ['inv' => $novosInv, 'disco' => $novosDisco];
+}
+
+/**
+ * Monta o texto do digest de alertas.
+ * Ex:
+ *   🔔 *Alertas do parque*
+ *
+ *   📉 Sem inventário +7d: 12 (novos: PC-CAIXA-01 (Lj 003), PC-RET-03)
+ *   💾 Disco cheio: 3 (novos: SRV-01 (Lj 001) D: 95%)
+ *
+ * A linha só ganha o "(novos: …)" quando há itens novos naquela categoria.
+ * Listas são truncadas em 5 itens com sufixo "…+N". apelido_entidade() é
+ * aplicado na loja de cada item (o nome da máquina em si nunca vira apelido).
+ */
+function gat_msg_digest(array $atual, array $novosInv, array $novosDisco): string
+{
+    $totInv   = count($atual['sem_inventario'] ?? []);
+    $totDisco = count($atual['disco_cheio'] ?? []);
+
+    $linhaInv = "📉 Sem inventário +7d: {$totInv}";
+    if ($novosInv) {
+        $itens = array_map(static function (array $r): string {
+            $nome = (string) ($r['name'] ?? '(sem nome)');
+            $loja = function_exists('apelido_entidade') ? apelido_entidade($r['loja'] ?? '') : (string) ($r['loja'] ?? '');
+            return $loja !== '' ? "{$nome} ({$loja})" : $nome;
+        }, $novosInv);
+        $linhaInv .= ' (novos: ' . gat_lista_curta($itens) . ')';
+    }
+
+    $linhaDisco = "💾 Disco cheio: {$totDisco}";
+    if ($novosDisco) {
+        $itens = array_map(static function (array $r): string {
+            $nome = (string) ($r['name'] ?? '(sem nome)');
+            $loja = function_exists('apelido_entidade') ? apelido_entidade($r['loja'] ?? '') : (string) ($r['loja'] ?? '');
+            $vol  = (string) ($r['volume'] ?? '?');
+            $pct  = (int) ($r['pct'] ?? 0);
+            $base = $loja !== '' ? "{$nome} ({$loja})" : $nome;
+            return "{$base} {$vol} {$pct}%";
+        }, $novosDisco);
+        $linhaDisco .= ' (novos: ' . gat_lista_curta($itens) . ')';
+    }
+
+    return "🔔 *Alertas do parque*\n\n{$linhaInv}\n{$linhaDisco}";
+}
+
+/**
+ * Junta os itens com ", "; se houver mais de $max, mostra os primeiros $max
+ * e acrescenta " …+N" com o restante.
+ */
+function gat_lista_curta(array $itens, int $max = 5): string
+{
+    $n = count($itens);
+    if ($n <= $max) return implode(', ', $itens);
+    return implode(', ', array_slice($itens, 0, $max)) . ' …+' . ($n - $max);
+}
 
 function gat_sla(PDO $pdo): void {}        // Task 9
