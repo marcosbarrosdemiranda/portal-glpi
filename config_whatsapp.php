@@ -235,10 +235,16 @@ $chamados_jid = wpp_cfg_get('grupo_chamados_jid', '');
     .aviso { background:#fff7ed; border:1px solid #fed7aa; color:#9a3412; border-radius:8px; padding:.6rem .9rem;
              font-size:.85rem; margin-bottom:1rem; }
     label.form-label { font-weight:600; font-size:.85rem; color:#374151; }
-    .gat-bloco { border:1px solid #e5e7eb; border-radius:10px; padding:.75rem .9rem; margin-bottom:.6rem; }
+    .gat-bloco { border:1px solid #e5e7eb; border-radius:10px; padding:.7rem .9rem; margin-bottom:.6rem;
+                 display:flex; align-items:center; justify-content:space-between; gap:1rem; flex-wrap:wrap; }
+    .gat-bloco .form-check { margin:0; }
     .gat-bloco .form-check-label { cursor:pointer; }
-    .gat-sub { margin-left:1.9rem; margin-top:.5rem; transition:opacity .15s; }
+    .gat-sub { display:flex; align-items:center; gap:1rem; flex-wrap:wrap; transition:opacity .15s; }
     .gat-sub.off { opacity:.35; }
+    .gat-campo { display:flex; align-items:center; gap:.4rem; white-space:nowrap; }
+    .gat-campo .form-label { margin:0; }
+    .gat-campo input { width:80px; }
+    .gat-campo .un { font-size:.8rem; color:#6b7280; }
     footer { text-align:center; color:#bbb; font-size:.78rem; padding:2rem; }
   </style>
 </head>
@@ -367,7 +373,7 @@ $chamados_jid = wpp_cfg_get('grupo_chamados_jid', '');
           <input type="checkbox" class="form-check-input gat-toggle" id="g-on_novo" data-dep="novo">
           <label class="form-check-label fw-semibold" for="g-on_novo">Chamado novo → grupo Chamados</label>
         </div>
-        <div class="gat-sub small text-muted">Avisa no grupo assim que um chamado é aberto. Sem ajuste.</div>
+        <span class="small text-muted">na hora</span>
       </div>
 
       <!-- Chamado atribuído -->
@@ -377,10 +383,10 @@ $chamados_jid = wpp_cfg_get('grupo_chamados_jid', '');
           <label class="form-check-label fw-semibold" for="g-on_atribuido">Chamado atribuído → DM pro técnico</label>
         </div>
         <div class="gat-sub" data-dep="atribuido">
-          <label class="form-label mb-1" for="g-cfg_delay_dm_min">Atraso da DM</label>
-          <div class="input-group input-group-sm" style="max-width:230px">
-            <input type="number" min="0" max="1440" step="1" class="form-control" id="g-cfg_delay_dm_min">
-            <span class="input-group-text">min (0 = na hora)</span>
+          <div class="gat-campo">
+            <label class="form-label" for="g-cfg_delay_dm_min">Atraso da DM</label>
+            <input type="number" min="0" max="1440" step="1" class="form-control form-control-sm" id="g-cfg_delay_dm_min">
+            <span class="un">min (0 = na hora)</span>
           </div>
         </div>
       </div>
@@ -392,10 +398,10 @@ $chamados_jid = wpp_cfg_get('grupo_chamados_jid', '');
           <label class="form-check-label fw-semibold" for="g-on_alertas">Alertas do parque → grupo Alertas</label>
         </div>
         <div class="gat-sub" data-dep="alertas">
-          <label class="form-label mb-1" for="g-cfg_digest_alertas_min">Intervalo do resumo de alertas</label>
-          <div class="input-group input-group-sm" style="max-width:150px">
-            <input type="number" min="1" max="1440" step="1" class="form-control" id="g-cfg_digest_alertas_min">
-            <span class="input-group-text">min</span>
+          <div class="gat-campo">
+            <label class="form-label" for="g-cfg_digest_alertas_min">Intervalo do resumo</label>
+            <input type="number" min="1" max="1440" step="1" class="form-control form-control-sm" id="g-cfg_digest_alertas_min">
+            <span class="un">min</span>
           </div>
         </div>
       </div>
@@ -407,35 +413,27 @@ $chamados_jid = wpp_cfg_get('grupo_chamados_jid', '');
           <label class="form-check-label fw-semibold" for="g-on_sla">SLA / chamado parado → grupo Chamados</label>
         </div>
         <div class="gat-sub" data-dep="sla">
-          <div class="row g-2" style="max-width:430px">
-            <div class="col-6">
-              <label class="form-label mb-1" for="g-cfg_sla_horas">Parado após</label>
-              <div class="input-group input-group-sm">
-                <input type="number" min="1" max="1440" step="1" class="form-control" id="g-cfg_sla_horas">
-                <span class="input-group-text">h</span>
-              </div>
-            </div>
-            <div class="col-6">
-              <label class="form-label mb-1" for="g-cfg_sla_prevenc_min">Aviso antes de vencer</label>
-              <div class="input-group input-group-sm">
-                <input type="number" min="1" max="1440" step="1" class="form-control" id="g-cfg_sla_prevenc_min">
-                <span class="input-group-text">min</span>
-              </div>
-            </div>
+          <div class="gat-campo">
+            <label class="form-label" for="g-cfg_sla_horas">Parado após</label>
+            <input type="number" min="1" max="1440" step="1" class="form-control form-control-sm" id="g-cfg_sla_horas">
+            <span class="un">h</span>
+          </div>
+          <div class="gat-campo">
+            <label class="form-label" for="g-cfg_sla_prevenc_min">Aviso antes de vencer</label>
+            <input type="number" min="1" max="1440" step="1" class="form-control form-control-sm" id="g-cfg_sla_prevenc_min">
+            <span class="un">min</span>
           </div>
         </div>
       </div>
 
       <details class="mt-2">
         <summary class="small text-muted" style="cursor:pointer">Avançado</summary>
-        <div class="gat-sub mt-2" style="margin-left:0">
-          <label class="form-label mb-1" for="g-cfg_offline_reset_min">Re-semear baseline se o worker ficar offline por</label>
-          <div class="input-group input-group-sm" style="max-width:150px">
-            <input type="number" min="1" max="1440" step="1" class="form-control" id="g-cfg_offline_reset_min">
-            <span class="input-group-text">min</span>
-          </div>
-          <div class="text-muted small mt-1">Se o worker cair e voltar depois desse tempo, ele re-marca tudo como "já notificado" em vez de despejar o acúmulo.</div>
+        <div class="gat-campo mt-2">
+          <label class="form-label" for="g-cfg_offline_reset_min">Re-semear baseline se o worker ficar offline por</label>
+          <input type="number" min="1" max="1440" step="1" class="form-control form-control-sm" id="g-cfg_offline_reset_min">
+          <span class="un">min</span>
         </div>
+        <div class="text-muted small mt-1">Se o worker cair e voltar depois desse tempo, ele re-marca tudo como "já notificado" em vez de despejar o acúmulo.</div>
       </details>
 
       <button class="btn btn-success btn-sm mt-3" id="btn-gatilhos-salvar" style="background:var(--wpp);border-color:var(--wpp)">
