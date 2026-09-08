@@ -88,6 +88,24 @@ if ($action !== '') {
                      notif_whatsapp=VALUES(notif_whatsapp), lembrete_min=VALUES(lembrete_min)"
             );
             $st->execute([$slug, $ativo, json_encode($params), $notif, $lembrete]);
+
+            // Anti-blast: ao ATIVAR o tipo, marca as ocorrências correntes como
+            // "já vistas" (sem notificar) — assim o gat_alertas só manda 🔔 do que
+            // aparecer DEPOIS. Ao desativar, limpa as linhas do tipo.
+            try {
+                if ($ativo) {
+                    $ocorr = call_user_func($def['check'], $pdo, $params);
+                    $insOc = $pdo->prepare(
+                        "INSERT IGNORE INTO portal_alertas_ocorrencias (tipo, chave, primeiro_visto) VALUES (?, ?, NOW())"
+                    );
+                    foreach ($ocorr as $o) { $insOc->execute([$slug, $o['chave']]); }
+                } else {
+                    $pdo->prepare("DELETE FROM portal_alertas_ocorrencias WHERE tipo = ?")->execute([$slug]);
+                }
+            } catch (\Throwable $e) {
+                // semear/limpar é best-effort: não pode derrubar o salvar da config
+            }
+
             echo json_encode(['ok' => true]);
         } catch (\Throwable $e) {
             echo json_encode(['ok' => false, 'erro' => 'falha ao salvar']);
@@ -165,7 +183,7 @@ if ($action !== '') {
   </div>
 </div>
 
-<footer><i class="bi bi-shield-lock me-1"></i>Central de TI — Configuração de Alertas (Etapa 1)</footer>
+<footer><i class="bi bi-shield-lock me-1"></i>Central de TI — Configuração de Alertas</footer>
 
 <script>
 (function () {
@@ -271,11 +289,11 @@ if ($action !== '') {
     swNotif.appendChild(lbNotif);
     sub.appendChild(swNotif);
 
-    // aviso: na Etapa 1 ainda não há worker que dispare as notificações
+    // aviso: descreve o comportamento real das notificações no grupo Alertas
     var notaNotif = document.createElement('small');
     notaNotif.className = 'text-muted d-block';
     notaNotif.style.margin = '-.15rem 0 .35rem 2.5rem';
-    notaNotif.textContent = 'Passa a valer quando o worker de alertas entrar no ar (Etapa 2).';
+    notaNotif.textContent = 'Manda 🔔 quando o alerta aparece, ✅ quando é resolvido, e ⏰ de lembrete conforme o intervalo abaixo.';
     sub.appendChild(notaNotif);
 
     // lembrete em minutos
