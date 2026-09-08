@@ -33,22 +33,26 @@ function alertas_catalogo(): array
 {
     return [
         'sem_inventario' => [
-            'nome'      => 'Máquina sem reportar inventário',
+            'nome'      => 'Máquinas sem reportar inventário',
             'descricao' => 'Computador do GLPI que não envia inventário há X dias (ou nunca).',
             'params'    => [
                 'dias' => ['label' => 'Dias sem reportar', 'default' => 7, 'min' => 1, 'max' => 90],
             ],
+            // subtexto do card em .stats — {placeholders} trocados pelos params configurados;
+            // {pct_parque} é calculado em alertas.php (ocorrências / total de máquinas).
+            'sub_tpl' => 'há +{dias}d · {pct_parque}% do parque',
             'check'  => 'alerta_check_sem_inventario',
             'render' => 'alerta_render_sem_inventario',
             'icone'  => 'bi-wifi-off',
             'cor'    => 'danger',
         ],
         'disco_cheio' => [
-            'nome'      => 'Disco quase cheio',
+            'nome'      => 'Discos quase cheios',
             'descricao' => 'Volume de dados (> 30 GB) acima do limiar de uso. Ignora partições de recuperação/sistema.',
             'params'    => [
                 'pct' => ['label' => 'Uso mínimo (%)', 'default' => 90, 'min' => 50, 'max' => 99],
             ],
+            'sub_tpl' => 'volume ≥ {pct}%',
             'check'  => 'alerta_check_disco_cheio',
             'render' => 'alerta_render_disco_cheio',
             'icone'  => 'bi-hdd-fill',

@@ -7,14 +7,16 @@ require_once __DIR__ . '/agenda/db.php';
 require_once __DIR__ . '/alertas_tipos.php';   // já puxa alertas_lib.php + entidade_alias.php
 
 function h($s) { return htmlspecialchars((string)$s, ENT_QUOTES, 'UTF-8'); }
-function gb($mb) { $n = (float)$mb; return $n >= 1024 ? round($n/1024, $n>=10240?0:1).' GB' : round($n).' MB'; }
 
 /**
- * Roda os tipos ATIVOS do catálogo e devolve, por tipo, o count e o innerHTML
- * da seção — pra carga inicial e pro ?action=dados ficarem idênticos.
+ * Roda os tipos ATIVOS do catálogo e devolve, por tipo, o count, o innerHTML
+ * da seção e o subtexto do card — pra carga inicial e pro ?action=dados
+ * ficarem idênticos.
  */
 function alertas_carregar(PDO $pdo): array
 {
+    $total = (int) $pdo->query("SELECT COUNT(*) FROM glpi_computers WHERE is_deleted=0 AND is_template=0")->fetchColumn();
+
     $secoes = [];
     foreach (alertas_catalogo() as $slug => $def) {
         $cfg = alertas_config_do_tipo($pdo, $slug);
@@ -24,16 +26,24 @@ function alertas_carregar(PDO $pdo): array
         } catch (\Throwable $e) {
             $ocorr = [];
         }
+        $n = count($ocorr);
+
+        // subtexto do card: troca {param} pelos valores configurados + {pct_parque}
+        $sub  = (string) ($def['sub_tpl'] ?? '');
+        $repl = $cfg['params'];
+        $repl['pct_parque'] = $total > 0 ? (int) round($n / $total * 100) : 0;
+        foreach ($repl as $k => $v) $sub = str_replace('{' . $k . '}', (string) $v, $sub);
+
         $secoes[] = [
             'slug'  => $slug,
             'nome'  => $def['nome'],
             'icone' => $def['icone'],
             'cor'   => $def['cor'],
-            'n'     => count($ocorr),
+            'n'     => $n,
+            'sub'   => $sub,
             'html'  => call_user_func($def['render'], $ocorr),
         ];
     }
-    $total = (int) $pdo->query("SELECT COUNT(*) FROM glpi_computers WHERE is_deleted=0 AND is_template=0")->fetchColumn();
     return ['secoes' => $secoes, 'total' => $total];
 }
 
@@ -48,7 +58,7 @@ if (($_GET['action'] ?? '') === 'dados') {
         'total'  => $dados['total'],
         'secoes' => array_map(fn($s) => [
             'slug' => $s['slug'], 'nome' => $s['nome'], 'icone' => $s['icone'],
-            'cor' => $s['cor'], 'n' => $s['n'], 'html' => $s['html'],
+            'cor' => $s['cor'], 'n' => $s['n'], 'sub' => $s['sub'], 'html' => $s['html'],
         ], $dados['secoes']),
     ]);
     exit;
@@ -132,7 +142,8 @@ $podeConfig = !isset($_SESSION['portal_perfil_cards']) || $_SESSION['portal_perf
 <div class="wrap">
   <div class="stats">
     <?php foreach ($dados['secoes'] as $s): ?>
-    <div class="stat"><div class="l"><?= h($s['nome']) ?></div><div class="n" id="n-<?= h($s['slug']) ?>"><?= $s['n'] ?></div></div>
+    <?php $corN = ['danger' => 'var(--alert)', 'warning' => '#b45309'][$s['cor']] ?? ''; ?>
+    <div class="stat"><div class="l"><?= h($s['nome']) ?></div><div class="n" id="n-<?= h($s['slug']) ?>"<?= $corN ? ' style="color:' . $corN . '"' : '' ?>><?= $s['n'] ?></div><?php if ($s['sub'] !== ''): ?><div style="font-size:.78rem;color:#6b7280" id="sub-<?= h($s['slug']) ?>"><?= h($s['sub']) ?></div><?php endif; ?></div>
     <?php endforeach; ?>
     <div class="stat"><div class="l">Total de máquinas</div><div class="n" id="n-total"><?= $dados['total'] ?></div></div>
   </div>
@@ -202,6 +213,8 @@ $podeConfig = !isset($_SESSION['portal_perfil_cards']) || $_SESSION['portal_perf
         if (body) body.innerHTML = s.html;
         setNum('badge-' + s.slug, s.n);
         setNum('n-' + s.slug, s.n);
+        var sub = document.getElementById('sub-' + s.slug);
+        if (sub && s.sub != null) sub.textContent = s.sub;   // "% do parque" acompanha o refresh
       });
       setNum('n-total', d.total);
       attTxt.textContent = 'atualizado às ' + d.hora;
