@@ -15,7 +15,18 @@ t_ok(function_exists('wpp_semear_baseline'), 'worker.php expõe wpp_semear_basel
 $pdo->exec("DELETE FROM portal_wpp_notificados WHERE tipo IN ('novo','sla','atribuido')");
 wpp_cfg_set('wpp_baseline_ok', '');
 
+// "Baseline nao manda nada": nenhuma linha de saida (direcao='out') pode
+// surgir enquanto a baseline e semeada.
+$outAntes = (int) $pdo->query(
+    "SELECT COUNT(*) FROM portal_wpp_log WHERE direcao='out'"
+)->fetchColumn();
+
 wpp_semear_baseline($pdo);
+
+$outDepois = (int) $pdo->query(
+    "SELECT COUNT(*) FROM portal_wpp_log WHERE direcao='out'"
+)->fetchColumn();
+t_ok($outDepois === $outAntes, 'baseline nao registrou nenhum envio (direcao=out inalterado)');
 
 $abertos = (int) $pdo->query(
     "SELECT COUNT(*) FROM glpi_tickets WHERE is_deleted=0 AND status IN (1,2,3,4)"

@@ -83,7 +83,12 @@ function wpp_semear_baseline(PDO $pdo): void
         "SELECT id FROM glpi_tickets WHERE is_deleted = 0 AND status IN (1,2,3,4)"
     )->fetchAll(PDO::FETCH_COLUMN);
 
-    $hoje = date('Y-m-d');
+    // Data pelo relógio do BANCO (glpi-db roda em -04:00; o PHP do container é
+    // UTC). Se usasse date() do PHP, entre 00:00 e 04:00 locais a data sairia
+    // um dia à frente e o gat_sla (Task 9) — que calcula a chave pelo relógio
+    // do banco — não acharia esta linha de dedup e dispararia "chamado parado"
+    // pra toda a fila. "parado:<data-do-banco>" é o formato canônico.
+    $hoje = substr(wpp_agora_db($pdo), 0, 10);
     foreach ($abertos as $id) {
         $id = (string) $id;
         wpp_marcar_notificado('novo', $id);
