@@ -137,7 +137,7 @@ function alerta_check_disco_cheio(PDO $pdo, array $p): array
     return $out;
 }
 
-/** innerHTML do corpo — agrupado por loja. Move o HTML do render_sem_inv_body de hoje. */
+/** innerHTML do corpo da seção — agrupado por loja. */
 function alerta_render_sem_inventario(array $ocorr): string
 {
     if (!$ocorr) {
@@ -165,7 +165,7 @@ function alerta_render_sem_inventario(array $ocorr): string
     return $out;
 }
 
-/** innerHTML do corpo — tabela com barra. Move o HTML do render_disco_body de hoje. */
+/** innerHTML do corpo da seção — tabela com barra de uso. */
 function alerta_render_disco_cheio(array $ocorr): string
 {
     if (!$ocorr) {

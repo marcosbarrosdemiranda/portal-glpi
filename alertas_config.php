@@ -271,6 +271,13 @@ if ($action !== '') {
     swNotif.appendChild(lbNotif);
     sub.appendChild(swNotif);
 
+    // aviso: na Etapa 1 ainda não há worker que dispare as notificações
+    var notaNotif = document.createElement('small');
+    notaNotif.className = 'text-muted d-block';
+    notaNotif.style.margin = '-.15rem 0 .35rem 2.5rem';
+    notaNotif.textContent = 'Passa a valer quando o worker de alertas entrar no ar (Etapa 2).';
+    sub.appendChild(notaNotif);
+
     // lembrete em minutos
     var campoLem = document.createElement('div');
     campoLem.className = 'campo';
