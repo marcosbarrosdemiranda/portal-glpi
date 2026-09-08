@@ -142,10 +142,8 @@ if ($action !== '') {
             echo json_encode(['ok' => true, 'cfg' => [
                 'on_novo'                => wpp_cfg_get('on_novo', '1'),
                 'on_atribuido'           => wpp_cfg_get('on_atribuido', '1'),
-                'on_alertas'             => wpp_cfg_get('on_alertas', '1'),
                 'on_sla'                 => wpp_cfg_get('on_sla', '1'),
                 'cfg_delay_dm_min'       => (int) wpp_cfg_get('cfg_delay_dm_min', '5'),
-                'cfg_digest_alertas_min' => (int) wpp_cfg_get('cfg_digest_alertas_min', '15'),
                 'cfg_sla_horas'          => (int) wpp_cfg_get('cfg_sla_horas', '4'),
                 'cfg_sla_prevenc_min'    => (int) wpp_cfg_get('cfg_sla_prevenc_min', '30'),
                 'cfg_offline_reset_min'  => (int) wpp_cfg_get('cfg_offline_reset_min', '30'),
@@ -155,9 +153,9 @@ if ($action !== '') {
             // regrava a config dos gatilhos: POST-only (um GET zeraria tudo silenciosamente)
             if ($_SERVER['REQUEST_METHOD'] !== 'POST') { echo json_encode(['ok' => false, 'erro' => 'método inválido']); exit; }
             // toggles: qualquer valor diferente de '1' vira '0'
-            $toggles = ['on_novo', 'on_atribuido', 'on_alertas', 'on_sla'];
+            $toggles = ['on_novo', 'on_atribuido', 'on_sla'];
             // numéricos: inteiros de 1..1440 — cfg_delay_dm_min aceita 0 (DM imediata)
-            $numeros = ['cfg_delay_dm_min', 'cfg_digest_alertas_min', 'cfg_sla_horas', 'cfg_sla_prevenc_min', 'cfg_offline_reset_min'];
+            $numeros = ['cfg_delay_dm_min', 'cfg_sla_horas', 'cfg_sla_prevenc_min', 'cfg_offline_reset_min'];
             foreach ($numeros as $k) {
                 $v   = (int) ($_POST[$k] ?? 0);
                 $min = ($k === 'cfg_delay_dm_min') ? 0 : 1;
@@ -387,21 +385,6 @@ $chamados_jid = wpp_cfg_get('grupo_chamados_jid', '');
             <label class="form-label" for="g-cfg_delay_dm_min">Atraso da DM</label>
             <input type="number" min="0" max="1440" step="1" class="form-control form-control-sm" id="g-cfg_delay_dm_min">
             <span class="un">min (0 = na hora)</span>
-          </div>
-        </div>
-      </div>
-
-      <!-- Alertas -->
-      <div class="gat-bloco">
-        <div class="form-check">
-          <input type="checkbox" class="form-check-input gat-toggle" id="g-on_alertas" data-dep="alertas">
-          <label class="form-check-label fw-semibold" for="g-on_alertas">Alertas do parque → grupo Alertas</label>
-        </div>
-        <div class="gat-sub" data-dep="alertas">
-          <div class="gat-campo">
-            <label class="form-label" for="g-cfg_digest_alertas_min">Intervalo do resumo</label>
-            <input type="number" min="1" max="1440" step="1" class="form-control form-control-sm" id="g-cfg_digest_alertas_min">
-            <span class="un">min</span>
           </div>
         </div>
       </div>
@@ -859,8 +842,8 @@ $chamados_jid = wpp_cfg_get('grupo_chamados_jid', '');
 
   /* ─────────── Gatilhos ─────────── */
   var gatilhosCarregados = false;
-  var GAT_TOGGLES = ['on_novo', 'on_atribuido', 'on_alertas', 'on_sla'];
-  var GAT_NUMS = ['cfg_delay_dm_min', 'cfg_digest_alertas_min', 'cfg_sla_horas', 'cfg_sla_prevenc_min', 'cfg_offline_reset_min'];
+  var GAT_TOGGLES = ['on_novo', 'on_atribuido', 'on_sla'];
+  var GAT_NUMS = ['cfg_delay_dm_min', 'cfg_sla_horas', 'cfg_sla_prevenc_min', 'cfg_offline_reset_min'];
 
   function carregarGatilhos() {
     feedback($('fb-gatilhos'), 'info', 'Carregando…');
@@ -881,7 +864,7 @@ $chamados_jid = wpp_cfg_get('grupo_chamados_jid', '');
 
   // apaga/desabilita os campos de tempo de um gatilho quando ele está desmarcado
   function sincronizarGatilhos() {
-    ['atribuido', 'alertas', 'sla'].forEach(function (dep) {
+    ['atribuido', 'sla'].forEach(function (dep) {
       var on = $('g-on_' + dep).checked;
       document.querySelectorAll('.gat-sub[data-dep="' + dep + '"]').forEach(function (el) {
         el.classList.toggle('off', !on);
@@ -896,11 +879,11 @@ $chamados_jid = wpp_cfg_get('grupo_chamados_jid', '');
     GAT_TOGGLES.forEach(function (k) { params.set(k, $('g-' + k).checked ? '1' : '0'); });
     // qual gatilho "dono" de cada campo — se ele está desmarcado, não valida
     var DONO = {
-      cfg_delay_dm_min: 'on_atribuido', cfg_digest_alertas_min: 'on_alertas',
+      cfg_delay_dm_min: 'on_atribuido',
       cfg_sla_horas: 'on_sla', cfg_sla_prevenc_min: 'on_sla'
     };
     var LABEL = {
-      cfg_delay_dm_min: 'Atraso da DM', cfg_digest_alertas_min: 'Intervalo do resumo de alertas',
+      cfg_delay_dm_min: 'Atraso da DM',
       cfg_sla_horas: 'Parado após', cfg_sla_prevenc_min: 'Aviso antes de vencer',
       cfg_offline_reset_min: 'Re-semear baseline'
     };
