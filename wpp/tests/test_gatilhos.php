@@ -53,34 +53,36 @@ if (isset($pdo) && $pdo instanceof PDO) {
     $oldOn  = wpp_cfg_get('on_novo');
     $oldGrp = wpp_cfg_get('grupo_chamados_jid');
 
-    wpp_cfg_set('on_novo', '1');
-    wpp_cfg_set('grupo_chamados_jid', '999888777@g.us'); // qualquer coisa não-vazia
-    $pdo->exec("DELETE FROM portal_wpp_config WHERE chave = 'wm_novo'");
+    try {
+        wpp_cfg_set('on_novo', '1');
+        wpp_cfg_set('grupo_chamados_jid', '999888777@g.us'); // qualquer coisa não-vazia
+        $pdo->exec("DELETE FROM portal_wpp_config WHERE chave = 'wm_novo'");
 
-    $outAntes = (int) $pdo->query("SELECT COUNT(*) FROM portal_wpp_log WHERE direcao='out'")->fetchColumn();
+        $outAntes = (int) $pdo->query("SELECT COUNT(*) FROM portal_wpp_log WHERE direcao='out'")->fetchColumn();
 
-    gat_novo($pdo);
+        gat_novo($pdo);
 
-    $wmDepois = wpp_cfg_get('wm_novo');
-    t_ok(
-        is_string($wmDepois) && (bool) preg_match('/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/', $wmDepois),
-        'gat_novo sem wm_novo grava o watermark (datetime do banco)'
-    );
+        $wmDepois = wpp_cfg_get('wm_novo');
+        t_ok(
+            is_string($wmDepois) && (bool) preg_match('/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/', $wmDepois),
+            'gat_novo sem wm_novo grava o watermark (datetime do banco)'
+        );
 
-    $outDepois = (int) $pdo->query("SELECT COUNT(*) FROM portal_wpp_log WHERE direcao='out'")->fetchColumn();
-    t_ok($outDepois === $outAntes, 'gat_novo sem wm_novo não registra nenhum envio (direcao=out inalterado)');
+        $outDepois = (int) $pdo->query("SELECT COUNT(*) FROM portal_wpp_log WHERE direcao='out'")->fetchColumn();
+        t_ok($outDepois === $outAntes, 'gat_novo sem wm_novo não registra nenhum envio (direcao=out inalterado)');
 
-    // toggle desligado -> não faz nada
-    wpp_cfg_set('on_novo', '0');
-    $pdo->exec("DELETE FROM portal_wpp_config WHERE chave = 'wm_novo'");
-    gat_novo($pdo);
-    t_ok(wpp_cfg_get('wm_novo') === null, 'gat_novo com on_novo=0 não toca no watermark');
-
-    // restaura estado real
-    if ($oldWm !== null)  wpp_cfg_set('wm_novo', $oldWm);
-    else                  $pdo->exec("DELETE FROM portal_wpp_config WHERE chave = 'wm_novo'");
-    wpp_cfg_set('on_novo', $oldOn ?? '1');
-    wpp_cfg_set('grupo_chamados_jid', $oldGrp ?? '');
+        // toggle desligado -> não faz nada
+        wpp_cfg_set('on_novo', '0');
+        $pdo->exec("DELETE FROM portal_wpp_config WHERE chave = 'wm_novo'");
+        gat_novo($pdo);
+        t_ok(wpp_cfg_get('wm_novo') === null, 'gat_novo com on_novo=0 não toca no watermark');
+    } finally {
+        // restaura estado real — mesmo se um assert lançar no meio
+        if ($oldWm !== null)  wpp_cfg_set('wm_novo', $oldWm);
+        else                  $pdo->exec("DELETE FROM portal_wpp_config WHERE chave = 'wm_novo'");
+        wpp_cfg_set('on_novo', $oldOn ?? '1');
+        wpp_cfg_set('grupo_chamados_jid', $oldGrp ?? '');
+    }
 } else {
     echo "  -- gat_novo(): banco indisponível, testes de watermark pulados\n";
 }

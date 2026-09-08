@@ -39,6 +39,9 @@ function gat_novo(PDO $pdo): void
             wpp_log('sys', '', 'grupo_chamados_jid nao configurado', 'skip');
             wpp_marcar_notificado('sys', 'grupo_chamados_jid_ausente');
         }
+        // Mantém o watermark corrente: quando o grupo for cadastrado, só
+        // chamados a partir daí disparam — sem despejar o histórico do intervalo.
+        wpp_cfg_set('wm_novo', wpp_agora_db($pdo));
         return;
     }
 
@@ -61,19 +64,28 @@ function gat_novo(PDO $pdo): void
 
     // Comparação de watermark é string pura ('YYYY-MM-DD HH:MM:SS' ordena igual
     // cronologicamente); nada de strtotime aqui.
+    //
+    // O watermark só avança sobre linhas RESOLVIDAS (já notificadas ou enviadas
+    // agora com sucesso) e a passada PARA no primeiro envio que falha/bloqueia —
+    // senão um envio OK mais recente empurraria o watermark para além de um
+    // chamado ainda não enviado, que nunca mais seria selecionado.
     $maxData = $wm;
     while ($t = $st->fetch(PDO::FETCH_ASSOC)) {
-        if ($t['date_creation'] > $maxData) $maxData = $t['date_creation'];
-        if (wpp_ja_notificado('novo', (string) $t['id'])) continue;
+        $id = (string) $t['id'];
+
+        if (wpp_ja_notificado('novo', $id)) {
+            if ($t['date_creation'] > $maxData) $maxData = $t['date_creation'];
+            continue;
+        }
 
         $r = evo_send_text($grupo, gat_msg_novo($t));
-        if (!empty($r['ok'])) {
-            wpp_marcar_notificado('novo', (string) $t['id']);
-        }
-        // envio falhou/bloqueou: NÃO marca — tenta de novo na próxima passada.
+        if (empty($r['ok'])) break;   // re-tenta deste ponto na próxima passada
+
+        wpp_marcar_notificado('novo', $id);
+        if ($t['date_creation'] > $maxData) $maxData = $t['date_creation'];
     }
 
-    wpp_cfg_set('wm_novo', $maxData);   // só avança até o último processado
+    wpp_cfg_set('wm_novo', $maxData);   // só avança até o último resolvido
 }
 
 /**
