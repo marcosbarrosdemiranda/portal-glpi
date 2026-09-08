@@ -14,6 +14,7 @@ require_once __DIR__ . '/db.php';
 require_once __DIR__ . '/evo_api.php';
 require_once __DIR__ . '/../alertas_lib.php';
 require_once __DIR__ . '/../entidade_alias.php';   // apelido_entidade() — alertas_lib não puxa
+require_once __DIR__ . '/../alertas_tipos.php';   // alertas_catalogo(), alertas_config_do_tipo(), cria portal_alertas_ocorrencias
 
 /**
  * Task 6 — chamado novo aberto no GLPI -> mensagem no grupo "Chamados".
@@ -342,144 +343,111 @@ function gat_msg_atribuido(array $d): string
 }
 
 /**
- * Task 8 — digest de alertas do parque -> grupo "Alertas".
+ * Alertas do parque -> grupo "Alertas", POR OCORRÊNCIA.
  *
- * A cada passada compara o snapshot atual (alertas_lib::alertas_snapshot) com o
- * último snapshot salvo em portal_wpp_config.wpp_snap_alertas. Só manda mensagem
- * quando há item NOVO (que não estava no snapshot anterior) E respeitando o
- * intervalo cfg_digest_alertas_min (watermark wm_alertas_digest = hora do último
- * digest efetivamente enviado).
- *
- * Chave estável usada no diff:
- *   sem_inventario -> name (nome da máquina)
- *   disco_cheio    -> name|volume
- *
- * Regras de snapshot/watermark:
- *   - sem grupo configurado: sai sem tocar em nada (não perde o "novo" quando
- *     o grupo for cadastrado);
- *   - nada novo: atualiza o snapshot (pra refletir itens que saíram) e não envia;
- *   - há novo mas o envio falhou/foi bloqueado: NÃO atualiza snapshot nem
- *     watermark -> tenta de novo na próxima passada;
- *   - envio OK: grava snapshot atual + watermark.
+ * Fonte da verdade: alertas_catalogo() (alertas_tipos.php). Para cada tipo ATIVO
+ * chama gat_alertas_tipo(), isolado num try/catch (um tipo com erro não derruba
+ * os outros). A decisão de notificar é o switch notif_whatsapp de cada tipo
+ * (tela alertas_config.php) — não há mais toggle único "on_alertas".
  */
 function gat_alertas(PDO $pdo): void
 {
-    if (wpp_cfg_get('on_alertas', '1') !== '1') return;
-
     $grupo = (string) wpp_cfg_get('grupo_alertas_jid', '');
-    if ($grupo === '') return;   // sem destino: não mexe no snapshot p/ não perder o "novo"
 
-    // Throttle do digest: no máximo 1 a cada cfg_digest_alertas_min minutos.
-    $intervalo = max(1, (int) wpp_cfg_get('cfg_digest_alertas_min', '15'));
-    $ultimo    = wpp_cfg_get('wm_alertas_digest');
-    if ($ultimo && (strtotime(wpp_agora_db($pdo)) - strtotime($ultimo)) < $intervalo * 60) {
-        return;   // ainda não é hora
+    foreach (alertas_catalogo() as $slug => $def) {
+        $cfg = alertas_config_do_tipo($pdo, $slug);
+        if (!$cfg['ativo']) continue;
+        try {
+            gat_alertas_tipo($pdo, $slug, $def, $cfg, $grupo);
+        } catch (\Throwable $e) {
+            wpp_log('sys', '', "gat_alertas/{$slug}: " . $e->getMessage(), 'erro');
+        }
     }
-
-    $atual    = alertas_snapshot($pdo);
-    $anterior = json_decode((string) wpp_cfg_get('wpp_snap_alertas', '{}'), true);
-    if (!is_array($anterior)) $anterior = ['sem_inventario' => [], 'disco_cheio' => []];
-
-    $novos = alertas_novos($atual, $anterior);
-
-    if (!$novos['inv'] && !$novos['disco']) {
-        // Nada novo: atualiza o snapshot (reflete itens que saíram) mas não envia.
-        wpp_cfg_set('wpp_snap_alertas', json_encode($atual));
-        return;
-    }
-
-    $r = evo_send_text($grupo, gat_msg_digest($atual, $novos['inv'], $novos['disco']));
-    if (!empty($r['ok'])) {
-        wpp_cfg_set('wpp_snap_alertas', json_encode($atual));
-        wpp_cfg_set('wm_alertas_digest', wpp_agora_db($pdo));
-    }
-    // falhou/bloqueado: não grava snapshot nem watermark -> re-tenta na próxima passada
 }
 
 /**
- * Diff puro entre dois snapshots de alertas. Retorna só as linhas de $atual
- * cuja chave estável NÃO aparecia em $anterior.
- *   sem_inventario -> chave = name
- *   disco_cheio    -> chave = name|volume
+ * Sincroniza portal_alertas_ocorrencias de UM tipo com o que o check() retorna
+ * agora, e notifica pelo grupo (se notif_whatsapp e $grupo != '').
  *
- * $anterior malformado/ausente (chaves faltando) é tratado como vazio -> todos
- * os itens de $atual entram como "novos".
- */
-function alertas_novos(array $atual, array $anterior): array
-{
-    $keysInv = [];
-    foreach ($anterior['sem_inventario'] ?? [] as $r) {
-        $keysInv[(string) ($r['name'] ?? '')] = true;
-    }
-    $keysDisco = [];
-    foreach ($anterior['disco_cheio'] ?? [] as $r) {
-        $keysDisco[($r['name'] ?? '') . '|' . ($r['volume'] ?? '')] = true;
-    }
-
-    $novosInv = [];
-    foreach ($atual['sem_inventario'] ?? [] as $r) {
-        if (!isset($keysInv[(string) ($r['name'] ?? '')])) $novosInv[] = $r;
-    }
-    $novosDisco = [];
-    foreach ($atual['disco_cheio'] ?? [] as $r) {
-        if (!isset($keysDisco[($r['name'] ?? '') . '|' . ($r['volume'] ?? '')])) $novosDisco[] = $r;
-    }
-
-    return ['inv' => $novosInv, 'disco' => $novosDisco];
-}
-
-/**
- * Monta o texto do digest de alertas.
- * Ex:
- *   🔔 *Alertas do parque*
+ *   NOVA      (atual, não guardada)  -> 🔔  + INSERT
+ *   RESOLVIDA (guardada, não atual)  -> ✅  + DELETE
+ *   ABERTA + lembrete_min>0 + venceu -> ⏰  + UPDATE ultimo_lembrete
  *
- *   📉 Sem inventário +7d: 12 (novos: PC-CAIXA-01 (Lj 003), PC-RET-03)
- *   💾 Disco cheio: 3 (novos: SRV-01 (Lj 001) D: 95%)
+ * notif_whatsapp=0 (ou grupo vazio): grava/apaga a tabela mas NÃO envia — assim
+ * ligar a notificação depois não despeja o acúmulo.
  *
- * A linha só ganha o "(novos: …)" quando há itens novos naquela categoria.
- * Listas são truncadas em 5 itens com sufixo "…+N". apelido_entidade() é
- * aplicado na loja de cada item (o nome da máquina em si nunca vira apelido).
+ * Envio que falha/bloqueia NÃO muda o estado daquela chave -> re-tenta na próxima.
+ *
+ * @param array $def  precisa de 'nome' (string) e 'check' (callable(PDO,array):array)
+ * @param array $cfg  precisa de 'notif_whatsapp' (bool), 'params' (array), 'lembrete_min' (int)
  */
-function gat_msg_digest(array $atual, array $novosInv, array $novosDisco): string
+function gat_alertas_tipo(PDO $pdo, string $slug, array $def, array $cfg, string $grupo): void
 {
-    $totInv   = count($atual['sem_inventario'] ?? []);
-    $totDisco = count($atual['disco_cheio'] ?? []);
+    $notifica = !empty($cfg['notif_whatsapp']) && $grupo !== '';
+    $nome     = (string) ($def['nome'] ?? $slug);
 
-    $linhaInv = "📉 Sem inventário +7d: {$totInv}";
-    if ($novosInv) {
-        $itens = array_map(static function (array $r): string {
-            $nome = (string) ($r['name'] ?? '(sem nome)');
-            $loja = function_exists('apelido_entidade') ? apelido_entidade($r['loja'] ?? '') : (string) ($r['loja'] ?? '');
-            return $loja !== '' ? "{$nome} ({$loja})" : $nome;
-        }, $novosInv);
-        $linhaInv .= ' (novos: ' . gat_lista_curta($itens) . ')';
+    $atuais = call_user_func($def['check'], $pdo, $cfg['params'] ?? []);
+    $porChave = [];
+    foreach ($atuais as $o) $porChave[$o['chave']] = $o;
+
+    $st = $pdo->prepare(
+        "SELECT chave, primeiro_visto, ultimo_lembrete
+         FROM portal_alertas_ocorrencias WHERE tipo = ?"
+    );
+    $st->execute([$slug]);
+    $guardadas = $st->fetchAll(PDO::FETCH_ASSOC | PDO::FETCH_UNIQUE);   // chave => row
+
+    $ins = $pdo->prepare(
+        "INSERT IGNORE INTO portal_alertas_ocorrencias (tipo, chave, primeiro_visto) VALUES (?, ?, NOW())"
+    );
+    $del = $pdo->prepare(
+        "DELETE FROM portal_alertas_ocorrencias WHERE tipo = ? AND chave = ?"
+    );
+
+    // NOVAS
+    foreach ($atuais as $o) {
+        if (isset($guardadas[$o['chave']])) continue;
+        if ($notifica) {
+            $r = gat_enviar($grupo, gat_msg_alerta_novo($nome, $o));
+            if (empty($r['ok'])) continue;   // não grava -> re-tenta na próxima passada
+        }
+        $ins->execute([$slug, $o['chave']]);
     }
 
-    $linhaDisco = "💾 Disco cheio: {$totDisco}";
-    if ($novosDisco) {
-        $itens = array_map(static function (array $r): string {
-            $nome = (string) ($r['name'] ?? '(sem nome)');
-            $loja = function_exists('apelido_entidade') ? apelido_entidade($r['loja'] ?? '') : (string) ($r['loja'] ?? '');
-            $vol  = (string) ($r['volume'] ?? '?');
-            $pct  = (int) ($r['pct'] ?? 0);
-            $base = $loja !== '' ? "{$nome} ({$loja})" : $nome;
-            return "{$base} {$vol} {$pct}%";
-        }, $novosDisco);
-        $linhaDisco .= ' (novos: ' . gat_lista_curta($itens) . ')';
+    // RESOLVIDAS
+    foreach ($guardadas as $chave => $row) {
+        if (isset($porChave[$chave])) continue;
+        if ($notifica) {
+            $r = gat_enviar($grupo, gat_msg_alerta_resolvido($nome, (string) $chave));
+            if (empty($r['ok'])) continue;   // não apaga -> re-tenta
+        }
+        $del->execute([$slug, $chave]);
     }
 
-    return "🔔 *Alertas do parque*\n\n{$linhaInv}\n{$linhaDisco}";
-}
-
-/**
- * Junta os itens com ", "; se houver mais de $max, mostra os primeiros $max
- * e acrescenta " …+N" com o restante.
- */
-function gat_lista_curta(array $itens, int $max = 5): string
-{
-    $n = count($itens);
-    if ($n <= $max) return implode(', ', $itens);
-    return implode(', ', array_slice($itens, 0, $max)) . ' …+' . ($n - $max);
+    // LEMBRETE
+    if ($notifica && (int) ($cfg['lembrete_min'] ?? 0) > 0) {
+        $agora   = strtotime(wpp_agora_db($pdo));
+        $limite  = (int) $cfg['lembrete_min'] * 60;
+        $devidas = [];
+        foreach ($atuais as $o) {
+            $g = $guardadas[$o['chave']] ?? null;
+            if (!$g) continue;   // recém-inserida nesta passada
+            $ref = $g['ultimo_lembrete'] ?: $g['primeiro_visto'];
+            if ($agora - strtotime((string) $ref) >= $limite) $devidas[] = $o;
+        }
+        if ($devidas) {
+            $r = gat_enviar($grupo, gat_msg_alerta_lembrete($nome, $devidas));
+            if (!empty($r['ok'])) {
+                $chaves = array_column($devidas, 'chave');
+                $ph  = implode(',', array_fill(0, count($chaves), '?'));
+                $upd = $pdo->prepare(
+                    "UPDATE portal_alertas_ocorrencias SET ultimo_lembrete = NOW()
+                     WHERE tipo = ? AND chave IN ($ph)"
+                );
+                $upd->execute(array_merge([$slug], $chaves));
+            }
+        }
+    }
 }
 
 /**
