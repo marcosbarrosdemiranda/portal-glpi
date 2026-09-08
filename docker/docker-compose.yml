@@ -57,6 +57,22 @@ services:
     networks:
       - glpi-net
 
+  # Worker de notificações do WhatsApp (Fase 2). Roda uma passada do worker.php
+  # a cada 30s. Na primeira subida SEMEIA a baseline (marca o estado atual como
+  # já notificado) e NÃO manda nada — só a partir daí dispara mensagens.
+  portal-wpp-worker:
+    build: .
+    container_name: portal-wpp-worker
+    restart: unless-stopped
+    depends_on:
+      - glpi-db
+      - evolution-api
+    volumes:
+      - C:\docker\glpi-portal\glpi2:/var/www/html/glpi2
+    entrypoint: ["sh", "-c", "while true; do php /var/www/html/glpi2/portal-glpi/wpp/worker.php; sleep 30; done"]
+    networks:
+      - glpi-net
+
   # Banco dedicado da Evolution API. O MariaDB 10.4 do glpi-db NÃO roda as
   # migrations do Prisma da Evolution — a migration
   # 20240813153900_add_unique_index_for_remoted_jid... derruba a conexão (P1017).

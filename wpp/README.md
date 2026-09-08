@@ -138,3 +138,67 @@ R: 1) Aba Conexao -> "Desconectar".
 ====================================================================
  FIM DO RUNBOOK
 ====================================================================
+
+
+====================================================================
+ FASE 2 - WORKER DE NOTIFICACOES
+====================================================================
+
+O QUE FAZ
+--------------------------------------------------------------------
+  * Servico portal-wpp-worker no docker-compose: um loop que roda
+    "php .../wpp/worker.php" a cada 30s (while true; sleep 30).
+  * Cada passada do worker.php:
+      1. Confere se a instancia portal_ti esta conectada (estado
+         "open"). Se nao, so registra "skip" no log e sai.
+      2. Se ficou mais de cfg_offline_reset_min (30) minutos sem
+         rodar com sucesso, re-semeia a baseline.
+      3. Primeira vez (ou apos reset): SEMEIA A BASELINE e sai sem
+         disparar nada.
+      4. Roda os 4 gatilhos (gat_novo, gat_atribuido, gat_alertas,
+         gat_sla), cada um isolado num try/catch. Nesta fase sao
+         stubs - implementados nas proximas tasks.
+      5. Grava wpp_last_ok = NOW() do banco.
+
+REGRA DE OURO: PRIMEIRA SUBIDA = BASELINE, NAO MANDA NADA
+--------------------------------------------------------------------
+Ao subir o worker pela primeira vez ele marca TODO o estado atual
+(chamados abertos, atribuicoes, alertas do parque) como "ja
+notificado" SEM ENVIAR mensagem nenhuma, e grava um watermark de
+tempo. So eventos que acontecerem DEPOIS disso geram notificacao.
+Isso vale tambem depois de um reset por offline longo. Ou seja:
+subir/reiniciar o container nunca despeja historico nos grupos/DMs.
+
+COMO SUBIR
+--------------------------------------------------------------------
+  ssh glpi-server
+  cd C:\docker\glpi-portal\
+[ ] 1. Pre-requisitos da Fase 1 ok (evolution-api de pe, instancia
+       portal_ti conectada, grupos cadastrados).
+[ ] 2. Suba o worker:
+         docker compose up -d portal-wpp-worker
+[ ] 3. Confira que a baseline foi semeada (primeira passada):
+         docker compose logs -f portal-wpp-worker
+       e/ou a aba "Log" da tela de Notificacoes - deve aparecer
+       "baseline semeada: N chamados" (status "baseline").
+[ ] 4. Confirme no celular da linha do TI: NENHUMA mensagem foi
+       enviada aos grupos durante a subida.
+
+COMO VER O LOG
+--------------------------------------------------------------------
+  * Container:  docker compose logs -f portal-wpp-worker
+  * Aplicacao:  aba "Log" da tela de Notificacoes (le portal_wpp_log)
+                ou:
+         docker exec glpi-db mariadb -uroot -proot_password glpi2 \
+           -e "SELECT criado_em,direcao,status,resumo FROM portal_wpp_log ORDER BY id DESC LIMIT 30;"
+
+TESTES
+--------------------------------------------------------------------
+[ ] docker exec glpi-web php /var/www/html/glpi2/portal-glpi/wpp/tests/run.php
+    Espera-se "0 falhas". test_worker_baseline.php cobre
+    wpp_semear_baseline (marca chamados/atribuicoes, grava snapshot
+    e watermark, idempotente).
+
+====================================================================
+ FIM - FASE 2
+====================================================================
