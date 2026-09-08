@@ -7,31 +7,112 @@ require_once __DIR__ . '/agenda/db.php';
 require_once __DIR__ . '/entidade_alias.php';
 require_once __DIR__ . '/alertas_lib.php';
 
-$H = fn($s) => htmlspecialchars((string)$s, ENT_QUOTES, 'UTF-8');
+function h($s) { return htmlspecialchars((string)$s, ENT_QUOTES, 'UTF-8'); }
+function gb($mb) { $n = (float)$mb; return $n >= 1024 ? round($n/1024, $n>=10240?0:1).' GB' : round($n).' MB'; }
 
 /* ─────────── Alertas que já dá pra detectar hoje (dados do GLPI) ─────────── */
 const ALERTA_INV_DIAS  = 7;
 const ALERTA_DISCO_PCT = 90;   // volume acima disso = alerta
 
-// 1) Máquinas sem reportar inventário há +7 dias (ou nunca)
-$semInv = alertas_sem_inventario($pdo, ALERTA_INV_DIAS);
+/**
+ * Lê os alertas ao vivo do GLPI. Usado tanto na carga da página quanto no
+ * endpoint ?action=dados (auto-refresh). Retorna dados + fragmentos HTML já
+ * renderizados, pra tela e AJAX ficarem sempre idênticos.
+ */
+function alertas_carregar(PDO $pdo): array
+{
+    $semInv     = alertas_sem_inventario($pdo, ALERTA_INV_DIAS);
+    $discoCheio = alertas_disco_cheio($pdo, ALERTA_DISCO_PCT);
 
-// 2) Discos quase cheios — só volumes de dados (> 30 GB); ignora partições de
-//    recuperação/sistema (sempre ~99% cheias por natureza).
-$discoCheio = alertas_disco_cheio($pdo, ALERTA_DISCO_PCT);
+    // agrupa "sem inventário" por loja
+    $semInvPorLoja = [];
+    foreach ($semInv as $m) {
+        $l = apelido_entidade($m['loja'] ?? '') ?: 'Sem loja';
+        $semInvPorLoja[$l][] = $m;
+    }
+    ksort($semInvPorLoja, SORT_NATURAL | SORT_FLAG_CASE);
 
-// agrupa "sem inventário" por loja
-$semInvPorLoja = [];
-foreach ($semInv as $m) {
-    $l = apelido_entidade($m['loja'] ?? '') ?: 'Sem loja';
-    $semInvPorLoja[$l][] = $m;
+    $totalAtivos = (int)$pdo->query("SELECT COUNT(*) FROM glpi_computers WHERE is_deleted=0 AND is_template=0")->fetchColumn();
+    $pctSemInv   = $totalAtivos ? round(count($semInv) / $totalAtivos * 100) : 0;
+
+    return [
+        'sem_inv'       => $semInv,
+        'disco'         => $discoCheio,
+        'sem_inv_loja'  => $semInvPorLoja,
+        'total'         => $totalAtivos,
+        'pct_sem_inv'   => $pctSemInv,
+        'sem_inv_html'  => render_sem_inv_body($semInvPorLoja),
+        'disco_html'    => render_disco_body($discoCheio),
+    ];
 }
-ksort($semInvPorLoja, SORT_NATURAL | SORT_FLAG_CASE);
 
-$totalAtivos = (int)$pdo->query("SELECT COUNT(*) FROM glpi_computers WHERE is_deleted=0 AND is_template=0")->fetchColumn();
-$pctSemInv   = $totalAtivos ? round(count($semInv) / $totalAtivos * 100) : 0;
+/** innerHTML do corpo da seção "sem inventário" (agrupado por loja). */
+function render_sem_inv_body(array $semInvPorLoja): string
+{
+    if (!$semInvPorLoja) {
+        return '<div class="vazio"><i class="bi bi-check-circle-fill me-1"></i>Todo o parque reportou nos últimos ' . ALERTA_INV_DIAS . ' dias.</div>';
+    }
+    $out = '';
+    foreach ($semInvPorLoja as $loja => $maquinas) {
+        $out .= '<div class="loja-h"><i class="bi bi-shop"></i> ' . h($loja)
+              . ' <span style="color:#9ca3af;font-weight:400">(' . count($maquinas) . ')</span></div><table><tbody>';
+        foreach ($maquinas as $m) {
+            $nunca = empty($m['last_inventory_update']) || $m['last_inventory_update'][0] === '0';
+            $dias  = $nunca ? null : (int)floor((time() - strtotime($m['last_inventory_update'])) / 86400);
+            $pill  = $nunca
+                ? '<span class="pill pill-red">nunca reportou</span>'
+                : '<span class="pill pill-amber">' . $dias . ' dias (' . h(substr($m['last_inventory_update'], 0, 10)) . ')</span>';
+            $out .= '<tr><td style="font-weight:600">' . h($m['name'] ?: '(sem nome)') . '</td>'
+                  . '<td style="color:#6b7280">' . h($m['cat']) . '</td>'
+                  . '<td style="text-align:right">' . $pill . '</td></tr>';
+        }
+        $out .= '</tbody></table>';
+    }
+    return $out;
+}
 
-function gb($mb) { $n = (float)$mb; return $n >= 1024 ? round($n/1024, $n>=10240?0:1).' GB' : round($n).' MB'; }
+/** innerHTML do corpo da seção "discos quase cheios". */
+function render_disco_body(array $discoCheio): string
+{
+    if (!$discoCheio) {
+        return '<div class="vazio"><i class="bi bi-check-circle-fill me-1"></i>Nenhum volume acima de ' . ALERTA_DISCO_PCT . '%.</div>';
+    }
+    $out = '<table><thead><tr><th>Máquina</th><th>Loja</th><th>Volume</th><th>Uso</th></tr></thead><tbody>';
+    foreach ($discoCheio as $d) {
+        $pct = (int)$d['pct'];
+        $out .= '<tr><td style="font-weight:600">' . h($d['name']) . '</td>'
+              . '<td style="color:#6b7280">' . h(apelido_entidade($d['loja'] ?? '') ?: '—') . '</td>'
+              . '<td>' . h($d['volume']) . '</td>'
+              . '<td><span class="bar"><span style="width:' . $pct . '%"></span></span>'
+              . $pct . '% · ' . gb($d['totalsize'] - $d['freesize']) . ' / ' . gb($d['totalsize']) . '</td></tr>';
+    }
+    return $out . '</tbody></table>';
+}
+
+$dados = alertas_carregar($pdo);
+$semInv        = $dados['sem_inv'];
+$discoCheio    = $dados['disco'];
+$semInvPorLoja = $dados['sem_inv_loja'];
+$totalAtivos   = $dados['total'];
+$pctSemInv     = $dados['pct_sem_inv'];
+
+// ── Endpoint AJAX do auto-refresh / botão Atualizar ──
+if (($_GET['action'] ?? '') === 'dados') {
+    header('Content-Type: application/json');
+    echo json_encode([
+        'ok'           => true,
+        'hora'         => date('H:i:s'),
+        'stats'        => [
+            'sem_inv' => count($semInv),
+            'disco'   => count($discoCheio),
+            'total'   => $totalAtivos,
+            'pct'     => $pctSemInv,
+        ],
+        'sem_inv_html' => $dados['sem_inv_html'],
+        'disco_html'   => $dados['disco_html'],
+    ]);
+    exit;
+}
 ?>
 <!DOCTYPE html>
 <html lang="pt-BR">
@@ -74,12 +155,27 @@ function gb($mb) { $n = (float)$mb; return $n >= 1024 ? round($n/1024, $n>=10240
     .futuro b { color:#1f2937; }
     .futuro ul { margin:.4rem 0 0; padding-left:1.1rem; }
     footer { text-align:center; color:#bbb; font-size:.78rem; padding:2rem; }
+    .btn-refresh { color:#fff; background:rgba(255,255,255,.15); border:none; border-radius:6px;
+                   font-size:.82rem; padding:.3rem .75rem; cursor:pointer; display:inline-flex; align-items:center; gap:.35rem; }
+    .btn-refresh:disabled { opacity:.55; cursor:default; }
+    .btn-refresh .bi { transition:transform .3s; }
+    .btn-refresh.loading .bi { animation:girar .8s linear infinite; }
+    @keyframes girar { to { transform:rotate(360deg); } }
+    .att-linha { font-size:.75rem; color:#6b7280; margin:-.6rem 0 1rem; display:flex; align-items:center; gap:.4rem; }
+    .flash { animation:flash 1s ease; }
+    @keyframes flash { 0%{ background:#fff9c4; } 100%{ background:transparent; } }
+    .stat .n { border-radius:6px; padding:0 .2rem; }
   </style>
 </head>
 <body>
 <div class="topbar">
   <div class="brand"><i class="bi bi-bell-fill"></i> Central de Alertas</div>
-  <a href="dashboard.php"><i class="bi bi-grid me-1"></i>Início</a>
+  <div style="display:flex;gap:.5rem;align-items:center">
+    <button type="button" id="btnAtualizar" class="btn-refresh" onclick="atualizarAlertas(true)">
+      <i class="bi bi-arrow-clockwise"></i> Atualizar
+    </button>
+    <a href="dashboard.php"><i class="bi bi-grid me-1"></i>Início</a>
+  </div>
 </div>
 <div class="hero">
   <h1><i class="bi bi-bell-fill me-2"></i>Central de Alertas</h1>
@@ -88,61 +184,28 @@ function gb($mb) { $n = (float)$mb; return $n >= 1024 ? round($n/1024, $n>=10240
 
 <div class="wrap">
   <div class="stats">
-    <div class="stat"><div class="l">Sem inventário +<?= ALERTA_INV_DIAS ?>d</div><div class="n" style="color:var(--alert)"><?= count($semInv) ?></div><div style="font-size:.78rem;color:#6b7280"><?= $pctSemInv ?>% do parque</div></div>
-    <div class="stat"><div class="l">Discos quase cheios</div><div class="n" style="color:#b45309"><?= count($discoCheio) ?></div><div style="font-size:.78rem;color:#6b7280">volume ≥ <?= ALERTA_DISCO_PCT ?>%</div></div>
-    <div class="stat"><div class="l">Total de máquinas</div><div class="n"><?= $totalAtivos ?></div></div>
+    <div class="stat"><div class="l">Sem inventário +<?= ALERTA_INV_DIAS ?>d</div><div class="n" id="n-sem-inv" style="color:var(--alert)"><?= count($semInv) ?></div><div style="font-size:.78rem;color:#6b7280"><span id="pct-sem-inv"><?= $pctSemInv ?></span>% do parque</div></div>
+    <div class="stat"><div class="l">Discos quase cheios</div><div class="n" id="n-disco" style="color:#b45309"><?= count($discoCheio) ?></div><div style="font-size:.78rem;color:#6b7280">volume ≥ <?= ALERTA_DISCO_PCT ?>%</div></div>
+    <div class="stat"><div class="l">Total de máquinas</div><div class="n" id="n-total"><?= $totalAtivos ?></div></div>
+  </div>
+
+  <div class="att-linha">
+    <i class="bi bi-clock-history"></i>
+    <span id="attTxt">atualizado às <?= date('H:i:s') ?></span>
   </div>
 
   <!-- Sem inventário -->
   <div class="sec">
     <div class="sec-h"><i class="bi bi-wifi-off text-danger"></i> Máquinas sem reportar inventário
-      <span class="badge bg-danger"><?= count($semInv) ?></span></div>
-    <div class="sec-b">
-      <?php if (!$semInv): ?>
-        <div class="vazio"><i class="bi bi-check-circle-fill me-1"></i>Todo o parque reportou nos últimos <?= ALERTA_INV_DIAS ?> dias.</div>
-      <?php else: foreach ($semInvPorLoja as $loja => $maquinas): ?>
-        <div class="loja-h"><i class="bi bi-shop"></i> <?= $H($loja) ?> <span style="color:#9ca3af;font-weight:400">(<?= count($maquinas) ?>)</span></div>
-        <table><tbody>
-        <?php foreach ($maquinas as $m):
-          $nunca = empty($m['last_inventory_update']) || $m['last_inventory_update'][0] === '0';
-          $dias  = $nunca ? null : (int)floor((time() - strtotime($m['last_inventory_update'])) / 86400); ?>
-          <tr>
-            <td style="font-weight:600"><?= $H($m['name'] ?: '(sem nome)') ?></td>
-            <td style="color:#6b7280"><?= $H($m['cat']) ?></td>
-            <td style="text-align:right">
-              <?php if ($nunca): ?><span class="pill pill-red">nunca reportou</span>
-              <?php else: ?><span class="pill pill-amber"><?= $dias ?> dias (<?= $H(substr($m['last_inventory_update'],0,10)) ?>)</span><?php endif; ?>
-            </td>
-          </tr>
-        <?php endforeach; ?>
-        </tbody></table>
-      <?php endforeach; endif; ?>
-    </div>
+      <span class="badge bg-danger" id="badge-sem-inv"><?= count($semInv) ?></span></div>
+    <div class="sec-b" id="body-sem-inv"><?= $dados['sem_inv_html'] ?></div>
   </div>
 
   <!-- Disco cheio -->
   <div class="sec">
     <div class="sec-h"><i class="bi bi-hdd-fill text-warning"></i> Discos quase cheios
-      <span class="badge bg-warning text-dark"><?= count($discoCheio) ?></span></div>
-    <div class="sec-b">
-      <?php if (!$discoCheio): ?>
-        <div class="vazio"><i class="bi bi-check-circle-fill me-1"></i>Nenhum volume acima de <?= ALERTA_DISCO_PCT ?>%.</div>
-      <?php else: ?>
-        <table>
-          <thead><tr><th>Máquina</th><th>Loja</th><th>Volume</th><th>Uso</th></tr></thead>
-          <tbody>
-          <?php foreach ($discoCheio as $d): ?>
-            <tr>
-              <td style="font-weight:600"><?= $H($d['name']) ?></td>
-              <td style="color:#6b7280"><?= $H(apelido_entidade($d['loja'] ?? '') ?: '—') ?></td>
-              <td><?= $H($d['volume']) ?></td>
-              <td><span class="bar"><span style="width:<?= (int)$d['pct'] ?>%"></span></span><?= (int)$d['pct'] ?>% · <?= gb($d['totalsize'] - $d['freesize']) ?> / <?= gb($d['totalsize']) ?></td>
-            </tr>
-          <?php endforeach; ?>
-          </tbody>
-        </table>
-      <?php endif; ?>
-    </div>
+      <span class="badge bg-warning text-dark" id="badge-disco"><?= count($discoCheio) ?></span></div>
+    <div class="sec-b" id="body-disco"><?= $dados['disco_html'] ?></div>
   </div>
 
   <div class="futuro">
@@ -158,5 +221,74 @@ function gb($mb) { $n = (float)$mb; return $n >= 1024 ? round($n/1024, $n>=10240
   </div>
 </div>
 <footer><i class="bi bi-shield-lock me-1"></i>Central de TI — Integrado com GLPI</footer>
+
+<script>
+(function () {
+  const REFRESH_MS = 45000;
+  const btn   = document.getElementById('btnAtualizar');
+  const attTxt = document.getElementById('attTxt');
+  let auto = null;
+
+  // pisca o valor se mudou
+  function setNum(id, valor) {
+    const el = document.getElementById(id);
+    if (!el) return;
+    const novo = String(valor);
+    if (el.textContent.trim() !== novo) {
+      el.textContent = novo;
+      el.classList.remove('flash');
+      void el.offsetWidth;         // reinicia a animação
+      el.classList.add('flash');
+    }
+  }
+
+  async function atualizarAlertas(manual) {
+    if (btn.disabled) return;
+    btn.disabled = true;
+    btn.classList.add('loading');
+    try {
+      // auto-refresh nao renova a sessao de inatividade (convencao do auth_guard)
+      const url = 'alertas.php?action=dados' + (manual ? '' : '&bg=1');
+      const r = await fetch(url, { headers: { 'X-Requested-With': 'fetch' } });
+      if (r.status === 440 || r.status === 401) { pararAuto('Sessão expirada — recarregue a página (F5).'); return; }
+      if (!r.ok) throw new Error('HTTP ' + r.status);
+      const d = await r.json();
+      if (!d || !d.ok) throw new Error('resposta inválida');
+
+      document.getElementById('body-sem-inv').innerHTML = d.sem_inv_html;
+      document.getElementById('body-disco').innerHTML   = d.disco_html;
+      setNum('n-sem-inv',  d.stats.sem_inv);
+      setNum('badge-sem-inv', d.stats.sem_inv);
+      setNum('pct-sem-inv', d.stats.pct);
+      setNum('n-disco',    d.stats.disco);
+      setNum('badge-disco', d.stats.disco);
+      setNum('n-total',    d.stats.total);
+      attTxt.textContent = 'atualizado às ' + d.hora;
+    } catch (e) {
+      attTxt.textContent = 'falha ao atualizar (' + e.message + ') — tentando de novo';
+    } finally {
+      btn.disabled = false;
+      btn.classList.remove('loading');
+    }
+  }
+  window.atualizarAlertas = atualizarAlertas;
+
+  function pararAuto(msg) {
+    if (auto) { clearInterval(auto); auto = null; }
+    btn.disabled = true;
+    if (msg) attTxt.textContent = msg;
+  }
+
+  // auto-refresh 45s; pausa quando a aba nao esta visivel
+  function iniciarAuto() {
+    if (auto) return;
+    auto = setInterval(() => { if (!document.hidden) atualizarAlertas(false); }, REFRESH_MS);
+  }
+  document.addEventListener('visibilitychange', () => {
+    if (!document.hidden) atualizarAlertas(false);   // volta pra aba -> atualiza na hora
+  });
+  iniciarAuto();
+})();
+</script>
 </body>
 </html>
