@@ -704,13 +704,44 @@ function gat_msg_sla(array $t, string $motivo): string
 
 ---
 
-## Task 12: Deploy da Fase 2 + verificação
+## Task 12: Botão "Reenviar no WhatsApp" no chamado
+
+**Files:**
+- Modify: `chamado.php`
+- Create: `wpp/renotificar.php` (endpoint isolado, sem HTML)
+- Test: `wpp/tests/test_renotificar.php` (Create)
+
+**Contexto:** o worker não renotifica um chamado já em `portal_wpp_notificados`. Este botão é o **override manual** — o atendente força o reenvio (ex: o técnico não viu, ou a atribuição mudou). Bypassa a dedup de propósito, mas NÃO bypassa o guardrail de destino.
+
+**Interfaces:**
+- Consumes: `$pdo`, `wpp/evo_api.php` (`evo_send_text`), `portal_wpp_contatos`, `entidade_alias.php`, `agenda/glpi_api.php` (ou SQL direto pra pegar dados do ticket + técnicos atribuídos).
+- Produces: `wpp/renotificar.php` — endpoint POST (JSON `{ticket_id, alvo}` onde `alvo` ∈ `'tecnico'|'grupo'`), com guard de sessão (auth_guard + `!self-service` + permissão: qualquer atendente pode; NÃO exige `notificacoes_config`). Retorna `{ok, enviados:int, msg}`.
+  - `alvo='tecnico'`: pega os `users_id` type=2 do ticket → telefone em `portal_wpp_contatos` (ativo) → `evo_send_text($tel, gat_msg_atribuido(...))` pra cada. Se nenhum técnico tem telefone: `{ok:false, msg:'nenhum técnico atribuído tem telefone cadastrado'}`.
+  - `alvo='grupo'`: `evo_send_text(wpp_cfg_get('grupo_chamados_jid'), gat_msg_novo(...))`.
+  - Sempre grava `wpp_log('out', $destino, 'renotif manual #'.$tid.' por '.$_SESSION['nome'], ...)`.
+  - Reaproveita `gat_msg_novo()` / `gat_msg_atribuido()` de `wpp/gatilhos.php`.
+
+- [ ] **Step 1: Teste `wpp/tests/test_renotificar.php`** — testa a função extraída `wpp_renotificar(PDO $pdo, int $ticketId, string $alvo): array` (o `.php` endpoint só faz sessão + chama ela). Fixtures: um ticket, um técnico com telefone, mock de `evo_send_text` via flag global. Casos: `alvo='grupo'` chama send 1x pro `grupo_chamados_jid`; `alvo='tecnico'` sem telefone → `{ok:false}`; `alvo` inválido → `{ok:false}`.
+
+- [ ] **Step 2: Rodar e ver falhar.**
+
+- [ ] **Step 3: Implementar `wpp/renotificar.php`** — a função `wpp_renotificar()` + o wrapper HTTP (guard de sessão como `chamado_ajax.php`, lê `php://input`, `echo json_encode(...)`).
+
+- [ ] **Step 4: Botão em `chamado.php`** — na barra de ações (perto do `btnEditarCampos` / `btn-excluir-chamado`, ~linha 550-558): um botão-dropdown "Reenviar no WhatsApp" com 2 itens ("Para o técnico atribuído", "Para o grupo Chamados"). `onclick` → `fetch('wpp/renotificar.php', {method:'POST', body: JSON.stringify({ticket_id, alvo})})` → toast com o resultado. Só mostrar o botão se `wpp_cfg_get('grupo_chamados_jid')` estiver configurado (senão a Fase 2 nem está no ar).
+
+- [ ] **Step 5:** `php -l` nos 2 arquivos + teste manual no servidor (chamado real, reenvia pro grupo, confere que chegou 1 msg + 1 linha no Log).
+
+- [ ] **Step 6: Commit** — `feat: chamado.php - botao "Reenviar no WhatsApp" (tecnico ou grupo)`
+
+---
+
+## Task 13: Deploy da Fase 2 + verificação
 
 **Files:**
 - Modify: `wpp/README.md` (checklist de deploy da Fase 2)
 
 - [ ] **Step 1:** Escrever no `wpp/README.md` o checklist de deploy da Fase 2:
-  1. `scp` dos arquivos novos/alterados pro servidor (`wpp/*.php`, `alertas_lib.php`, `alertas.php`, `config_whatsapp.php`).
+  1. `scp` dos arquivos novos/alterados pro servidor (`wpp/*.php`, `alertas_lib.php`, `alertas.php`, `config_whatsapp.php`, `chamado.php`).
   2. Replicar o serviço `portal-wpp-worker` no `C:\docker\glpi-portal\docker-compose.yml` do servidor (à mão).
   3. `docker compose up -d portal-wpp-worker`.
   4. **Primeira subida = baseline.** Conferir no log: `docker compose logs portal-wpp-worker` → "baseline semeada". Aba Log da tela → 1 linha `sys / baseline`. **Zero linhas `out/ok`.**
@@ -738,6 +769,8 @@ function gat_msg_sla(array $t, string $motivo): string
 - `portal_wpp_contatos` + prefill GLPI → Task 1 + Task 10 ✅
 - Abas Gatilhos + Log → Task 11 ✅
 - Tabelas `portal_wpp_*` → Task 1 ✅
+- Controle "já notificado, não notifica de novo" → `portal_wpp_notificados` UNIQUE (Task 1) + dedup em cada gatilho (Tasks 6-9) ✅
+- Botão manual de renotificar no chamado (override da dedup, mantém guardrail) → Task 12 ✅
 - Fora de escopo (webhook, chatbot, `portal_wpp_conversas`, autorizados-em-uso) → Fase 3, não aparece aqui ✅
 
 **2. Placeholder scan:** As SQLs estão escritas por extenso. As telas (Task 10/11) descrevem estrutura + handlers com contrato exato — o implementer produz o arquivo completo no estilo da Fase 1 (`config_whatsapp.php` já existe como referência). `gat_msg_*` têm o formato exato da string. Sem "TODO"/"tratar edge cases" solto.
