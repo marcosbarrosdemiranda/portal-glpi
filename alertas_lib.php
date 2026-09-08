@@ -50,12 +50,3 @@ function alertas_disco_cheio(PDO $pdo, int $pct = 90): array
     ORDER BY pct DESC
 ")->fetchAll(PDO::FETCH_ASSOC);
 }
-
-// Snapshot completo — usado pelo worker pra comparar com o estado anterior.
-function alertas_snapshot(PDO $pdo): array
-{
-    return [
-        'sem_inventario' => alertas_sem_inventario($pdo),
-        'disco_cheio'    => alertas_disco_cheio($pdo),
-    ];
-}

@@ -22,11 +22,10 @@ require_once __DIR__ . '/gatilhos.php';
 // teste e permitir recarregar a cada passada.
 $offlineResetMin  = (int) wpp_cfg_get('cfg_offline_reset_min', '30');
 $delayDmMin       = (int) wpp_cfg_get('cfg_delay_dm_min', '5');
-$digestAlertasMin = (int) wpp_cfg_get('cfg_digest_alertas_min', '15');
 $slaHoras         = (int) wpp_cfg_get('cfg_sla_horas', '4');
 $slaPrevencMin    = (int) wpp_cfg_get('cfg_sla_prevenc_min', '30');
-// Toggles on_novo / on_atribuido / on_alertas / on_sla (default '1') são
-// checados DENTRO de cada gatilho (Task 6-9), não aqui.
+// Toggles on_novo / on_atribuido / on_sla (default '1') são checados DENTRO de
+// cada gatilho (Task 6-9), não aqui. gat_alertas usa notif_whatsapp por tipo.
 
 /**
  * Executa uma passada completa do worker.
@@ -85,7 +84,8 @@ function wpp_worker_passada(): void
 
 /**
  * Semeia a baseline: marca todo o estado atual como "já notificado" SEM ENVIAR
- * nada, e grava o snapshot de alertas + o watermark de chamados novos.
+ * nada, popula portal_alertas_ocorrencias com as ocorrências correntes de todos
+ * os tipos do catálogo e grava o watermark de chamados novos.
  */
 function wpp_semear_baseline(PDO $pdo): void
 {
@@ -121,15 +121,30 @@ function wpp_semear_baseline(PDO $pdo): void
         wpp_marcar_notificado('atribuido', $a['tickets_id'] . ':' . $a['users_id']);
     }
 
-    // Snapshot dos alertas do parque (o gat_alertas compara com este estado).
-    wpp_cfg_set('wpp_snap_alertas', json_encode(alertas_snapshot($pdo)));
+    // Ocorrências de alerta correntes -> portal_alertas_ocorrencias, pra TODOS os
+    // tipos do catálogo (ativos ou não). SEM enviar: o gat_alertas só manda 🔔
+    // pra chave que NÃO está aqui. Semear os inativos também garante que ligar
+    // um tipo (ou seu notif_whatsapp) depois não despeje o acúmulo.
+    require_once __DIR__ . '/../alertas_tipos.php';
+    $insOc = $pdo->prepare(
+        "INSERT IGNORE INTO portal_alertas_ocorrencias (tipo, chave, primeiro_visto) VALUES (?, ?, NOW())"
+    );
+    $nOc = 0;
+    foreach (alertas_catalogo() as $slug => $def) {
+        try {
+            $ocorr = call_user_func($def['check'], $pdo, alertas_config_do_tipo($pdo, $slug)['params']);
+        } catch (\Throwable $e) {
+            $ocorr = [];
+        }
+        foreach ($ocorr as $o) { $insOc->execute([$slug, $o['chave']]); $nOc++; }
+    }
 
     // Watermark de "chamado novo": só chamados abertos DEPOIS deste instante
     // disparam gat_novo.
     wpp_cfg_set('wm_novo', wpp_agora_db($pdo));
 
     $n = count($abertos);
-    wpp_log('sys', '', 'baseline semeada: ' . $n . ' chamados', 'baseline');
+    wpp_log('sys', '', 'baseline semeada: ' . $n . ' chamados, ' . $nOc . ' ocorrencias de alerta', 'baseline');
 }
 
 // --- Require-safe: só roda uma passada se worker.php for o script invocado. ---
