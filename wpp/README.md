@@ -202,8 +202,8 @@ tabela zerada, gat_sla/gat_atribuido disparam o backlog inteiro.
 [ ] docker compose stop portal-wpp-worker
 [ ] docker exec -e WPP_TEST_DESTRUTIVO=1 glpi-web php /var/www/html/glpi2/portal-glpi/wpp/tests/run.php
     Espera-se "0 falhas". test_worker_baseline.php cobre
-    wpp_semear_baseline (marca chamados/atribuicoes, grava snapshot
-    e watermark, idempotente).
+    wpp_semear_baseline (marca chamados/atribuicoes, popula
+    portal_alertas_ocorrencias, grava watermark, idempotente).
 [ ] docker compose start portal-wpp-worker
 
 DEPLOY DA FASE 2
@@ -299,7 +299,10 @@ CONFIGURE CONTATOS E GATILHOS
        - Certifique-se de que "Chamar novo" esta LIGADO (toggle on).
        - Se desejar DMs por atribuicao: deixe "Atribuido" ligado, ajuste
          cfg_delay_dm_min conforme necessario (recomendado >= 2 min).
-       - Se desejar digest de alertas: deixe "Alertas (digest)" ligado.
+       - Alertas do parque: configure por tipo em Configuracao ->
+         Central de Alertas -> "Configurar alertas" (switch "Notificar
+         no grupo Alertas" por tipo). Manda 1 msg quando o alerta
+         aparece, 1 quando e resolvido, e lembrete conforme o intervalo.
        - Se desejar avisos de SLA/parado: deixe "SLA / Parado" ligado.
 
 TESTE REAL
@@ -354,9 +357,8 @@ VERIFICACAO FINAL (CHECKLIST)
 [ ] Banco configurado:
       docker exec glpi-db mariadb -uroot -proot_password glpi2 \
         -e "SELECT chave,valor FROM portal_wpp_config WHERE chave IN
-             ('wpp_baseline_ok','wm_novo','wm_alertas_digest');"
-      Deve haver: wpp_baseline_ok = 1, wm_novo = 1 (ou ajuste conforme
-      gatilhos ligados).
+             ('wpp_baseline_ok','wm_novo');"
+      Deve haver: wpp_baseline_ok = 1, wm_novo = <datetime do banco>.
 [ ] Nenhum webhook de mensagem na Evolution (isso e Fase 3):
       docker exec glpi-db mariadb -uroot -pevolution_pw evolution \
         -e "SELECT COUNT(*) FROM webhooks WHERE enabled = 1;"
@@ -391,8 +393,8 @@ agendamentos, config, e re-semear baseline na proxima subida):
            -e "DELETE FROM portal_wpp_notificados; \
                DELETE FROM portal_wpp_dm_agendado; \
                DELETE FROM portal_wpp_config WHERE chave IN \
-               ('wpp_baseline_ok','wpp_last_ok','wpp_snap_alertas', \
-                'wm_novo','wm_alertas_digest');"
+               ('wpp_baseline_ok','wpp_last_ok','wm_novo'); \
+               DELETE FROM portal_alertas_ocorrencias;"
 [ ] 3. Subir novamente:
          docker compose up -d portal-wpp-worker
 [ ] 4. Aguarde a baseline ser semeada (veja os logs):
