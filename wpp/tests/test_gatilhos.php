@@ -18,31 +18,54 @@ $msg = gat_msg_novo([
 ]);
 t_eq(
     $msg,
-    "🆕 *Chamado #7* — Grupo Gmais > Loja 3\nPC nao liga\n_Incidente · aberto 07/09 14:30_",
-    'gat_msg_novo monta a string esperada (incidente)'
+    "🆕 *Novo chamado #7* — Grupo Gmais > Loja 3\n"
+    . "📌 *Título:* PC nao liga\n"
+    . "📅 *Aberto:* 07/09/2026 14:30\n"
+    . "_Incidente_",
+    'gat_msg_novo monta a string esperada (incidente, sem requerente/descrição)'
 );
 
-// type 2 -> "Requisição"
+// type 2 -> "Requisição"; com requerente e descrição (HTML do GLPI vira texto plano)
+// descrição: GLPI guarda com as tags escapadas (&lt;p&gt;...&lt;br&gt;...)
 $msgReq = gat_msg_novo([
     'id'            => 8,
     'name'          => 'Instalar impressora',
+    'content'       => '&lt;p&gt;Impressora nova&lt;br&gt;na recep&amp;ccedil;&amp;atilde;o&lt;/p&gt;',
     'loja'          => 'Entidade raiz > Grupo Gmais > Supermercado Santos - JDM',
     'date_creation' => '2026-09-07 09:05:00',
     'type'          => 2,
+    'req_nome'      => 'Santos Joao',
 ]);
 t_eq(
     $msgReq,
-    "🆕 *Chamado #8* — Lj 003\nInstalar impressora\n_Requisição · aberto 07/09 09:05_",
-    'gat_msg_novo: type=2 vira Requisição e aplica apelido_entidade'
+    "🆕 *Novo chamado #8* — Lj 003\n"
+    . "📌 *Título:* Instalar impressora\n"
+    . "🙋 *Requerente:* Joao Santos\n"
+    . "📝 *Descrição:* Impressora nova na recepção\n"
+    . "📅 *Aberto:* 07/09/2026 09:05\n"
+    . "_Requisição_",
+    'gat_msg_novo: type=2 Requisição + apelido_entidade + requerente invertido + descrição em texto plano'
 );
 
-// loja vazia -> "sem loja"; título ausente -> "(sem título)"
+// loja vazia -> "sem loja"; título ausente -> "(sem título)"; sem requerente/descrição
 $msgSemLoja = gat_msg_novo(['id' => 9, 'date_creation' => '2026-09-07 00:00:00']);
 t_eq(
     $msgSemLoja,
-    "🆕 *Chamado #9* — sem loja\n(sem título)\n_Incidente · aberto 07/09 00:00_",
+    "🆕 *Novo chamado #9* — sem loja\n"
+    . "📌 *Título:* (sem título)\n"
+    . "📅 *Aberto:* 07/09/2026 00:00\n"
+    . "_Incidente_",
     'gat_msg_novo: loja/título ausentes usam os fallbacks'
 );
+
+// gat_texto_plano: tags escapadas do GLPI + entidades + colapsa espaço + trunca
+t_eq(gat_texto_plano('&lt;p&gt;oi   &lt;b&gt;l&amp;aacute;&lt;/b&gt;&lt;br&gt;tudo   bem?&lt;/p&gt;'),
+    'oi lá tudo bem?',
+    'gat_texto_plano: tags escapadas do GLPI viram texto plano');
+t_eq(gat_texto_plano('<p>tag crua tambem</p>'), 'tag crua tambem',
+    'gat_texto_plano: aguenta tag crua também');
+t_eq(gat_texto_plano(str_repeat('a', 600), 100), str_repeat('a', 99) . '…',
+    'gat_texto_plano trunca no limite');
 
 // ---------------------------------------------------------------------------
 // gat_msg_atribuido() — montagem da mensagem (puro, sem banco)

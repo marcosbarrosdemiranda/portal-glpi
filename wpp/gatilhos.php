@@ -56,9 +56,13 @@ function gat_novo(PDO $pdo): void
     }
 
     $st = $pdo->prepare("
-        SELECT t.id, t.name, t.date_creation, t.type, e.completename AS loja
+        SELECT t.id, t.name, t.content, t.date_creation, t.type,
+               e.completename AS loja,
+               TRIM(CONCAT(COALESCE(ur.realname,''), ' ', COALESCE(ur.firstname,''))) AS req_nome,
+               ur.name AS req_login
         FROM glpi_tickets t
         LEFT JOIN glpi_entities e ON e.id = t.entities_id
+        LEFT JOIN glpi_users ur ON ur.id = t.users_id_recipient
         WHERE t.is_deleted = 0 AND t.date_creation >= ?
         ORDER BY t.date_creation ASC
         LIMIT 30
@@ -95,17 +99,42 @@ function gat_novo(PDO $pdo): void
  * Monta o texto da notificação de chamado novo.
  * Ex: "🆕 *Chamado #7* — Lj 003\nPC não liga\n_Incidente · aberto 07/09 14:30_"
  */
+/**
+ * Reduz um texto HTML do GLPI a texto plano curto (pra caber no WhatsApp).
+ * O GLPI costuma guardar o conteúdo com as tags escapadas (&lt;p&gt;...), às
+ * vezes duas vezes — por isso decodifica, tira as tags e decodifica de novo.
+ */
+function gat_texto_plano(string $html, int $max = 500): string
+{
+    $t = html_entity_decode($html, ENT_QUOTES | ENT_HTML5, 'UTF-8');   // &lt;p&gt; -> <p>
+    $t = str_ireplace(['<br>', '<br/>', '<br />', '</p>', '</div>', '</li>'], ' ', $t);
+    $t = strip_tags($t);                                               // remove o resto das tags
+    $t = html_entity_decode($t, ENT_QUOTES | ENT_HTML5, 'UTF-8');      // &nbsp; etc. remanescentes
+    $t = trim(preg_replace('/\s+/u', ' ', $t));
+    if (mb_strlen($t) > $max) $t = rtrim(mb_substr($t, 0, $max - 1)) . '…';
+    return $t;
+}
+
 function gat_msg_novo(array $t): string
 {
     $loja = function_exists('apelido_entidade')
         ? apelido_entidade($t['loja'] ?? '')
         : ($t['loja'] ?? '');
-    $data = !empty($t['date_creation']) ? date('d/m H:i', strtotime($t['date_creation'])) : '';
+    $data = !empty($t['date_creation']) ? date('d/m/Y H:i', strtotime($t['date_creation'])) : '';
     $tipo = ((int) ($t['type'] ?? 1)) === 2 ? 'Requisição' : 'Incidente';
 
-    return "🆕 *Chamado #{$t['id']}* — " . ($loja ?: 'sem loja') . "\n"
-         . ($t['name'] ?? '(sem título)') . "\n"
-         . "_{$tipo} · aberto {$data}_";
+    $req = trim((string) ($t['req_nome'] ?? '')) ?: trim((string) ($t['req_login'] ?? ''));
+    if ($req !== '' && function_exists('nome_requerente')) $req = nome_requerente($req);
+
+    $desc = gat_texto_plano((string) ($t['content'] ?? ''));
+
+    $m  = "🆕 *Novo chamado #{$t['id']}* — " . ($loja ?: 'sem loja') . "\n";
+    $m .= "📌 *Título:* " . ($t['name'] ?? '(sem título)') . "\n";
+    if ($req !== '')  $m .= "🙋 *Requerente:* {$req}\n";
+    if ($desc !== '') $m .= "📝 *Descrição:* {$desc}\n";
+    $m .= "📅 *Aberto:* {$data}\n";
+    $m .= "_{$tipo}_";
+    return $m;
 }
 
 /**
