@@ -55,7 +55,9 @@ if ($cards !== null && !isset($cards['notificacoes_config'])) {
     /* ── Cards (mesmo padrão do dashboard.php) ── */
     .dash-grid {
       display:grid;
-      grid-template-columns:repeat(auto-fit, minmax(240px, 1fr));
+      /* largura fixa por card — com 1 card só ele não estica pra largura toda */
+      grid-template-columns:repeat(auto-fill, minmax(240px, 260px));
+      justify-content:center;
       gap:1.25rem;
     }
     .dash-card {
