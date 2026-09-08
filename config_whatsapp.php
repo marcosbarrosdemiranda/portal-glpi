@@ -12,6 +12,7 @@ if (($_SESSION['perfil'] ?? '') === 'self-service') { header('Location: dashboar
 
 require_once __DIR__ . '/wpp/db.php';
 require_once __DIR__ . '/wpp/evo_api.php';
+require_once __DIR__ . '/wpp/guardrails.php'; // wpp_norm_telefone()
 
 // ── Checagem defensiva de permissão de perfil ──────────────────────────────
 // Espelha config_notificacoes.php: se o usuário tem perfil restrito do portal
@@ -82,6 +83,60 @@ if ($action !== '') {
             wpp_cfg_set('grupo_chamados_jid', $c);
             echo json_encode(['ok' => true]);
             break;
+        case 'contatos_listar':
+            // Lista técnicos (perfil GLPI profiles_id=4) + o contato WhatsApp já salvo, se houver.
+            try {
+                $sql = "SELECT DISTINCT u.id, u.realname, u.firstname, u.name AS login, u.mobile, u.phone,
+                               c.telefone, c.ativo
+                        FROM glpi_users u
+                        JOIN glpi_profiles_users pu ON pu.users_id = u.id AND pu.profiles_id = 4
+                        LEFT JOIN portal_wpp_contatos c ON c.glpi_user_id = u.id
+                        WHERE u.is_active = 1 AND u.is_deleted = 0
+                        ORDER BY u.realname, u.firstname";
+                $rows = $pdo->query($sql)->fetchAll(PDO::FETCH_ASSOC);
+                $tecnicos = [];
+                foreach ($rows as $r) {
+                    $nome = trim(($r['realname'] ?? '') . ' ' . ($r['firstname'] ?? ''));
+                    if ($nome === '') { $nome = (string)($r['login'] ?? ''); }
+                    $tecnicos[] = [
+                        'glpi_user_id' => (int)$r['id'],
+                        'nome'         => $nome,
+                        'telefone'     => $r['telefone'] ?? '',
+                        // contato ainda não salvo (telefone NULL) entra como "ativo" por padrão
+                        'ativo'        => $r['telefone'] === null ? 1 : (int)$r['ativo'],
+                        // sugestão de preenchimento vinda do cadastro GLPI (celular ou telefone)
+                        'mobile_glpi'  => wpp_norm_telefone((string)($r['mobile'] ?: ($r['phone'] ?: ''))),
+                    ];
+                }
+                echo json_encode(['ok' => true, 'tecnicos' => $tecnicos]);
+            } catch (\Throwable $e) {
+                echo json_encode(['ok' => false, 'erro' => 'falha ao listar contatos']);
+            }
+            break;
+        case 'contatos_salvar':
+            // grava/atualiza o telefone de UM técnico. POST-only (igual save_groups):
+            // um GET com telefone vazio zeraria o contato silenciosamente.
+            if ($_SERVER['REQUEST_METHOD'] !== 'POST') { echo json_encode(['ok' => false, 'erro' => 'método inválido']); exit; }
+            $uid = (int)($_POST['glpi_user_id'] ?? 0);
+            if ($uid <= 0) { echo json_encode(['ok' => false, 'erro' => 'técnico inválido']); exit; }
+            $tel = wpp_norm_telefone((string)($_POST['telefone'] ?? ''));
+            // vazio é permitido ("sem telefone" — o DM ignora esse técnico); se preenchido, 10..13 dígitos
+            if ($tel !== '' && (strlen($tel) < 10 || strlen($tel) > 13)) {
+                echo json_encode(['ok' => false, 'erro' => 'telefone deve ter de 10 a 13 dígitos']);
+                exit;
+            }
+            $ativo = (($_POST['ativo'] ?? '1') === '1') ? 1 : 0;
+            try {
+                $st = $pdo->prepare(
+                    "INSERT INTO portal_wpp_contatos (glpi_user_id, telefone, ativo) VALUES (?, ?, ?)
+                     ON DUPLICATE KEY UPDATE telefone = VALUES(telefone), ativo = VALUES(ativo)"
+                );
+                $st->execute([$uid, $tel, $ativo]);
+                echo json_encode(['ok' => true]);
+            } catch (\Throwable $e) {
+                echo json_encode(['ok' => false, 'erro' => 'falha ao salvar contato']);
+            }
+            break;
         default:
             echo json_encode(['ok' => false, 'erro' => 'ação desconhecida']);
     }
@@ -151,6 +206,7 @@ $chamados_jid = wpp_cfg_get('grupo_chamados_jid', '');
     <ul class="nav nav-tabs" id="wpp-tabs">
       <li class="nav-item"><span class="nav-link active" data-tab="conexao"><i class="bi bi-qr-code me-1"></i>Conexão</span></li>
       <li class="nav-item"><span class="nav-link" data-tab="grupos"><i class="bi bi-people me-1"></i>Grupos</span></li>
+      <li class="nav-item"><span class="nav-link" data-tab="contatos"><i class="bi bi-person-vcard me-1"></i>Contatos</span></li>
     </ul>
 
     <!-- ─────────── Aba Conexão ─────────── -->
@@ -211,6 +267,36 @@ $chamados_jid = wpp_cfg_get('grupo_chamados_jid', '');
 
       <div class="feedback" id="fb-grupos"></div>
     </div>
+
+    <!-- ─────────── Aba Contatos ─────────── -->
+    <div class="tab-body" id="tab-contatos" style="display:none">
+      <p class="small text-muted mb-2">
+        Mapeie cada técnico (usuário GLPI) ao número de WhatsApp que recebe a DM de chamado atribuído.
+        Deixe o telefone em branco para não notificar o técnico.
+      </p>
+
+      <button class="btn btn-outline-primary btn-sm mb-3" id="btn-puxar-glpi">
+        <i class="bi bi-download me-1"></i>Puxar celulares do GLPI
+      </button>
+
+      <div class="table-responsive">
+        <table class="table table-sm align-middle" id="tbl-contatos">
+          <thead>
+            <tr>
+              <th>Técnico</th>
+              <th style="width:11rem">Telefone (só dígitos)</th>
+              <th class="text-center" style="width:4rem">Ativo</th>
+              <th style="width:6rem"></th>
+            </tr>
+          </thead>
+          <tbody id="tbody-contatos">
+            <tr><td colspan="4" class="text-muted">Carregando…</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="feedback" id="fb-contatos"></div>
+    </div>
   </div>
 </div>
 
@@ -247,9 +333,11 @@ $chamados_jid = wpp_cfg_get('grupo_chamados_jid', '');
       document.querySelectorAll('#wpp-tabs .nav-link').forEach(function (l) { l.classList.remove('active'); });
       link.classList.add('active');
       var alvo = link.getAttribute('data-tab');
-      $('tab-conexao').style.display = (alvo === 'conexao') ? '' : 'none';
-      $('tab-grupos').style.display  = (alvo === 'grupos')  ? '' : 'none';
+      $('tab-conexao').style.display  = (alvo === 'conexao')  ? '' : 'none';
+      $('tab-grupos').style.display   = (alvo === 'grupos')   ? '' : 'none';
+      $('tab-contatos').style.display = (alvo === 'contatos') ? '' : 'none';
       if (alvo === 'grupos') atualizarAvisoGrupos();
+      if (alvo === 'contatos' && !contatosCarregados) { carregarContatos(); }
     });
   });
 
@@ -460,11 +548,133 @@ $chamados_jid = wpp_cfg_get('grupo_chamados_jid', '');
       });
   }
 
+  /* ─────────── Contatos ─────────── */
+  var contatosCarregados = false;
+
+  function carregarContatos() {
+    feedback($('fb-contatos'), 'info', 'Carregando técnicos…');
+    fetch(PAGE + '?action=contatos_listar')
+      .then(function (r) { return r.json(); })
+      .then(function (d) {
+        if (!d.ok) { throw new Error(d.erro || 'falha ao carregar contatos'); }
+        renderContatos(d.tecnicos || []);
+        contatosCarregados = true;
+        feedback($('fb-contatos'), 'ok', (d.tecnicos || []).length + ' técnico(s) carregado(s).');
+      })
+      .catch(function (err) {
+        feedback($('fb-contatos'), 'err', 'Erro: ' + (err.message || err));
+      });
+  }
+
+  function renderContatos(tecnicos) {
+    var tb = $('tbody-contatos');
+    tb.innerHTML = '';
+    if (!tecnicos.length) {
+      var tr0 = document.createElement('tr');
+      var td0 = document.createElement('td');
+      td0.colSpan = 4;
+      td0.className = 'text-muted';
+      td0.textContent = 'Nenhum técnico encontrado.';
+      tr0.appendChild(td0); tb.appendChild(tr0);
+      return;
+    }
+    tecnicos.forEach(function (t) {
+      var tr = document.createElement('tr');
+      tr.setAttribute('data-uid', t.glpi_user_id);
+      tr.setAttribute('data-mobile', t.mobile_glpi || '');
+
+      var tdNome = document.createElement('td');
+      tdNome.textContent = t.nome;            // textContent -> sem XSS no nome do técnico
+      tr.appendChild(tdNome);
+
+      var tdTel = document.createElement('td');
+      var inp = document.createElement('input');
+      inp.type = 'text';
+      inp.className = 'form-control form-control-sm tel-input';
+      inp.value = t.telefone || '';
+      inp.placeholder = t.mobile_glpi ? ('GLPI: ' + t.mobile_glpi) : 'sem telefone';
+      inp.addEventListener('input', function () { inp.value = inp.value.replace(/\D+/g, ''); });
+      tdTel.appendChild(inp);
+      tr.appendChild(tdTel);
+
+      var tdAtivo = document.createElement('td');
+      tdAtivo.className = 'text-center';
+      var chk = document.createElement('input');
+      chk.type = 'checkbox';
+      chk.className = 'form-check-input ativo-input';
+      chk.checked = (t.ativo === 1 || t.ativo === true);
+      tdAtivo.appendChild(chk);
+      tr.appendChild(tdAtivo);
+
+      var tdBtn = document.createElement('td');
+      var btn = document.createElement('button');
+      btn.className = 'btn btn-success btn-sm';
+      btn.style.background = 'var(--wpp)';
+      btn.style.borderColor = 'var(--wpp)';
+      btn.textContent = 'Salvar';
+      btn.addEventListener('click', function () { salvarContato(t.glpi_user_id, btn); });
+      tdBtn.appendChild(btn);
+      tr.appendChild(tdBtn);
+
+      tb.appendChild(tr);
+    });
+  }
+
+  function salvarContato(uid, btn) {
+    var tr = document.querySelector('#tbody-contatos tr[data-uid="' + uid + '"]');
+    if (!tr) { return; }
+    var tel = tr.querySelector('.tel-input').value.replace(/\D+/g, '');
+    var ativo = tr.querySelector('.ativo-input').checked ? '1' : '0';
+    if (tel !== '' && (tel.length < 10 || tel.length > 13)) {
+      feedback($('fb-contatos'), 'err', 'Telefone deve ter de 10 a 13 dígitos (ou ficar vazio).');
+      return;
+    }
+    if (btn) { btn.disabled = true; }
+    feedback($('fb-contatos'), 'info', 'Salvando…');
+    var body = new URLSearchParams({ glpi_user_id: uid, telefone: tel, ativo: ativo });
+    fetch(PAGE + '?action=contatos_salvar', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: body.toString()
+    })
+      .then(function (r) { return r.json(); })
+      .then(function (d) {
+        if (btn) { btn.disabled = false; }
+        if (d.ok) {
+          feedback($('fb-contatos'), 'ok', 'Contato salvo.');
+        } else {
+          feedback($('fb-contatos'), 'err', 'Erro: ' + (d.erro || 'falha ao salvar'));
+        }
+      })
+      .catch(function (err) {
+        if (btn) { btn.disabled = false; }
+        feedback($('fb-contatos'), 'err', 'Erro de conexão: ' + (err.message || err));
+      });
+  }
+
+  function puxarDoGlpi() {
+    var preenchidos = 0;
+    document.querySelectorAll('#tbody-contatos tr[data-uid]').forEach(function (tr) {
+      var inp = tr.querySelector('.tel-input');
+      var mobile = tr.getAttribute('data-mobile') || '';
+      // só preenche o que está VAZIO — não sobrescreve telefone já digitado/salvo
+      if (mobile && inp && inp.value.trim() === '') {
+        inp.value = mobile;
+        preenchidos++;
+      }
+    });
+    feedback($('fb-contatos'), preenchidos ? 'ok' : 'info',
+      preenchidos
+        ? (preenchidos + ' campo(s) preenchido(s) com o celular do GLPI. Revise e clique em Salvar.')
+        : 'Nenhum campo vazio com celular disponível no GLPI.');
+  }
+
   /* ─────────── Ligações ─────────── */
   $('btn-conectar').addEventListener('click', conectar);
   $('btn-desconectar').addEventListener('click', desconectar);
   $('btn-recarregar').addEventListener('click', carregarGrupos);
   $('btn-salvar').addEventListener('click', salvarGrupos);
+  $('btn-puxar-glpi').addEventListener('click', puxarDoGlpi);
 
   carregarStatus();
 })();
