@@ -109,7 +109,7 @@ function alertas_config_do_tipo(PDO $pdo, string $tipo): array
     ];
 }
 
-/** @return array ocorrências: cada uma ['chave','titulo','loja','cat','dias','nunca'] */
+/** @return array ocorrências: cada uma ['chave','titulo','loja','cat','dias','nunca','quando','detalhe'] */
 function alerta_check_sem_inventario(PDO $pdo, array $p): array
 {
     $rows = alertas_sem_inventario($pdo, (int) ($p['dias'] ?? 7));
@@ -132,7 +132,7 @@ function alerta_check_sem_inventario(PDO $pdo, array $p): array
     return $out;
 }
 
-/** @return array ocorrências: cada uma ['chave','titulo','loja','pct','usado','total','volume'] */
+/** @return array ocorrências: cada uma ['chave','titulo','loja','pct','usado','total','volume','detalhe'] */
 function alerta_check_disco_cheio(PDO $pdo, array $p): array
 {
     $rows = alertas_disco_cheio($pdo, (int) ($p['pct'] ?? 90));
