@@ -70,7 +70,6 @@ foreach (alertas_catalogo() as $slug => $def) {
 }
 $ocTab = (int) $pdo->query("SELECT COUNT(*) FROM portal_alertas_ocorrencias")->fetchColumn();
 t_ok($ocTab >= $ocInv && $ocInv >= 0, "baseline semeou portal_alertas_ocorrencias ($ocTab linhas, esperado >= $ocInv do catálogo agora)");
-t_ok(wpp_cfg_get('wpp_snap_alertas') === null || wpp_cfg_get('wpp_snap_alertas') !== null, 'baseline não depende mais de wpp_snap_alertas');
 
 t_ok((bool) preg_match('/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/', (string) wpp_cfg_get('wm_novo')),
     'baseline gravou watermark wm_novo (datetime do banco)');
