@@ -19,9 +19,12 @@ require_once __DIR__ . '/../entidade_alias.php';   // apelido_entidade() — ale
  * Task 6 — chamado novo aberto no GLPI -> mensagem no grupo "Chamados".
  *
  * Watermark: portal_wpp_config.wm_novo guarda o date_creation do último chamado
- * já processado. A cada passada busca chamados com date_creation > wm_novo,
- * envia os que ainda não estão em portal_wpp_notificados('novo', <id>) e só
- * avança o watermark até o último efetivamente processado nesta passada.
+ * já processado. A cada passada busca chamados com date_creation >= wm_novo
+ * (>=, não >: dois chamados no mesmo segundo em que a query pega só o primeiro
+ * fariam o outro nunca mais entrar; o wpp_ja_notificado('novo', id) logo abaixo
+ * dedup as linhas de borda re-selecionadas), envia os que ainda não estão em
+ * portal_wpp_notificados('novo', <id>) e só avança o watermark até o último
+ * efetivamente processado nesta passada.
  *
  * Envio bloqueado/falho NÃO marca o chamado nem trava o watermark além dele:
  * na próxima passada o mesmo chamado volta a ser tentado.
@@ -56,7 +59,7 @@ function gat_novo(PDO $pdo): void
         SELECT t.id, t.name, t.date_creation, t.type, e.completename AS loja
         FROM glpi_tickets t
         LEFT JOIN glpi_entities e ON e.id = t.entities_id
-        WHERE t.is_deleted = 0 AND t.date_creation > ?
+        WHERE t.is_deleted = 0 AND t.date_creation >= ?
         ORDER BY t.date_creation ASC
         LIMIT 30
     ");
@@ -169,6 +172,13 @@ function gat_atribuido(PDO $pdo): void
     }
 
     // ── PARTE B: enviar os DMs cujo prazo chegou, se ainda válidos ──
+
+    // Cap de retentativa: DM 'pendente' cujo prazo venceu há mais de 1 dia é
+    // falha recorrente de envio — cancela pra não retentar pra sempre (cada
+    // passada gravava uma linha em portal_wpp_log => ~2880 linhas/dia por DM presa).
+    $pdo->exec("UPDATE portal_wpp_dm_agendado SET status = 'cancelado'
+                WHERE status = 'pendente' AND enviar_em < NOW() - INTERVAL 1 DAY");
+
     $pend = $pdo->query("
         SELECT d.id, d.ticket_id, d.glpi_user_id, d.telefone, t.name AS name, e.completename AS loja
         FROM portal_wpp_dm_agendado d
@@ -363,8 +373,10 @@ function gat_lista_curta(array $itens, int $max = 5): string
  * Task 9 — SLA: chamado parado ou perto de furar o SLA -> grupo "Chamados".
  *
  * Dois braços independentes, ambos deduplicados via portal_wpp_notificados
- * (tipo 'sla'). Toda janela de tempo usa o relógio do BANCO (NOW()), nunca
- * date() do PHP — o container roda em UTC e o glpi-db em -04:00.
+ * (tipo 'sla'). Toda janela de tempo usa o relógio do BANCO (NOW()) por
+ * consistência — o PHP do container roda em America/Campo_Grande
+ * (docker/php-custom.ini), o mesmo fuso do glpi-db (-04:00), então date()/
+ * strtotime() e o NOW() do banco fazem round-trip sem shift.
  *
  *   A) PARADO: chamado Novo(1)/Atribuído(2) sem follow-up há mais de
  *      $horasParado h E cujo date_mod também está há mais de $horasParado h

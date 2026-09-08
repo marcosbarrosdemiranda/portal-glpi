@@ -194,10 +194,17 @@ COMO VER O LOG
 
 TESTES
 --------------------------------------------------------------------
-[ ] docker exec glpi-web php /var/www/html/glpi2/portal-glpi/wpp/tests/run.php
+AVISO: rode os testes com o worker PARADO. test_worker_baseline.php e
+destrutivo (apaga/re-semeia portal_wpp_notificados) e so roda quando
+WPP_TEST_DESTRUTIVO=1. Se um ciclo do worker cair nessa janela com a
+tabela zerada, gat_sla/gat_atribuido disparam o backlog inteiro.
+
+[ ] docker compose stop portal-wpp-worker
+[ ] docker exec -e WPP_TEST_DESTRUTIVO=1 glpi-web php /var/www/html/glpi2/portal-glpi/wpp/tests/run.php
     Espera-se "0 falhas". test_worker_baseline.php cobre
     wpp_semear_baseline (marca chamados/atribuicoes, grava snapshot
     e watermark, idempotente).
+[ ] docker compose start portal-wpp-worker
 
 DEPLOY DA FASE 2
 --------------------------------------------------------------------
@@ -321,8 +328,16 @@ TESTE REAL
 
 RODAR OS TESTES
 ----
-[ ] No servidor (docker exec glpi-web):
-         docker exec glpi-web php /var/www/html/glpi2/portal-glpi/wpp/tests/run.php
+AVISO: o teste TEM QUE rodar com o worker PARADO. test_worker_baseline.php
+apaga e re-semeia portal_wpp_notificados; com a tabela zerada, um ciclo do
+worker nessa janela faz gat_sla/gat_atribuido despejarem o backlog inteiro
+nos grupos + DM pra todo tecnico. Por isso ele so roda com
+WPP_TEST_DESTRUTIVO=1.
+
+[ ] No servidor (ssh glpi-server, cd C:\docker\glpi-portal\):
+         docker compose stop portal-wpp-worker
+         docker exec -e WPP_TEST_DESTRUTIVO=1 glpi-web php /var/www/html/glpi2/portal-glpi/wpp/tests/run.php
+         docker compose start portal-wpp-worker
        Espera-se "0 falhas". Erros tipo "undefined function" ou
        "division by zero" indicam problema na sincronizacao dos
        arquivos ou falta de dependencia.

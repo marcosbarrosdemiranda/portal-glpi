@@ -52,7 +52,10 @@ function wpp_worker_passada(): void
     }
 
     // 3. Baseline (primeira vez OU após reset). Esta passada NÃO roda gatilhos.
-    if (wpp_cfg_get('wpp_baseline_ok') !== '1') {
+    //    Re-semeia também se portal_wpp_notificados está VAZIA (spec §Cold-start
+    //    item 2): sem a baseline os gatilhos sem watermark tratam tudo como novo.
+    $notifVazia = (int) $pdo->query("SELECT COUNT(*) FROM portal_wpp_notificados")->fetchColumn() === 0;
+    if (wpp_cfg_get('wpp_baseline_ok') !== '1' || $notifVazia) {
         wpp_semear_baseline($pdo);
         wpp_cfg_set('wpp_baseline_ok', '1');
         wpp_cfg_set('wpp_last_ok', wpp_agora_db($pdo));
@@ -68,7 +71,15 @@ function wpp_worker_passada(): void
         }
     }
 
-    // 5. Marca a passada como bem-sucedida (relógio do banco).
+    // 5. Retenção: poda portal_wpp_log com mais de 30 dias (uma DM presa em
+    //    'pendente' gera ~2880 linhas/dia; nada mais varre essa tabela).
+    try {
+        $pdo->exec("DELETE FROM portal_wpp_log WHERE criado_em < NOW() - INTERVAL 30 DAY");
+    } catch (\Throwable $e) {
+        // silencioso: falha de limpeza não pode derrubar a passada
+    }
+
+    // 6. Marca a passada como bem-sucedida (relógio do banco).
     wpp_cfg_set('wpp_last_ok', wpp_agora_db($pdo));
 }
 
@@ -83,11 +94,12 @@ function wpp_semear_baseline(PDO $pdo): void
         "SELECT id FROM glpi_tickets WHERE is_deleted = 0 AND status IN (1,2,3,4)"
     )->fetchAll(PDO::FETCH_COLUMN);
 
-    // Data pelo relógio do BANCO (glpi-db roda em -04:00; o PHP do container é
-    // UTC). Se usasse date() do PHP, entre 00:00 e 04:00 locais a data sairia
-    // um dia à frente e o gat_sla (Task 9) — que calcula a chave pelo relógio
-    // do banco — não acharia esta linha de dedup e dispararia "chamado parado"
-    // pra toda a fila. "parado:<data-do-banco>" é o formato canônico.
+    // Data pelo relógio do BANCO (glpi-db em -04:00). O PHP do container também
+    // roda em America/Campo_Grande (docker/php-custom.ini, mesma imagem do
+    // portal-wpp-worker via build: .), então date()/strtotime() e o NOW() do
+    // banco já batem sem shift. Ainda assim a chave é derivada do relógio do
+    // banco pra casar EXATAMENTE com a que o gat_sla (Task 9) calcula.
+    // "parado:<data-do-banco>" é o formato canônico.
     $hoje = substr(wpp_agora_db($pdo), 0, 10);
     foreach ($abertos as $id) {
         $id = (string) $id;

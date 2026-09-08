@@ -9,6 +9,11 @@ global $pdo;
 $oldA = wpp_cfg_get('grupo_alertas_jid');
 $oldC = wpp_cfg_get('grupo_chamados_jid');
 
+// Tudo que muta a PROD roda dentro de try/finally: um throw no meio (ex.: o
+// INSERT batendo numa linha UNIQUE remanescente) não pode deixar os 2 JIDs de
+// grupo apontando pra grupo inexistente nem as fixtures no banco.
+try {
+
 // fixtures
 wpp_cfg_set('grupo_alertas_jid',  '111@g.us');
 wpp_cfg_set('grupo_chamados_jid', '222@g.us');
@@ -31,6 +36,9 @@ t_ok(!wpp_destino_permitido(''),                 'vazio: BLOQUEADO');
 
 // sufixo @s.whatsapp.net removido -> bate no contato ativo
 t_ok(wpp_destino_permitido('5567999990000@s.whatsapp.net'), 'contato com sufixo @s.whatsapp.net: ok');
+// sufixo JID nao suportado -> BLOQUEADO mesmo que os digitos batam num contato
+t_ok(!wpp_destino_permitido('5567999990000@newsletter'), 'sufixo @newsletter: BLOQUEADO');
+
 // contato com ativo=0 -> BLOQUEADO
 t_ok(!wpp_destino_permitido('5567888880000'), 'contato inativo (ativo=0): BLOQUEADO');
 // numero so em portal_wpp_autorizados (ativo) -> ok
@@ -47,8 +55,10 @@ t_ok(!$chamou && $r['bloqueado'] === true, 'guarded_send nao chama o callable pr
 $r = evo_guarded_send('111@g.us', fn() => ['ok'=>true], 'x');
 t_ok($r['ok'] === true, 'guarded_send passa destino permitido');
 
-// --- limpeza: fixtures e config real ---
-$pdo->exec("DELETE FROM portal_wpp_contatos WHERE telefone IN ('5567999990000','5567888880000')");
-$pdo->exec("DELETE FROM portal_wpp_autorizados WHERE telefone='5567777770000'");
-wpp_cfg_set('grupo_alertas_jid',  $oldA ?? '');
-wpp_cfg_set('grupo_chamados_jid', $oldC ?? '');
+} finally {
+    // --- limpeza: fixtures e config real (roda mesmo se um assert lançar) ---
+    $pdo->exec("DELETE FROM portal_wpp_contatos WHERE telefone IN ('5567999990000','5567888880000')");
+    $pdo->exec("DELETE FROM portal_wpp_autorizados WHERE telefone='5567777770000'");
+    wpp_cfg_set('grupo_alertas_jid',  $oldA ?? '');
+    wpp_cfg_set('grupo_chamados_jid', $oldC ?? '');
+}

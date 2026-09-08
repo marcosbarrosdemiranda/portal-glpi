@@ -7,6 +7,15 @@ require_once __DIR__ . '/../db.php';
 require_once __DIR__ . '/../worker.php';   // require-safe: NÃO roda passada ao ser incluído
 global $pdo;
 
+// GUARDA: este teste é DESTRUTIVO — apaga/re-semeia portal_wpp_notificados.
+// Se um ciclo do worker cair nessa janela, gat_sla/gat_atribuido (sem watermark,
+// só dedup) disparam o backlog inteiro nos grupos + DM pra todo técnico.
+// Só roda com WPP_TEST_DESTRUTIVO=1 E com o worker PARADO (ver wpp/README.md).
+if (getenv('WPP_TEST_DESTRUTIVO') !== '1') {
+    echo "  -- test_worker_baseline pulado (defina WPP_TEST_DESTRUTIVO=1, com o worker PARADO)\n";
+    return;
+}
+
 // worker.php foi incluído (não invocado) — a passada não pode ter rodado sozinha.
 t_ok(function_exists('wpp_worker_passada'), 'worker.php expõe wpp_worker_passada (require-safe)');
 t_ok(function_exists('wpp_semear_baseline'), 'worker.php expõe wpp_semear_baseline');

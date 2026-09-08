@@ -39,6 +39,17 @@ function wpp_destino_permitido(string $destino): bool {
             return false;
         }
 
+        // JID com sufixo não suportado (ex: '...@newsletter', '...@lid'):
+        // wpp_norm_telefone() jogaria fora o sufixo e aprovaria os dígitos,
+        // mas evo_destino_payload() manda o destino VERBATIM pro sufixo errado.
+        // (@g.us já foi tratado acima.)
+        if (strpos($d, '@') !== false
+            && !str_ends_with($d, '@s.whatsapp.net')
+            && !str_ends_with($d, '@c.us')) {
+            wpp_log('out', $d, 'sufixo JID nao suportado', 'bloqueado');
+            return false;
+        }
+
         // número: normaliza e checa nas duas tabelas de allowlist (ativo=1)
         $tel = wpp_norm_telefone(str_replace('@s.whatsapp.net', '', $d));
         if ($tel === '') {
