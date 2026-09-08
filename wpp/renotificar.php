@@ -27,15 +27,14 @@ function wpp_renotificar(PDO $pdo, int $ticketId, string $alvo): array
 
     try {
         // dados do ticket (chaves lidas por gat_msg_novo: id, name, content, loja,
-        // date_creation, type, req_nome, req_login)
+        // date_creation, date_mod, type, req_nomes, tec_nomes)
         $st = $pdo->prepare(
             "SELECT t.id, t.name, t.content, t.type, t.date_creation, t.date_mod,
                     e.completename AS loja,
-                    TRIM(CONCAT(COALESCE(ur.realname,''), ' ', COALESCE(ur.firstname,''))) AS req_nome,
-                    ur.name AS req_login
+                    " . gat_sql_nomes_ticket_user(1) . " AS req_nomes,
+                    " . gat_sql_nomes_ticket_user(2) . " AS tec_nomes
              FROM glpi_tickets t
              LEFT JOIN glpi_entities e ON e.id = t.entities_id
-             LEFT JOIN glpi_users ur ON ur.id = t.users_id_recipient
              WHERE t.id = ? AND t.is_deleted = 0"
         );
         $st->execute([$ticketId]);

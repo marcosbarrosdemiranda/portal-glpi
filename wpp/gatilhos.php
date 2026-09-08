@@ -58,11 +58,10 @@ function gat_novo(PDO $pdo): void
     $st = $pdo->prepare("
         SELECT t.id, t.name, t.content, t.date_creation, t.date_mod, t.type,
                e.completename AS loja,
-               TRIM(CONCAT(COALESCE(ur.realname,''), ' ', COALESCE(ur.firstname,''))) AS req_nome,
-               ur.name AS req_login
+               " . gat_sql_nomes_ticket_user(1) . " AS req_nomes,
+               " . gat_sql_nomes_ticket_user(2) . " AS tec_nomes
         FROM glpi_tickets t
         LEFT JOIN glpi_entities e ON e.id = t.entities_id
-        LEFT JOIN glpi_users ur ON ur.id = t.users_id_recipient
         WHERE t.is_deleted = 0 AND t.date_creation >= ?
         ORDER BY t.date_creation ASC
         LIMIT 30
@@ -100,6 +99,23 @@ function gat_novo(PDO $pdo): void
  * Ex: "🆕 *Chamado #7* — Lj 003\nPC não liga\n_Incidente · aberto 07/09 14:30_"
  */
 /**
+ * Subquery que devolve os nomes dos usuários ligados a um ticket por tipo
+ * (1 = requerente, 2 = técnico), no formato "Firstname Realname" que o GLPI
+ * usa, separados por vírgula. String vazia se não houver ninguém.
+ * $tipo é literal inteiro controlado por nós — não vai parâmetro de usuário.
+ */
+function gat_sql_nomes_ticket_user(int $tipo): string
+{
+    $tipo = (int) $tipo;
+    return "(SELECT GROUP_CONCAT(
+                COALESCE(NULLIF(TRIM(CONCAT(COALESCE(u.firstname,''), ' ', COALESCE(u.realname,''))), ''), u.name)
+                ORDER BY u.firstname SEPARATOR ', ')
+             FROM glpi_tickets_users tu
+             JOIN glpi_users u ON u.id = tu.users_id
+             WHERE tu.tickets_id = t.id AND tu.type = {$tipo})";
+}
+
+/**
  * Reduz um texto HTML do GLPI a texto plano curto (pra caber no WhatsApp).
  * O GLPI costuma guardar o conteúdo com as tags escapadas (&lt;p&gt;...), às
  * vezes duas vezes — por isso decodifica, tira as tags e decodifica de novo.
@@ -123,19 +139,20 @@ function gat_msg_novo(array $t): string
         : ($t['loja'] ?? '');
     $tipo = ((int) ($t['type'] ?? 1)) === 2 ? 'Requisição' : 'Incidente';
 
-    $req = trim((string) ($t['req_nome'] ?? '')) ?: trim((string) ($t['req_login'] ?? ''));
-    if ($req !== '' && function_exists('nome_requerente')) $req = nome_requerente($req);
-
+    $req  = trim((string) ($t['req_nomes'] ?? ''));
+    $tec  = trim((string) ($t['tec_nomes'] ?? ''));
     $desc = gat_texto_plano((string) ($t['content'] ?? ''));
 
-    return "🆕 *Novo chamado criado! ID {$t['id']}*\n"
-         . "📌 *Título:* " . (($t['name'] ?? '') !== '' ? $t['name'] : '(sem título)') . "\n"
-         . "📝 *Descrição:* " . ($desc !== '' ? $desc : '—') . "\n"
-         . "📅 *Data de Criação:* " . $fmt($t['date_creation'] ?? null) . "\n"
-         . "🔄 *Última Modificação:* " . $fmt($t['date_mod'] ?? null) . "\n"
-         . "🏢 *Loja:* " . ($loja !== '' ? $loja : '—') . "\n"
-         . "🙋 *Requerente:* " . ($req !== '' ? $req : '—') . "\n"
-         . "_{$tipo}_";
+    $m  = "🆕 *Novo chamado criado! ID {$t['id']}*\n";
+    $m .= "📌 *Título:* " . (($t['name'] ?? '') !== '' ? $t['name'] : '(sem título)') . "\n";
+    $m .= "📝 *Descrição:* " . ($desc !== '' ? $desc : '—') . "\n";
+    $m .= "📅 *Data de Criação:* " . $fmt($t['date_creation'] ?? null) . "\n";
+    $m .= "🔄 *Última Modificação:* " . $fmt($t['date_mod'] ?? null) . "\n";
+    $m .= "🏢 *Loja:* " . ($loja !== '' ? $loja : '—') . "\n";
+    $m .= "🙋 *Requerente:* " . ($req !== '' ? $req : '—') . "\n";
+    if ($tec !== '') $m .= "👷 *Atendente(s):* {$tec}\n";
+    $m .= "_{$tipo}_";
+    return $m;
 }
 
 /**

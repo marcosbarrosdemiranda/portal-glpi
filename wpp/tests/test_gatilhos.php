@@ -29,8 +29,8 @@ t_eq(
     'gat_msg_novo: 7 campos, fallback "—" nos ausentes'
 );
 
-// type 2 -> "Requisição"; com tudo preenchido. descrição: GLPI guarda com as
-// tags escapadas (&lt;p&gt;...&lt;br&gt;...)
+// type 2 -> "Requisição"; requerente + atendente (nomes já vêm prontos do GLPI).
+// descrição: GLPI guarda com as tags escapadas (&lt;p&gt;...&lt;br&gt;...)
 $msgReq = gat_msg_novo([
     'id'            => 8,
     'name'          => 'Instalar impressora',
@@ -39,7 +39,8 @@ $msgReq = gat_msg_novo([
     'date_creation' => '2026-09-07 09:05:00',
     'date_mod'      => '2026-09-07 10:00:00',
     'type'          => 2,
-    'req_nome'      => 'Santos Joao',
+    'req_nomes'     => 'SAC Rincão BTO',
+    'tec_nomes'     => 'Felix Agnelo',
 ]);
 t_eq(
     $msgReq,
@@ -49,12 +50,13 @@ t_eq(
     . "📅 *Data de Criação:* 07/09/2026 09:05\n"
     . "🔄 *Última Modificação:* 07/09/2026 10:00\n"
     . "🏢 *Loja:* Lj 003\n"
-    . "🙋 *Requerente:* Joao Santos\n"
+    . "🙋 *Requerente:* SAC Rincão BTO\n"
+    . "👷 *Atendente(s):* Felix Agnelo\n"
     . "_Requisição_",
-    'gat_msg_novo: type=2 Requisição + apelido_entidade + requerente invertido + descrição em texto plano'
+    'gat_msg_novo: type=2 + apelido_entidade + requerente e atendente do GLPI + descrição em texto plano'
 );
 
-// título ausente -> "(sem título)"; loja/req/datas ausentes -> "—"
+// título ausente -> "(sem título)"; loja/req/datas ausentes -> "—"; sem atendente -> linha some
 $msgSemLoja = gat_msg_novo(['id' => 9, 'date_creation' => '2026-09-07 00:00:00']);
 t_eq(
     $msgSemLoja,
@@ -66,7 +68,7 @@ t_eq(
     . "🏢 *Loja:* —\n"
     . "🙋 *Requerente:* —\n"
     . "_Incidente_",
-    'gat_msg_novo: campos ausentes usam os fallbacks'
+    'gat_msg_novo: campos ausentes usam os fallbacks e a linha de atendente some'
 );
 
 // gat_texto_plano: tags escapadas do GLPI + entidades + colapsa espaço + trunca
