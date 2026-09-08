@@ -18,44 +18,55 @@ $msg = gat_msg_novo([
 ]);
 t_eq(
     $msg,
-    "🆕 *Novo chamado #7* — Grupo Gmais > Loja 3\n"
+    "🆕 *Novo chamado criado! ID 7*\n"
     . "📌 *Título:* PC nao liga\n"
-    . "📅 *Aberto:* 07/09/2026 14:30\n"
+    . "📝 *Descrição:* —\n"
+    . "📅 *Data de Criação:* 07/09/2026 14:30\n"
+    . "🔄 *Última Modificação:* —\n"
+    . "🏢 *Loja:* Grupo Gmais > Loja 3\n"
+    . "🙋 *Requerente:* —\n"
     . "_Incidente_",
-    'gat_msg_novo monta a string esperada (incidente, sem requerente/descrição)'
+    'gat_msg_novo: 7 campos, fallback "—" nos ausentes'
 );
 
-// type 2 -> "Requisição"; com requerente e descrição (HTML do GLPI vira texto plano)
-// descrição: GLPI guarda com as tags escapadas (&lt;p&gt;...&lt;br&gt;...)
+// type 2 -> "Requisição"; com tudo preenchido. descrição: GLPI guarda com as
+// tags escapadas (&lt;p&gt;...&lt;br&gt;...)
 $msgReq = gat_msg_novo([
     'id'            => 8,
     'name'          => 'Instalar impressora',
     'content'       => '&lt;p&gt;Impressora nova&lt;br&gt;na recep&amp;ccedil;&amp;atilde;o&lt;/p&gt;',
     'loja'          => 'Entidade raiz > Grupo Gmais > Supermercado Santos - JDM',
     'date_creation' => '2026-09-07 09:05:00',
+    'date_mod'      => '2026-09-07 10:00:00',
     'type'          => 2,
     'req_nome'      => 'Santos Joao',
 ]);
 t_eq(
     $msgReq,
-    "🆕 *Novo chamado #8* — Lj 003\n"
+    "🆕 *Novo chamado criado! ID 8*\n"
     . "📌 *Título:* Instalar impressora\n"
-    . "🙋 *Requerente:* Joao Santos\n"
     . "📝 *Descrição:* Impressora nova na recepção\n"
-    . "📅 *Aberto:* 07/09/2026 09:05\n"
+    . "📅 *Data de Criação:* 07/09/2026 09:05\n"
+    . "🔄 *Última Modificação:* 07/09/2026 10:00\n"
+    . "🏢 *Loja:* Lj 003\n"
+    . "🙋 *Requerente:* Joao Santos\n"
     . "_Requisição_",
     'gat_msg_novo: type=2 Requisição + apelido_entidade + requerente invertido + descrição em texto plano'
 );
 
-// loja vazia -> "sem loja"; título ausente -> "(sem título)"; sem requerente/descrição
+// título ausente -> "(sem título)"; loja/req/datas ausentes -> "—"
 $msgSemLoja = gat_msg_novo(['id' => 9, 'date_creation' => '2026-09-07 00:00:00']);
 t_eq(
     $msgSemLoja,
-    "🆕 *Novo chamado #9* — sem loja\n"
+    "🆕 *Novo chamado criado! ID 9*\n"
     . "📌 *Título:* (sem título)\n"
-    . "📅 *Aberto:* 07/09/2026 00:00\n"
+    . "📝 *Descrição:* —\n"
+    . "📅 *Data de Criação:* 07/09/2026 00:00\n"
+    . "🔄 *Última Modificação:* —\n"
+    . "🏢 *Loja:* —\n"
+    . "🙋 *Requerente:* —\n"
     . "_Incidente_",
-    'gat_msg_novo: loja/título ausentes usam os fallbacks'
+    'gat_msg_novo: campos ausentes usam os fallbacks'
 );
 
 // gat_texto_plano: tags escapadas do GLPI + entidades + colapsa espaço + trunca

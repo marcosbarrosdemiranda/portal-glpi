@@ -56,7 +56,7 @@ function gat_novo(PDO $pdo): void
     }
 
     $st = $pdo->prepare("
-        SELECT t.id, t.name, t.content, t.date_creation, t.type,
+        SELECT t.id, t.name, t.content, t.date_creation, t.date_mod, t.type,
                e.completename AS loja,
                TRIM(CONCAT(COALESCE(ur.realname,''), ' ', COALESCE(ur.firstname,''))) AS req_nome,
                ur.name AS req_login
@@ -117,10 +117,10 @@ function gat_texto_plano(string $html, int $max = 500): string
 
 function gat_msg_novo(array $t): string
 {
+    $fmt  = fn($d) => !empty($d) ? date('d/m/Y H:i', strtotime($d)) : '—';
     $loja = function_exists('apelido_entidade')
         ? apelido_entidade($t['loja'] ?? '')
         : ($t['loja'] ?? '');
-    $data = !empty($t['date_creation']) ? date('d/m/Y H:i', strtotime($t['date_creation'])) : '';
     $tipo = ((int) ($t['type'] ?? 1)) === 2 ? 'Requisição' : 'Incidente';
 
     $req = trim((string) ($t['req_nome'] ?? '')) ?: trim((string) ($t['req_login'] ?? ''));
@@ -128,13 +128,14 @@ function gat_msg_novo(array $t): string
 
     $desc = gat_texto_plano((string) ($t['content'] ?? ''));
 
-    $m  = "🆕 *Novo chamado #{$t['id']}* — " . ($loja ?: 'sem loja') . "\n";
-    $m .= "📌 *Título:* " . ($t['name'] ?? '(sem título)') . "\n";
-    if ($req !== '')  $m .= "🙋 *Requerente:* {$req}\n";
-    if ($desc !== '') $m .= "📝 *Descrição:* {$desc}\n";
-    $m .= "📅 *Aberto:* {$data}\n";
-    $m .= "_{$tipo}_";
-    return $m;
+    return "🆕 *Novo chamado criado! ID {$t['id']}*\n"
+         . "📌 *Título:* " . (($t['name'] ?? '') !== '' ? $t['name'] : '(sem título)') . "\n"
+         . "📝 *Descrição:* " . ($desc !== '' ? $desc : '—') . "\n"
+         . "📅 *Data de Criação:* " . $fmt($t['date_creation'] ?? null) . "\n"
+         . "🔄 *Última Modificação:* " . $fmt($t['date_mod'] ?? null) . "\n"
+         . "🏢 *Loja:* " . ($loja !== '' ? $loja : '—') . "\n"
+         . "🙋 *Requerente:* " . ($req !== '' ? $req : '—') . "\n"
+         . "_{$tipo}_";
 }
 
 /**
