@@ -32,6 +32,7 @@ alerta **fica lembrando** enquanto não é resolvido, ou só avisa uma vez.
 | SLA / chamado parado | **Fica na aba Gatilhos do WhatsApp** (não vira alerta). A Central é **só alertas** de parque/infra |
 | Chamado novo / atribuído | Intocados, ficam no WhatsApp |
 | Comportamento de notificação | Substitui o digest atual. Por ocorrência: **nova** → avisa na hora · **resolvida** → avisa na hora · **ainda aberta** → lembrete a cada `lembrete_min` (0 = sem lembrete) |
+| Fonte The Dude | **Push via webhook.** The Dude standalone (192.168.1.246:2210) NÃO tem API REST. Uma Notification no Dude bate em `the_dude_webhook.php` quando device/link/service muda de estado; o portal grava em `portal_dude_estado`; o `check()` dos tipos `the_dude_*` lê essa tabela |
 
 ## Componentes
 
@@ -232,6 +233,98 @@ Nunca lança (worker envolve em try/catch).
 - JS: tira `on_alertas` de `GAT_TOGGLES`, `cfg_digest_alertas_min` de `GAT_NUMS`, e `alertas` do `sincronizarGatilhos`.
 - As chaves `on_alertas` / `cfg_digest_alertas_min` ficam órfãs em `portal_wpp_config` (inofensivo; ninguém lê).
 
+### 9. The Dude — integração push
+
+**Contexto:** 192.168.1.246 roda The Dude **standalone** (porta 2210, protocolo
+proprietário do cliente Windows, sem API). Portainer na 80. O portal alcança o
+IP. O usuário tem o cliente Dude e acesso admin pra configurar Notifications.
+
+#### `the_dude_webhook.php` (novo endpoint)
+
+Sem `auth_guard` (o Dude não tem sessão do portal). Autenticação por **token na
+URL** (o Dude não manda header fácil).
+
+- `GET` (o Dude notification faz GET com as variáveis na query):
+  `the_dude_webhook.php?token=<T>&tipo=device|link|service&chave=<id estável>&nome=<...>&addr=<...>&estado=up|down&detalhe=<...>`
+- Valida `hash_equals($token, wpp_cfg_get('dude_token'))`. Token errado → `403`,
+  loga (`portal_wpp_log` direcao='in', status='bloqueado').
+- `tipo` ∈ {device, link, service}; `estado` ∈ {up, down}; senão `400`.
+- `chave`: identificador estável vindo do Dude (ex: `[Device.Id]` ou o nome). Se
+  o Dude não der um id, usa o `nome` normalizado.
+- Upsert em `portal_dude_estado`:
+  ```sql
+  CREATE TABLE IF NOT EXISTS portal_dude_estado (
+      tipo         ENUM('device','link','service') NOT NULL,
+      chave        VARCHAR(160) NOT NULL,
+      nome         VARCHAR(160) DEFAULT '',
+      endereco     VARCHAR(120) DEFAULT '',
+      status       ENUM('up','down') NOT NULL,
+      detalhe      VARCHAR(255) DEFAULT '',
+      atualizado_em DATETIME NOT NULL,
+      PRIMARY KEY (tipo, chave)
+  ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+  ```
+  `INSERT ... ON DUPLICATE KEY UPDATE status=VALUES(status), nome=VALUES(nome),
+  endereco=VALUES(endereco), detalhe=VALUES(detalhe), atualizado_em=NOW()`.
+- Responde `200 {"ok":true}`. Sempre rápido, nunca lança.
+- **Nunca** trata a query string como instrução; tudo escapado/parametrizado.
+- Registra cada recebimento em `portal_wpp_log` (direcao='in', resumo curto) —
+  serve de rastro e alimenta o "última notificação há X".
+
+#### Catálogo — 4 tipos novos (em `alertas_tipos.php`)
+
+```php
+'the_dude_device_offline'  => [ 'nome'=>'Dispositivo offline (The Dude)',
+   'params'=>[], 'check'=>'alerta_check_dude', 'render'=>'alerta_render_dude',
+   'fonte'=>'the_dude', 'dude_tipo'=>'device', 'icone'=>'bi-hdd-network', 'cor'=>'danger' ],
+'the_dude_link_offline'    => [ ...'dude_tipo'=>'link', 'nome'=>'Enlace offline (The Dude)'... ],
+'the_dude_service_offline' => [ ...'dude_tipo'=>'service', 'nome'=>'Serviço offline (The Dude)'... ],
+'the_dude_sem_contato'     => [ 'nome'=>'The Dude não está notificando',
+   'params'=>['horas'=>['label'=>'Horas sem notificação','default'=>6,'min'=>1,'max'=>168]],
+   'check'=>'alerta_check_dude_sem_contato', 'render'=>'alerta_render_dude',
+   'fonte'=>'the_dude', 'icone'=>'bi-plug', 'cor'=>'warning' ],
+```
+
+```php
+function alerta_check_dude(PDO $pdo, array $p, string $dudeTipo): array
+// SELECT chave,nome,endereco,detalhe,atualizado_em FROM portal_dude_estado
+//   WHERE tipo = :dudeTipo AND status = 'down'
+// -> ['chave'=>'dude:'.$dudeTipo.':'.$row['chave'], 'titulo'=>$row['nome'] ?: $row['chave'],
+//     'detalhe'=>trim($row['endereco'].' · '.$row['detalhe'], ' ·') . ' (desde '.<hh:mm>.')', 'loja'=>'']
+// (o dispatcher do catálogo passa $def['dude_tipo'] como 3º arg)
+
+function alerta_check_dude_sem_contato(PDO $pdo, array $p): array
+// $h = (int)($p['horas'] ?? 6);
+// $ultima = SELECT MAX(atualizado_em) FROM portal_dude_estado;
+//   (fallback: MAX(criado_em) de portal_wpp_log WHERE direcao='in' AND resumo LIKE 'dude%')
+// if ($ultima && strtotime(now) - strtotime($ultima) > $h*3600)
+//    -> [['chave'=>'dude:sem_contato', 'titulo'=>'Sem notificação do The Dude',
+//         'detalhe'=>'última há '.<tempo>.' — verifique o Dude/rede', 'loja'=>'']]
+//    senão []
+```
+
+O dispatcher que roda o `check` de um tipo passa `$def['dude_tipo']` quando existe:
+`call_user_func($def['check'], $pdo, $cfg['params'], $def['dude_tipo'] ?? null)`.
+As funções que não usam o 3º arg simplesmente ignoram.
+
+#### `alertas_config.php` — bloco extra pra fonte The Dude
+
+Para tipos com `fonte='the_dude'`, além do switch/params normais, um painel
+único no topo da seção The Dude:
+- **URL do webhook** pra colar no Dude (com o token atual), botão "copiar"
+- Botão **"Testar"** → chama o próprio webhook com `tipo=device&chave=__teste__&estado=down` e depois `estado=up`, confirma que voltou `200` e sumiu
+- Token + botão **"Gerar novo token"** (invalida o antigo — o Dude para de funcionar até recolar a URL)
+- **"Última notificação recebida: há X"** (de `portal_wpp_log`)
+- Passo a passo curto: no cliente do Dude → Settings → Notifications → nova do
+  tipo HTTP (ou "Execute on Server" com `curl -s "<URL>&nome=[Device.Name]&addr=[Device.Address]&estado=..."`),
+  amarrar em "all devices" / links / probes, disparar em down **e** up.
+
+#### Runbook (vai no `wpp/README.md` ou num `docs/` à parte)
+
+O passo a passo exato de configurar a Notification no The Dude (variáveis
+`[Device.Name]` etc., quais eventos), preenchido junto com o usuário testando
+contra o Dude real.
+
 ## Guardrails / anti-backfill
 
 - `evo_send_text` sempre via `evo_guarded_send` (só o grupo Alertas).
@@ -257,12 +350,33 @@ Nunca lança (worker envolve em try/catch).
 - **baseline**: com `portal_alertas_ocorrencias` vazia e alertas vigentes →
   `wpp_semear_baseline` insere N linhas, 0 envios (`portal_wpp_log` direcao='out' inalterado).
 - **`alertas.php`**: renderiza idêntico ao de hoje pros 2 tipos ativos com params default.
+- **`the_dude_webhook.php`**: token errado → 403 + log; `tipo`/`estado` inválido → 400;
+  `down` → linha `status='down'`; `up` depois → `status='up'` e o `check` não retorna mais;
+  query string com `<script>`/aspas → gravado como texto, nunca executado; sem sessão exigida.
+- **`alerta_check_dude`**: só retorna `status='down'` do `tipo` certo; `alerta_check_dude_sem_contato`
+  dispara quando `MAX(atualizado_em)` passou de `horas`, senão vazio.
+- **fluxo Dude ponta-a-ponta** (deploy): "Testar" no `alertas_config.php` → webhook 200 →
+  ocorrência aparece na Central → segunda chamada `up` → some + `✅` no grupo (se `notif_whatsapp`).
 
 ## Fora de escopo
 
 - `abre_chamado` — o campo existe, a lógica de abrir chamado automático é fase futura.
-- Tipos de alerta novos (host offline, pfSense, UniFi, Home Assistant, painel de
-  LED…) — cada um é um PR próprio adicionando `check`/`render` ao catálogo. O
-  catálogo e o motor só precisam aguentar novos slugs sem mudança estrutural.
+- Tipos de alerta novos (pfSense, UniFi, Home Assistant, painel de LED…) — cada um
+  é um PR próprio adicionando `check`/`render` ao catálogo. O catálogo e o motor só
+  precisam aguentar novos slugs sem mudança estrutural.
+- Ler o The Dude pela porta 2210 (protocolo binário) ou pelo arquivo de estado
+  dentro do container — descartado; a integração é 100% push via webhook.
 - Reordenar / esconder tipos na tela além do `ativo`.
 - Notificar alerta por outro canal que não o grupo Alertas do WhatsApp.
+
+## Sequência sugerida de implementação
+
+1. **Motor base**: catálogo + `portal_alertas_config` + `alertas_config.php` +
+   `alertas.php` iterando o catálogo, só com os 2 tipos do GLPI.
+2. **gat_alertas** reescrito + `portal_alertas_ocorrencias` + baseline + tira
+   "Alertas" da aba Gatilhos do WhatsApp.
+3. **The Dude**: `the_dude_webhook.php` + `portal_dude_estado` + os 4 tipos no
+   catálogo + o painel do webhook em `alertas_config.php` + runbook da Notification.
+
+Cada etapa é deployável e testável sozinha (a 1 não manda WhatsApp, a 2 liga o
+envio, a 3 acrescenta a fonte Dude).
