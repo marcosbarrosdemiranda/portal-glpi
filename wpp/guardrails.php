@@ -16,44 +16,52 @@ function wpp_norm_telefone(string $v): string {
 function wpp_destino_permitido(string $destino): bool {
     $d = trim($destino);
 
-    // vazio ou qualquer coisa com 'broadcast' (status@broadcast etc.) -> bloqueia
-    if ($d === '' || stripos($d, 'broadcast') !== false) {
-        wpp_log('out', $d, 'destino bloqueado', 'bloqueado');
-        return false;
-    }
+    // agenda/db.php usa PDO::ERRMODE_EXCEPTION. Qualquer falha de banco em
+    // wpp_cfg_get() ou nas consultas abaixo tem que ser contida aqui: fail closed
+    // (bloqueia) pra não violar o contrato "nunca lança" do módulo.
+    try {
+        // vazio ou qualquer coisa com 'broadcast' (status@broadcast etc.) -> bloqueia
+        if ($d === '' || stripos($d, 'broadcast') !== false) {
+            wpp_log('out', $d, 'destino bloqueado', 'bloqueado');
+            return false;
+        }
 
-    // JID de grupo: só passa se for exatamente um dos 2 grupos configurados
-    if (str_ends_with($d, '@g.us')) {
-        $grupos = array_filter([
-            wpp_cfg_get('grupo_alertas_jid', ''),
-            wpp_cfg_get('grupo_chamados_jid', ''),
-        ]);
-        if (in_array($d, $grupos, true)) {
+        // JID de grupo: só passa se for exatamente um dos 2 grupos configurados
+        if (str_ends_with($d, '@g.us')) {
+            $grupos = array_filter([
+                wpp_cfg_get('grupo_alertas_jid', ''),
+                wpp_cfg_get('grupo_chamados_jid', ''),
+            ]);
+            if (in_array($d, $grupos, true)) {
+                return true;
+            }
+            wpp_log('out', $d, 'grupo nao cadastrado', 'bloqueado');
+            return false;
+        }
+
+        // número: normaliza e checa nas duas tabelas de allowlist (ativo=1)
+        $tel = wpp_norm_telefone(str_replace('@s.whatsapp.net', '', $d));
+        if ($tel === '') {
+            wpp_log('out', $d, 'numero invalido', 'bloqueado');
+            return false;
+        }
+
+        global $pdo;
+        $st = $pdo->prepare(
+            "SELECT 1 FROM portal_wpp_contatos WHERE telefone = ? AND ativo = 1
+             UNION SELECT 1 FROM portal_wpp_autorizados WHERE telefone = ? AND ativo = 1 LIMIT 1"
+        );
+        $st->execute([$tel, $tel]);
+        if ($st->fetchColumn()) {
             return true;
         }
-        wpp_log('out', $d, 'grupo nao cadastrado', 'bloqueado');
+
+        wpp_log('out', $d, 'numero nao cadastrado', 'bloqueado');
+        return false;
+    } catch (\Throwable $e) {
+        wpp_log('out', $d, 'erro na verificacao: ' . $e->getMessage(), 'bloqueado');
         return false;
     }
-
-    // número: normaliza e checa nas duas tabelas de allowlist (ativo=1)
-    $tel = wpp_norm_telefone(str_replace('@s.whatsapp.net', '', $d));
-    if ($tel === '') {
-        wpp_log('out', $d, 'numero invalido', 'bloqueado');
-        return false;
-    }
-
-    global $pdo;
-    $st = $pdo->prepare(
-        "SELECT 1 FROM portal_wpp_contatos WHERE telefone = ? AND ativo = 1
-         UNION SELECT 1 FROM portal_wpp_autorizados WHERE telefone = ? AND ativo = 1 LIMIT 1"
-    );
-    $st->execute([$tel, $tel]);
-    if ($st->fetchColumn()) {
-        return true;
-    }
-
-    wpp_log('out', $d, 'numero nao cadastrado', 'bloqueado');
-    return false;
 }
 
 // Único ponto de saída de mensagem. Se o destino não é permitido, NÃO chama

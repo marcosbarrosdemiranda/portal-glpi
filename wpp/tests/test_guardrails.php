@@ -5,11 +5,18 @@ require_once __DIR__ . '/../db.php';
 require_once __DIR__ . '/../guardrails.php';
 global $pdo;
 
+// --- salva config real pra restaurar no fim (a suíte roda contra a PROD) ---
+$oldA = wpp_cfg_get('grupo_alertas_jid');
+$oldC = wpp_cfg_get('grupo_chamados_jid');
+
 // fixtures
 wpp_cfg_set('grupo_alertas_jid',  '111@g.us');
 wpp_cfg_set('grupo_chamados_jid', '222@g.us');
-$pdo->exec("DELETE FROM portal_wpp_contatos WHERE telefone='5567999990000'");
+$pdo->exec("DELETE FROM portal_wpp_contatos WHERE telefone IN ('5567999990000','5567888880000')");
+$pdo->exec("DELETE FROM portal_wpp_autorizados WHERE telefone='5567777770000'");
 $pdo->exec("INSERT INTO portal_wpp_contatos (glpi_user_id,telefone,ativo) VALUES (999999,'5567999990000',1)");
+$pdo->exec("INSERT INTO portal_wpp_contatos (glpi_user_id,telefone,ativo) VALUES (999998,'5567888880000',0)");
+$pdo->exec("INSERT INTO portal_wpp_autorizados (telefone,nome,ativo) VALUES ('5567777770000','teste guardrail',1)");
 
 t_ok(wpp_norm_telefone('+55 (67) 99999-0000') === '5567999990000', 'norm_telefone tira nao-digito');
 
@@ -22,6 +29,15 @@ t_ok(wpp_destino_permitido('5567999990000'),     'contato ativo: ok');
 t_ok(!wpp_destino_permitido('5511000000000'),    'numero nao cadastrado: BLOQUEADO');
 t_ok(!wpp_destino_permitido(''),                 'vazio: BLOQUEADO');
 
+// sufixo @s.whatsapp.net removido -> bate no contato ativo
+t_ok(wpp_destino_permitido('5567999990000@s.whatsapp.net'), 'contato com sufixo @s.whatsapp.net: ok');
+// contato com ativo=0 -> BLOQUEADO
+t_ok(!wpp_destino_permitido('5567888880000'), 'contato inativo (ativo=0): BLOQUEADO');
+// numero so em portal_wpp_autorizados (ativo) -> ok
+t_ok(wpp_destino_permitido('5567777770000'), 'autorizado ativo: ok');
+// formatacao removida -> bate no contato salvo so com digitos
+t_ok(wpp_destino_permitido('+55 (67) 99999-0000'), 'contato com telefone formatado: ok');
+
 // evo_guarded_send bloqueia sem chamar o callable
 $chamou = false;
 $r = evo_guarded_send('333@g.us', function() use (&$chamou){ $chamou = true; return ['ok'=>true]; }, 'x');
@@ -31,4 +47,8 @@ t_ok(!$chamou && $r['bloqueado'] === true, 'guarded_send nao chama o callable pr
 $r = evo_guarded_send('111@g.us', fn() => ['ok'=>true], 'x');
 t_ok($r['ok'] === true, 'guarded_send passa destino permitido');
 
-$pdo->exec("DELETE FROM portal_wpp_contatos WHERE telefone='5567999990000'");
+// --- limpeza: fixtures e config real ---
+$pdo->exec("DELETE FROM portal_wpp_contatos WHERE telefone IN ('5567999990000','5567888880000')");
+$pdo->exec("DELETE FROM portal_wpp_autorizados WHERE telefone='5567777770000'");
+wpp_cfg_set('grupo_alertas_jid',  $oldA ?? '');
+wpp_cfg_set('grupo_chamados_jid', $oldC ?? '');
