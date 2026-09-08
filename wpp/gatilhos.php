@@ -359,4 +359,109 @@ function gat_lista_curta(array $itens, int $max = 5): string
     return implode(', ', array_slice($itens, 0, $max)) . ' …+' . ($n - $max);
 }
 
-function gat_sla(PDO $pdo): void {}        // Task 9
+/**
+ * Task 9 — SLA: chamado parado ou perto de furar o SLA -> grupo "Chamados".
+ *
+ * Dois braços independentes, ambos deduplicados via portal_wpp_notificados
+ * (tipo 'sla'). Toda janela de tempo usa o relógio do BANCO (NOW()), nunca
+ * date() do PHP — o container roda em UTC e o glpi-db em -04:00.
+ *
+ *   A) PARADO: chamado Novo(1)/Atribuído(2) sem follow-up há mais de
+ *      $horasParado h E cujo date_mod também está há mais de $horasParado h
+ *      (ninguém encostou no chamado). Dedup por DIA: hash = 'parado:<YYYY-MM-DD>'.
+ *      Ou seja, um chamado genuinamente travado recebe UMA cutucada por dia,
+ *      todo dia, até alguém mexer nele. Isso é intencional (lembrete diário),
+ *      não backfill: a baseline marca 'parado:<data-da-baseline>' pra todos os
+ *      abertos, então no dia da baseline nada dispara; a partir do dia seguinte
+ *      o hash muda e o chamado ainda parado é cutucado uma vez.
+ *
+ *   B) PRÉ-VENCIMENTO: time_to_resolve entre agora e agora + $prevencMin min,
+ *      chamado não resolvido/fechado (status NOT IN 5,6). Dedup PERMANENTE:
+ *      hash = 'prevenc' (um aviso por chamado, pra sempre).
+ *
+ * Limitação conhecida (Fase 2): a baseline marca 'prevenc' pra TODO chamado
+ * aberto no momento da semeadura. Um chamado que já estava aberto na baseline
+ * e só depois se aproxima do SLA NUNCA recebe o aviso de pré-vencimento —
+ * 'prevenc' só dispara para chamados criados APÓS a baseline. Numa operação de
+ * rede de lojas (chamados abrindo/fechando o tempo todo) isso é aceitável.
+ *
+ * Falha/bloqueio de envio não marca o dedup -> re-tentado na próxima passada.
+ */
+function gat_sla(PDO $pdo): void
+{
+    if (wpp_cfg_get('on_sla', '1') !== '1') return;
+
+    $grupo = (string) wpp_cfg_get('grupo_chamados_jid', '');
+    if ($grupo === '') return;
+
+    // max(1, ...) garante inteiro >= 1 -> seguro interpolar direto no INTERVAL
+    // (MariaDB não faz bind confiável de parâmetro dentro de INTERVAL).
+    $horasParado = max(1, (int) wpp_cfg_get('cfg_sla_horas', '4'));
+    $prevencMin  = max(1, (int) wpp_cfg_get('cfg_sla_prevenc_min', '30'));
+    $hoje = substr(wpp_agora_db($pdo), 0, 10);   // relógio do BANCO
+
+    // ── A) PARADO ──
+    $stParados = $pdo->prepare("
+        SELECT t.id, t.name, e.completename AS loja
+        FROM glpi_tickets t
+        LEFT JOIN glpi_entities e ON e.id = t.entities_id
+        WHERE t.is_deleted = 0 AND t.status IN (1,2)
+          AND t.date_mod < (NOW() - INTERVAL " . (int) $horasParado . " HOUR)
+          AND NOT EXISTS (
+              SELECT 1 FROM glpi_itilfollowups f
+              WHERE f.itemtype = 'Ticket' AND f.items_id = t.id
+                AND f.date_creation > (NOW() - INTERVAL " . (int) $horasParado . " HOUR)
+          )
+        ORDER BY t.date_mod ASC
+        LIMIT 30
+    ");
+    $stParados->execute();
+    foreach ($stParados->fetchAll(PDO::FETCH_ASSOC) as $t) {
+        $hash = 'parado:' . $hoje;
+        if (wpp_ja_notificado('sla', (string) $t['id'], $hash)) continue;
+        $r = evo_send_text($grupo, gat_msg_sla($t, 'parado', $horasParado));
+        if (!empty($r['ok'])) wpp_marcar_notificado('sla', (string) $t['id'], $hash);
+    }
+
+    // ── B) PRÉ-VENCIMENTO ──
+    $stPrevenc = $pdo->prepare("
+        SELECT t.id, t.name, e.completename AS loja, t.time_to_resolve
+        FROM glpi_tickets t
+        LEFT JOIN glpi_entities e ON e.id = t.entities_id
+        WHERE t.is_deleted = 0 AND t.status NOT IN (5,6)
+          AND t.time_to_resolve IS NOT NULL
+          AND t.time_to_resolve BETWEEN NOW() AND (NOW() + INTERVAL " . (int) $prevencMin . " MINUTE)
+        ORDER BY t.time_to_resolve ASC
+        LIMIT 30
+    ");
+    $stPrevenc->execute();
+    foreach ($stPrevenc->fetchAll(PDO::FETCH_ASSOC) as $t) {
+        if (wpp_ja_notificado('sla', (string) $t['id'], 'prevenc')) continue;
+        $r = evo_send_text($grupo, gat_msg_sla($t, 'prevenc', $prevencMin));
+        if (!empty($r['ok'])) wpp_marcar_notificado('sla', (string) $t['id'], 'prevenc');
+    }
+}
+
+/**
+ * Monta o texto da notificação de SLA.
+ *   'parado':  "⏳ *Chamado #7 parado há +4h* — Lj 003\nPC não liga"
+ *   'prevenc': "⚠️ *Chamado #7 perto de furar o SLA* — Lj 003\nvence 07/09 15:00\nPC não liga"
+ * $n = horas (parado) ou minutos (prevenc), só usado no texto de 'parado'.
+ */
+function gat_msg_sla(array $t, string $motivo, int $n): string
+{
+    $loja = function_exists('apelido_entidade')
+        ? apelido_entidade($t['loja'] ?? '')
+        : ($t['loja'] ?? '');
+    $suf = $loja ? " — {$loja}" : "";
+
+    if ($motivo === 'parado') {
+        return "⏳ *Chamado #{$t['id']} parado há +{$n}h*{$suf}\n"
+             . ($t['name'] ?? '(sem título)');
+    }
+
+    $venc = !empty($t['time_to_resolve']) ? date('d/m H:i', strtotime($t['time_to_resolve'])) : '';
+    return "⚠️ *Chamado #{$t['id']} perto de furar o SLA*{$suf}\n"
+         . "vence {$venc}\n"
+         . ($t['name'] ?? '(sem título)');
+}

@@ -67,6 +67,45 @@ t_eq(
 );
 
 // ---------------------------------------------------------------------------
+// gat_msg_sla() — montagem da mensagem (puro, sem banco)
+// ---------------------------------------------------------------------------
+// 'parado' com loja -> aplica apelido_entidade e usa o sufixo " — "
+t_eq(
+    gat_msg_sla(
+        ['id' => 7, 'name' => 'PC nao liga', 'loja' => 'Entidade raiz > Grupo Gmais > Supermercado Santos - JDM'],
+        'parado',
+        4
+    ),
+    "⏳ *Chamado #7 parado há +4h* — Lj 003\nPC nao liga",
+    'gat_msg_sla parado: apelido na loja + horas no titulo'
+);
+
+// 'parado' sem loja -> sem sufixo; titulo ausente -> "(sem título)"
+t_eq(
+    gat_msg_sla(['id' => 9], 'parado', 8),
+    "⏳ *Chamado #9 parado há +8h*\n(sem título)",
+    'gat_msg_sla parado: loja/titulo ausentes usam fallbacks'
+);
+
+// 'prevenc' com loja e time_to_resolve -> linha "vence dd/mm HH:MM"
+t_eq(
+    gat_msg_sla(
+        ['id' => 12, 'name' => 'Impressora travou', 'loja' => 'Grupo Gmais > Loja 3', 'time_to_resolve' => '2026-09-07 15:00:00'],
+        'prevenc',
+        30
+    ),
+    "⚠️ *Chamado #12 perto de furar o SLA* — Grupo Gmais > Loja 3\nvence 07/09 15:00\nImpressora travou",
+    'gat_msg_sla prevenc: sufixo de loja + data de vencimento formatada'
+);
+
+// 'prevenc' sem loja e sem time_to_resolve -> "vence " vazio, sem sufixo
+t_eq(
+    gat_msg_sla(['id' => 13], 'prevenc', 30),
+    "⚠️ *Chamado #13 perto de furar o SLA*\nvence \n(sem título)",
+    'gat_msg_sla prevenc: sem loja/time_to_resolve usa fallbacks'
+);
+
+// ---------------------------------------------------------------------------
 // alertas_novos() — diff de snapshots (puro, sem banco)
 // ---------------------------------------------------------------------------
 $anteriorSnap = [
