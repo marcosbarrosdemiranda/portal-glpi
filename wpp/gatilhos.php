@@ -131,6 +131,72 @@ function gat_texto_plano(string $html, int $max = 500): string
     return $t;
 }
 
+/**
+ * Envio dos gatilhos com ponto de injeção pra teste. Produção: evo_send_text()
+ * (que passa pelo guardrail). Teste: definir
+ *   $GLOBALS['__wpp_fake_send'] = fn(string $destino, string $texto): array => ['ok'=>bool]
+ * intercepta sem tocar a rede.
+ */
+function gat_enviar(string $destino, string $texto): array
+{
+    if (isset($GLOBALS['__wpp_fake_send']) && is_callable($GLOBALS['__wpp_fake_send'])) {
+        return (array) ($GLOBALS['__wpp_fake_send'])($destino, $texto);
+    }
+    return evo_send_text($destino, $texto);
+}
+
+/**
+ * Deriva um título legível da chave estável de uma ocorrência.
+ *   'sem_inv:PC-01'   -> 'PC-01'
+ *   'disco:SRV-01|C:' -> 'SRV-01 (C:)'
+ *   sem ':'           -> a própria chave
+ */
+function gat_alerta_titulo_da_chave(string $chave): string
+{
+    $pos = strpos($chave, ':');
+    if ($pos === false) return $chave;
+    $resto = substr($chave, $pos + 1);
+    if (strpos($resto, '|') !== false) {
+        [$nome, $vol] = explode('|', $resto, 2);
+        return $vol !== '' ? "{$nome} ({$vol})" : $nome;
+    }
+    return $resto !== '' ? $resto : $chave;
+}
+
+/** "titulo — loja" (loja neutra vazia/"—"/"Sem loja" é omitida). */
+function gat_alerta_titulo_loja(string $titulo, string $loja): string
+{
+    $loja = trim($loja);
+    return ($loja !== '' && $loja !== '—' && $loja !== 'Sem loja') ? "{$titulo} — {$loja}" : $titulo;
+}
+
+function gat_msg_alerta_novo(string $nomeTipo, array $o): string
+{
+    return "🔔 *{$nomeTipo}*\n"
+         . gat_alerta_titulo_loja((string) ($o['titulo'] ?? '(sem título)'), (string) ($o['loja'] ?? '')) . "\n"
+         . (string) ($o['detalhe'] ?? '');
+}
+
+function gat_msg_alerta_resolvido(string $nomeTipo, string $chave): string
+{
+    return "✅ *Resolvido — {$nomeTipo}*\n" . gat_alerta_titulo_da_chave($chave);
+}
+
+/**
+ * Lembrete de ocorrências ainda abertas. Até 8 linhas "• titulo — loja";
+ * o restante vira "…+N".
+ */
+function gat_msg_alerta_lembrete(string $nomeTipo, array $devidas): string
+{
+    $n = count($devidas);
+    $m = "⏰ *{$nomeTipo} — ainda pendente* ({$n})";
+    foreach (array_slice($devidas, 0, 8) as $o) {
+        $m .= "\n• " . gat_alerta_titulo_loja((string) ($o['titulo'] ?? '?'), (string) ($o['loja'] ?? ''));
+    }
+    if ($n > 8) $m .= "\n…+" . ($n - 8);
+    return $m;
+}
+
 function gat_msg_novo(array $t): string
 {
     $fmt  = fn($d) => !empty($d) ? date('d/m/Y H:i', strtotime($d)) : '—';

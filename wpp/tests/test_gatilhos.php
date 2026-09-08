@@ -142,6 +142,51 @@ t_eq(
 );
 
 // ---------------------------------------------------------------------------
+// gat_alerta_titulo_da_chave() + builders de mensagem de alerta (puros)
+// ---------------------------------------------------------------------------
+t_eq(gat_alerta_titulo_da_chave('sem_inv:PC-CAIXA-01'), 'PC-CAIXA-01', 'titulo_da_chave: sem_inv');
+t_eq(gat_alerta_titulo_da_chave('disco:SRV-01|C:'), 'SRV-01 (C:)', 'titulo_da_chave: disco vira "nome (volume)"');
+t_eq(gat_alerta_titulo_da_chave('coisa-sem-dois-pontos'), 'coisa-sem-dois-pontos', 'titulo_da_chave: fallback');
+
+$oNovo = ['chave' => 'sem_inv:PC-01', 'titulo' => 'PC-01', 'loja' => 'Loja 3', 'detalhe' => '12 dias sem reportar'];
+t_eq(
+    gat_msg_alerta_novo('Máquinas sem reportar inventário', $oNovo),
+    "🔔 *Máquinas sem reportar inventário*\nPC-01 — Loja 3\n12 dias sem reportar",
+    'msg_alerta_novo: nome / titulo — loja / detalhe'
+);
+// loja neutra ('—' ou vazio) não vira " — —"
+$oSemLoja = ['chave' => 'disco:SRV|C:', 'titulo' => 'SRV', 'loja' => '—', 'detalhe' => 'C: · 95% cheio'];
+t_eq(
+    gat_msg_alerta_novo('Discos quase cheios', $oSemLoja),
+    "🔔 *Discos quase cheios*\nSRV\nC: · 95% cheio",
+    'msg_alerta_novo: loja "—" é omitida'
+);
+
+t_eq(
+    gat_msg_alerta_resolvido('Discos quase cheios', 'disco:SRV-01|C:'),
+    "✅ *Resolvido — Discos quase cheios*\nSRV-01 (C:)",
+    'msg_alerta_resolvido: extrai o titulo legível da chave'
+);
+
+$devidas = [];
+for ($i = 1; $i <= 10; $i++) $devidas[] = ['titulo' => "PC-$i", 'loja' => 'Loja 1'];
+$msgLem = gat_msg_alerta_lembrete('Máquinas sem reportar inventário', $devidas);
+t_ok(strpos($msgLem, "⏰ *Máquinas sem reportar inventário — ainda pendente* (10)") === 0, 'msg_alerta_lembrete: cabeçalho com total');
+t_eq(substr_count($msgLem, "\n• "), 8, 'msg_alerta_lembrete: no máximo 8 linhas de item');
+t_ok(strpos($msgLem, "…+2") !== false, 'msg_alerta_lembrete: sufixo "…+2" quando passa de 8');
+t_eq(
+    gat_msg_alerta_lembrete('X', [['titulo' => 'A', 'loja' => 'L1'], ['titulo' => 'B', 'loja' => '']]),
+    "⏰ *X — ainda pendente* (2)\n• A — L1\n• B",
+    'msg_alerta_lembrete: 2 itens, loja vazia omitida, sem sufixo'
+);
+
+// gat_enviar sem fake -> cai no evo_send_text (aqui só garante que o seam existe e é usado)
+$GLOBALS['__wpp_fake_send'] = fn($d, $t) => ['ok' => true, 'eco' => [$d, $t]];
+$r = gat_enviar('123@g.us', 'oi');
+t_ok(!empty($r['ok']) && $r['eco'][0] === '123@g.us', 'gat_enviar: usa $GLOBALS[__wpp_fake_send] quando definido');
+unset($GLOBALS['__wpp_fake_send']);
+
+// ---------------------------------------------------------------------------
 // alertas_novos() — diff de snapshots (puro, sem banco)
 // ---------------------------------------------------------------------------
 $anteriorSnap = [
