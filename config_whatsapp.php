@@ -137,6 +137,56 @@ if ($action !== '') {
                 echo json_encode(['ok' => false, 'erro' => 'falha ao salvar contato']);
             }
             break;
+        case 'gatilhos_ler':
+            // Lê on/off dos 4 gatilhos + parâmetros de tempo, cada um com default.
+            echo json_encode(['ok' => true, 'cfg' => [
+                'on_novo'                => wpp_cfg_get('on_novo', '1'),
+                'on_atribuido'           => wpp_cfg_get('on_atribuido', '1'),
+                'on_alertas'             => wpp_cfg_get('on_alertas', '1'),
+                'on_sla'                 => wpp_cfg_get('on_sla', '1'),
+                'cfg_delay_dm_min'       => (int) wpp_cfg_get('cfg_delay_dm_min', '5'),
+                'cfg_digest_alertas_min' => (int) wpp_cfg_get('cfg_digest_alertas_min', '15'),
+                'cfg_sla_horas'          => (int) wpp_cfg_get('cfg_sla_horas', '4'),
+                'cfg_sla_prevenc_min'    => (int) wpp_cfg_get('cfg_sla_prevenc_min', '30'),
+                'cfg_offline_reset_min'  => (int) wpp_cfg_get('cfg_offline_reset_min', '30'),
+            ]]);
+            break;
+        case 'gatilhos_salvar':
+            // regrava a config dos gatilhos: POST-only (um GET zeraria tudo silenciosamente)
+            if ($_SERVER['REQUEST_METHOD'] !== 'POST') { echo json_encode(['ok' => false, 'erro' => 'método inválido']); exit; }
+            // toggles: qualquer valor diferente de '1' vira '0'
+            $toggles = ['on_novo', 'on_atribuido', 'on_alertas', 'on_sla'];
+            // numéricos: inteiros de 1..1440 — cfg_delay_dm_min aceita 0 (DM imediata)
+            $numeros = ['cfg_delay_dm_min', 'cfg_digest_alertas_min', 'cfg_sla_horas', 'cfg_sla_prevenc_min', 'cfg_offline_reset_min'];
+            foreach ($numeros as $k) {
+                $v   = (int) ($_POST[$k] ?? 0);
+                $min = ($k === 'cfg_delay_dm_min') ? 0 : 1;
+                if ($v < $min || $v > 1440) {
+                    echo json_encode(['ok' => false, 'erro' => "$k fora do intervalo (1..1440)"]);
+                    exit;
+                }
+            }
+            // só grava depois de validar todos os campos
+            foreach ($toggles as $k) {
+                wpp_cfg_set($k, (($_POST[$k] ?? '') === '1') ? '1' : '0');
+            }
+            foreach ($numeros as $k) {
+                wpp_cfg_set($k, (string) (int) ($_POST[$k] ?? 0));
+            }
+            echo json_encode(['ok' => true]);
+            break;
+        case 'log_listar':
+            // tabela read-only do portal_wpp_log. LIMIT interpolado com (int) já
+            // sanitizado por min/max (10..500) — não dá pra fazer bind de LIMIT.
+            $limite = min(500, max(10, (int) ($_GET['limite'] ?? 100)));
+            try {
+                $sql = "SELECT criado_em, direcao, destino, resumo, status
+                        FROM portal_wpp_log ORDER BY id DESC LIMIT $limite";
+                echo json_encode(['ok' => true, 'linhas' => $pdo->query($sql)->fetchAll(PDO::FETCH_ASSOC)]);
+            } catch (\Throwable $e) {
+                echo json_encode(['ok' => false, 'erro' => 'falha ao listar log']);
+            }
+            break;
         default:
             echo json_encode(['ok' => false, 'erro' => 'ação desconhecida']);
     }
@@ -207,6 +257,8 @@ $chamados_jid = wpp_cfg_get('grupo_chamados_jid', '');
       <li class="nav-item"><span class="nav-link active" data-tab="conexao"><i class="bi bi-qr-code me-1"></i>Conexão</span></li>
       <li class="nav-item"><span class="nav-link" data-tab="grupos"><i class="bi bi-people me-1"></i>Grupos</span></li>
       <li class="nav-item"><span class="nav-link" data-tab="contatos"><i class="bi bi-person-vcard me-1"></i>Contatos</span></li>
+      <li class="nav-item"><span class="nav-link" data-tab="gatilhos"><i class="bi bi-toggles me-1"></i>Gatilhos</span></li>
+      <li class="nav-item"><span class="nav-link" data-tab="log"><i class="bi bi-list-ul me-1"></i>Log</span></li>
     </ul>
 
     <!-- ─────────── Aba Conexão ─────────── -->
@@ -297,6 +349,98 @@ $chamados_jid = wpp_cfg_get('grupo_chamados_jid', '');
 
       <div class="feedback" id="fb-contatos"></div>
     </div>
+
+    <!-- ─────────── Aba Gatilhos ─────────── -->
+    <div class="tab-body" id="tab-gatilhos" style="display:none">
+      <p class="small text-muted mb-3">
+        Ligue ou desligue cada notificação automática e ajuste os tempos. Vale de 1 a 1440 minutos/horas
+        (o atraso da DM pode ser 0 para envio imediato).
+      </p>
+
+      <div class="form-check form-switch mb-2">
+        <input type="checkbox" class="form-check-input" id="g-on_novo">
+        <label class="form-check-label" for="g-on_novo">Chamado novo → grupo Chamados</label>
+      </div>
+      <div class="form-check form-switch mb-2">
+        <input type="checkbox" class="form-check-input" id="g-on_atribuido">
+        <label class="form-check-label" for="g-on_atribuido">Chamado atribuído → DM pro técnico</label>
+      </div>
+      <div class="form-check form-switch mb-2">
+        <input type="checkbox" class="form-check-input" id="g-on_alertas">
+        <label class="form-check-label" for="g-on_alertas">Alertas do parque → grupo Alertas</label>
+      </div>
+      <div class="form-check form-switch mb-3">
+        <input type="checkbox" class="form-check-input" id="g-on_sla">
+        <label class="form-check-label" for="g-on_sla">SLA / chamado parado → grupo Chamados</label>
+      </div>
+
+      <div class="row g-3">
+        <div class="col-sm-6">
+          <label class="form-label" for="g-cfg_delay_dm_min">Atraso da DM (min)</label>
+          <input type="number" min="0" max="1440" step="1" class="form-control form-control-sm" id="g-cfg_delay_dm_min">
+        </div>
+        <div class="col-sm-6">
+          <label class="form-label" for="g-cfg_digest_alertas_min">Intervalo do digest de alertas (min)</label>
+          <input type="number" min="1" max="1440" step="1" class="form-control form-control-sm" id="g-cfg_digest_alertas_min">
+        </div>
+        <div class="col-sm-6">
+          <label class="form-label" for="g-cfg_sla_horas">Chamado parado após (horas)</label>
+          <input type="number" min="1" max="1440" step="1" class="form-control form-control-sm" id="g-cfg_sla_horas">
+        </div>
+        <div class="col-sm-6">
+          <label class="form-label" for="g-cfg_sla_prevenc_min">Aviso de pré-vencimento (min antes)</label>
+          <input type="number" min="1" max="1440" step="1" class="form-control form-control-sm" id="g-cfg_sla_prevenc_min">
+        </div>
+        <div class="col-sm-6">
+          <label class="form-label" for="g-cfg_offline_reset_min">Re-semear baseline após offline (min)</label>
+          <input type="number" min="1" max="1440" step="1" class="form-control form-control-sm" id="g-cfg_offline_reset_min">
+        </div>
+      </div>
+
+      <button class="btn btn-success btn-sm mt-3" id="btn-gatilhos-salvar" style="background:var(--wpp);border-color:var(--wpp)">
+        <i class="bi bi-save me-1"></i>Salvar
+      </button>
+
+      <div class="feedback" id="fb-gatilhos"></div>
+    </div>
+
+    <!-- ─────────── Aba Log ─────────── -->
+    <div class="tab-body" id="tab-log" style="display:none">
+      <div class="d-flex align-items-center gap-2 mb-3 flex-wrap">
+        <button class="btn btn-primary btn-sm" id="btn-log-atualizar">
+          <i class="bi bi-arrow-repeat me-1"></i>Atualizar
+        </button>
+        <select class="form-select form-select-sm" id="sel-log-limite" style="width:auto">
+          <option value="50">50 linhas</option>
+          <option value="100" selected>100 linhas</option>
+          <option value="200">200 linhas</option>
+          <option value="500">500 linhas</option>
+        </select>
+        <div class="form-check form-switch mb-0 ms-1">
+          <input type="checkbox" class="form-check-input" id="chk-log-auto">
+          <label class="form-check-label small" for="chk-log-auto">Auto (15s)</label>
+        </div>
+      </div>
+
+      <div class="table-responsive">
+        <table class="table table-sm align-middle" id="tbl-log">
+          <thead>
+            <tr>
+              <th style="width:11rem">Data</th>
+              <th style="width:5rem">Direção</th>
+              <th style="width:10rem">Destino</th>
+              <th>Resumo</th>
+              <th style="width:7rem">Status</th>
+            </tr>
+          </thead>
+          <tbody id="tbody-log">
+            <tr><td colspan="5" class="text-muted">Carregando…</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="feedback" id="fb-log"></div>
+    </div>
   </div>
 </div>
 
@@ -333,11 +477,16 @@ $chamados_jid = wpp_cfg_get('grupo_chamados_jid', '');
       document.querySelectorAll('#wpp-tabs .nav-link').forEach(function (l) { l.classList.remove('active'); });
       link.classList.add('active');
       var alvo = link.getAttribute('data-tab');
+      pararLogAuto(); // ao sair da aba Log, encerra o auto-refresh de fundo
       $('tab-conexao').style.display  = (alvo === 'conexao')  ? '' : 'none';
       $('tab-grupos').style.display   = (alvo === 'grupos')   ? '' : 'none';
       $('tab-contatos').style.display = (alvo === 'contatos') ? '' : 'none';
+      $('tab-gatilhos').style.display = (alvo === 'gatilhos') ? '' : 'none';
+      $('tab-log').style.display      = (alvo === 'log')      ? '' : 'none';
       if (alvo === 'grupos') atualizarAvisoGrupos();
       if (alvo === 'contatos' && !contatosCarregados) { carregarContatos(); }
+      if (alvo === 'gatilhos' && !gatilhosCarregados) { carregarGatilhos(); }
+      if (alvo === 'log') { carregarLog(false); if ($('chk-log-auto').checked) { iniciarLogAuto(); } }
     });
   });
 
@@ -669,12 +818,143 @@ $chamados_jid = wpp_cfg_get('grupo_chamados_jid', '');
         : 'Nenhum campo vazio com celular disponível no GLPI.');
   }
 
+  /* ─────────── Gatilhos ─────────── */
+  var gatilhosCarregados = false;
+  var GAT_TOGGLES = ['on_novo', 'on_atribuido', 'on_alertas', 'on_sla'];
+  var GAT_NUMS = ['cfg_delay_dm_min', 'cfg_digest_alertas_min', 'cfg_sla_horas', 'cfg_sla_prevenc_min', 'cfg_offline_reset_min'];
+
+  function carregarGatilhos() {
+    feedback($('fb-gatilhos'), 'info', 'Carregando…');
+    fetch(PAGE + '?action=gatilhos_ler')
+      .then(function (r) { return r.json(); })
+      .then(function (d) {
+        if (!d.ok) { throw new Error(d.erro || 'falha ao carregar'); }
+        GAT_TOGGLES.forEach(function (k) { $('g-' + k).checked = (String(d.cfg[k]) === '1'); });
+        GAT_NUMS.forEach(function (k) { $('g-' + k).value = parseInt(d.cfg[k], 10) || 0; });
+        gatilhosCarregados = true;
+        feedback($('fb-gatilhos'), 'ok', 'Configuração carregada.');
+      })
+      .catch(function (err) {
+        feedback($('fb-gatilhos'), 'err', 'Erro: ' + (err.message || err));
+      });
+  }
+
+  function salvarGatilhos() {
+    var btn = $('btn-gatilhos-salvar');
+    var params = new URLSearchParams();
+    GAT_TOGGLES.forEach(function (k) { params.set(k, $('g-' + k).checked ? '1' : '0'); });
+    var erroLocal = null;
+    GAT_NUMS.forEach(function (k) {
+      var v = parseInt($('g-' + k).value, 10);
+      if (isNaN(v)) { v = 0; }
+      var min = (k === 'cfg_delay_dm_min') ? 0 : 1; // só o atraso da DM aceita 0
+      if (v < min || v > 1440) { erroLocal = erroLocal || (k + ' fora do intervalo (' + min + '..1440)'); }
+      params.set(k, v);
+    });
+    if (erroLocal) { feedback($('fb-gatilhos'), 'err', erroLocal); return; }
+    btn.disabled = true;
+    feedback($('fb-gatilhos'), 'info', 'Salvando…');
+    fetch(PAGE + '?action=gatilhos_salvar', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: params.toString()
+    })
+      .then(function (r) { return r.json(); })
+      .then(function (d) {
+        btn.disabled = false;
+        feedback($('fb-gatilhos'), d.ok ? 'ok' : 'err',
+          d.ok ? 'Gatilhos salvos.' : ('Erro: ' + (d.erro || 'falha ao salvar')));
+      })
+      .catch(function (err) {
+        btn.disabled = false;
+        feedback($('fb-gatilhos'), 'err', 'Erro de conexão: ' + (err.message || err));
+      });
+  }
+
+  /* ─────────── Log ─────────── */
+  var logAutoTimer = null;
+
+  function corStatus(s) {
+    var v = String(s || '').toLowerCase();
+    if (v === 'ok') { return '#16a34a'; }        // verde
+    if (v === 'bloqueado') { return '#e53935'; } // vermelho
+    if (v === 'erro') { return '#ea580c'; }      // laranja
+    return '#6b7280';                            // cinza (demais status)
+  }
+
+  function carregarLog(bg) {
+    var lim = $('sel-log-limite').value || '100';
+    // bg=1: auto-refresh de fundo NÃO renova o relógio de inatividade (auth_guard.php)
+    var url = PAGE + '?action=log_listar&limite=' + encodeURIComponent(lim) + (bg ? '&bg=1' : '');
+    fetch(url)
+      .then(function (r) {
+        if (r.status === 440 || !r.ok) { throw new Error('timeout'); }
+        return r.json();
+      })
+      .then(function (d) {
+        if (!d.ok) { throw new Error(d.erro || 'falha ao carregar log'); }
+        renderLog(d.linhas || []);
+        if (!bg) { feedback($('fb-log'), 'ok', (d.linhas || []).length + ' linha(s).'); }
+      })
+      .catch(function (err) {
+        if (err && err.message === 'timeout') {
+          pararLogAuto();
+          $('chk-log-auto').checked = false;
+          feedback($('fb-log'), 'err', 'Sessão expirada — recarregue a página.');
+          return;
+        }
+        if (!bg) { feedback($('fb-log'), 'err', 'Erro: ' + (err.message || err)); }
+      });
+  }
+
+  function renderLog(linhas) {
+    var tb = $('tbody-log');
+    tb.innerHTML = '';
+    if (!linhas.length) {
+      var tr0 = document.createElement('tr');
+      var td0 = document.createElement('td');
+      td0.colSpan = 5; td0.className = 'text-muted';
+      td0.textContent = 'Nenhum registro.';
+      tr0.appendChild(td0); tb.appendChild(tr0);
+      return;
+    }
+    linhas.forEach(function (l) {
+      var tr = document.createElement('tr');
+      // textContent em tudo — destino/resumo/status podem conter o que um viewer gravou
+      [l.criado_em, l.direcao, l.destino, l.resumo].forEach(function (val) {
+        var td = document.createElement('td');
+        td.textContent = (val == null) ? '' : String(val);
+        tr.appendChild(td);
+      });
+      var tdSt = document.createElement('td');
+      tdSt.textContent = (l.status == null) ? '' : String(l.status);
+      tdSt.style.fontWeight = '700';
+      tdSt.style.color = corStatus(l.status);
+      tr.appendChild(tdSt);
+      tb.appendChild(tr);
+    });
+  }
+
+  function iniciarLogAuto() {
+    pararLogAuto();
+    logAutoTimer = setInterval(function () { carregarLog(true); }, 15000);
+  }
+  function pararLogAuto() {
+    if (logAutoTimer) { clearInterval(logAutoTimer); logAutoTimer = null; }
+  }
+
   /* ─────────── Ligações ─────────── */
   $('btn-conectar').addEventListener('click', conectar);
   $('btn-desconectar').addEventListener('click', desconectar);
   $('btn-recarregar').addEventListener('click', carregarGrupos);
   $('btn-salvar').addEventListener('click', salvarGrupos);
   $('btn-puxar-glpi').addEventListener('click', puxarDoGlpi);
+  $('btn-gatilhos-salvar').addEventListener('click', salvarGatilhos);
+  $('btn-log-atualizar').addEventListener('click', function () { carregarLog(false); });
+  $('sel-log-limite').addEventListener('change', function () { carregarLog(false); });
+  $('chk-log-auto').addEventListener('change', function () {
+    if ($('chk-log-auto').checked) { iniciarLogAuto(); } else { pararLogAuto(); }
+  });
 
   carregarStatus();
 })();
