@@ -8,11 +8,15 @@ if (!$ticket_id) { header('Location: historico.php'); exit; }
 
 require_once __DIR__ . '/agenda/config.php';
 require_once __DIR__ . '/entidade_alias.php';
+require_once __DIR__ . '/wpp/db.php';   // wpp_cfg_get() — só cria tabelas/helpers, sem output
 
 $user_id = (int)($_SESSION['user_id'] ?? 0);
 
 $_cards_cham  = $_SESSION['portal_perfil_cards'] ?? null;
 $cham_ouvinte = ($_cards_cham !== null) && (($_cards_cham['historico'] ?? 'ouvinte') === 'ouvinte');
+
+// Botão "Reenviar no WhatsApp": só quando a Fase 2 está configurada (grupo Chamados definido).
+$wpp_fase2_on = !$cham_ouvinte && trim((string) wpp_cfg_get('grupo_chamados_jid', '')) !== '';
 
 // ── Handler para editar entidade/categoria/atendente via AJAX ──
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'editar_campos') {
@@ -558,6 +562,17 @@ foreach ($atribuidos as $a) {
       <button class="btn btn-sm btn-outline-danger btn-excluir-chamado" onclick="abrirModalExcluir()">
         <i class="bi bi-trash3 me-1"></i>Excluir
       </button>
+      <?php endif; ?>
+      <?php if ($wpp_fase2_on): ?>
+      <div class="btn-group">
+        <button type="button" class="btn btn-sm btn-outline-success dropdown-toggle" data-bs-toggle="dropdown" aria-expanded="false">
+          <i class="bi bi-whatsapp me-1"></i>Reenviar no WhatsApp
+        </button>
+        <ul class="dropdown-menu dropdown-menu-end">
+          <li><a class="dropdown-item" href="#" onclick="reenviarWhatsapp('tecnico'); return false;"><i class="bi bi-person-badge me-2"></i>Para o técnico atribuído</a></li>
+          <li><a class="dropdown-item" href="#" onclick="reenviarWhatsapp('grupo'); return false;"><i class="bi bi-people me-2"></i>Para o grupo Chamados</a></li>
+        </ul>
+      </div>
       <?php endif; ?>
     </div>
 
@@ -1439,6 +1454,23 @@ function confirmarExcluir() {
       btn.disabled = false;
       btn.innerHTML = '<i class="bi bi-trash3 me-1"></i>Excluir';
     });
+}
+
+// ── Reenviar notificação no WhatsApp (override manual — ignora a dedup, não o guardrail) ──
+function reenviarWhatsapp(alvo) {
+  const destino = alvo === 'grupo' ? 'o grupo Chamados' : 'o técnico atribuído';
+  if (!confirm('Reenviar a notificação deste chamado no WhatsApp para ' + destino + '?')) return;
+  fetch('wpp/renotificar.php', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ ticket_id: TICKET_ID, alvo: alvo }),
+  })
+    .then(r => r.json())
+    .then(d => {
+      if (d.ok) alert('Enviado com sucesso (' + (d.enviados || 0) + ' mensagem(ns)).');
+      else alert('Não enviado: ' + (d.erro || 'falha'));
+    })
+    .catch(e => alert('Falha: ' + e.message));
 }
 </script>
 </body>

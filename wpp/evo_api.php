@@ -6,6 +6,8 @@ if (!file_exists(__DIR__ . '/config.php')) {
     exit('wpp/config.php não encontrado — crie a partir de wpp/config.example.php (ver wpp/README.md).');
 }
 require_once __DIR__ . '/config.php';
+// Guardrail de saída: evo_send_* roteia por evo_guarded_send() (guardrails.php puxa db.php).
+require_once __DIR__ . '/guardrails.php';
 
 function evo_url(string $path): string {
     return rtrim(EVO_URL, '/') . '/' . ltrim($path, '/');
@@ -99,4 +101,51 @@ function evo_ensure_instance(): array {
         'syncFullHistory' => false,
     ], 30);
     return ['ok' => $c['ok'], 'criada' => $c['ok'], 'erro' => $c['erro']];
+}
+
+// Converte o destino pro formato que a Evolution espera no campo "number":
+// JID (tem '@', ex: grupo '...@g.us') passa como veio; caso contrário
+// normaliza os dígitos e vira "<digitos>@s.whatsapp.net".
+function evo_destino_payload(string $destino): string {
+    if (strpos($destino, '@') !== false) {
+        return $destino;
+    }
+    return wpp_norm_telefone($destino) . '@s.whatsapp.net';
+}
+
+// Envia texto simples. Passa o $destino ORIGINAL pro guardrail (ele lida com
+// dígitos e com JID de grupo); o número normalizado vai só no payload.
+function evo_send_text(string $destino, string $texto): array {
+    $number = evo_destino_payload($destino);
+    return evo_guarded_send(
+        $destino,
+        fn() => evo_request('POST', '/message/sendText/' . EVO_INSTANCE, [
+            'number' => $number,
+            'text'   => $texto,
+        ]),
+        mb_substr($texto, 0, 80)
+    );
+}
+
+// Envia mídia (imagem) com legenda. $base64 é o conteúdo do arquivo em base64.
+function evo_send_media(
+    string $destino,
+    string $base64,
+    string $legenda,
+    string $mime = 'image/jpeg',
+    string $nome = 'arquivo'
+): array {
+    $number = evo_destino_payload($destino);
+    return evo_guarded_send(
+        $destino,
+        fn() => evo_request('POST', '/message/sendMedia/' . EVO_INSTANCE, [
+            'number'    => $number,
+            'mediatype' => 'image',
+            'mimetype'  => $mime,
+            'caption'   => $legenda,
+            'media'     => $base64,
+            'fileName'  => $nome,
+        ]),
+        'media: ' . mb_substr($legenda, 0, 60)
+    );
 }

@@ -5,6 +5,7 @@ if (($_SESSION['perfil'] ?? '') === 'self-service') { header('Location: dashboar
 
 require_once __DIR__ . '/agenda/db.php';
 require_once __DIR__ . '/entidade_alias.php';
+require_once __DIR__ . '/alertas_lib.php';
 
 $H = fn($s) => htmlspecialchars((string)$s, ENT_QUOTES, 'UTF-8');
 
@@ -13,33 +14,11 @@ const ALERTA_INV_DIAS  = 7;
 const ALERTA_DISCO_PCT = 90;   // volume acima disso = alerta
 
 // 1) Máquinas sem reportar inventário há +7 dias (ou nunca)
-$semInv = $pdo->query("
-    SELECT c.name, c.last_inventory_update, e.completename AS loja,
-           COALESCE(pc.categoria,'pcs-retaguarda') AS cat
-    FROM glpi_computers c
-    LEFT JOIN glpi_entities e ON e.id = c.entities_id
-    LEFT JOIN portal_inv_pc_cat pc ON pc.computer_id = c.id
-    LEFT JOIN portal_inv_baixas bx ON bx.itemtype='Computer' AND bx.items_id = c.id
-    WHERE c.is_deleted = 0 AND c.is_template = 0 AND bx.id IS NULL
-      AND (COALESCE(pc.categoria,'') <> '__ignorado__')
-      AND (c.last_inventory_update IS NULL OR c.last_inventory_update < (NOW() - INTERVAL " . ALERTA_INV_DIAS . " DAY))
-    ORDER BY c.last_inventory_update IS NULL DESC, c.last_inventory_update ASC
-")->fetchAll(PDO::FETCH_ASSOC);
+$semInv = alertas_sem_inventario($pdo, ALERTA_INV_DIAS);
 
 // 2) Discos quase cheios — só volumes de dados (> 30 GB); ignora partições de
 //    recuperação/sistema (sempre ~99% cheias por natureza).
-$discoCheio = $pdo->query("
-    SELECT c.name, e.completename AS loja, d.name AS volume,
-           d.totalsize, d.freesize,
-           ROUND((d.totalsize - d.freesize) / d.totalsize * 100) AS pct
-    FROM glpi_items_disks d
-    JOIN glpi_computers c ON c.id = d.items_id AND d.itemtype='Computer' AND c.is_deleted = 0
-    LEFT JOIN glpi_entities e ON e.id = c.entities_id
-    WHERE d.totalsize > 30000
-      AND (d.totalsize - d.freesize) / d.totalsize * 100 >= " . ALERTA_DISCO_PCT . "
-      AND d.name NOT REGEXP '(?i)(recov|image|reserv|winre|system|efi|pbr|oem)'
-    ORDER BY pct DESC
-")->fetchAll(PDO::FETCH_ASSOC);
+$discoCheio = alertas_disco_cheio($pdo, ALERTA_DISCO_PCT);
 
 // agrupa "sem inventário" por loja
 $semInvPorLoja = [];
