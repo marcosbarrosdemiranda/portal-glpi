@@ -148,3 +148,30 @@ function wpp_marcar_msg_vista(string $message_id): void {
         $pdo->exec("DELETE FROM portal_wpp_msgs_vistas WHERE visto_em < NOW() - INTERVAL 7 DAY");
     }
 }
+
+// --- Fase 3 Etapa 2: chatbot (FSM + vínculo + histórico de chamados) ---
+
+$pdo->exec("CREATE TABLE IF NOT EXISTS portal_wpp_conversas (
+    telefone VARCHAR(25) PRIMARY KEY,
+    estado JSON NOT NULL,
+    updated_at DATETIME NOT NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
+
+$pdo->exec("CREATE TABLE IF NOT EXISTS portal_wpp_vinculos (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    telefone VARCHAR(25) NOT NULL,
+    glpi_user_id INT NOT NULL,
+    rotulo VARCHAR(120) DEFAULT '',
+    ativo TINYINT(1) NOT NULL DEFAULT 1,
+    UNIQUE KEY uq_tel (telefone),
+    KEY idx_user (glpi_user_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
+
+$pdo->exec("CREATE TABLE IF NOT EXISTS portal_wpp_chamados (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    telefone VARCHAR(25) NOT NULL,
+    ticket_id INT NOT NULL,
+    origem ENUM('vinculado','pendencia') NOT NULL,
+    criado_em DATETIME NOT NULL,
+    UNIQUE KEY uq_tel_ticket (telefone, ticket_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
