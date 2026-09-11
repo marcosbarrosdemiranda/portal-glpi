@@ -177,6 +177,7 @@ if ($action !== '') {
                                COALESCE(NULLIF(TRIM(CONCAT(u.realname,' ',u.firstname)),''), u.name) AS nome
                         FROM portal_wpp_vinculos v
                         JOIN glpi_users u ON u.id = v.glpi_user_id
+                        WHERE u.is_active = 1 AND u.is_deleted = 0
                         ORDER BY nome, v.telefone";
                 $linhas = $pdo->query($sql)->fetchAll(PDO::FETCH_ASSOC);
                 echo json_encode(['ok' => true, 'linhas' => $linhas]);

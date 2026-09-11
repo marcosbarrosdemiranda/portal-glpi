@@ -81,6 +81,7 @@ function wpp_chatbot_resolve_vinculo(string $telefone): ?array {
          FROM portal_wpp_vinculos v
          JOIN glpi_users u ON u.id = v.glpi_user_id
          WHERE v.telefone = ? AND v.ativo = 1
+           AND u.is_active = 1 AND u.is_deleted = 0
          LIMIT 1"
     );
     $st->execute([$tel]);
