@@ -7,9 +7,8 @@
 // arquivo em fatal error antes do try principal -> HTTP 500 em produção.
 // Endpoint público: autenticado pelo segredo compartilhado WPP_WEBHOOK_SECRET
 // (header X-Wpp-Secret que a Evolution reenvia) + conferência da instância.
-// Fase 3 Etapa 1: só valida a origem e loga. O chatbot em si (FSM, fluxos)
-// entra na Etapa 2 — troca o wpp_log() do bloco "recebido" por
-// wpp_chatbot_processar($msg['remoteJid'], $msg).
+// Fase 3 Etapa 2: chatbot ligado. Mensagem de número vinculado e permitido
+// entra na FSM via wpp_chatbot_processar(wpp_norm_telefone($msg['remoteJid']), $msg).
 $boot_ok = true;
 try {
     // require de arquivo inexistente é fatal NÃO capturável — checa antes.
@@ -22,6 +21,9 @@ try {
     require_once __DIR__ . '/db.php';
     require_once __DIR__ . '/guardrails.php';
     require_once __DIR__ . '/webhook_parse.php';
+    require_once __DIR__ . '/evo_api.php';
+    require_once __DIR__ . '/glpi_bot.php';
+    require_once __DIR__ . '/chatbot.php';
 } catch (\Throwable $e) {
     $boot_ok = false;
     // wpp_log() precisa do banco que acabou de falhar — não pode ser usado aqui.
@@ -61,9 +63,14 @@ if ($boot_ok) {
                     if ($msg !== null && !wpp_msg_ja_vista($msg['id'])) {
                         wpp_marcar_msg_vista($msg['id']);
                         if (wpp_origem_permitida($msg)) {
-                            // Etapa 1: chatbot ainda não existe. Etapa 2 troca esta
-                            // linha por: wpp_chatbot_processar($msg['remoteJid'], $msg);
-                            wpp_log('in', $msg['remoteJid'], 'recebido (chatbot ainda nao implementado)', 'ok');
+                            // wpp_chatbot_processar() guarda/lê estado em
+                            // portal_wpp_conversas.telefone comparando o valor
+                            // cru (sem normalizar) — precisa receber só dígitos,
+                            // não o JID completo (achado no smoke test desta
+                            // task: JID com sufixo @s.whatsapp.net truncava a
+                            // coluna e quebrava o casamento com
+                            // wpp_destino_permitido(), que já compara normalizado).
+                            wpp_chatbot_processar(wpp_norm_telefone($msg['remoteJid']), $msg);
                         }
                         // origem não permitida: wpp_origem_permitida() já logou o bloqueio
                     }
