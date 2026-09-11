@@ -55,10 +55,20 @@ t_ok(!$chamou && $r['bloqueado'] === true, 'guarded_send nao chama o callable pr
 $r = evo_guarded_send('111@g.us', fn() => ['ok'=>true], 'x');
 t_ok($r['ok'] === true, 'guarded_send passa destino permitido');
 
+// --- Etapa 2: numero com conversa ativa vira destino permitido ---
+$pdo->exec("DELETE FROM portal_wpp_conversas WHERE telefone = '5567666660000'");
+$pdo->prepare("INSERT INTO portal_wpp_conversas (telefone, estado, updated_at) VALUES (?, '{}', NOW())")
+    ->execute(['5567666660000']);
+
+t_ok(wpp_destino_permitido('5567666660000'), 'numero com conversa ativa: ok');
+$pdo->exec("DELETE FROM portal_wpp_conversas WHERE telefone = '5567666660000'");
+t_ok(!wpp_destino_permitido('5567666660000'), 'mesmo numero, conversa apagada: BLOQUEADO de novo');
+
 } finally {
     // --- limpeza: fixtures e config real (roda mesmo se um assert lançar) ---
     $pdo->exec("DELETE FROM portal_wpp_contatos WHERE telefone IN ('5567999990000','5567888880000')");
     $pdo->exec("DELETE FROM portal_wpp_autorizados WHERE telefone='5567777770000'");
+    $pdo->exec("DELETE FROM portal_wpp_conversas WHERE telefone = '5567666660000'");
     wpp_cfg_set('grupo_alertas_jid',  $oldA ?? '');
     wpp_cfg_set('grupo_chamados_jid', $oldC ?? '');
 }
