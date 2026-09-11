@@ -69,3 +69,6 @@ util/Instaladores/*.msi
 
 # ── Workspace de execução do superpowers (subagent-driven-development) ──
 .superpowers/
+
+# Isolated worktrees for subagent-driven development
+.worktrees/
