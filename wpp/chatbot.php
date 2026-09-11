@@ -148,78 +148,112 @@ function wpp_chatbot_iniciar(string $telefone, array $msg): void {
         // o guardrail de saída liberar esta ÚNICA resposta (número que
         // acabou de falar tem direito a 1 desfecho, mesmo sem vínculo).
         wpp_chatbot_estado_set($telefone, ['passo' => 'indisponivel']);
-        evo_send_text($telefone, 'Ainda não consigo identificar seu número para abrir chamado por aqui. Peça pro TI te cadastrar, ou abra pelo portal.');
+        wpp_chatbot_enviar($telefone, 'Ainda não consigo identificar seu número para abrir chamado por aqui. Peça pro TI te cadastrar, ou abra pelo portal.');
         wpp_chatbot_estado_limpar($telefone);
         return;
     }
     wpp_chatbot_estado_set($telefone, ['passo' => 'titulo', 'vinculo' => $vinculo, 'descricao' => '']);
-    evo_send_text($telefone, "Abrir chamado para {$vinculo['nome']}. Qual o título?");
+    wpp_chatbot_enviar($telefone, "Abrir chamado para {$vinculo['nome']}. Qual o título?");
 }
 
 function wpp_chatbot_passo_titulo(string $telefone, array $estado, string $texto): void {
     if ($texto === '') {
-        evo_send_text($telefone, 'O título não pode ficar vazio. Qual o título?');
+        wpp_chatbot_enviar($telefone, 'O título não pode ficar vazio. Qual o título?');
         return;
     }
     $estado['passo']  = 'descricao';
-    $estado['titulo'] = $texto;
+    // GLPI trunca glpi_tickets.name em 255 — corta antes, com folga.
+    $estado['titulo'] = mb_substr($texto, 0, 250);
     wpp_chatbot_estado_set($telefone, $estado);
-    evo_send_text($telefone, 'Obrigado! Agora descreva o problema.');
+    wpp_chatbot_enviar($telefone, 'Obrigado! Agora descreva o problema.');
 }
 
 function wpp_chatbot_passo_descricao(string $telefone, array $estado, string $texto, array $msg): void {
     if ($texto === '') {
         if (!empty($msg['temMidia'])) {
-            evo_send_text($telefone, 'Ainda não consigo processar imagem por aqui — descreva o problema em texto, por favor.');
+            wpp_chatbot_enviar($telefone, 'Ainda não consigo processar imagem por aqui — descreva o problema em texto, por favor.');
         } else {
-            evo_send_text($telefone, 'Descreva o problema, por favor.');
+            wpp_chatbot_enviar($telefone, 'Descreva o problema, por favor.');
         }
         return;
     }
     $estado['descricao'] = trim(($estado['descricao'] ?? '') . "\n" . $texto);
     $estado['passo']     = 'confirma_mais';
     wpp_chatbot_estado_set($telefone, $estado);
-    evo_send_text($telefone, "Adicionar mais alguma coisa à descrição?\n1 - Sim\n2 - Não, finalizar\n3 - Cancelar");
+    wpp_chatbot_enviar($telefone, "Adicionar mais alguma coisa à descrição?\n1 - Sim\n2 - Não, finalizar\n3 - Cancelar");
 }
 
 function wpp_chatbot_passo_confirma_mais(string $telefone, array $estado, string $texto): void {
+    // Reentrância: um 2º "2" (message.id diferente, o dedup da Etapa 1 não
+    // pega) enquanto o POST do GLPI ainda está em voo (até ~40s) abriria um
+    // 2º chamado. A flag vem persistida do estado, então a 2ª chamada do
+    // webhook a enxerga.
+    if (!empty($estado['criando'])) {
+        wpp_chatbot_enviar($telefone, 'Já estou processando sua solicitação, aguarde.');
+        return;
+    }
+
     switch ($texto) {
         case '1':
             $estado['passo'] = 'descricao';
             wpp_chatbot_estado_set($telefone, $estado);
-            evo_send_text($telefone, 'Pode mandar mais informações.');
+            wpp_chatbot_enviar($telefone, 'Pode mandar mais informações.');
             break;
         case '2':
             wpp_chatbot_finalizar($telefone, $estado);
             break;
         case '3':
+            // Envia ANTES de limpar: pra número só-vinculado, a permissão de
+            // saída do guardrail vem justamente da linha em
+            // portal_wpp_conversas — limpar antes engoliria a mensagem.
+            wpp_chatbot_enviar($telefone, 'Abertura cancelada. Se precisar, é só chamar de novo.');
             wpp_chatbot_estado_limpar($telefone);
-            evo_send_text($telefone, 'Abertura cancelada. Se precisar, é só chamar de novo.');
             break;
         default:
-            evo_send_text($telefone, 'Resposta inválida. Digite 1, 2 ou 3.');
+            wpp_chatbot_enviar($telefone, 'Resposta inválida. Digite 1, 2 ou 3.');
     }
 }
 
 function wpp_chatbot_finalizar(string $telefone, array $estado): void {
     global $pdo;
+
+    // Estado corrompido/incompleto (ex: linha mexida na mão): não dá pra
+    // criar chamado nenhum — encerra limpo em vez de estourar.
+    if (!is_array($estado['vinculo'] ?? null)) {
+        wpp_chatbot_enviar($telefone, 'Algo deu errado com sua sessão. Mande uma mensagem pra começar de novo.');
+        wpp_chatbot_estado_limpar($telefone);
+        return;
+    }
     $vinculo = $estado['vinculo'];
-    $r = bot_criar_chamado(
+
+    // Marca "criando" ANTES do POST (spec): o webhook reentrante vê a flag e
+    // não dispara um 2º chamado enquanto este ainda está em voo.
+    $estado['criando'] = true;
+    wpp_chatbot_estado_set($telefone, $estado);
+
+    $r = wpp_chatbot_criar_chamado(
         (int) $vinculo['glpi_user_id'],
         (int) $vinculo['entities_id'],
         (string) ($estado['titulo'] ?? ''),
         (string) ($estado['descricao'] ?? '')
     );
-    wpp_chatbot_estado_limpar($telefone);
 
     if (!empty($r['ok'])) {
         $st = $pdo->prepare(
             "INSERT IGNORE INTO portal_wpp_chamados (telefone, ticket_id, origem, criado_em) VALUES (?, ?, 'vinculado', NOW())"
         );
-        $st->execute([$telefone, $r['ticket_id']]);
-        evo_send_text($telefone, "✅ Chamado #{$r['ticket_id']} criado.");
+        $st->execute([wpp_norm_telefone($telefone), $r['ticket_id']]);
+        // Envia ANTES de limpar (ver comentário do case '3').
+        wpp_chatbot_enviar($telefone, "✅ Chamado #{$r['ticket_id']} criado.");
+        wpp_chatbot_estado_limpar($telefone);
     } else {
-        evo_send_text($telefone, 'Não consegui criar o chamado agora (sistema indisponível). Tente de novo em alguns minutos.');
+        // Falha do GLPI: MANTÉM a conversa (spec) pra o usuário não redigitar
+        // título/descrição — um "2" novo tenta de novo. Só zera o criando.
+        // A expiração fica por conta do sweep genérico de timeout.
+        $estado['criando'] = false;
+        $estado['passo']   = 'confirma_mais';
+        wpp_chatbot_estado_set($telefone, $estado);
+        wpp_chatbot_enviar($telefone, 'Não consegui criar o chamado agora (sistema indisponível). Seus dados foram guardados — responda "2" pra tentar de novo em alguns minutos.');
     }
 }
 
