@@ -70,6 +70,12 @@ if ($boot_ok) {
                             // task: JID com sufixo @s.whatsapp.net truncava a
                             // coluna e quebrava o casamento com
                             // wpp_destino_permitido(), que já compara normalizado).
+                            // Log de auditoria da entrada (mesmo papel do que a
+                            // Etapa 1 tinha): sem ele, "mandei mensagem e não
+                            // aconteceu nada" fica indiagnosticável no
+                            // portal_wpp_log. Destino = JID cru, igual aos logs
+                            // de bloqueio; texto truncado em 80 chars.
+                            wpp_log('in', $msg['remoteJid'], mb_substr((string) ($msg['texto'] ?? ''), 0, 80), 'ok');
                             wpp_chatbot_processar(wpp_norm_telefone($msg['remoteJid']), $msg);
                         }
                         // origem não permitida: wpp_origem_permitida() já logou o bloqueio

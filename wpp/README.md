@@ -590,9 +590,29 @@ VERIFICACAO FIM-A-FIM
 
 ROLLBACK
 --------------------------------------------------------------------
-Aba Gatilhos -> desliga "Chatbot de entrada". O webhook continua
-recebendo e logando (comportamento da Etapa 1), so para de processar
-qualquer fluxo.
+Aba Gatilhos -> desliga "Chatbot de entrada" (on_chatbot=0). A partir
+dai:
+  * O webhook continua respondendo 200 pra Evolution, mas NAO processa
+    mensagem nenhuma e NAO grava linha de entrada no portal_wpp_log -
+    o gate de on_chatbot envolve todo o tratamento de MESSAGES_UPSERT
+    (mesmo comportamento da Etapa 1: com o toggle desligado, nada no
+    log). Eventos de conexao (CONNECTION_UPDATE) seguem normais.
+  * Nenhuma conversa nova comeca e nenhuma mensagem de saida do
+    chatbot e enviada - inclusive o aviso "Tempo esgotado" do sweep do
+    worker fica desligado, entao ninguem recebe mensagem tardia depois
+    do rollback.
+  * O sweep do worker CONTINUA rodando a limpeza silenciosa: conversa
+    parada ha mais de 30 min e apagada de portal_wpp_conversas sem
+    avisar ninguem. Isso e de proposito - essa linha e tambem o que
+    autoriza o guardrail de saida a falar com um numero so-vinculado,
+    entao ela nao pode ficar pra tras.
+Conversa ja em andamento no momento do desligamento simplesmente para
+de responder e expira sozinha.
+
+Com on_chatbot LIGADO, toda mensagem aceita pelo guardrail de origem
+gera 1 linha 'in' no portal_wpp_log (texto truncado em 80 chars) antes
+de entrar na FSM - e por ai que se diagnostica "mandei mensagem e nao
+aconteceu nada".
 
 ====================================================================
  FIM - FASE 3 ETAPA 2

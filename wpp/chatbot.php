@@ -264,17 +264,27 @@ function wpp_chatbot_finalizar(string $telefone, array $estado): void {
 // número já esfriou de verdade, não faz sentido mandar aviso tardio).
 function wpp_chatbot_sweep_timeouts(): void {
     global $pdo;
-    $timeoutMin = (int) wpp_cfg_get('chatbot_timeout_min', '5');
+    // Clamp [1,29]: config degenerada (0, negativa ou lixo) viraria
+    // "INTERVAL 0 MINUTE" e derrubaria TODA conversa a cada passada, inclusive
+    // as que acabaram de começar. 29 é o teto porque 30 é o corte do delete
+    // silencioso logo abaixo — a janela de avisar-e-apagar tem que ficar
+    // estritamente antes dele.
+    $timeoutMin = max(1, min(29, (int) wpp_cfg_get('chatbot_timeout_min', '5')));
+    // O aviso é uma feature do chatbot: com on_chatbot desligado (rollback)
+    // ninguém pode mais receber mensagem nossa. A limpeza continua rodando.
+    $avisar = wpp_cfg_get('on_chatbot', '0') === '1';
 
     $pdo->exec("DELETE FROM portal_wpp_conversas WHERE updated_at < NOW() - INTERVAL 30 MINUTE");
 
     $st = $pdo->prepare("SELECT telefone FROM portal_wpp_conversas WHERE updated_at < NOW() - INTERVAL ? MINUTE");
     $st->execute([$timeoutMin]);
     foreach ($st->fetchAll(PDO::FETCH_COLUMN) as $telefone) {
-        try {
-            evo_send_text($telefone, '⏳ Tempo esgotado. A conversa foi encerrada — mande uma mensagem pra começar de novo.');
-        } catch (\Throwable $e) {
-            // segue mesmo se o envio falhar - a conversa tem que expirar de qualquer jeito
+        if ($avisar) {
+            try {
+                wpp_chatbot_enviar($telefone, '⏳ Tempo esgotado. A conversa foi encerrada — mande uma mensagem pra começar de novo.');
+            } catch (\Throwable $e) {
+                // segue mesmo se o envio falhar - a conversa tem que expirar de qualquer jeito
+            }
         }
         wpp_chatbot_estado_limpar($telefone);
     }
