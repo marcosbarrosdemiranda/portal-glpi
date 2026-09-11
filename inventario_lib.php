@@ -415,13 +415,32 @@ function inv_ativos_do_card(PDO $pdo, array $card, array $subcats, string $view 
 
 /* ───────────────────────────── Computadores (PCs / PDVs / VMs) ───────────────────────────── */
 
-const INV_PC_CATS = [
-    'pcs-retaguarda'    => 'PC Retaguarda',
-    'notebooks'         => 'Notebook',
-    'pdvs'              => 'PDV',
-    'maquinas-virtuais' => 'Servidor / VM',
-    '__ignorado__'      => 'Ignorado (não é PC)',
-];
+// Categorias fixas (sempre existem) + qualquer card fonte=computer cadastrado
+// no admin (inventario_admin.php) — ex: "TVs". Antes era um array fixo
+// (INV_PC_CATS) que ignorava card novo cadastrado pelo admin; agora lê
+// portal_inv_cards, então uma categoria criada no admin aparece direto no
+// dropdown de categorização, sem precisar tocar código.
+function inv_pc_cats(): array {
+    static $cats = null;
+    if ($cats !== null) return $cats;
+    global $pdo;
+    $cats = [
+        'pcs-retaguarda'    => 'PC Retaguarda',
+        'notebooks'         => 'Notebook',
+        'pdvs'              => 'PDV',
+        'maquinas-virtuais' => 'Servidor / VM',
+    ];
+    try {
+        $st = $pdo->query("SELECT slug, titulo FROM portal_inv_cards WHERE fonte = 'computer' AND ativo = 1 ORDER BY ordem, titulo");
+        foreach ($st->fetchAll(PDO::FETCH_ASSOC) as $r) {
+            $cats[$r['slug']] = $r['titulo'];
+        }
+    } catch (\Throwable $e) {
+        // mantém só as 4 padrão se a tabela falhar por algum motivo
+    }
+    $cats['__ignorado__'] = 'Ignorado (não é PC)';
+    return $cats;
+}
 
 /** Palpite de categoria só para a classificação inicial. Depois é manual. */
 function inv_pc_regra(string $nome, ?string $tipoGlpi): string {
@@ -445,7 +464,7 @@ function inv_pc_categoria(PDO $pdo, int $computerId): string {
 }
 
 function inv_pc_set_categoria(PDO $pdo, int $computerId, string $slug, string $por): void {
-    if (!array_key_exists($slug, INV_PC_CATS)) $slug = 'pcs-retaguarda';
+    if (!array_key_exists($slug, inv_pc_cats())) $slug = 'pcs-retaguarda';
     $pdo->prepare("INSERT INTO portal_inv_pc_cat (computer_id, categoria, atualizado_por) VALUES (?,?,?)
                    ON DUPLICATE KEY UPDATE categoria = VALUES(categoria), atualizado_por = VALUES(atualizado_por)")
         ->execute([$computerId, $slug, $por]);
