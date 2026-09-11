@@ -20,6 +20,21 @@ Entrada + resposta é superfície de risco nova. O princípio das Fases 1–2 co
 3. Reduzir atrito pra quem o TI já conhece: número vinculado a um usuário GLPI pula direto pro título.
 4. Barrar abuso: número desconhecido abre, mas o chamado só entra no GLPI depois de um técnico aprovar.
 
+## Coexistência com outras apps na Evolution API
+
+Duas outras aplicações vão usar a mesma Evolution API self-hosted: o
+**Reconhecimento-facial** (standalone Python) e o **checklist-gmais**
+(containers `checklist-gmais-*` já no servidor). Webhook na Evolution é
+**1 URL por instância** — se duas apps registrassem webhook na mesma
+instância, a última a chamar `/webhook/set` apagaria a da outra,
+silenciosamente. Decisão (2026-09-10): **cada app pareia seu próprio
+número/instância** — separado por ora, unificação é trabalho futuro (ver
+memória `project_integrar_reconhecimento_facial`). `portal_ti` é exclusiva
+do portal-glpi; `evo_set_webhook()` e todo o cliente REST
+(`wpp/evo_api.php`) já são escopados só por `EVO_INSTANCE` ('portal_ti'),
+então nenhuma mudança de código foi necessária — só confirmar que as
+outras duas apps não reusam esse nome de instância.
+
 ## Decisões travadas (do brainstorming 2026-09-10)
 
 | # | Tema | Decisão |
