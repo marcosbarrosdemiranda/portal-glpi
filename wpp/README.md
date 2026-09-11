@@ -406,3 +406,82 @@ Usa-se quando ha bug no worker, ou para testar a baseline do zero.
 ====================================================================
  FIM - FASE 2
 ====================================================================
+
+
+====================================================================
+ FASE 3 - ETAPA 1 - INFRA DE ENTRADA (WEBHOOK)
+====================================================================
+
+O QUE FAZ
+--------------------------------------------------------------------
+  * wpp/webhook.php recebe eventos da Evolution (MESSAGES_UPSERT,
+    CONNECTION_UPDATE). Nesta etapa NAO tem chatbot: so confirma que
+    a mensagem passou pelo guardrail de origem e loga. Nada responde
+    ainda - isso e Etapa 2.
+  * Toggle "Chatbot de entrada" na aba Gatilhos (on_chatbot) - precisa
+    estar LIGADO pro webhook processar qualquer coisa.
+  * Botao "Ativar/desativar" na aba Conexao registra/remove o webhook
+    na Evolution (evo_set_webhook).
+
+ARQUIVOS A SINCRONIZAR
+----
+  - wpp/db.php
+  - wpp/guardrails.php
+  - wpp/webhook_parse.php (novo)
+  - wpp/webhook.php (novo)
+  - wpp/evo_api.php
+  - wpp/config.example.php
+  - config_whatsapp.php
+  - wpp/tests/ (pasta inteira, arquivos novos)
+
+PRE-REQUISITO
+--------------------------------------------------------------------
+[ ] wpp/config.php do servidor tem WPP_WEBHOOK_URL definida (copie de
+    config.example.php; ajuste o path se a montagem do portal dentro
+    do container evolution-api/glpi-web for diferente de
+    "http://glpi-web/glpi2/portal-glpi/wpp/webhook.php").
+
+DEPLOY
+--------------------------------------------------------------------
+[ ] 1. scp dos arquivos listados acima pro servidor.
+[ ] 2. Testes: docker exec glpi-web php /var/www/html/glpi2/portal-glpi/wpp/tests/run.php
+       Espera-se "0 falhas".
+[ ] 3. Aba Gatilhos -> ligar "Chatbot de entrada" -> Salvar.
+[ ] 4. Aba Conexao -> "Ativar/desativar" -> confirma "ativo".
+
+VERIFICACAO FIM-A-FIM
+--------------------------------------------------------------------
+[ ] 1. De um numero QUALQUER (nao precisa estar cadastrado em nada),
+       manda uma mensagem privada pra linha do TI: "oi".
+[ ] 2. Confere o log:
+         docker exec glpi-db mariadb -uroot -proot_password glpi2 \
+           -e "SELECT criado_em,direcao,destino,resumo,status FROM portal_wpp_log ORDER BY id DESC LIMIT 5;"
+       Espera: 1 linha direcao='in', status='ok', resumo contendo
+       "recebido (chatbot ainda nao implementado)".
+[ ] 3. CONFIRME QUE O PAYLOAD BATEU COM O ESPERADO: se a linha do
+       passo 2 NAO aparecer (nada foi logado), o parser
+       (wpp_extrair_msg) provavelmente nao reconheceu o formato real
+       do payload da Evolution. Adicione um log temporario em
+       wpp/webhook.php logo apos "$payload = json_decode(...)":
+         wpp_log('sys', 'webhook-debug', substr($raw, 0, 500), 'raw');
+       Rode o teste de novo, veja o payload real em portal_wpp_log, e
+       ajuste wpp_extrair_msg() (wpp/webhook_parse.php) pra bater com
+       o formato encontrado. Remova o log de debug depois.
+[ ] 4. Repete o passo 1 de dentro de um GRUPO (ex: TI - Chamados) ->
+       NAO deve aparecer nenhuma linha nova em portal_wpp_log (grupo
+       e sempre ignorado, nem loga bloqueio de proposito - ruido
+       esperado).
+[ ] 5. Manda a MESMA mensagem 2x rapido (reentrega) -> so 1 linha no
+       log (dedup por message.id).
+[ ] 6. Aba Gatilhos -> desligar "Chatbot de entrada" -> Salvar. Manda
+       "oi" de novo -> NADA no log (on_chatbot=0 corta tudo).
+
+ROLLBACK
+--------------------------------------------------------------------
+Aba Gatilhos -> desligar "Chatbot de entrada" (para o processamento
+na hora, sem precisar reverter arquivo). Pra tirar o webhook da
+Evolution: aba Conexao -> "Ativar/desativar" ate mostrar "desativado".
+
+====================================================================
+ FIM - FASE 3 ETAPA 1
+====================================================================
