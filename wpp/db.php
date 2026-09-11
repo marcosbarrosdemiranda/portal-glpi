@@ -119,3 +119,32 @@ function wpp_marcar_notificado(string $tipo, string $ref_id, string $hash = ''):
     );
     $st->execute([$tipo, $ref_id, $hash]);
 }
+
+// --- Fase 3: dedup de mensagens recebidas via webhook ---
+
+$pdo->exec("CREATE TABLE IF NOT EXISTS portal_wpp_msgs_vistas (
+    message_id VARCHAR(128) PRIMARY KEY,
+    visto_em DATETIME NOT NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
+
+// True se esse message.id da Evolution já foi processado (webhook reentregue).
+function wpp_msg_ja_vista(string $message_id): bool {
+    global $pdo;
+    $st = $pdo->prepare("SELECT 1 FROM portal_wpp_msgs_vistas WHERE message_id = ? LIMIT 1");
+    $st->execute([$message_id]);
+    return (bool) $st->fetchColumn();
+}
+
+// Marca o message_id como visto. INSERT IGNORE — chamar 2x não quebra.
+// Poda oportunista (1 em 20 chamadas): apaga vistos com mais de 7 dias, sem
+// precisar de cron dedicado pra uma tabela que só cresce.
+function wpp_marcar_msg_vista(string $message_id): void {
+    global $pdo;
+    $st = $pdo->prepare(
+        "INSERT IGNORE INTO portal_wpp_msgs_vistas (message_id, visto_em) VALUES (?, NOW())"
+    );
+    $st->execute([$message_id]);
+    if (mt_rand(1, 20) === 1) {
+        $pdo->exec("DELETE FROM portal_wpp_msgs_vistas WHERE visto_em < NOW() - INTERVAL 7 DAY");
+    }
+}
