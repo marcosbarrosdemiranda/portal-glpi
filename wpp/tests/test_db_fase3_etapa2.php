@@ -3,7 +3,7 @@
 require_once __DIR__ . '/../db.php';
 global $pdo;
 
-$tel = 'TESTE_ETAPA2_' . bin2hex(random_bytes(4));
+$tel = 'T2_' . bin2hex(random_bytes(4));
 
 try {
     // portal_wpp_conversas: round-trip básico
