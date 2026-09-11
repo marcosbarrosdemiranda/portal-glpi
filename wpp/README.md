@@ -361,6 +361,9 @@ VERIFICACAO FINAL (CHECKLIST)
       docker exec glpi-db mariadb -uroot -pevolution_pw evolution \
         -e "SELECT COUNT(*) FROM webhooks WHERE enabled = 1;"
       Deve retornar 0 (nenhum webhook ativo).
+      (DESATUALIZADO: a Fase 2 esperava 0 aqui. A partir da FASE 3 -
+      ETAPA 1 espera-se 1 - o webhook do portal-glpi. Veja a secao
+      "FASE 3 - ETAPA 1" abaixo.)
 [ ] Testes verdes ("0 falhas").
 [ ] Nenhuma mensagem nao autorizada nos grupos durante o deploy.
 
@@ -440,6 +443,24 @@ PRE-REQUISITO
     config.example.php; ajuste o path se a montagem do portal dentro
     do container evolution-api/glpi-web for diferente de
     "http://glpi-web/glpi2/portal-glpi/wpp/webhook.php").
+[ ] wpp/config.php do servidor tem WPP_WEBHOOK_SECRET com um valor
+    aleatorio (openssl rand -hex 24). O webhook e um endpoint publico:
+    esse segredo vai como header "X-Wpp-Secret" no registro feito na
+    Evolution, ela reenvia em todo delivery e o webhook.php so processa
+    o que bater. Sem a constante definida a checagem e PULADA (pra nao
+    derrubar trafego de um servidor com config antigo) - ou seja,
+    enquanto ela nao existir o endpoint segue aceitando POST anonimo.
+    Se trocar o valor depois, reregistre o webhook (aba Conexao ->
+    "Ativar/desativar" duas vezes), senao a Evolution continua mandando
+    o segredo antigo e tudo passa a ser descartado em silencio.
+[ ] Confirme que nenhuma outra app registrou webhook na instancia
+    portal_ti (Reconhecimento-facial e checklist-gmais devem ter
+    instancia/numero proprios, nunca portal_ti):
+      docker exec evolution-db mariadb -uroot -pevolution_pw evolution \
+        -e "SELECT instanceId, url, enabled FROM webhooks;"
+    Deve haver NO MAXIMO 1 linha (a do portal-glpi), com a URL do
+    portal-glpi. Se houver outra, pare e alinhe com quem mantem a outra
+    app antes de continuar.
 
 DEPLOY
 --------------------------------------------------------------------
@@ -448,6 +469,17 @@ DEPLOY
        Espera-se "0 falhas".
 [ ] 3. Aba Gatilhos -> ligar "Chatbot de entrada" -> Salvar.
 [ ] 4. Aba Conexao -> "Ativar/desativar" -> confirma "ativo".
+
+Nao ha migration manual: a tabela nova portal_wpp_msgs_vistas (dedup de
+message.id) e criada sozinha por CREATE TABLE IF NOT EXISTS na primeira
+vez que wpp/db.php e incluido - mesmo padrao de todas as outras tabelas
+portal_wpp_*.
+
+Sem wpp/config.php no servidor, o webhook.php responde 200 mas nao
+processa nada (boot falha de proposito, registro no error_log do PHP:
+"wpp/webhook: boot falhou"). O mesmo vale se o glpi-db estiver fora do
+ar: sempre 200, nunca 500 - se devolvesse 500 a Evolution entraria em
+loop de reentrega.
 
 VERIFICACAO FIM-A-FIM
 --------------------------------------------------------------------

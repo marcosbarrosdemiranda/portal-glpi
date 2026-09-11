@@ -121,7 +121,7 @@ Extensão do guardrail de **saída** (`wpp_destino_permitido`, já existe): pass
 ### `evo_set_webhook()` — registra/remove o webhook na Evolution
 
 Chamada pelo botão "Ativar/desativar chatbot" na aba Conexão, e/ou quando `on_chatbot` vira 1.
-`POST /webhook/set/{inst}` com `url`, `webhook_by_events: false`, `events: ["MESSAGES_UPSERT","CONNECTION_UPDATE"]`. Desativar → `enabled: false`.
+`POST /webhook/set/{inst}` com `url`, `webhookByEvents: false` (nome do campo na Evolution API v2 — camelCase, não `webhook_by_events`), `headers: {"X-Wpp-Secret": WPP_WEBHOOK_SECRET}` (segredo compartilhado que a Evolution reenvia em todo delivery e o `webhook.php` confere), `events: ["MESSAGES_UPSERT","CONNECTION_UPDATE"]`. Desativar → `enabled: false`.
 
 ## Tabelas novas
 
