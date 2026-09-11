@@ -333,7 +333,11 @@ Expected: `Failed opening required '.../wpp/chatbot.php'` (arquivo ainda não ex
 // Sem HTML, funções isoladas, nunca lançam (o corpo de wpp_chatbot_processar
 // tem seu próprio try/catch — ver Task 5).
 require_once __DIR__ . '/db.php';
-require_once __DIR__ . '/guardrails.php'; // evo_send_text() (via evo_api.php) usa isto
+require_once __DIR__ . '/guardrails.php';
+// Propositalmente NÃO faz require de evo_api.php/glpi_bot.php aqui: quem
+// chama este arquivo (wpp/webhook.php em produção, Task 6) é responsável
+// por isso. Assim os testes deste arquivo (Tasks 3, 5, 7) podem substituir
+// evo_send_text()/bot_criar_chamado() por fakes sem "Cannot redeclare".
 
 // --- Estado da conversa (portal_wpp_conversas) ---
 
@@ -566,8 +570,10 @@ Criar `wpp/tests/test_chatbot_fsm.php`:
 // Usa o mesmo fake de envio que test_gatilhos.php usa (ver aquele arquivo
 // pra referência do padrão), pra não precisar da Evolution real nem do
 // GLPI real: também substitui bot_criar_chamado por um fake local.
+// NÃO faz require de glpi_bot.php (chatbot.php também não faz, de
+// propósito — ver comentário no topo de wpp/chatbot.php) — se fizesse, a
+// função fake abaixo colidiria com a de verdade ("Cannot redeclare").
 require_once __DIR__ . '/../chatbot.php';
-require_once __DIR__ . '/../glpi_bot.php';
 global $pdo;
 
 $tel = 'TESTE_FSM_' . bin2hex(random_bytes(4));
@@ -808,14 +814,16 @@ git commit -m "feat: FSM do chatbot - fluxo A completo (numero vinculado)"
 ## Task 6: Ligar o chatbot no `wpp/webhook.php`
 
 **Files:**
-- Modify: `wpp/webhook.php` (1 require + 1 linha trocada)
+- Modify: `wpp/webhook.php` (3 requires + 1 linha trocada)
 
 **Interfaces:**
-- Consumes: `wpp_chatbot_processar()` (Task 5).
+- Consumes: `wpp_chatbot_processar()` (Task 5), `evo_send_text()` (já existe, `wpp/evo_api.php`), `bot_criar_chamado()` (Task 4).
 
-Sem teste novo — é 1 `require_once` + trocar uma chamada por outra num arquivo já testado via smoke HTTP na Etapa 1. Verificação é o smoke test do Step 3 abaixo.
+Sem teste novo — é `require_once` + trocar uma chamada por outra num arquivo já testado via smoke HTTP na Etapa 1. Verificação é o smoke test do Step 3 abaixo.
 
-- [ ] **Step 1: Adicionar o require**
+- [ ] **Step 1: Adicionar os requires**
+
+`wpp/chatbot.php` **de propósito** não carrega `evo_api.php`/`glpi_bot.php` sozinho (ver comentário no topo dele, Task 3) — quem chama é responsável por isso. Em produção, quem chama é `wpp/webhook.php`. Sem este passo, `evo_send_text()`/`bot_criar_chamado()` ficam indefinidas e toda mensagem recebida vira um erro silencioso (capturado pelo try/catch de `wpp_chatbot_processar`, mas nenhum chamado é criado nem nenhuma resposta é mandada).
 
 Em `wpp/webhook.php`, junto dos outros `require_once` dentro do bloco de boot (`try` do topo, Etapa 1):
 
@@ -824,10 +832,12 @@ Em `wpp/webhook.php`, junto dos outros `require_once` dentro do bloco de boot (`
     require_once __DIR__ . '/db.php';
     require_once __DIR__ . '/guardrails.php';
     require_once __DIR__ . '/webhook_parse.php';
+    require_once __DIR__ . '/evo_api.php';
+    require_once __DIR__ . '/glpi_bot.php';
     require_once __DIR__ . '/chatbot.php';
 ```
 
-(acrescenta só a última linha)
+(acrescenta as 3 últimas linhas — `evo_api.php`, `glpi_bot.php`, `chatbot.php`, nessa ordem, já que `chatbot.php` usa funções dos outros dois)
 
 - [ ] **Step 2: Trocar a linha do stub**
 
