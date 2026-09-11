@@ -79,3 +79,120 @@ function wpp_chatbot_resolve_vinculo(string $telefone): ?array {
 
     return null; // nenhum match ou ambíguo (2+)
 }
+
+// --- FSM: ponto de entrada chamado pelo webhook.php ---
+
+// Nunca lança — qualquer erro interno é logado e a conversa é preservada
+// como estava (não trava, não perde o que já foi digitado).
+function wpp_chatbot_processar(string $telefone, array $msg): void {
+    try {
+        $texto  = trim((string) ($msg['texto'] ?? ''));
+        $estado = wpp_chatbot_estado_get($telefone);
+
+        if ($estado === null) {
+            wpp_chatbot_iniciar($telefone, $msg);
+            return;
+        }
+
+        switch ($estado['passo'] ?? '') {
+            case 'titulo':
+                wpp_chatbot_passo_titulo($telefone, $estado, $texto);
+                break;
+            case 'descricao':
+                wpp_chatbot_passo_descricao($telefone, $estado, $texto, $msg);
+                break;
+            case 'confirma_mais':
+                wpp_chatbot_passo_confirma_mais($telefone, $estado, $texto);
+                break;
+            default:
+                // estado desconhecido/corrompido: reinicia do zero
+                wpp_chatbot_estado_limpar($telefone);
+                wpp_chatbot_iniciar($telefone, $msg);
+        }
+    } catch (\Throwable $e) {
+        wpp_log('sys', $telefone, 'chatbot erro: ' . $e->getMessage(), 'erro');
+    }
+}
+
+// Primeira mensagem de uma conversa (sem estado salvo ainda).
+function wpp_chatbot_iniciar(string $telefone, array $msg): void {
+    $vinculo = wpp_chatbot_resolve_vinculo($telefone);
+    if ($vinculo === null) {
+        // Sem próximo passo: abre e fecha a conversa na mesma chamada, só pra
+        // o guardrail de saída liberar esta ÚNICA resposta (número que
+        // acabou de falar tem direito a 1 desfecho, mesmo sem vínculo).
+        wpp_chatbot_estado_set($telefone, ['passo' => 'indisponivel']);
+        evo_send_text($telefone, 'Ainda não consigo identificar seu número para abrir chamado por aqui. Peça pro TI te cadastrar, ou abra pelo portal.');
+        wpp_chatbot_estado_limpar($telefone);
+        return;
+    }
+    wpp_chatbot_estado_set($telefone, ['passo' => 'titulo', 'vinculo' => $vinculo, 'descricao' => '']);
+    evo_send_text($telefone, "Abrir chamado para {$vinculo['nome']}. Qual o título?");
+}
+
+function wpp_chatbot_passo_titulo(string $telefone, array $estado, string $texto): void {
+    if ($texto === '') {
+        evo_send_text($telefone, 'O título não pode ficar vazio. Qual o título?');
+        return;
+    }
+    $estado['passo']  = 'descricao';
+    $estado['titulo'] = $texto;
+    wpp_chatbot_estado_set($telefone, $estado);
+    evo_send_text($telefone, 'Obrigado! Agora descreva o problema.');
+}
+
+function wpp_chatbot_passo_descricao(string $telefone, array $estado, string $texto, array $msg): void {
+    if ($texto === '') {
+        if (!empty($msg['temMidia'])) {
+            evo_send_text($telefone, 'Ainda não consigo processar imagem por aqui — descreva o problema em texto, por favor.');
+        } else {
+            evo_send_text($telefone, 'Descreva o problema, por favor.');
+        }
+        return;
+    }
+    $estado['descricao'] = trim(($estado['descricao'] ?? '') . "\n" . $texto);
+    $estado['passo']     = 'confirma_mais';
+    wpp_chatbot_estado_set($telefone, $estado);
+    evo_send_text($telefone, "Adicionar mais alguma coisa à descrição?\n1 - Sim\n2 - Não, finalizar\n3 - Cancelar");
+}
+
+function wpp_chatbot_passo_confirma_mais(string $telefone, array $estado, string $texto): void {
+    switch ($texto) {
+        case '1':
+            $estado['passo'] = 'descricao';
+            wpp_chatbot_estado_set($telefone, $estado);
+            evo_send_text($telefone, 'Pode mandar mais informações.');
+            break;
+        case '2':
+            wpp_chatbot_finalizar($telefone, $estado);
+            break;
+        case '3':
+            wpp_chatbot_estado_limpar($telefone);
+            evo_send_text($telefone, 'Abertura cancelada. Se precisar, é só chamar de novo.');
+            break;
+        default:
+            evo_send_text($telefone, 'Resposta inválida. Digite 1, 2 ou 3.');
+    }
+}
+
+function wpp_chatbot_finalizar(string $telefone, array $estado): void {
+    global $pdo;
+    $vinculo = $estado['vinculo'];
+    $r = bot_criar_chamado(
+        (int) $vinculo['glpi_user_id'],
+        (int) $vinculo['entities_id'],
+        (string) ($estado['titulo'] ?? ''),
+        (string) ($estado['descricao'] ?? '')
+    );
+    wpp_chatbot_estado_limpar($telefone);
+
+    if (!empty($r['ok'])) {
+        $st = $pdo->prepare(
+            "INSERT IGNORE INTO portal_wpp_chamados (telefone, ticket_id, origem, criado_em) VALUES (?, ?, 'vinculado', NOW())"
+        );
+        $st->execute([$telefone, $r['ticket_id']]);
+        evo_send_text($telefone, "✅ Chamado #{$r['ticket_id']} criado.");
+    } else {
+        evo_send_text($telefone, 'Não consegui criar o chamado agora (sistema indisponível). Tente de novo em alguns minutos.');
+    }
+}
