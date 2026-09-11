@@ -6,13 +6,36 @@ require_once __DIR__ . '/db.php';
 require_once __DIR__ . '/guardrails.php';
 // Propositalmente NÃO faz require de evo_api.php/glpi_bot.php aqui: quem
 // chama este arquivo (wpp/webhook.php em produção, Task 6) é responsável
-// por isso. Assim os testes deste arquivo (Tasks 3, 5, 7) podem substituir
-// evo_send_text()/bot_criar_chamado() por fakes sem "Cannot redeclare".
+// por isso.
+
+// --- Indireção pra permitir fake em teste sem redeclarar função global ---
+
+// Todo envio/criação de chamado deste arquivo passa por estas duas funções.
+// Assim os testes podem instalar um fake em $GLOBALS em vez de redeclarar
+// evo_send_text()/bot_criar_chamado() no escopo global — o que dava
+// "Cannot redeclare" quando wpp/tests/run.php carrega TODOS os test_*.php
+// num só processo PHP (alguns requerem o arquivo de verdade, outros querem
+// fakear).
+function wpp_chatbot_enviar(string $telefone, string $texto): array {
+    $fake = $GLOBALS['__wpp_chatbot_enviar_fake'] ?? null;
+    return is_callable($fake) ? $fake($telefone, $texto) : evo_send_text($telefone, $texto);
+}
+
+function wpp_chatbot_criar_chamado(int $requerente_id, int $entities_id, string $titulo, string $descricao): array {
+    $fake = $GLOBALS['__wpp_chatbot_criar_chamado_fake'] ?? null;
+    return is_callable($fake)
+        ? $fake($requerente_id, $entities_id, $titulo, $descricao)
+        : bot_criar_chamado($requerente_id, $entities_id, $titulo, $descricao);
+}
 
 // --- Estado da conversa (portal_wpp_conversas) ---
 
+// A coluna telefone guarda SEMPRE só dígitos. Normalizar aqui dentro (e não
+// só no call site do webhook.php) mantém o invariante válido pra qualquer
+// chamador futuro — normalizar dígitos puros de novo é no-op.
 function wpp_chatbot_estado_get(string $telefone): ?array {
     global $pdo;
+    $telefone = wpp_norm_telefone($telefone);
     $st = $pdo->prepare("SELECT estado FROM portal_wpp_conversas WHERE telefone = ?");
     $st->execute([$telefone]);
     $v = $st->fetchColumn();
@@ -25,6 +48,7 @@ function wpp_chatbot_estado_get(string $telefone): ?array {
 
 function wpp_chatbot_estado_set(string $telefone, array $estado): void {
     global $pdo;
+    $telefone = wpp_norm_telefone($telefone);
     $st = $pdo->prepare(
         "INSERT INTO portal_wpp_conversas (telefone, estado, updated_at) VALUES (?, ?, NOW())
          ON DUPLICATE KEY UPDATE estado = VALUES(estado), updated_at = NOW()"
@@ -34,6 +58,7 @@ function wpp_chatbot_estado_set(string $telefone, array $estado): void {
 
 function wpp_chatbot_estado_limpar(string $telefone): void {
     global $pdo;
+    $telefone = wpp_norm_telefone($telefone);
     $st = $pdo->prepare("DELETE FROM portal_wpp_conversas WHERE telefone = ?");
     $st->execute([$telefone]);
 }
