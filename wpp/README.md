@@ -467,10 +467,15 @@ VERIFICACAO FIM-A-FIM
        Rode o teste de novo, veja o payload real em portal_wpp_log, e
        ajuste wpp_extrair_msg() (wpp/webhook_parse.php) pra bater com
        o formato encontrado. Remova o log de debug depois.
-[ ] 4. Repete o passo 1 de dentro de um GRUPO (ex: TI - Chamados) ->
-       NAO deve aparecer nenhuma linha nova em portal_wpp_log (grupo
-       e sempre ignorado, nem loga bloqueio de proposito - ruido
-       esperado).
+[ ] 4. Repete o passo 1 de dentro de um GRUPO (ex: TI - Chamados),
+       mandando de um APARELHO DE VERDADE -> deve aparecer EXATAMENTE
+       1 linha nova com status 'bloqueado' (grupo e sempre bloqueado;
+       essa linha e o guardrail funcionando, nao um bug).
+       Ja o que o PROPRIO portal posta nos grupos (mensagens do worker)
+       volta pela Evolution como fromMe=true e NAO pode gerar linha
+       nenhuma no log - fromMe e sempre silencioso. Mensagem de status
+       de contato (status@broadcast) tambem nao loga (ruido de alto
+       volume).
 [ ] 5. Manda a MESMA mensagem 2x rapido (reentrega) -> so 1 linha no
        log (dedup por message.id).
 [ ] 6. Aba Gatilhos -> desligar "Chatbot de entrada" -> Salvar. Manda

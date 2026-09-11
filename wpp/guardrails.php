@@ -99,16 +99,25 @@ function wpp_origem_permitida(array $msg): bool {
     try {
         $jid = (string) ($msg['remoteJid'] ?? '');
 
+        // 1º de tudo: mensagem do próprio bot ecoada de volta — não loga, é
+        // ruído normal. Vem ANTES da checagem de privado de propósito: tudo
+        // que o worker posta nos 2 grupos volta como fromMe=true + @g.us, e
+        // isso não é tentativa de acesso, é o nosso próprio eco.
+        if (!empty($msg['fromMe'])) {
+            return false;
+        }
+
         // só chat privado — @g.us (grupo), @broadcast e qualquer outro sufixo
         // (ex. @newsletter, @lid) ficam de fora por não estarem na allowlist abaixo
         $privado = str_ends_with($jid, '@s.whatsapp.net') || str_ends_with($jid, '@c.us');
         if (!$privado) {
+            // @broadcast (status@broadcast de qualquer contato da agenda) é
+            // ruído de altíssimo volume, não evento de segurança: bloqueia em
+            // silêncio pra não inundar o log de auditoria.
+            if (str_ends_with($jid, '@broadcast')) {
+                return false;
+            }
             wpp_log('in', $jid, 'origem nao privada (grupo/broadcast/outro)', 'bloqueado');
-            return false;
-        }
-
-        if (!empty($msg['fromMe'])) {
-            // mensagem do próprio bot ecoada de volta — não loga, é ruído normal
             return false;
         }
 
