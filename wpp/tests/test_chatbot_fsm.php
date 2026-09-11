@@ -1,11 +1,10 @@
 <?php
 // Testes da FSM do chatbot (Fluxo A - vinculado). Roda com `php wpp/tests/run.php`.
-// Usa o mesmo fake de envio que test_gatilhos.php usa (ver aquele arquivo
-// pra referência do padrão), pra não precisar da Evolution real nem do
-// GLPI real: também substitui bot_criar_chamado por um fake local.
-// NÃO faz require de glpi_bot.php (chatbot.php também não faz, de
-// propósito — ver comentário no topo de wpp/chatbot.php) — se fizesse, a
-// função fake abaixo colidiria com a de verdade ("Cannot redeclare").
+// Os fakes são instalados em $GLOBALS (seam wpp_chatbot_enviar/
+// wpp_chatbot_criar_chamado de wpp/chatbot.php), NUNCA redeclarando
+// evo_send_text()/bot_criar_chamado() no escopo global: run.php carrega
+// todos os test_*.php num único processo PHP e outros arquivos requerem as
+// funções de verdade — redeclarar dava fatal "Cannot redeclare".
 require_once __DIR__ . '/../chatbot.php';
 global $pdo;
 
@@ -18,15 +17,25 @@ $tel = (string) random_int(2000000, 2999999);
 
 // --- fakes: nunca tocam rede ---
 $GLOBALS['__wpp_fake_send'] = [];
-function evo_send_text(string $destino, string $texto): array {
-    $GLOBALS['__wpp_fake_send'][] = ['destino' => $destino, 'texto' => $texto];
+$GLOBALS['__wpp_chatbot_enviar_fake'] = function (string $destino, string $texto): array {
+    // No MOMENTO do envio a conversa ainda precisa existir: pra número
+    // só-vinculado (todo o público do Fluxo A) a permissão do guardrail de
+    // saída vem justamente da linha em portal_wpp_conversas. Se o código
+    // limpar o estado antes de mandar, em produção a mensagem é engolida.
+    global $pdo;
+    $aindaExiste = (bool) $pdo->query(
+        "SELECT 1 FROM portal_wpp_conversas WHERE telefone = " . $pdo->quote($destino)
+    )->fetchColumn();
+    $GLOBALS['__wpp_fake_send'][] = ['destino' => $destino, 'texto' => $texto, 'conversa_existia' => $aindaExiste];
     return ['ok' => true];
-}
+};
 
 $GLOBALS['__fake_criar_chamado_resultado'] = ['ok' => true, 'ticket_id' => 4242, 'erro' => null];
-function bot_criar_chamado(int $requerente_id, int $entities_id, string $titulo, string $descricao): array {
+$GLOBALS['__fake_criar_chamado_chamadas']  = 0;
+$GLOBALS['__wpp_chatbot_criar_chamado_fake'] = function (int $requerente_id, int $entities_id, string $titulo, string $descricao): array {
+    $GLOBALS['__fake_criar_chamado_chamadas']++;
     return $GLOBALS['__fake_criar_chamado_resultado'];
-}
+};
 
 function _msg_fsm(string $texto, bool $temMidia = false): array {
     return ['id' => 'X', 'remoteJid' => $texto, 'fromMe' => false, 'timestamp' => time(), 'texto' => $texto, 'temMidia' => $temMidia];
@@ -71,8 +80,9 @@ try {
     $GLOBALS['__wpp_fake_send'] = [];
     wpp_chatbot_processar($tel, _msg_fsm('2'));
     t_ok(wpp_chatbot_estado_get($tel) === null, 'apos finalizar: conversa encerrada');
-    $ultimaMsg = end($GLOBALS['__wpp_fake_send'])['texto'];
-    t_ok(strpos($ultimaMsg, '4242') !== false, 'mensagem final cita o numero do chamado criado');
+    $ultimaEnvio = end($GLOBALS['__wpp_fake_send']);
+    t_ok(strpos($ultimaEnvio['texto'], '4242') !== false, 'mensagem final cita o numero do chamado criado');
+    t_ok($ultimaEnvio['conversa_existia'], 'a confirmacao foi mandada ANTES de limpar a conversa (senao o guardrail real bloquearia)');
 
     $n = (int) $pdo->query("SELECT COUNT(*) FROM portal_wpp_chamados WHERE telefone = " . $pdo->quote($tel) . " AND ticket_id = 4242")->fetchColumn();
     t_eq($n, 1, 'chamado gravado em portal_wpp_chamados com origem vinculado');
@@ -84,7 +94,9 @@ try {
     $GLOBALS['__wpp_fake_send'] = [];
     wpp_chatbot_processar($tel, _msg_fsm('3'));
     t_ok(wpp_chatbot_estado_get($tel) === null, 'cancelar (3): encerra sem criar chamado');
-    t_ok(strpos(end($GLOBALS['__wpp_fake_send'])['texto'], 'cancelad') !== false, 'mensagem confirma cancelamento');
+    $envioCancel = end($GLOBALS['__wpp_fake_send']);
+    t_ok(strpos($envioCancel['texto'], 'cancelad') !== false, 'mensagem confirma cancelamento');
+    t_ok($envioCancel['conversa_existia'], 'cancelamento tambem foi mandado ANTES de limpar a conversa');
 
     // --- opção inválida no confirma_mais ---
     wpp_chatbot_processar($tel, _msg_fsm('oi'));
@@ -104,8 +116,56 @@ try {
 
     // --- imagem sem texto no passo titulo: soma zero avanco (mesma msg de vazio) ---
     // (comportamento aceito: so a etapa "descricao" tem aviso especifico de midia)
+    wpp_chatbot_estado_limpar($tel);
+
+    // --- titulo gigante e cortado (glpi_tickets.name tem 255) ---
+    wpp_chatbot_processar($tel, _msg_fsm('oi'));
+    wpp_chatbot_processar($tel, _msg_fsm(str_repeat('a', 300)));
+    t_eq(mb_strlen(wpp_chatbot_estado_get($tel)['titulo']), 250, 'titulo gigante cortado em 250 chars');
+    wpp_chatbot_estado_limpar($tel);
+
+    // --- falha do GLPI: mantem o estado pro usuario nao redigitar ---
+    wpp_chatbot_processar($tel, _msg_fsm('oi'));
+    wpp_chatbot_processar($tel, _msg_fsm('Titulo da falha'));
+    wpp_chatbot_processar($tel, _msg_fsm('Descricao da falha'));
+    $GLOBALS['__fake_criar_chamado_resultado'] = ['ok' => false, 'ticket_id' => null, 'erro' => 'boom'];
+    $GLOBALS['__wpp_fake_send'] = [];
+    wpp_chatbot_processar($tel, _msg_fsm('2'));
+    $estadoFalha = wpp_chatbot_estado_get($tel);
+    t_ok($estadoFalha !== null, 'falha do GLPI: conversa NAO e destruida');
+    t_eq($estadoFalha['titulo'], 'Titulo da falha', 'falha: titulo preservado');
+    t_ok(strpos($estadoFalha['descricao'], 'Descricao da falha') !== false, 'falha: descricao preservada');
+    t_eq($estadoFalha['passo'], 'confirma_mais', 'falha: volta pro passo confirma_mais');
+    t_ok(empty($estadoFalha['criando']), 'falha: flag criando zerada (permite nova tentativa)');
+    $envioFalha = end($GLOBALS['__wpp_fake_send']);
+    t_ok(strpos($envioFalha['texto'], 'guardados') !== false, 'falha: avisa que os dados foram guardados');
+    t_ok($envioFalha['conversa_existia'], 'falha: mensagem mandada com a conversa ainda viva');
+
+    // retry: "2" de novo, agora com o GLPI de volta -> cria sem redigitar nada
+    $GLOBALS['__fake_criar_chamado_resultado'] = ['ok' => true, 'ticket_id' => 4343, 'erro' => null];
+    wpp_chatbot_processar($tel, _msg_fsm('2'));
+    t_ok(wpp_chatbot_estado_get($tel) === null, 'retry apos falha: conversa encerrada');
+    $n = (int) $pdo->query("SELECT COUNT(*) FROM portal_wpp_chamados WHERE telefone = " . $pdo->quote($tel) . " AND ticket_id = 4343")->fetchColumn();
+    t_eq($n, 1, 'retry apos falha: chamado criado sem redigitar');
+
+    // --- guarda de reentrancia: estado.criando bloqueia um 2o "2" ---
+    wpp_chatbot_processar($tel, _msg_fsm('oi'));
+    wpp_chatbot_processar($tel, _msg_fsm('Titulo reentrante'));
+    wpp_chatbot_processar($tel, _msg_fsm('Descricao reentrante'));
+    $estadoReentrante = wpp_chatbot_estado_get($tel);
+    $estadoReentrante['criando'] = true; // simula o 1o POST ainda em voo
+    wpp_chatbot_estado_set($tel, $estadoReentrante);
+    $chamadasAntes = $GLOBALS['__fake_criar_chamado_chamadas'];
+    $GLOBALS['__wpp_fake_send'] = [];
+    wpp_chatbot_processar($tel, _msg_fsm('2'));
+    t_eq($GLOBALS['__fake_criar_chamado_chamadas'], $chamadasAntes, 'criando=true: NAO abre um 2o chamado');
+    t_ok(strpos(end($GLOBALS['__wpp_fake_send'])['texto'], 'aguarde') !== false, 'criando=true: avisa pra aguardar');
+    wpp_chatbot_estado_limpar($tel);
 } finally {
     $pdo->exec("DELETE FROM glpi_users WHERE name = 'teste_fsm_vinculado'");
     $pdo->exec("DELETE FROM portal_wpp_conversas WHERE telefone LIKE " . $pdo->quote($tel . '%'));
     $pdo->exec("DELETE FROM portal_wpp_chamados WHERE telefone = " . $pdo->quote($tel));
+    // não deixa os fakes vazando pros outros test_*.php do mesmo processo
+    $GLOBALS['__wpp_chatbot_enviar_fake']        = null;
+    $GLOBALS['__wpp_chatbot_criar_chamado_fake'] = null;
 }
