@@ -16,6 +16,7 @@ require_once __DIR__ . '/db.php';
 require_once __DIR__ . '/evo_api.php';
 require_once __DIR__ . '/../alertas_lib.php';
 require_once __DIR__ . '/gatilhos.php';
+require_once __DIR__ . '/chatbot.php';
 
 // --- Constantes de operação (lidas de portal_wpp_config, com default) ---
 // Definidas como variáveis locais de propósito (não define()) pra facilitar
@@ -40,6 +41,14 @@ function wpp_worker_passada(): void
     if (($st['estado'] ?? '') !== 'open') {
         wpp_log('sys', '', 'instancia ' . ($st['estado'] ?? '?'), 'skip');
         return;
+    }
+
+    // 1.5. Sweep de timeout das conversas do chatbot (Fase 3 Etapa 2) - roda
+    //      toda passada com a instância conectada, independente de baseline.
+    try {
+        wpp_chatbot_sweep_timeouts();
+    } catch (\Throwable $e) {
+        wpp_log('sys', '', 'chatbot sweep: ' . $e->getMessage(), 'erro');
     }
 
     // 2. Reset por offline longo: se ficou mais de cfg_offline_reset_min minutos
