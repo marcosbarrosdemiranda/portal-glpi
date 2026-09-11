@@ -63,6 +63,16 @@ if ($action !== '') {
             if ($_SERVER['REQUEST_METHOD'] !== 'POST') { echo json_encode(['ok' => false, 'erro' => 'método inválido']); exit; }
             echo json_encode(evo_logout());
             break;
+        case 'chatbot_webhook_status':
+            $st = evo_webhook_status();
+            echo json_encode(['ok' => $st['ok'], 'ativo' => $st['ativo'], 'erro' => $st['erro']]);
+            break;
+        case 'chatbot_webhook_toggle':
+            // ação que liga/desliga recepção de mensagem: exige POST
+            if ($_SERVER['REQUEST_METHOD'] !== 'POST') { echo json_encode(['ok' => false, 'erro' => 'método inválido']); exit; }
+            $ligar = (($_POST['ligar'] ?? '') === '1');
+            echo json_encode(evo_set_webhook($ligar));
+            break;
         case 'groups':
             echo json_encode(evo_groups());
             break;
@@ -144,6 +154,7 @@ if ($action !== '') {
                 'on_atribuido'           => wpp_cfg_get('on_atribuido', '1'),
                 'on_alertas'             => wpp_cfg_get('on_alertas', '1'),
                 'on_sla'                 => wpp_cfg_get('on_sla', '1'),
+                'on_chatbot'             => wpp_cfg_get('on_chatbot', '0'),
                 'cfg_delay_dm_min'       => (int) wpp_cfg_get('cfg_delay_dm_min', '5'),
                 'cfg_digest_alertas_min' => (int) wpp_cfg_get('cfg_digest_alertas_min', '15'),
                 'cfg_sla_horas'          => (int) wpp_cfg_get('cfg_sla_horas', '4'),
@@ -155,7 +166,7 @@ if ($action !== '') {
             // regrava a config dos gatilhos: POST-only (um GET zeraria tudo silenciosamente)
             if ($_SERVER['REQUEST_METHOD'] !== 'POST') { echo json_encode(['ok' => false, 'erro' => 'método inválido']); exit; }
             // toggles: qualquer valor diferente de '1' vira '0'
-            $toggles = ['on_novo', 'on_atribuido', 'on_alertas', 'on_sla'];
+            $toggles = ['on_novo', 'on_atribuido', 'on_alertas', 'on_sla', 'on_chatbot'];
             // numéricos: inteiros de 1..1440 — cfg_delay_dm_min aceita 0 (DM imediata)
             $numeros = ['cfg_delay_dm_min', 'cfg_digest_alertas_min', 'cfg_sla_horas', 'cfg_sla_prevenc_min', 'cfg_offline_reset_min'];
             foreach ($numeros as $k) {
@@ -290,6 +301,14 @@ $chamados_jid = wpp_cfg_get('grupo_chamados_jid', '');
         <img id="qr-img" alt="QR code"/>
       </div>
 
+      <hr class="my-3">
+      <div class="d-flex align-items-center gap-2">
+        <span class="small text-muted">Chatbot de entrada:</span>
+        <span id="chatbot-webhook-estado" class="small fw-semibold text-muted">verificando…</span>
+        <button class="btn btn-outline-primary btn-sm" id="btn-chatbot-webhook-toggle">Ativar/desativar</button>
+      </div>
+      <p class="small text-muted mt-1">Precisa do toggle "Chatbot de entrada" ligado na aba Gatilhos também.</p>
+
       <div class="feedback" id="fb-conexao"></div>
     </div>
 
@@ -404,6 +423,15 @@ $chamados_jid = wpp_cfg_get('grupo_chamados_jid', '');
             <span class="un">min</span>
           </div>
         </div>
+      </div>
+
+      <!-- Chatbot de entrada (Fase 3) -->
+      <div class="gat-bloco">
+        <div class="form-check">
+          <input type="checkbox" class="form-check-input gat-toggle" id="g-on_chatbot">
+          <label class="form-check-label fw-semibold" for="g-on_chatbot">Chatbot de entrada (abrir/consultar chamado pelo WhatsApp)</label>
+        </div>
+        <span class="small text-muted">responde DM de quem escrever pro número do TI</span>
       </div>
 
       <!-- SLA / parado -->
@@ -659,6 +687,36 @@ $chamados_jid = wpp_cfg_get('grupo_chamados_jid', '');
       });
   }
 
+  function carregarChatbotWebhook() {
+    fetch(PAGE + '?action=chatbot_webhook_status')
+      .then(function (r) { return r.json(); })
+      .then(function (d) {
+        $('chatbot-webhook-estado').textContent = d.ok ? (d.ativo ? 'ativo' : 'desativado') : 'erro ao verificar';
+      })
+      .catch(function () { $('chatbot-webhook-estado').textContent = 'erro ao verificar'; });
+  }
+
+  function alternarChatbotWebhook() {
+    var btn = $('btn-chatbot-webhook-toggle');
+    var ligarAgora = $('chatbot-webhook-estado').textContent.trim() !== 'ativo';
+    btn.disabled = true;
+    fetch(PAGE + '?action=chatbot_webhook_toggle', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: 'ligar=' + (ligarAgora ? '1' : '0')
+    })
+      .then(function (r) { return r.json(); })
+      .then(function (d) {
+        btn.disabled = false;
+        if (!d.ok) { feedback($('fb-conexao'), 'err', 'Erro: ' + (d.erro || 'falha ao alternar')); return; }
+        carregarChatbotWebhook();
+      })
+      .catch(function (err) {
+        btn.disabled = false;
+        feedback($('fb-conexao'), 'err', 'Erro de conexão: ' + (err.message || err));
+      });
+  }
+
   /* ─────────── Grupos ─────────── */
   function atualizarAvisoGrupos() {
     var aviso = $('aviso-conecte');
@@ -859,7 +917,7 @@ $chamados_jid = wpp_cfg_get('grupo_chamados_jid', '');
 
   /* ─────────── Gatilhos ─────────── */
   var gatilhosCarregados = false;
-  var GAT_TOGGLES = ['on_novo', 'on_atribuido', 'on_alertas', 'on_sla'];
+  var GAT_TOGGLES = ['on_novo', 'on_atribuido', 'on_alertas', 'on_sla', 'on_chatbot'];
   var GAT_NUMS = ['cfg_delay_dm_min', 'cfg_digest_alertas_min', 'cfg_sla_horas', 'cfg_sla_prevenc_min', 'cfg_offline_reset_min'];
 
   function carregarGatilhos() {
@@ -1011,6 +1069,7 @@ $chamados_jid = wpp_cfg_get('grupo_chamados_jid', '');
   /* ─────────── Ligações ─────────── */
   $('btn-conectar').addEventListener('click', conectar);
   $('btn-desconectar').addEventListener('click', desconectar);
+  $('btn-chatbot-webhook-toggle').addEventListener('click', alternarChatbotWebhook);
   $('btn-recarregar').addEventListener('click', carregarGrupos);
   $('btn-salvar').addEventListener('click', salvarGrupos);
   $('btn-puxar-glpi').addEventListener('click', puxarDoGlpi);
@@ -1025,6 +1084,7 @@ $chamados_jid = wpp_cfg_get('grupo_chamados_jid', '');
   });
 
   carregarStatus();
+  carregarChatbotWebhook();
 })();
 </script>
 </body>

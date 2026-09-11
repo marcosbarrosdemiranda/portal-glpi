@@ -91,3 +91,45 @@ function evo_guarded_send(string $destino, callable $enviar, string $resumo): ar
     wpp_log('out', $destino, $resumo, !empty($r['ok']) ? 'ok' : 'erro');
     return is_array($r) ? $r : ['ok' => false];
 }
+
+// Guardrail de ENTRADA: decide se uma mensagem recebida pode acionar o
+// chatbot. $msg é o array normalizado de wpp_extrair_msg() (webhook_parse.php).
+// Nunca lança — qualquer falha aqui tem que fechar (bloquear), nunca abrir.
+function wpp_origem_permitida(array $msg): bool {
+    try {
+        $jid = (string) ($msg['remoteJid'] ?? '');
+
+        // 1º de tudo: mensagem do próprio bot ecoada de volta — não loga, é
+        // ruído normal. Vem ANTES da checagem de privado de propósito: tudo
+        // que o worker posta nos 2 grupos volta como fromMe=true + @g.us, e
+        // isso não é tentativa de acesso, é o nosso próprio eco.
+        if (!empty($msg['fromMe'])) {
+            return false;
+        }
+
+        // só chat privado — @g.us (grupo), @broadcast e qualquer outro sufixo
+        // (ex. @newsletter, @lid) ficam de fora por não estarem na allowlist abaixo
+        $privado = str_ends_with($jid, '@s.whatsapp.net') || str_ends_with($jid, '@c.us');
+        if (!$privado) {
+            // @broadcast (status@broadcast de qualquer contato da agenda) é
+            // ruído de altíssimo volume, não evento de segurança: bloqueia em
+            // silêncio pra não inundar o log de auditoria.
+            if (str_ends_with($jid, '@broadcast')) {
+                return false;
+            }
+            wpp_log('in', $jid, 'origem nao privada (grupo/broadcast/outro)', 'bloqueado');
+            return false;
+        }
+
+        $ts = (int) ($msg['timestamp'] ?? 0);
+        if ($ts < time() - 120) {
+            wpp_log('in', $jid, 'timestamp antigo (replay/history-sync)', 'bloqueado');
+            return false;
+        }
+
+        return true;
+    } catch (\Throwable $e) {
+        wpp_log('in', (string) ($msg['remoteJid'] ?? '?'), 'erro na verificacao: ' . $e->getMessage(), 'bloqueado');
+        return false;
+    }
+}

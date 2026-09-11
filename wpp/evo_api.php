@@ -149,3 +149,33 @@ function evo_send_media(
         'media: ' . mb_substr($legenda, 0, 60)
     );
 }
+
+// Liga/desliga o webhook de mensagens da instância. Sem WPP_WEBHOOK_URL
+// definida (config.php desatualizado), falha limpo sem tentar a rede.
+function evo_set_webhook(bool $ligar): array {
+    if ($ligar && (!defined('WPP_WEBHOOK_URL') || WPP_WEBHOOK_URL === '')) {
+        return ['ok' => false, 'erro' => 'WPP_WEBHOOK_URL não configurada em wpp/config.php'];
+    }
+    $body = $ligar
+        ? ['webhook' => [
+              'enabled'         => true,
+              'url'             => WPP_WEBHOOK_URL,
+              'webhookByEvents' => false,
+              // Segredo compartilhado: a Evolution reenvia estes headers em
+              // todo delivery; wpp/webhook.php confere com hash_equals.
+              'headers'         => [
+                  'X-Wpp-Secret' => defined('WPP_WEBHOOK_SECRET') ? WPP_WEBHOOK_SECRET : '',
+              ],
+              'events'          => ['MESSAGES_UPSERT', 'CONNECTION_UPDATE'],
+          ]]
+        : ['webhook' => ['enabled' => false]];
+    $r = evo_request('POST', '/webhook/set/' . EVO_INSTANCE, $body, 15);
+    return ['ok' => $r['ok'], 'erro' => $r['erro']];
+}
+
+// Estado atual do webhook na Evolution (pra pintar o botão na tela).
+function evo_webhook_status(): array {
+    $r = evo_request('GET', '/webhook/find/' . EVO_INSTANCE, null, 10);
+    $ativo = is_array($r['data']) && !empty($r['data']['enabled']);
+    return ['ok' => $r['ok'], 'ativo' => $ativo, 'erro' => $r['erro']];
+}
