@@ -617,3 +617,107 @@ aconteceu nada".
 ====================================================================
  FIM - FASE 3 ETAPA 2
 ====================================================================
+
+
+====================================================================
+ FASE 3 - ETAPA 3 - MENU + LOJA/SETOR SEMPRE + CONFIRMACAO DE VINCULO
+====================================================================
+
+O QUE FAZ
+--------------------------------------------------------------------
+  * Toda conversa nova comeca com o menu:
+      1 - Abrir chamado
+      2 - Consultar chamado (em breve)
+      3 - Sair
+  * "1" com numero vinculado a um TECNICO (profiles_id=4 no GLPI):
+    sempre escolhe loja -> escolhe usuario da loja -> titulo ->
+    descricao. NUNCA pula mais pro titulo direto.
+  * "1" com numero vinculado a um usuario QUALQUER OUTRO PERFIL
+    (ex: "SAC Santos Bonito"): pergunta "Quer atendimento pra
+    <loja>, departamento <nome>? 1 Sim / 2 Nao". Sim pula pro
+    titulo com esse vinculo; Nao cai no mesmo picker manual do
+    tecnico.
+  * "1" sem vinculo nenhum: mensagem de "ainda nao disponivel" -
+    SEM MUDANCA da Etapa 2 (nao entra no picker - protecao contra
+    abuso, ate a pendencia de aprovacao existir numa etapa futura).
+  * "2"/"3" no menu: responde e nao fica com conversa presa.
+  * Lista de lojas e lista de usuarios da loja sao limitadas a 30
+    itens cada (WPP_CHATBOT_PICKER_MAX); se a loja/instancia tiver
+    mais que isso, a mensagem avisa "fale direto com o TI" em vez
+    de listar tudo (sem busca por nome).
+  * Sweep de timeout do worker: o aviso de "Tempo esgotado" so vai
+    pra quem esta num passo ENGAJADO (allowlist: confirma_loja,
+    escolhe_loja, escolhe_usuario, titulo, descricao,
+    confirma_mais). Qualquer outro passo - 'menu' (numero mandou
+    "oi" mas nunca respondeu 1/2/3), estados transitorios como
+    'indisponivel', vazio ou desconhecido - e limpo em SILENCIO,
+    pra nunca mandar mensagem nao solicitada pra numero errado/spam
+    que nunca interagiu de verdade.
+  * Lista interativa (sendList) NAO e usada - o Spike 0 (rodado em
+    2026-09-11) deu erro interno na Evolution atual. So menu
+    numerado por agora.
+
+ARQUIVOS A SINCRONIZAR
+----
+  - wpp/glpi_bot.php
+  - wpp/chatbot.php
+  - wpp/tests/ (arquivos novos: test_glpi_bot_lojas.php, test_chatbot_menu.php)
+  - wpp/tests/test_chatbot_fsm.php (ajustado pra nova navegação do menu)
+  - wpp/tests/test_chatbot_timeout.php (ganhou teste novo da exceção de sweep)
+
+PRE-REQUISITO
+--------------------------------------------------------------------
+[ ] Etapa 2 em produção.
+[ ] Confirme que o perfil "tecnico" no GLPI e mesmo profiles_id=4
+    (mesmo criterio ja usado na aba Contatos) - se a instalacao usar
+    outro id, ajustar bot_perfil_tecnico() em wpp/glpi_bot.php antes
+    de sincronizar.
+
+DEPLOY
+--------------------------------------------------------------------
+[ ] 1. scp dos arquivos listados acima.
+[ ] 2. Testes: docker exec glpi-web php /var/www/html/glpi2/portal-glpi/wpp/tests/run.php
+       Espera-se "0 falhas" (ignorando a falha pre-existente e nao
+       relacionada da Central de Alertas Etapa 2, se ainda presente).
+       ATENCAO - mais invasivo que as etapas anteriores: nesta etapa,
+       test_glpi_bot_lojas.php e test_chatbot_menu.php gravam fixtures
+       em TABELAS CORE DO GLPI (glpi_entities e glpi_profiles_users),
+       nao so nas tabelas portal_wpp_* / glpi_users que a Etapa 2 ja
+       tocava. Os proprios testes limpam tudo no finally.
+[ ] 3. Confirme que a limpeza dos fixtures funcionou mesmo - as 4
+       consultas abaixo tem que voltar 0 linhas cada:
+         SELECT COUNT(*) FROM glpi_entities WHERE name LIKE 'teste_e3_%';
+         SELECT COUNT(*) FROM glpi_entities WHERE name LIKE 'teste_menu_%';
+         SELECT COUNT(*) FROM glpi_users    WHERE name LIKE 'teste_e3_%';
+         SELECT COUNT(*) FROM glpi_users    WHERE name LIKE 'teste_menu_%';
+       Se sobrar alguma linha (teste abortado no meio, por exemplo),
+       apague manualmente - inclusive a linha correspondente em
+       glpi_profiles_users (users_id do usuario de teste).
+
+VERIFICACAO FIM-A-FIM
+--------------------------------------------------------------------
+[ ] 1. De um numero vinculado a um TECNICO, manda "oi" -> recebe o
+       menu -> "1" -> recebe lista de lojas (nunca pula pro titulo).
+[ ] 2. Escolhe uma loja (numero) -> recebe lista de usuarios daquela
+       loja.
+[ ] 3. Escolhe um usuario -> recebe "Abrir chamado para <nome>. Qual
+       o titulo?" -> segue o fluxo normal (titulo/descricao/2) ->
+       confere no GLPI que o requerente e o USUARIO ESCOLHIDO, nao
+       o tecnico.
+[ ] 4. De um numero vinculado a um usuario QUE NAO E TECNICO, manda
+       "oi" -> "1" -> recebe a pergunta de confirmacao com o nome da
+       loja e do vinculo certos -> "1" (sim) -> pula pro titulo.
+[ ] 5. Repete o passo 4 mas responde "2" (nao) na confirmacao ->
+       cai no mesmo picker de loja do passo 1.
+[ ] 6. De um numero SEM vinculo nenhum, "1" -> mensagem de
+       indisponivel, sem picker.
+[ ] 7. No menu, "2" -> mensagem de em breve, sem ficar preso.
+[ ] 8. No menu, "3" -> mensagem de saida, sem ficar preso.
+
+ROLLBACK
+--------------------------------------------------------------------
+Aba Gatilhos -> desliga "Chatbot de entrada" (mesmo da Etapa 1/2).
+
+====================================================================
+ FIM - FASE 3 ETAPA 3
+====================================================================

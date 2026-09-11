@@ -6,6 +6,7 @@
 // todos os test_*.php num único processo PHP e outros arquivos requerem as
 // funções de verdade — redeclarar dava fatal "Cannot redeclare".
 require_once __DIR__ . '/../chatbot.php';
+require_once __DIR__ . '/../glpi_bot.php'; // Etapa 3: passo_menu/confirma_loja usam bot_perfil_tecnico() etc.
 global $pdo;
 
 // Telefone só com dígitos, curto: cabe em VARCHAR(20) mesmo com sufixos, e
@@ -41,24 +42,38 @@ function _msg_fsm(string $texto, bool $temMidia = false): array {
     return ['id' => 'X', 'remoteJid' => $texto, 'fromMe' => false, 'timestamp' => time(), 'texto' => $texto, 'temMidia' => $temMidia];
 }
 
+// Etapa 3: toda conversa nova começa pelo menu (nunca cai direto em
+// 'titulo'). O fixture 'teste_fsm_vinculado' não tem profiles_id=4, então é
+// tratado como vínculo tipo loja/departamento -> passa por confirma_loja.
+// Este helper só empacota essa navegação pra não repetir em cada bloco do
+// Fluxo A — as funções de titulo/descricao/confirma_mais/finalizar (o que
+// este teste de fato verifica) continuam exatamente iguais à Etapa 2.
+function _fsm_iniciar_ate_titulo(string $tel): void {
+    wpp_chatbot_processar($tel, _msg_fsm('oi')); // 1a msg -> menu
+    wpp_chatbot_processar($tel, _msg_fsm('1'));  // "abrir chamado" -> vinculo tipo loja -> confirma_loja
+    wpp_chatbot_processar($tel, _msg_fsm('1'));  // confirma "sim" -> passo titulo
+}
+
 $pdo->prepare("DELETE FROM glpi_users WHERE name = 'teste_fsm_vinculado'")->execute();
 $pdo->prepare("INSERT INTO glpi_users (name, realname, firstname, phone, mobile, entities_id, is_active, is_deleted)
                VALUES ('teste_fsm_vinculado', 'Fulano', 'FSM', '', ?, 9, 1, 0)")->execute([$tel]);
 $userId = (int) $pdo->lastInsertId();
 
 try {
-    // --- número NÃO vinculado: 1 mensagem, sem estado preso ---
+    // --- número NÃO vinculado: menu, depois "1" -> sem estado preso ---
+    // (Etapa 3: a 1a msg sempre cai no menu; só "1" tenta resolver vínculo.)
     $telNaoVinc = $tel . '9'; // só dígitos também, e não bate com nenhum glpi_users cadastrado
     $GLOBALS['__wpp_fake_send'] = [];
     wpp_chatbot_processar($telNaoVinc, _msg_fsm('oi'));
-    t_eq(count($GLOBALS['__wpp_fake_send']), 1, 'nao vinculado: manda exatamente 1 mensagem');
+    wpp_chatbot_processar($telNaoVinc, _msg_fsm('1'));
+    t_eq(count($GLOBALS['__wpp_fake_send']), 2, 'nao vinculado: manda o menu e depois a indisponibilidade');
     t_ok(wpp_chatbot_estado_get($telNaoVinc) === null, 'nao vinculado: nao fica com conversa presa');
 
     // --- número vinculado: fluxo completo até criar o chamado ---
     $GLOBALS['__wpp_fake_send'] = [];
-    wpp_chatbot_processar($tel, _msg_fsm('oi'));
-    t_eq(wpp_chatbot_estado_get($tel)['passo'], 'titulo', 'vinculado: 1a msg -> passo titulo');
-    t_ok(strpos($GLOBALS['__wpp_fake_send'][0]['texto'], 'título') !== false, 'vinculado: pergunta o titulo');
+    _fsm_iniciar_ate_titulo($tel);
+    t_eq(wpp_chatbot_estado_get($tel)['passo'], 'titulo', 'vinculado: menu + confirma_loja -> passo titulo');
+    t_ok(strpos(end($GLOBALS['__wpp_fake_send'])['texto'], 'título') !== false, 'vinculado: pergunta o titulo');
 
     wpp_chatbot_processar($tel, _msg_fsm('PC nao liga'));
     t_eq(wpp_chatbot_estado_get($tel)['passo'], 'descricao', 'apos titulo: passo descricao');
@@ -88,7 +103,7 @@ try {
     t_eq($n, 1, 'chamado gravado em portal_wpp_chamados com origem vinculado');
 
     // --- cancelar (opção 3) ---
-    wpp_chatbot_processar($tel, _msg_fsm('oi'));
+    _fsm_iniciar_ate_titulo($tel);
     wpp_chatbot_processar($tel, _msg_fsm('Outro titulo'));
     wpp_chatbot_processar($tel, _msg_fsm('Outra descricao'));
     $GLOBALS['__wpp_fake_send'] = [];
@@ -99,7 +114,7 @@ try {
     t_ok($envioCancel['conversa_existia'], 'cancelamento tambem foi mandado ANTES de limpar a conversa');
 
     // --- opção inválida no confirma_mais ---
-    wpp_chatbot_processar($tel, _msg_fsm('oi'));
+    _fsm_iniciar_ate_titulo($tel);
     wpp_chatbot_processar($tel, _msg_fsm('T'));
     wpp_chatbot_processar($tel, _msg_fsm('D'));
     $GLOBALS['__wpp_fake_send'] = [];
@@ -109,7 +124,7 @@ try {
     wpp_chatbot_estado_limpar($tel); // limpa pro proximo bloco
 
     // --- titulo vazio: reask, nao avanca ---
-    wpp_chatbot_processar($tel, _msg_fsm('oi'));
+    _fsm_iniciar_ate_titulo($tel);
     $GLOBALS['__wpp_fake_send'] = [];
     wpp_chatbot_processar($tel, _msg_fsm(''));
     t_eq(wpp_chatbot_estado_get($tel)['passo'], 'titulo', 'titulo vazio: nao avanca o passo');
@@ -119,13 +134,13 @@ try {
     wpp_chatbot_estado_limpar($tel);
 
     // --- titulo gigante e cortado (glpi_tickets.name tem 255) ---
-    wpp_chatbot_processar($tel, _msg_fsm('oi'));
+    _fsm_iniciar_ate_titulo($tel);
     wpp_chatbot_processar($tel, _msg_fsm(str_repeat('a', 300)));
     t_eq(mb_strlen(wpp_chatbot_estado_get($tel)['titulo']), 250, 'titulo gigante cortado em 250 chars');
     wpp_chatbot_estado_limpar($tel);
 
     // --- falha do GLPI: mantem o estado pro usuario nao redigitar ---
-    wpp_chatbot_processar($tel, _msg_fsm('oi'));
+    _fsm_iniciar_ate_titulo($tel);
     wpp_chatbot_processar($tel, _msg_fsm('Titulo da falha'));
     wpp_chatbot_processar($tel, _msg_fsm('Descricao da falha'));
     $GLOBALS['__fake_criar_chamado_resultado'] = ['ok' => false, 'ticket_id' => null, 'erro' => 'boom'];
@@ -149,7 +164,7 @@ try {
     t_eq($n, 1, 'retry apos falha: chamado criado sem redigitar');
 
     // --- guarda de reentrancia: estado.criando bloqueia um 2o "2" ---
-    wpp_chatbot_processar($tel, _msg_fsm('oi'));
+    _fsm_iniciar_ate_titulo($tel);
     wpp_chatbot_processar($tel, _msg_fsm('Titulo reentrante'));
     wpp_chatbot_processar($tel, _msg_fsm('Descricao reentrante'));
     $estadoReentrante = wpp_chatbot_estado_get($tel);

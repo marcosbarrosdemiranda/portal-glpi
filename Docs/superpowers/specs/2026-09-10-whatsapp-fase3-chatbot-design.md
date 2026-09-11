@@ -49,6 +49,78 @@ outras duas apps não reusam esse nome de instância.
 | 8 | Desfecho pós-timeout | Se a conversa expirou antes da decisão do técnico, o bot ainda manda **1** mensagem de resultado por pendência (`resultado_enviado`) |
 | 9 | Aba Autorizados | **Removida** do plano original — o gate virou a pendência, não uma allowlist prévia |
 
+## Revisão 2026-09-11 (pós Etapa 2 em produção — supersede decisões #2 e #4)
+
+Etapa 2 (Fluxo A: vinculado pula pro título) foi deployada e testada de
+verdade com o WhatsApp real do Marcos. Feedback de uso real mudou o
+desenho: **"pular pro título" deixa de existir pra número vinculado a um
+técnico** — todo técnico sempre escolhe loja → setor/usuário, mesmo tendo
+vínculo pessoal. O atalho de pular continua existindo, mas só pra vínculo
+tipo "loja/departamento" (ex. "SAC Santos Bonito"), e mesmo esse vira uma
+**confirmação** (sim/não), não um salto direto.
+
+**Gotcha real descoberto no teste:** o número que chega no `remoteJid` às
+vezes vem **sem o 9º dígito** do celular brasileiro (bug conhecido do
+Baileys/WhatsApp: `556798023041` chegou quando o GLPI tinha `67998023041`
+cadastrado — o match automático por `glpi_users.phone`/`mobile` não bate
+nesse caso). Mitigação aplicada: cadastro manual na aba Vínculos com o
+número exatamente como ele chega resolve. Ajuste sistemático (tentar as
+duas variantes, com/sem o 9º dígito, no match automático) fica como
+melhoria futura, não bloqueia.
+
+**Spike 0 rodado em 2026-09-11 (pendente desde a Etapa 1): lista
+interativa (`sendList`) FALHA nesta instância da Evolution** —
+`evoapicloud/evolution-api:latest` (sem versão pinada) devolve
+`TypeError: this.isZero is not a function` (bug conhecido do Baileys pra
+mensagem de lista) depois de resolvidos os campos obrigatórios
+(`footerText`, `description` de cada linha). **Decisão: lista interativa
+descartada por ora — Decisão #4 revista pra "só menu numerado"**. Testar
+de novo só se/quando a Evolution for atualizada pra uma versão pinada
+conhecida-boa.
+
+### Tipo de vínculo (novo — distingue o atalho)
+
+Inferido automaticamente pelo perfil GLPI do usuário vinculado — **sem
+campo novo na aba Vínculos**:
+
+| Tipo | Regra de inferência | Comportamento no "Abrir" |
+|---|---|---|
+| **Pessoal/técnico** | `glpi_profiles_users.profiles_id = 4` (mesmo critério já usado na aba Contatos) | Sempre escolhe loja → setor/usuário, como se não tivesse vínculo. O vínculo só define quem é o requerente *depois* que a Etapa 3/4 (pendência) decidir usar essa info — nesta rodada, requerente = usuário escolhido no picker, igual não-vinculado. |
+| **Loja/departamento** | Qualquer outro perfil | Confirmação: "Quer atendimento pra **{loja}**, departamento **{nome do vínculo}**? 1 Sim · 2 Não". **Sim** → pula pro título (requerente = o próprio vínculo, entidade = `entities_id` do vínculo). **Não** → cai no mesmo picker de loja→usuário do tipo pessoal. |
+
+`{loja}` = nome da entidade (`glpi_entities.name` via `entities_id` do
+usuário vinculado). `{nome do vínculo}` = nome do usuário GLPI vinculado
+(ex. "SAC Santos Bonito").
+
+### Menu — entra já, não espera a Etapa 4 (consulta)
+
+```
+O que você precisa?
+1 – Abrir chamado
+2 – Consultar chamado (em breve)
+3 – Sair
+```
+"2" e "3" respondem e **não deixam estado preso** (mesmo padrão do "ainda
+não disponível" da Etapa 2: cria, manda, limpa). "1" entra no fluxo de
+abrir descrito acima.
+
+### Criação ainda é direta (sem pendência) pra qualquer vínculo
+
+Tanto o tipo pessoal quanto o tipo loja/departamento criam o chamado **na
+hora**, sem pendência — a Decisão #3 (anti-abuso via pendência) continua
+valendo só pra número **sem vínculo nenhum**, que nesta rodada ainda só
+recebe "ainda não disponível" (a pendência de verdade — aba Pendências,
+fluxo de aprovação — não foi implementada, fica pra uma etapa futura).
+
+### Novo em `wpp/glpi_bot.php`
+
+```php
+function bot_lojas(): array                          // entidades filhas (level>1, exclui raiz)
+function bot_usuarios_loja(int $entities_id): array   // glpi_users ativos daquela entidade
+function bot_entidade_nome(int $entities_id): string  // nome da entidade, pro texto de confirmação
+function bot_perfil_tecnico(int $glpi_user_id): bool  // profiles_id=4? mesmo critério da aba Contatos
+```
+
 ## Componentes
 
 Tudo em `wpp/`, mesmo padrão dos arquivos existentes: sem HTML, funções isoladas, retorno em array, nunca lançam exceção.
