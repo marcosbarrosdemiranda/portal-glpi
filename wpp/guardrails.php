@@ -60,9 +60,10 @@ function wpp_destino_permitido(string $destino): bool {
         global $pdo;
         $st = $pdo->prepare(
             "SELECT 1 FROM portal_wpp_contatos WHERE telefone = ? AND ativo = 1
-             UNION SELECT 1 FROM portal_wpp_autorizados WHERE telefone = ? AND ativo = 1 LIMIT 1"
+             UNION SELECT 1 FROM portal_wpp_autorizados WHERE telefone = ? AND ativo = 1
+             UNION SELECT 1 FROM portal_wpp_conversas WHERE telefone = ? LIMIT 1"
         );
-        $st->execute([$tel, $tel]);
+        $st->execute([$tel, $tel, $tel]);
         if ($st->fetchColumn()) {
             return true;
         }

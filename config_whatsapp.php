@@ -147,6 +147,77 @@ if ($action !== '') {
                 echo json_encode(['ok' => false, 'erro' => 'falha ao salvar contato']);
             }
             break;
+        case 'vinculos_buscar_usuario':
+            $q = trim((string) ($_GET['q'] ?? ''));
+            if (mb_strlen($q) < 2) { echo json_encode(['ok' => true, 'usuarios' => []]); exit; }
+            try {
+                $st = $pdo->prepare(
+                    "SELECT id, realname, firstname, name
+                     FROM glpi_users
+                     WHERE is_active = 1 AND is_deleted = 0
+                       AND (realname LIKE ? OR firstname LIKE ? OR name LIKE ?)
+                     ORDER BY realname, firstname LIMIT 20"
+                );
+                $like = '%' . $q . '%';
+                $st->execute([$like, $like, $like]);
+                $usuarios = [];
+                foreach ($st->fetchAll(PDO::FETCH_ASSOC) as $r) {
+                    $nome = trim(($r['realname'] ?? '') . ' ' . ($r['firstname'] ?? ''));
+                    if ($nome === '') { $nome = (string) ($r['name'] ?? ''); }
+                    $usuarios[] = ['id' => (int) $r['id'], 'nome' => $nome];
+                }
+                echo json_encode(['ok' => true, 'usuarios' => $usuarios]);
+            } catch (\Throwable $e) {
+                echo json_encode(['ok' => false, 'erro' => 'falha ao buscar usuário']);
+            }
+            break;
+        case 'vinculos_listar':
+            try {
+                $sql = "SELECT v.id, v.telefone, v.glpi_user_id, v.rotulo, v.ativo,
+                               COALESCE(NULLIF(TRIM(CONCAT(u.realname,' ',u.firstname)),''), u.name) AS nome
+                        FROM portal_wpp_vinculos v
+                        JOIN glpi_users u ON u.id = v.glpi_user_id
+                        WHERE u.is_active = 1 AND u.is_deleted = 0
+                        ORDER BY nome, v.telefone";
+                $linhas = $pdo->query($sql)->fetchAll(PDO::FETCH_ASSOC);
+                echo json_encode(['ok' => true, 'linhas' => $linhas]);
+            } catch (\Throwable $e) {
+                echo json_encode(['ok' => false, 'erro' => 'falha ao listar vínculos']);
+            }
+            break;
+        case 'vinculos_salvar':
+            if ($_SERVER['REQUEST_METHOD'] !== 'POST') { echo json_encode(['ok' => false, 'erro' => 'método inválido']); exit; }
+            $telefone = wpp_norm_telefone((string) ($_POST['telefone'] ?? ''));
+            $uid      = (int) ($_POST['glpi_user_id'] ?? 0);
+            $rotulo   = trim((string) ($_POST['rotulo'] ?? ''));
+            $ativo    = (($_POST['ativo'] ?? '1') === '1') ? 1 : 0;
+            if ($telefone === '' || strlen($telefone) < 10 || strlen($telefone) > 13) {
+                echo json_encode(['ok' => false, 'erro' => 'telefone deve ter de 10 a 13 dígitos']);
+                exit;
+            }
+            if ($uid <= 0) { echo json_encode(['ok' => false, 'erro' => 'escolha um usuário']); exit; }
+            try {
+                $st = $pdo->prepare(
+                    "INSERT INTO portal_wpp_vinculos (telefone, glpi_user_id, rotulo, ativo) VALUES (?, ?, ?, ?)
+                     ON DUPLICATE KEY UPDATE glpi_user_id = VALUES(glpi_user_id), rotulo = VALUES(rotulo), ativo = VALUES(ativo)"
+                );
+                $st->execute([$telefone, $uid, $rotulo, $ativo]);
+                echo json_encode(['ok' => true]);
+            } catch (\Throwable $e) {
+                echo json_encode(['ok' => false, 'erro' => 'falha ao salvar vínculo']);
+            }
+            break;
+        case 'vinculos_remover':
+            if ($_SERVER['REQUEST_METHOD'] !== 'POST') { echo json_encode(['ok' => false, 'erro' => 'método inválido']); exit; }
+            $id = (int) ($_POST['id'] ?? 0);
+            if ($id <= 0) { echo json_encode(['ok' => false, 'erro' => 'id inválido']); exit; }
+            try {
+                $pdo->prepare("DELETE FROM portal_wpp_vinculos WHERE id = ?")->execute([$id]);
+                echo json_encode(['ok' => true]);
+            } catch (\Throwable $e) {
+                echo json_encode(['ok' => false, 'erro' => 'falha ao remover']);
+            }
+            break;
         case 'gatilhos_ler':
             // Lê on/off dos 4 gatilhos + parâmetros de tempo, cada um com default.
             echo json_encode(['ok' => true, 'cfg' => [
@@ -278,6 +349,7 @@ $chamados_jid = wpp_cfg_get('grupo_chamados_jid', '');
       <li class="nav-item"><span class="nav-link active" data-tab="conexao"><i class="bi bi-qr-code me-1"></i>Conexão</span></li>
       <li class="nav-item"><span class="nav-link" data-tab="grupos"><i class="bi bi-people me-1"></i>Grupos</span></li>
       <li class="nav-item"><span class="nav-link" data-tab="contatos"><i class="bi bi-person-vcard me-1"></i>Contatos</span></li>
+      <li class="nav-item"><span class="nav-link" data-tab="vinculos"><i class="bi bi-link-45deg me-1"></i>Vínculos</span></li>
       <li class="nav-item"><span class="nav-link" data-tab="gatilhos"><i class="bi bi-toggles me-1"></i>Gatilhos</span></li>
       <li class="nav-item"><span class="nav-link" data-tab="log"><i class="bi bi-list-ul me-1"></i>Log</span></li>
     </ul>
@@ -377,6 +449,52 @@ $chamados_jid = wpp_cfg_get('grupo_chamados_jid', '');
       </div>
 
       <div class="feedback" id="fb-contatos"></div>
+    </div>
+
+    <!-- ─────────── Aba Vínculos ─────────── -->
+    <div class="tab-body" id="tab-vinculos" style="display:none">
+      <p class="small text-muted mb-2">
+        Números que pulam direto pro título ao abrir chamado pelo WhatsApp (sem escolher loja/usuário).
+        Um usuário pode ter vários números — ex.: "SAC Loja X" com 3 celulares diferentes.
+      </p>
+
+      <div class="row g-2 mb-3">
+        <div class="col-4">
+          <input type="text" class="form-control form-control-sm" id="vinc-telefone" placeholder="Telefone (só dígitos)">
+        </div>
+        <div class="col-4" style="position:relative">
+          <input type="text" class="form-control form-control-sm" id="vinc-busca-usuario" placeholder="Buscar usuário GLPI…" autocomplete="off">
+          <div id="vinc-resultados" class="list-group" style="position:absolute; z-index:10; width:100%; max-height:200px; overflow:auto;"></div>
+          <input type="hidden" id="vinc-usuario-id">
+        </div>
+        <div class="col-3">
+          <input type="text" class="form-control form-control-sm" id="vinc-rotulo" placeholder="Rótulo (opcional)">
+        </div>
+        <div class="col-1">
+          <button class="btn btn-success btn-sm w-100" id="btn-vinc-adicionar" style="background:var(--wpp);border-color:var(--wpp)">
+            <i class="bi bi-plus-lg"></i>
+          </button>
+        </div>
+      </div>
+
+      <div class="table-responsive">
+        <table class="table table-sm align-middle" id="tbl-vinculos">
+          <thead>
+            <tr>
+              <th>Usuário</th>
+              <th>Telefone</th>
+              <th>Rótulo</th>
+              <th class="text-center" style="width:4rem">Ativo</th>
+              <th style="width:3rem"></th>
+            </tr>
+          </thead>
+          <tbody id="tbody-vinculos">
+            <tr><td colspan="5" class="text-muted">Carregando…</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="feedback" id="fb-vinculos"></div>
     </div>
 
     <!-- ─────────── Aba Gatilhos ─────────── -->
@@ -548,10 +666,12 @@ $chamados_jid = wpp_cfg_get('grupo_chamados_jid', '');
       $('tab-conexao').style.display  = (alvo === 'conexao')  ? '' : 'none';
       $('tab-grupos').style.display   = (alvo === 'grupos')   ? '' : 'none';
       $('tab-contatos').style.display = (alvo === 'contatos') ? '' : 'none';
+      $('tab-vinculos').style.display  = (alvo === 'vinculos')  ? '' : 'none';
       $('tab-gatilhos').style.display = (alvo === 'gatilhos') ? '' : 'none';
       $('tab-log').style.display      = (alvo === 'log')      ? '' : 'none';
       if (alvo === 'grupos') atualizarAvisoGrupos();
       if (alvo === 'contatos' && !contatosCarregados) { carregarContatos(); }
+      if (alvo === 'vinculos' && !vinculosCarregados) { carregarVinculos(); }
       if (alvo === 'gatilhos' && !gatilhosCarregados) { carregarGatilhos(); }
       if (alvo === 'log') { carregarLog(false); if ($('chk-log-auto').checked) { iniciarLogAuto(); } }
     });
@@ -914,6 +1034,112 @@ $chamados_jid = wpp_cfg_get('grupo_chamados_jid', '');
         ? (preenchidos + ' campo(s) preenchido(s) com o celular do GLPI. Revise e clique em Salvar.')
         : 'Nenhum campo vazio com celular disponível no GLPI.');
   }
+
+  /* ─────────── Vínculos ─────────── */
+  var vinculosCarregados = false;
+  var vincUsuarioSelecionado = null;
+
+  function carregarVinculos() {
+    feedback($('fb-vinculos'), 'info', 'Carregando…');
+    fetch(PAGE + '?action=vinculos_listar')
+      .then(function (r) { return r.json(); })
+      .then(function (d) {
+        if (!d.ok) { throw new Error(d.erro || 'falha ao carregar'); }
+        renderVinculos(d.linhas);
+        vinculosCarregados = true;
+        feedback($('fb-vinculos'), 'ok', 'Vínculos carregados.');
+      })
+      .catch(function (err) { feedback($('fb-vinculos'), 'err', 'Erro: ' + (err.message || err)); });
+  }
+
+  function renderVinculos(linhas) {
+    var tbody = $('tbody-vinculos');
+    tbody.innerHTML = '';
+    if (!linhas.length) {
+      tbody.innerHTML = '<tr><td colspan="5" class="text-muted">Nenhum vínculo cadastrado.</td></tr>';
+      return;
+    }
+    linhas.forEach(function (v) {
+      var tr = document.createElement('tr');
+      tr.innerHTML =
+        '<td>' + v.nome.replace(/</g, '&lt;') + '</td>' +
+        '<td>' + v.telefone + '</td>' +
+        '<td>' + (v.rotulo || '').replace(/</g, '&lt;') + '</td>' +
+        '<td class="text-center"><input type="checkbox" class="form-check-input vinc-ativo" ' + (v.ativo == 1 ? 'checked' : '') + '></td>' +
+        '<td><button class="btn btn-outline-danger btn-sm btn-vinc-remover"><i class="bi bi-trash"></i></button></td>';
+      tr.querySelector('.vinc-ativo').addEventListener('change', function () {
+        var params = new URLSearchParams();
+        params.set('telefone', v.telefone);
+        params.set('glpi_user_id', v.glpi_user_id);
+        params.set('rotulo', v.rotulo || '');
+        params.set('ativo', this.checked ? '1' : '0');
+        fetch(PAGE + '?action=vinculos_salvar', { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body: params.toString() })
+          .then(function (r) { return r.json(); })
+          .then(function (d) { feedback($('fb-vinculos'), d.ok ? 'ok' : 'err', d.ok ? 'Atualizado.' : (d.erro || 'erro')); });
+      });
+      tr.querySelector('.btn-vinc-remover').addEventListener('click', function () {
+        if (!confirm('Remover o vínculo de ' + v.telefone + '?')) { return; }
+        var params = new URLSearchParams();
+        params.set('id', v.id);
+        fetch(PAGE + '?action=vinculos_remover', { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body: params.toString() })
+          .then(function (r) { return r.json(); })
+          .then(function (d) {
+            if (d.ok) { carregarVinculos(); } else { feedback($('fb-vinculos'), 'err', d.erro || 'erro ao remover'); }
+          });
+      });
+      tbody.appendChild(tr);
+    });
+  }
+
+  var vincBuscaTimer = null;
+  $('vinc-busca-usuario').addEventListener('input', function () {
+    var termo = this.value;
+    vincUsuarioSelecionado = null;
+    $('vinc-usuario-id').value = '';
+    clearTimeout(vincBuscaTimer);
+    if (termo.trim().length < 2) { $('vinc-resultados').innerHTML = ''; return; }
+    vincBuscaTimer = setTimeout(function () {
+      fetch(PAGE + '?action=vinculos_buscar_usuario&q=' + encodeURIComponent(termo))
+        .then(function (r) { return r.json(); })
+        .then(function (d) {
+          var box = $('vinc-resultados');
+          box.innerHTML = '';
+          (d.usuarios || []).forEach(function (u) {
+            var item = document.createElement('button');
+            item.type = 'button';
+            item.className = 'list-group-item list-group-item-action';
+            item.textContent = u.nome;
+            item.addEventListener('click', function () {
+              vincUsuarioSelecionado = u;
+              $('vinc-busca-usuario').value = u.nome;
+              $('vinc-usuario-id').value = u.id;
+              box.innerHTML = '';
+            });
+            box.appendChild(item);
+          });
+        });
+    }, 300);
+  });
+
+  $('btn-vinc-adicionar').addEventListener('click', function () {
+    var telefone = $('vinc-telefone').value.replace(/\D+/g, '');
+    var uid = $('vinc-usuario-id').value;
+    var rotulo = $('vinc-rotulo').value;
+    if (!telefone || telefone.length < 10) { feedback($('fb-vinculos'), 'err', 'Telefone inválido.'); return; }
+    if (!uid) { feedback($('fb-vinculos'), 'err', 'Escolha um usuário na busca.'); return; }
+    var params = new URLSearchParams();
+    params.set('telefone', telefone);
+    params.set('glpi_user_id', uid);
+    params.set('rotulo', rotulo);
+    params.set('ativo', '1');
+    fetch(PAGE + '?action=vinculos_salvar', { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body: params.toString() })
+      .then(function (r) { return r.json(); })
+      .then(function (d) {
+        if (!d.ok) { feedback($('fb-vinculos'), 'err', d.erro || 'erro ao salvar'); return; }
+        $('vinc-telefone').value = ''; $('vinc-busca-usuario').value = ''; $('vinc-usuario-id').value = ''; $('vinc-rotulo').value = '';
+        carregarVinculos();
+      });
+  });
 
   /* ─────────── Gatilhos ─────────── */
   var gatilhosCarregados = false;
