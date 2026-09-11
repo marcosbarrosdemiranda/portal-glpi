@@ -645,11 +645,14 @@ O QUE FAZ
     itens cada (WPP_CHATBOT_PICKER_MAX); se a loja/instancia tiver
     mais que isso, a mensagem avisa "fale direto com o TI" em vez
     de listar tudo (sem busca por nome).
-  * Sweep de timeout do worker: conversa parada no passo 'menu'
-    (numero mandou "oi" mas nunca respondeu 1/2/3) e limpa em
-    SILENCIO, sem o aviso de "Tempo esgotado" - evitar mandar
-    mensagem nao solicitada pra numero errado/spam que nunca
-    interagiu de verdade.
+  * Sweep de timeout do worker: o aviso de "Tempo esgotado" so vai
+    pra quem esta num passo ENGAJADO (allowlist: confirma_loja,
+    escolhe_loja, escolhe_usuario, titulo, descricao,
+    confirma_mais). Qualquer outro passo - 'menu' (numero mandou
+    "oi" mas nunca respondeu 1/2/3), estados transitorios como
+    'indisponivel', vazio ou desconhecido - e limpo em SILENCIO,
+    pra nunca mandar mensagem nao solicitada pra numero errado/spam
+    que nunca interagiu de verdade.
   * Lista interativa (sendList) NAO e usada - o Spike 0 (rodado em
     2026-09-11) deu erro interno na Evolution atual. So menu
     numerado por agora.
@@ -676,6 +679,20 @@ DEPLOY
 [ ] 2. Testes: docker exec glpi-web php /var/www/html/glpi2/portal-glpi/wpp/tests/run.php
        Espera-se "0 falhas" (ignorando a falha pre-existente e nao
        relacionada da Central de Alertas Etapa 2, se ainda presente).
+       ATENCAO - mais invasivo que as etapas anteriores: nesta etapa,
+       test_glpi_bot_lojas.php e test_chatbot_menu.php gravam fixtures
+       em TABELAS CORE DO GLPI (glpi_entities e glpi_profiles_users),
+       nao so nas tabelas portal_wpp_* / glpi_users que a Etapa 2 ja
+       tocava. Os proprios testes limpam tudo no finally.
+[ ] 3. Confirme que a limpeza dos fixtures funcionou mesmo - as 4
+       consultas abaixo tem que voltar 0 linhas cada:
+         SELECT COUNT(*) FROM glpi_entities WHERE name LIKE 'teste_e3_%';
+         SELECT COUNT(*) FROM glpi_entities WHERE name LIKE 'teste_menu_%';
+         SELECT COUNT(*) FROM glpi_users    WHERE name LIKE 'teste_e3_%';
+         SELECT COUNT(*) FROM glpi_users    WHERE name LIKE 'teste_menu_%';
+       Se sobrar alguma linha (teste abortado no meio, por exemplo),
+       apague manualmente - inclusive a linha correspondente em
+       glpi_profiles_users (users_id do usuario de teste).
 
 VERIFICACAO FIM-A-FIM
 --------------------------------------------------------------------

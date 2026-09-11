@@ -8,22 +8,25 @@ $pdo->exec("DELETE FROM glpi_users WHERE name LIKE 'teste_e3_%'");
 $pdo->exec("DELETE FROM glpi_profiles_users WHERE users_id IN (SELECT id FROM glpi_users WHERE name LIKE 'teste_e3_%')");
 
 try {
-    // raiz (level 1) — NÃO deve aparecer em bot_lojas()
-    $pdo->exec("INSERT INTO glpi_entities (name, completename, level) VALUES ('teste_e3_raiz', 'Entidade raiz > teste_e3_raiz', 1)");
-    // 2 lojas (level 2) — devem aparecer, em ordem alfabética de completename
-    $pdo->exec("INSERT INTO glpi_entities (name, completename, level) VALUES ('teste_e3_lojaB', 'Entidade raiz > teste_e3_raiz > teste_e3_lojaB', 2)");
-    $pdo->exec("INSERT INTO glpi_entities (name, completename, level) VALUES ('teste_e3_lojaA', 'Entidade raiz > teste_e3_raiz > teste_e3_lojaA', 2)");
+    // Níveis batem com a árvore real do GLPI daqui: level 1 = "Entidade raiz"
+    // (id=0, já excluída pelo id > 0), level 2 = a holding ("Grupo Gmais"),
+    // level 3 = lojas de verdade.
+    // holding (level 2) — NÃO deve aparecer em bot_lojas()
+    $pdo->exec("INSERT INTO glpi_entities (name, completename, level) VALUES ('teste_e3_holding', 'Entidade raiz > teste_e3_holding', 2)");
+    // 2 lojas (level 3) — devem aparecer, em ordem alfabética de completename
+    $pdo->exec("INSERT INTO glpi_entities (name, completename, level) VALUES ('teste_e3_lojaB', 'Entidade raiz > teste_e3_holding > teste_e3_lojaB', 3)");
+    $pdo->exec("INSERT INTO glpi_entities (name, completename, level) VALUES ('teste_e3_lojaA', 'Entidade raiz > teste_e3_holding > teste_e3_lojaA', 3)");
     $idLojaA = (int) $pdo->query("SELECT id FROM glpi_entities WHERE name='teste_e3_lojaA'")->fetchColumn();
     $idLojaB = (int) $pdo->query("SELECT id FROM glpi_entities WHERE name='teste_e3_lojaB'")->fetchColumn();
 
     $lojas = bot_lojas();
     $nomesLojas = array_column($lojas, 'nome');
     $idsLojas = array_column($lojas, 'id');
-    t_ok(in_array($idLojaA, $idsLojas, true), 'bot_lojas: loja A (level 2) aparece');
-    t_ok(in_array($idLojaB, $idsLojas, true), 'bot_lojas: loja B (level 2) aparece');
-    // raiz (level 1) não deve estar na lista
-    $raizId = (int) $pdo->query("SELECT id FROM glpi_entities WHERE name='teste_e3_raiz'")->fetchColumn();
-    t_ok(!in_array($raizId, $idsLojas, true), 'bot_lojas: entidade raiz (level 1) NAO aparece');
+    t_ok(in_array($idLojaA, $idsLojas, true), 'bot_lojas: loja A (level 3) aparece');
+    t_ok(in_array($idLojaB, $idsLojas, true), 'bot_lojas: loja B (level 3) aparece');
+    // holding (level 2) não deve estar na lista — não é loja de verdade
+    $holdingId = (int) $pdo->query("SELECT id FROM glpi_entities WHERE name='teste_e3_holding'")->fetchColumn();
+    t_ok(!in_array($holdingId, $idsLojas, true), 'bot_lojas: holding (level 2) NAO aparece');
 
     t_eq(bot_entidade_nome($idLojaA), 'teste_e3_lojaA', 'bot_entidade_nome: sem alias cadastrado, devolve o nome original');
 

@@ -69,18 +69,24 @@ function bot_criar_chamado(int $requerente_id, int $entities_id, string $titulo,
 
 require_once __DIR__ . '/../entidade_alias.php'; // apelido_entidade(), nome_requerente()
 
-// Lojas pra o picker do chatbot: entidades filhas de verdade (level > 1 —
-// exclui a raiz/holding), com o apelido curto já aplicado.
+// Lojas pra o picker do chatbot, com o apelido curto já aplicado.
+// A árvore real do GLPI daqui é: level 1 = "Entidade raiz" (id=0),
+// level 2 = "Grupo Gmais" (a holding), level 3+ = as lojas de verdade.
+// Por isso o filtro é `level > 2`: `level > 1` deixaria a holding passar
+// como loja escolhível e o chamado iria pra entidade errada.
 function bot_lojas(): array {
     global $pdo;
     try {
-        $st = $pdo->query("SELECT id, completename FROM glpi_entities WHERE id > 0 AND level > 1 ORDER BY completename");
+        $st = $pdo->query("SELECT id, completename FROM glpi_entities WHERE id > 0 AND level > 2 ORDER BY completename");
         $lojas = [];
         foreach ($st->fetchAll() as $r) {
             $lojas[] = ['id' => (int) $r['id'], 'nome' => apelido_entidade($r['completename'])];
         }
         return $lojas;
     } catch (\Throwable $e) {
+        // Sem wpp/db.php aqui (evita nova dependência só pra log): error_log
+        // deixa rastro no log do PHP em vez da falha ficar invisível pra sempre.
+        error_log('bot_lojas: ' . $e->getMessage());
         return [];
     }
 }
@@ -105,6 +111,7 @@ function bot_usuarios_loja(int $entities_id): array {
         }
         return $usuarios;
     } catch (\Throwable $e) {
+        error_log('bot_usuarios_loja(' . $entities_id . '): ' . $e->getMessage());
         return [];
     }
 }
@@ -124,6 +131,7 @@ function bot_entidade_nome(int $entities_id): string {
         $apelido = apelido_entidade((string) $r['completename']);
         return $apelido !== $r['completename'] ? $apelido : (string) $r['name'];
     } catch (\Throwable $e) {
+        error_log('bot_entidade_nome(' . $entities_id . '): ' . $e->getMessage());
         return 'Entidade #' . $entities_id;
     }
 }
@@ -137,6 +145,7 @@ function bot_perfil_tecnico(int $glpi_user_id): bool {
         $st->execute([$glpi_user_id]);
         return (bool) $st->fetchColumn();
     } catch (\Throwable $e) {
+        error_log('bot_perfil_tecnico(' . $glpi_user_id . '): ' . $e->getMessage());
         // Fail-safe: em erro de banco, assume técnico (lado mais seguro) —
         // isso força o picker completo de loja/usuário em vez do atalho de
         // confirmação, que não deve ser oferecido a quem pode ser técnico.

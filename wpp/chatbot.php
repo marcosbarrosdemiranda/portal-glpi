@@ -408,13 +408,16 @@ function wpp_chatbot_sweep_timeouts(): void {
     $st->execute([$timeoutMin]);
     foreach ($st->fetchAll(PDO::FETCH_ASSOC) as $row) {
         $telefone = $row['telefone'];
-        // Quem ainda está no menu nunca respondeu nada de verdade — mandou
-        // "oi" (ou o webhook criou a conversa por outro gatilho) e nunca
-        // escolheu 1/2/3. Avisar "tempo esgotado" pra esse número seria
-        // mensagem não solicitada (risco de banimento numa conta real).
-        // Só quem já avançou pro fluxo (escolheu algo no menu) recebe aviso.
-        $passo = (json_decode((string) $row['estado'], true) ?: [])['passo'] ?? '';
-        if ($avisar && $passo !== 'menu') {
+        // Allowlist (não blacklist): só avisa quem está num passo "engajado",
+        // isto é, com vínculo resolvido E uma ação deliberada do usuário.
+        // Quem está no menu nunca respondeu nada de verdade (mandou "oi" e
+        // nunca escolheu 1/2/3) — avisar seria mensagem não solicitada, risco
+        // de banimento numa conta real. O mesmo vale pra qualquer passo
+        // desconhecido/transitório/corrompido (ex: 'indisponivel' que não foi
+        // limpo porque o envio lançou): esses saem em silêncio.
+        $passo    = (json_decode((string) $row['estado'], true) ?: [])['passo'] ?? '';
+        $engajado = in_array($passo, ['confirma_loja', 'escolhe_loja', 'escolhe_usuario', 'titulo', 'descricao', 'confirma_mais'], true);
+        if ($avisar && $engajado) {
             try {
                 wpp_chatbot_enviar($telefone, '⏳ Tempo esgotado. A conversa foi encerrada — mande uma mensagem pra começar de novo.');
             } catch (\Throwable $e) {
