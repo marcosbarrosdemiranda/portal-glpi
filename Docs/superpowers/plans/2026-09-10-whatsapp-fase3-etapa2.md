@@ -576,7 +576,12 @@ Criar `wpp/tests/test_chatbot_fsm.php`:
 require_once __DIR__ . '/../chatbot.php';
 global $pdo;
 
-$tel = 'TESTE_FSM_' . bin2hex(random_bytes(4));
+// Telefone só com dígitos, curto: cabe em VARCHAR(20) mesmo com sufixos, e
+// não quebra wpp_chatbot_resolve_vinculo() (que normaliza a busca pra só
+// dígitos via wpp_norm_telefone — um fixture com letras hex não bateria
+// com o valor cru gravado em glpi_users.mobile). Mesmo precedente já
+// aplicado no fix da Task 1 e na Task 3 (ver os reports delas).
+$tel = (string) random_int(2000000, 2999999);
 
 // --- fakes: nunca tocam rede ---
 $GLOBALS['__wpp_fake_send'] = [];
@@ -601,7 +606,7 @@ $userId = (int) $pdo->lastInsertId();
 
 try {
     // --- número NÃO vinculado: 1 mensagem, sem estado preso ---
-    $telNaoVinc = $tel . '_nv';
+    $telNaoVinc = $tel . '9'; // só dígitos também, e não bate com nenhum glpi_users cadastrado
     $GLOBALS['__wpp_fake_send'] = [];
     wpp_chatbot_processar($telNaoVinc, _msg_fsm('oi'));
     t_eq(count($GLOBALS['__wpp_fake_send']), 1, 'nao vinculado: manda exatamente 1 mensagem');
@@ -936,9 +941,10 @@ function evo_send_text(string $destino, string $texto): array {
     return ['ok' => true];
 }
 
-$telVelha   = 'TESTE_TIMEOUT_VELHA_' . bin2hex(random_bytes(3));  // > 30 min: apaga calado
-$telMedia   = 'TESTE_TIMEOUT_MEDIA_' . bin2hex(random_bytes(3));  // entre timeout e 30min: avisa e apaga
-$telViva    = 'TESTE_TIMEOUT_VIVA_'  . bin2hex(random_bytes(3));  // recente: fica
+// Só dígitos, curto (cabe em VARCHAR(20)) — mesmo precedente das Tasks 1/3/5.
+$telVelha   = '30' . random_int(100000, 999999);  // > 30 min: apaga calado
+$telMedia   = '31' . random_int(100000, 999999);  // entre timeout e 30min: avisa e apaga
+$telViva    = '32' . random_int(100000, 999999);  // recente: fica
 
 try {
     wpp_cfg_set('chatbot_timeout_min', '5');
