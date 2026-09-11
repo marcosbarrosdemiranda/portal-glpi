@@ -4,6 +4,7 @@
 // tem seu próprio try/catch — ver Task 5).
 require_once __DIR__ . '/db.php';
 require_once __DIR__ . '/guardrails.php';
+require_once __DIR__ . '/../entidade_alias.php';
 // Propositalmente NÃO faz require de evo_api.php/glpi_bot.php aqui: quem
 // chama este arquivo (wpp/webhook.php em produção, Task 6) é responsável
 // por isso.
@@ -87,7 +88,7 @@ function wpp_chatbot_resolve_vinculo(string $telefone): ?array {
     $st->execute([$tel]);
     $row = $st->fetch();
     if ($row) {
-        return ['glpi_user_id' => (int) $row['glpi_user_id'], 'entities_id' => (int) $row['entities_id'], 'nome' => $row['nome']];
+        return ['glpi_user_id' => (int) $row['glpi_user_id'], 'entities_id' => (int) $row['entities_id'], 'nome' => nome_requerente($row['nome'])];
     }
 
     $st = $pdo->prepare(
@@ -100,7 +101,7 @@ function wpp_chatbot_resolve_vinculo(string $telefone): ?array {
     $st->execute([$tel, $tel]);
     $rows = $st->fetchAll();
     if (count($rows) === 1) {
-        return ['glpi_user_id' => (int) $rows[0]['id'], 'entities_id' => (int) $rows[0]['entities_id'], 'nome' => $rows[0]['nome']];
+        return ['glpi_user_id' => (int) $rows[0]['id'], 'entities_id' => (int) $rows[0]['entities_id'], 'nome' => nome_requerente($rows[0]['nome'])];
     }
 
     return null; // nenhum match ou ambíguo (2+)
@@ -121,6 +122,18 @@ function wpp_chatbot_processar(string $telefone, array $msg): void {
         }
 
         switch ($estado['passo'] ?? '') {
+            case 'menu':
+                wpp_chatbot_passo_menu($telefone, $estado, $texto);
+                break;
+            case 'confirma_loja':
+                wpp_chatbot_passo_confirma_loja($telefone, $estado, $texto);
+                break;
+            case 'escolhe_loja':
+                wpp_chatbot_passo_escolhe_loja($telefone, $estado, $texto);
+                break;
+            case 'escolhe_usuario':
+                wpp_chatbot_passo_escolhe_usuario($telefone, $estado, $texto);
+                break;
             case 'titulo':
                 wpp_chatbot_passo_titulo($telefone, $estado, $texto);
                 break;
@@ -140,20 +153,120 @@ function wpp_chatbot_processar(string $telefone, array $msg): void {
     }
 }
 
-// Primeira mensagem de uma conversa (sem estado salvo ainda).
+// Primeira mensagem de uma conversa (sem estado salvo ainda): sempre
+// começa pelo menu — a resolução de vínculo só acontece quando a pessoa
+// escolhe "1" (ver wpp_chatbot_passo_menu).
 function wpp_chatbot_iniciar(string $telefone, array $msg): void {
-    $vinculo = wpp_chatbot_resolve_vinculo($telefone);
-    if ($vinculo === null) {
-        // Sem próximo passo: abre e fecha a conversa na mesma chamada, só pra
-        // o guardrail de saída liberar esta ÚNICA resposta (número que
-        // acabou de falar tem direito a 1 desfecho, mesmo sem vínculo).
-        wpp_chatbot_estado_set($telefone, ['passo' => 'indisponivel']);
-        wpp_chatbot_enviar($telefone, 'Ainda não consigo identificar seu número para abrir chamado por aqui. Peça pro TI te cadastrar, ou abra pelo portal.');
+    wpp_chatbot_estado_set($telefone, ['passo' => 'menu']);
+    wpp_chatbot_enviar($telefone, "O que você precisa?\n1 – Abrir chamado\n2 – Consultar chamado (em breve)\n3 – Sair");
+}
+
+function wpp_chatbot_passo_menu(string $telefone, array $estado, string $texto): void {
+    switch ($texto) {
+        case '1':
+            $vinculo = wpp_chatbot_resolve_vinculo($telefone);
+            if ($vinculo === null) {
+                // ainda sem pendência implementada — mesma resposta da Etapa 2.
+                // Não entra no picker: só vínculo confirmado chega lá (mantém
+                // a proteção anti-abuso até a pendência existir).
+                wpp_chatbot_enviar($telefone, 'Ainda não consigo identificar seu número para abrir chamado por aqui. Peça pro TI te cadastrar, ou abra pelo portal.');
+                wpp_chatbot_estado_limpar($telefone);
+                return;
+            }
+            if (!bot_perfil_tecnico($vinculo['glpi_user_id'])) {
+                // vínculo tipo loja/departamento: confirma antes de pular
+                $estado = ['passo' => 'confirma_loja', 'vinculo' => $vinculo];
+                wpp_chatbot_estado_set($telefone, $estado);
+                $loja = bot_entidade_nome((int) $vinculo['entities_id']);
+                wpp_chatbot_enviar($telefone, "Quer atendimento pra {$loja}, departamento {$vinculo['nome']}?\n1 – Sim\n2 – Não");
+                return;
+            }
+            // vínculo pessoal/técnico: sempre escolhe loja, nunca pula
+            wpp_chatbot_ir_para_escolha_loja($telefone);
+            break;
+        case '2':
+            wpp_chatbot_enviar($telefone, 'Consulta ainda não está disponível — em breve! Se precisar, digite "1" pra abrir um chamado.');
+            wpp_chatbot_estado_limpar($telefone);
+            break;
+        case '3':
+            wpp_chatbot_enviar($telefone, 'Ok! Se precisar, é só chamar de novo.');
+            wpp_chatbot_estado_limpar($telefone);
+            break;
+        default:
+            wpp_chatbot_enviar($telefone, 'Não entendi. Digite 1, 2 ou 3.');
+    }
+}
+
+function wpp_chatbot_ir_para_escolha_loja(string $telefone): void {
+    $lojas = bot_lojas();
+    if (empty($lojas)) {
+        wpp_chatbot_enviar($telefone, 'Não consegui carregar as lojas agora. Tente de novo em alguns minutos.');
         wpp_chatbot_estado_limpar($telefone);
         return;
     }
-    wpp_chatbot_estado_set($telefone, ['passo' => 'titulo', 'vinculo' => $vinculo, 'descricao' => '']);
-    wpp_chatbot_enviar($telefone, "Abrir chamado para {$vinculo['nome']}. Qual o título?");
+    wpp_chatbot_estado_set($telefone, ['passo' => 'escolhe_loja', 'opcoes' => $lojas]);
+    $msg = "Escolha a loja:\n";
+    foreach ($lojas as $i => $l) {
+        $msg .= ($i + 1) . " – {$l['nome']}\n";
+    }
+    wpp_chatbot_enviar($telefone, trim($msg));
+}
+
+function wpp_chatbot_passo_confirma_loja(string $telefone, array $estado, string $texto): void {
+    switch ($texto) {
+        case '1':
+            $estado['passo']     = 'titulo';
+            $estado['descricao'] = '';
+            wpp_chatbot_estado_set($telefone, $estado);
+            wpp_chatbot_enviar($telefone, "Abrir chamado para {$estado['vinculo']['nome']}. Qual o título?");
+            break;
+        case '2':
+            wpp_chatbot_ir_para_escolha_loja($telefone);
+            break;
+        default:
+            wpp_chatbot_enviar($telefone, 'Digite 1 pra Sim ou 2 pra Não.');
+    }
+}
+
+function wpp_chatbot_passo_escolhe_loja(string $telefone, array $estado, string $texto): void {
+    $idx    = ((int) $texto) - 1;
+    $opcoes = $estado['opcoes'] ?? [];
+    if ($texto === '' || !isset($opcoes[$idx])) {
+        wpp_chatbot_enviar($telefone, 'Escolha inválida. Digite o número da loja.');
+        return;
+    }
+    $loja     = $opcoes[$idx];
+    $usuarios = bot_usuarios_loja((int) $loja['id']);
+    if (empty($usuarios)) {
+        wpp_chatbot_enviar($telefone, 'Essa loja não tem usuário cadastrado no GLPI. Escolha outra loja ou fale com o TI.');
+        return; // continua no mesmo passo — pode escolher outra loja
+    }
+    wpp_chatbot_estado_set($telefone, ['passo' => 'escolhe_usuario', 'entities_id' => (int) $loja['id'], 'opcoes' => $usuarios]);
+    $msg = "Escolha o setor/usuário:\n";
+    foreach ($usuarios as $i => $u) {
+        $msg .= ($i + 1) . " – {$u['nome']}\n";
+    }
+    wpp_chatbot_enviar($telefone, trim($msg));
+}
+
+function wpp_chatbot_passo_escolhe_usuario(string $telefone, array $estado, string $texto): void {
+    $idx    = ((int) $texto) - 1;
+    $opcoes = $estado['opcoes'] ?? [];
+    if ($texto === '' || !isset($opcoes[$idx])) {
+        wpp_chatbot_enviar($telefone, 'Escolha inválida. Digite o número do usuário.');
+        return;
+    }
+    $usuario = $opcoes[$idx];
+    $estado['vinculo'] = [
+        'glpi_user_id' => (int) $usuario['id'],
+        'entities_id'  => (int) $estado['entities_id'],
+        'nome'         => $usuario['nome'],
+    ];
+    $estado['passo']     = 'titulo';
+    $estado['descricao'] = '';
+    unset($estado['opcoes']);
+    wpp_chatbot_estado_set($telefone, $estado);
+    wpp_chatbot_enviar($telefone, "Abrir chamado para {$usuario['nome']}. Qual o título?");
 }
 
 function wpp_chatbot_passo_titulo(string $telefone, array $estado, string $texto): void {
