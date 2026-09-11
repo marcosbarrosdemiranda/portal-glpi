@@ -659,6 +659,8 @@ ARQUIVOS A SINCRONIZAR
   - wpp/glpi_bot.php
   - wpp/chatbot.php
   - wpp/tests/ (arquivos novos: test_glpi_bot_lojas.php, test_chatbot_menu.php)
+  - wpp/tests/test_chatbot_fsm.php (ajustado pra nova navegação do menu)
+  - wpp/tests/test_chatbot_timeout.php (ganhou teste novo da exceção de sweep)
 
 PRE-REQUISITO
 --------------------------------------------------------------------
