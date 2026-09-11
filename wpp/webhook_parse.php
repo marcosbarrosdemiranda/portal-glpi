@@ -3,6 +3,38 @@
 // nunca lança — payload não reconhecido devolve null, quem chama decide o
 // que fazer (webhook.php simplesmente ignora).
 
+// Autenticação do webhook: confere o segredo compartilhado que a Evolution
+// reenvia em todo delivery (header "X-Wpp-Secret", registrado por
+// evo_set_webhook). $recebido é $_SERVER['HTTP_X_WPP_SECRET'] ?? null.
+// Se WPP_WEBHOOK_SECRET não estiver definida (ou estiver vazia), a checagem é
+// PULADA — gap aceito durante o rollout, pra não derrubar tráfego legítimo por
+// causa de um wpp/config.php que o operador ainda não atualizou.
+// hash_equals: comparação em tempo constante, sem vazar o segredo por timing.
+function wpp_webhook_secret_ok(?string $recebido): bool {
+    if (!defined('WPP_WEBHOOK_SECRET') || WPP_WEBHOOK_SECRET === '') {
+        return true;
+    }
+    if (!is_string($recebido)) {
+        return false;
+    }
+    return hash_equals((string) WPP_WEBHOOK_SECRET, $recebido);
+}
+
+// Defesa em profundidade (o gate primário é o segredo acima): o payload da
+// Evolution diz de qual instância veio o evento. Se vier e não for a nossa,
+// descarta. Se não vier (versões da Evolution que não mandam o campo), não
+// bloqueia — melhor aceitar do que cortar tráfego real por diferença de versão.
+function wpp_evento_da_instancia(array $payload): bool {
+    $inst = $payload['instance'] ?? null;
+    if (!is_string($inst) || $inst === '') {
+        return true;
+    }
+    if (!defined('EVO_INSTANCE')) {
+        return true;
+    }
+    return $inst === EVO_INSTANCE;
+}
+
 // Normaliza o payload de um evento MESSAGES_UPSERT pro formato que
 // wpp_origem_permitida() e o chatbot esperam. null se não reconhecer.
 function wpp_extrair_msg(array $payload): ?array {

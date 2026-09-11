@@ -5,11 +5,20 @@
 // ficam dentro de try/catch próprio e o 200 sai do mesmo jeito. Sem isso,
 // agenda/db.php (new PDO com ERRMODE_EXCEPTION, sem catch) derrubaria o
 // arquivo em fatal error antes do try principal -> HTTP 500 em produção.
+// Endpoint público: autenticado pelo segredo compartilhado WPP_WEBHOOK_SECRET
+// (header X-Wpp-Secret que a Evolution reenvia) + conferência da instância.
 // Fase 3 Etapa 1: só valida a origem e loga. O chatbot em si (FSM, fluxos)
 // entra na Etapa 2 — troca o wpp_log() do bloco "recebido" por
 // wpp_chatbot_processar($msg['remoteJid'], $msg).
 $boot_ok = true;
 try {
+    // require de arquivo inexistente é fatal NÃO capturável — checa antes.
+    // config.php é gitignored: sem ele não há EVO_INSTANCE nem segredo pra
+    // conferir, então o endpoint vira no-op (e ainda assim responde 200).
+    if (!file_exists(__DIR__ . '/config.php')) {
+        throw new \RuntimeException('wpp/config.php não encontrado');
+    }
+    require_once __DIR__ . '/config.php';
     require_once __DIR__ . '/db.php';
     require_once __DIR__ . '/guardrails.php';
     require_once __DIR__ . '/webhook_parse.php';
@@ -26,7 +35,17 @@ if ($boot_ok) {
     $payload = json_decode((string) $raw, true);
 
     try {
-        if (is_array($payload)) {
+        // Autenticação, ANTES de olhar o conteúdo do payload:
+        //  - segredo compartilhado no header X-Wpp-Secret (gate primário);
+        //  - campo "instance" do payload igual a EVO_INSTANCE (defesa em
+        //    profundidade).
+        // Request reprovado é descartado em SILENCIO — nada de status code
+        // diferente, o 200 sai igual pra não sinalizar sucesso/falha a quem
+        // estiver sondando o endpoint.
+        $autenticado = wpp_webhook_secret_ok($_SERVER['HTTP_X_WPP_SECRET'] ?? null)
+            && wpp_evento_da_instancia(is_array($payload) ? $payload : []);
+
+        if ($autenticado && is_array($payload)) {
             $evento = (string) ($payload['event'] ?? '');
 
             if ($evento === 'connection.update' || $evento === 'CONNECTION_UPDATE') {

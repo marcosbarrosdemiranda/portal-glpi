@@ -161,6 +161,11 @@ function evo_set_webhook(bool $ligar): array {
               'enabled'         => true,
               'url'             => WPP_WEBHOOK_URL,
               'webhookByEvents' => false,
+              // Segredo compartilhado: a Evolution reenvia estes headers em
+              // todo delivery; wpp/webhook.php confere com hash_equals.
+              'headers'         => [
+                  'X-Wpp-Secret' => defined('WPP_WEBHOOK_SECRET') ? WPP_WEBHOOK_SECRET : '',
+              ],
               'events'          => ['MESSAGES_UPSERT', 'CONNECTION_UPDATE'],
           ]]
         : ['webhook' => ['enabled' => false]];
