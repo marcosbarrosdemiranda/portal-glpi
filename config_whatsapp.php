@@ -144,6 +144,7 @@ if ($action !== '') {
                 'on_atribuido'           => wpp_cfg_get('on_atribuido', '1'),
                 'on_alertas'             => wpp_cfg_get('on_alertas', '1'),
                 'on_sla'                 => wpp_cfg_get('on_sla', '1'),
+                'on_chatbot'             => wpp_cfg_get('on_chatbot', '0'),
                 'cfg_delay_dm_min'       => (int) wpp_cfg_get('cfg_delay_dm_min', '5'),
                 'cfg_digest_alertas_min' => (int) wpp_cfg_get('cfg_digest_alertas_min', '15'),
                 'cfg_sla_horas'          => (int) wpp_cfg_get('cfg_sla_horas', '4'),
@@ -155,7 +156,7 @@ if ($action !== '') {
             // regrava a config dos gatilhos: POST-only (um GET zeraria tudo silenciosamente)
             if ($_SERVER['REQUEST_METHOD'] !== 'POST') { echo json_encode(['ok' => false, 'erro' => 'método inválido']); exit; }
             // toggles: qualquer valor diferente de '1' vira '0'
-            $toggles = ['on_novo', 'on_atribuido', 'on_alertas', 'on_sla'];
+            $toggles = ['on_novo', 'on_atribuido', 'on_alertas', 'on_sla', 'on_chatbot'];
             // numéricos: inteiros de 1..1440 — cfg_delay_dm_min aceita 0 (DM imediata)
             $numeros = ['cfg_delay_dm_min', 'cfg_digest_alertas_min', 'cfg_sla_horas', 'cfg_sla_prevenc_min', 'cfg_offline_reset_min'];
             foreach ($numeros as $k) {
@@ -404,6 +405,15 @@ $chamados_jid = wpp_cfg_get('grupo_chamados_jid', '');
             <span class="un">min</span>
           </div>
         </div>
+      </div>
+
+      <!-- Chatbot de entrada (Fase 3) -->
+      <div class="gat-bloco">
+        <div class="form-check">
+          <input type="checkbox" class="form-check-input gat-toggle" id="g-on_chatbot">
+          <label class="form-check-label fw-semibold" for="g-on_chatbot">Chatbot de entrada (abrir/consultar chamado pelo WhatsApp)</label>
+        </div>
+        <span class="small text-muted">responde DM de quem escrever pro número do TI</span>
       </div>
 
       <!-- SLA / parado -->
@@ -859,7 +869,7 @@ $chamados_jid = wpp_cfg_get('grupo_chamados_jid', '');
 
   /* ─────────── Gatilhos ─────────── */
   var gatilhosCarregados = false;
-  var GAT_TOGGLES = ['on_novo', 'on_atribuido', 'on_alertas', 'on_sla'];
+  var GAT_TOGGLES = ['on_novo', 'on_atribuido', 'on_alertas', 'on_sla', 'on_chatbot'];
   var GAT_NUMS = ['cfg_delay_dm_min', 'cfg_digest_alertas_min', 'cfg_sla_horas', 'cfg_sla_prevenc_min', 'cfg_offline_reset_min'];
 
   function carregarGatilhos() {
