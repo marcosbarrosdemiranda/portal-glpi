@@ -137,6 +137,9 @@ function bot_perfil_tecnico(int $glpi_user_id): bool {
         $st->execute([$glpi_user_id]);
         return (bool) $st->fetchColumn();
     } catch (\Throwable $e) {
-        return false;
+        // Fail-safe: em erro de banco, assume técnico (lado mais seguro) —
+        // isso força o picker completo de loja/usuário em vez do atalho de
+        // confirmação, que não deve ser oferecido a quem pode ser técnico.
+        return true;
     }
 }

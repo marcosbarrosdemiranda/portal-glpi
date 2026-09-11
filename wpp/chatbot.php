@@ -197,6 +197,11 @@ function wpp_chatbot_passo_menu(string $telefone, array $estado, string $texto):
     }
 }
 
+// Teto simples de opções por mensagem: sem isso uma lista grande vira
+// mensagem ilegível (ou passa do limite de caracteres do WhatsApp). Sem
+// busca por nome — só corta e avisa pra procurar o TI.
+const WPP_CHATBOT_PICKER_MAX = 30;
+
 function wpp_chatbot_ir_para_escolha_loja(string $telefone): void {
     $lojas = bot_lojas();
     if (empty($lojas)) {
@@ -204,10 +209,15 @@ function wpp_chatbot_ir_para_escolha_loja(string $telefone): void {
         wpp_chatbot_estado_limpar($telefone);
         return;
     }
-    wpp_chatbot_estado_set($telefone, ['passo' => 'escolhe_loja', 'opcoes' => $lojas]);
+    $totalLojas = count($lojas);
+    $lojasExibidas = array_slice($lojas, 0, WPP_CHATBOT_PICKER_MAX);
+    wpp_chatbot_estado_set($telefone, ['passo' => 'escolhe_loja', 'opcoes' => $lojasExibidas]);
     $msg = "Escolha a loja:\n";
-    foreach ($lojas as $i => $l) {
+    foreach ($lojasExibidas as $i => $l) {
         $msg .= ($i + 1) . " – {$l['nome']}\n";
+    }
+    if ($totalLojas > WPP_CHATBOT_PICKER_MAX) {
+        $msg .= "Muitas lojas cadastradas — se não encontrar a sua, fale direto com o TI.\n";
     }
     wpp_chatbot_enviar($telefone, trim($msg));
 }
@@ -241,10 +251,15 @@ function wpp_chatbot_passo_escolhe_loja(string $telefone, array $estado, string 
         wpp_chatbot_enviar($telefone, 'Essa loja não tem usuário cadastrado no GLPI. Escolha outra loja ou fale com o TI.');
         return; // continua no mesmo passo — pode escolher outra loja
     }
-    wpp_chatbot_estado_set($telefone, ['passo' => 'escolhe_usuario', 'entities_id' => (int) $loja['id'], 'opcoes' => $usuarios]);
+    $totalUsuarios = count($usuarios);
+    $usuariosExibidos = array_slice($usuarios, 0, WPP_CHATBOT_PICKER_MAX);
+    wpp_chatbot_estado_set($telefone, ['passo' => 'escolhe_usuario', 'entities_id' => (int) $loja['id'], 'opcoes' => $usuariosExibidos]);
     $msg = "Escolha o setor/usuário:\n";
-    foreach ($usuarios as $i => $u) {
+    foreach ($usuariosExibidos as $i => $u) {
         $msg .= ($i + 1) . " – {$u['nome']}\n";
+    }
+    if ($totalUsuarios > WPP_CHATBOT_PICKER_MAX) {
+        $msg .= "Loja com muitos usuários cadastrados — se não encontrar o seu, fale direto com o TI.\n";
     }
     wpp_chatbot_enviar($telefone, trim($msg));
 }
@@ -389,10 +404,17 @@ function wpp_chatbot_sweep_timeouts(): void {
 
     $pdo->exec("DELETE FROM portal_wpp_conversas WHERE updated_at < NOW() - INTERVAL 30 MINUTE");
 
-    $st = $pdo->prepare("SELECT telefone FROM portal_wpp_conversas WHERE updated_at < NOW() - INTERVAL ? MINUTE");
+    $st = $pdo->prepare("SELECT telefone, estado FROM portal_wpp_conversas WHERE updated_at < NOW() - INTERVAL ? MINUTE");
     $st->execute([$timeoutMin]);
-    foreach ($st->fetchAll(PDO::FETCH_COLUMN) as $telefone) {
-        if ($avisar) {
+    foreach ($st->fetchAll(PDO::FETCH_ASSOC) as $row) {
+        $telefone = $row['telefone'];
+        // Quem ainda está no menu nunca respondeu nada de verdade — mandou
+        // "oi" (ou o webhook criou a conversa por outro gatilho) e nunca
+        // escolheu 1/2/3. Avisar "tempo esgotado" pra esse número seria
+        // mensagem não solicitada (risco de banimento numa conta real).
+        // Só quem já avançou pro fluxo (escolheu algo no menu) recebe aviso.
+        $passo = (json_decode((string) $row['estado'], true) ?: [])['passo'] ?? '';
+        if ($avisar && $passo !== 'menu') {
             try {
                 wpp_chatbot_enviar($telefone, '⏳ Tempo esgotado. A conversa foi encerrada — mande uma mensagem pra começar de novo.');
             } catch (\Throwable $e) {

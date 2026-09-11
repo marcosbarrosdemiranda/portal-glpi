@@ -16,6 +16,7 @@ $GLOBALS['__wpp_chatbot_enviar_fake'] = function (string $destino, string $texto
 $telVelha   = '30' . random_int(100000, 999999);  // > 30 min: apaga calado
 $telMedia   = '31' . random_int(100000, 999999);  // entre timeout e 30min: avisa e apaga
 $telViva    = '32' . random_int(100000, 999999);  // recente: fica
+$telMenu    = '36' . random_int(100000, 999999);  // parado no menu: apaga SEM avisar (nunca pediu nada)
 
 $cfgTimeoutOriginal = wpp_cfg_get('chatbot_timeout_min');
 $cfgChatbotOriginal = wpp_cfg_get('on_chatbot');
@@ -27,6 +28,10 @@ try {
     $pdo->prepare("INSERT INTO portal_wpp_conversas (telefone, estado, updated_at) VALUES (?, '{}', NOW() - INTERVAL 40 MINUTE)")->execute([$telVelha]);
     $pdo->prepare("INSERT INTO portal_wpp_conversas (telefone, estado, updated_at) VALUES (?, '{}', NOW() - INTERVAL 10 MINUTE)")->execute([$telMedia]);
     $pdo->prepare("INSERT INTO portal_wpp_conversas (telefone, estado, updated_at) VALUES (?, '{}', NOW())")->execute([$telViva]);
+    // Etapa 3: quem ainda esta no passo 'menu' nunca respondeu nada de
+    // verdade (so recebeu o menu inicial) - avisar "tempo esgotado" seria
+    // mensagem nao solicitada. Mesma janela de tempo do $telMedia (que avisa).
+    $pdo->prepare("INSERT INTO portal_wpp_conversas (telefone, estado, updated_at) VALUES (?, '{\"passo\":\"menu\"}', NOW() - INTERVAL 10 MINUTE)")->execute([$telMenu]);
 
     $GLOBALS['__wpp_fake_send'] = [];
     wpp_chatbot_sweep_timeouts();
@@ -34,11 +39,13 @@ try {
     t_ok(wpp_chatbot_estado_get($telVelha) === null, '> 30min: apagada');
     t_ok(wpp_chatbot_estado_get($telMedia) === null, 'entre timeout e 30min: apagada');
     t_ok(wpp_chatbot_estado_get($telViva) !== null, 'recente: continua');
+    t_ok(wpp_chatbot_estado_get($telMenu) === null, 'parado no menu: tambem apagada');
 
     $destinos = array_column($GLOBALS['__wpp_fake_send'], 'destino');
     t_ok(!in_array($telVelha, $destinos, true), '> 30min: NAO avisa (silencioso)');
     t_ok(in_array($telMedia, $destinos, true), 'entre timeout e 30min: avisa');
     t_ok(!in_array($telViva, $destinos, true), 'recente: nao recebe aviso nenhum');
+    t_ok(!in_array($telMenu, $destinos, true), 'parado no menu: NAO avisa (nunca pediu nada de verdade)');
 
     // --- rollback: com on_chatbot=0 nao avisa ninguem, mas ainda limpa ---
     wpp_cfg_set('on_chatbot', '0');
@@ -56,7 +63,7 @@ try {
     t_ok(wpp_chatbot_estado_get($telViva) !== null, 'timeout_min=0 (clamp): conversa recente sobrevive');
     t_eq(count($GLOBALS['__wpp_fake_send']), 0, 'timeout_min=0 (clamp): ninguem e avisado a toa');
 } finally {
-    $pdo->exec("DELETE FROM portal_wpp_conversas WHERE telefone IN (" . implode(',', array_map([$pdo, 'quote'], [$telVelha, $telMedia, $telViva])) . ")");
+    $pdo->exec("DELETE FROM portal_wpp_conversas WHERE telefone IN (" . implode(',', array_map([$pdo, 'quote'], [$telVelha, $telMedia, $telViva, $telMenu])) . ")");
     if ($cfgTimeoutOriginal !== null) { wpp_cfg_set('chatbot_timeout_min', $cfgTimeoutOriginal); }
     if ($cfgChatbotOriginal !== null) { wpp_cfg_set('on_chatbot', $cfgChatbotOriginal); }
     $GLOBALS['__wpp_chatbot_enviar_fake'] = null;

@@ -56,11 +56,21 @@ try {
     wpp_chatbot_processar($telTecnico, _msg_menu('1'));
     t_eq(wpp_chatbot_estado_get($telTecnico)['passo'], 'escolhe_loja', 'tecnico + "1": vai direto pro picker de loja (nunca confirma_loja)');
 
-    wpp_chatbot_processar($telTecnico, _msg_menu('1')); // escolhe a 1a (unica) loja
+    // Nao assume que o fixture e a 1a opcao alfabetica: descobre a posicao
+    // real na lista (o banco de teste compartilhado pode ter outras
+    // entidades reais que ordenem antes) — mesmo padrao de
+    // test_glpi_bot_lojas.php (Task 1) com in_array/array_search.
+    $lojasDisponiveis = bot_lojas();
+    $idxLoja = array_search($idLoja, array_column($lojasDisponiveis, 'id'), true);
+    t_ok($idxLoja !== false, 'fixture: loja aparece no picker de lojas');
+    wpp_chatbot_processar($telTecnico, _msg_menu((string) ($idxLoja + 1))); // escolhe a loja do fixture pela posicao real
     t_eq(wpp_chatbot_estado_get($telTecnico)['passo'], 'escolhe_usuario', 'apos escolher loja: passo escolhe_usuario');
     t_eq(wpp_chatbot_estado_get($telTecnico)['entities_id'], $idLoja, 'entities_id da loja escolhida foi salvo');
 
-    wpp_chatbot_processar($telTecnico, _msg_menu('1')); // escolhe o 1o (unico) usuario da loja
+    $usuariosDisponiveis = bot_usuarios_loja($idLoja);
+    $idxUsuario = array_search($idUserLoja, array_column($usuariosDisponiveis, 'id'), true);
+    t_ok($idxUsuario !== false, 'fixture: usuario aparece no picker de usuarios da loja');
+    wpp_chatbot_processar($telTecnico, _msg_menu((string) ($idxUsuario + 1))); // escolhe o usuario do fixture pela posicao real
     $estFinal = wpp_chatbot_estado_get($telTecnico);
     t_eq($estFinal['passo'], 'titulo', 'apos escolher usuario: passo titulo');
     t_eq($estFinal['vinculo']['glpi_user_id'], $idUserLoja, 'requerente = usuario escolhido no picker (nao o tecnico)');
