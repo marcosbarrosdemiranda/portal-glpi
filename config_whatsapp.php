@@ -63,6 +63,16 @@ if ($action !== '') {
             if ($_SERVER['REQUEST_METHOD'] !== 'POST') { echo json_encode(['ok' => false, 'erro' => 'método inválido']); exit; }
             echo json_encode(evo_logout());
             break;
+        case 'chatbot_webhook_status':
+            $st = evo_webhook_status();
+            echo json_encode(['ok' => $st['ok'], 'ativo' => $st['ativo'], 'erro' => $st['erro']]);
+            break;
+        case 'chatbot_webhook_toggle':
+            // ação que liga/desliga recepção de mensagem: exige POST
+            if ($_SERVER['REQUEST_METHOD'] !== 'POST') { echo json_encode(['ok' => false, 'erro' => 'método inválido']); exit; }
+            $ligar = (($_POST['ligar'] ?? '') === '1');
+            echo json_encode(evo_set_webhook($ligar));
+            break;
         case 'groups':
             echo json_encode(evo_groups());
             break;
@@ -290,6 +300,14 @@ $chamados_jid = wpp_cfg_get('grupo_chamados_jid', '');
         <p class="small text-muted mb-2">Abra o WhatsApp no celular da linha do TI → Aparelhos conectados → Conectar um aparelho e aponte para o código.</p>
         <img id="qr-img" alt="QR code"/>
       </div>
+
+      <hr class="my-3">
+      <div class="d-flex align-items-center gap-2">
+        <span class="small text-muted">Chatbot de entrada:</span>
+        <span id="chatbot-webhook-estado" class="small fw-semibold text-muted">verificando…</span>
+        <button class="btn btn-outline-primary btn-sm" id="btn-chatbot-webhook-toggle">Ativar/desativar</button>
+      </div>
+      <p class="small text-muted mt-1">Precisa do toggle "Chatbot de entrada" ligado na aba Gatilhos também.</p>
 
       <div class="feedback" id="fb-conexao"></div>
     </div>
@@ -669,6 +687,36 @@ $chamados_jid = wpp_cfg_get('grupo_chamados_jid', '');
       });
   }
 
+  function carregarChatbotWebhook() {
+    fetch(PAGE + '?action=chatbot_webhook_status')
+      .then(function (r) { return r.json(); })
+      .then(function (d) {
+        $('chatbot-webhook-estado').textContent = d.ok ? (d.ativo ? 'ativo' : 'desativado') : 'erro ao verificar';
+      })
+      .catch(function () { $('chatbot-webhook-estado').textContent = 'erro ao verificar'; });
+  }
+
+  function alternarChatbotWebhook() {
+    var btn = $('btn-chatbot-webhook-toggle');
+    var ligarAgora = $('chatbot-webhook-estado').textContent.trim() !== 'ativo';
+    btn.disabled = true;
+    fetch(PAGE + '?action=chatbot_webhook_toggle', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: 'ligar=' + (ligarAgora ? '1' : '0')
+    })
+      .then(function (r) { return r.json(); })
+      .then(function (d) {
+        btn.disabled = false;
+        if (!d.ok) { feedback($('fb-conexao'), 'err', 'Erro: ' + (d.erro || 'falha ao alternar')); return; }
+        carregarChatbotWebhook();
+      })
+      .catch(function (err) {
+        btn.disabled = false;
+        feedback($('fb-conexao'), 'err', 'Erro de conexão: ' + (err.message || err));
+      });
+  }
+
   /* ─────────── Grupos ─────────── */
   function atualizarAvisoGrupos() {
     var aviso = $('aviso-conecte');
@@ -1021,6 +1069,7 @@ $chamados_jid = wpp_cfg_get('grupo_chamados_jid', '');
   /* ─────────── Ligações ─────────── */
   $('btn-conectar').addEventListener('click', conectar);
   $('btn-desconectar').addEventListener('click', desconectar);
+  $('btn-chatbot-webhook-toggle').addEventListener('click', alternarChatbotWebhook);
   $('btn-recarregar').addEventListener('click', carregarGrupos);
   $('btn-salvar').addEventListener('click', salvarGrupos);
   $('btn-puxar-glpi').addEventListener('click', puxarDoGlpi);
@@ -1035,6 +1084,7 @@ $chamados_jid = wpp_cfg_get('grupo_chamados_jid', '');
   });
 
   carregarStatus();
+  carregarChatbotWebhook();
 })();
 </script>
 </body>
