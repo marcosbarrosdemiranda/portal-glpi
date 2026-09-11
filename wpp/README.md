@@ -522,3 +522,78 @@ Evolution: aba Conexao -> "Ativar/desativar" ate mostrar "desativado".
 ====================================================================
  FIM - FASE 3 ETAPA 1
 ====================================================================
+
+
+====================================================================
+ FASE 3 - ETAPA 2 - FLUXO A (ABRIR CHAMADO, NUMERO VINCULADO)
+====================================================================
+
+O QUE FAZ
+--------------------------------------------------------------------
+  * Numero vinculado (aba Vinculos OU telefone cadastrado no GLPI) que
+    manda qualquer mensagem privada recebe: "Abrir chamado para
+    [Nome]. Qual o titulo?" -> titulo -> descricao (com loop
+    "adicionar mais?") -> cria o chamado de verdade no GLPI.
+  * Numero NAO vinculado recebe 1 mensagem ("ainda nao disponivel") e
+    NAO fica com conversa presa - fluxo completo (loja/usuario/
+    pendencia) e Etapa 3.
+  * Worker (a cada passada) encerra conversas paradas ha mais de
+    chatbot_timeout_min (default 5min): avisa se for recente, apaga
+    calado se for > 30min.
+
+ARQUIVOS A SINCRONIZAR
+----
+  - wpp/db.php
+  - wpp/guardrails.php
+  - wpp/chatbot.php (novo)
+  - wpp/glpi_bot.php (novo)
+  - wpp/webhook.php
+  - wpp/worker.php
+  - config_whatsapp.php
+  - wpp/tests/ (arquivos novos)
+
+PRE-REQUISITO
+--------------------------------------------------------------------
+[ ] Etapa 1 em produção (webhook ativo, on_chatbot ligavel).
+[ ] Cadastrar pelo menos 1 numero na aba Vinculos (ou confirmar que
+    algum usuario GLPI ja tem celular/telefone cadastrado) - senao
+    nao tem como testar o Fluxo A de ponta a ponta.
+
+DEPLOY
+--------------------------------------------------------------------
+[ ] 1. scp dos arquivos listados acima.
+[ ] 2. Testes: docker exec glpi-web php /var/www/html/glpi2/portal-glpi/wpp/tests/run.php
+       Espera-se "0 falhas" (ignorando falhas pre-existentes de outras
+       features nao relacionadas a esta etapa, se houver).
+[ ] 3. Aba Vinculos -> cadastra o numero de teste.
+[ ] 4. on_chatbot ja deve estar ligado (Etapa 1). Se nao, aba
+       Gatilhos -> liga.
+
+VERIFICACAO FIM-A-FIM
+--------------------------------------------------------------------
+[ ] 1. Do numero cadastrado na aba Vinculos, manda "oi" pro WhatsApp
+       do TI.
+[ ] 2. Deve receber: "Abrir chamado para [Nome]. Qual o titulo?"
+[ ] 3. Responde com um titulo de teste.
+[ ] 4. Deve receber: "Obrigado! Agora descreva o problema."
+[ ] 5. Responde com uma descricao de teste.
+[ ] 6. Deve receber o menu "Adicionar mais? 1/2/3".
+[ ] 7. Responde "2".
+[ ] 8. Deve receber "Chamado #N criado." - confere no GLPI que o
+       chamado existe, com o titulo/descricao certos, requerente =
+       o usuario vinculado.
+[ ] 9. De um numero QUALQUER (nao vinculado), manda "oi" -> deve
+       receber a mensagem de "ainda nao disponivel" e NADA mais (sem
+       ficar esperando resposta).
+[ ] 10. Comeca um fluxo de novo e espera mais de chatbot_timeout_min
+        minutos sem responder -> deve receber "Tempo esgotado".
+
+ROLLBACK
+--------------------------------------------------------------------
+Aba Gatilhos -> desliga "Chatbot de entrada". O webhook continua
+recebendo e logando (comportamento da Etapa 1), so para de processar
+qualquer fluxo.
+
+====================================================================
+ FIM - FASE 3 ETAPA 2
+====================================================================
