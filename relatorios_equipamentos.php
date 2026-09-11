@@ -13,7 +13,7 @@ if (($_SESSION['perfil'] ?? '') === 'self-service') { echo json_encode([]); exit
 header('Content-Type: application/json');
 require_once __DIR__ . '/agenda/db.php';
 require_once __DIR__ . '/entidade_alias.php';
-require_once __DIR__ . '/inventario_lib.php';   // INV_PC_CATS
+require_once __DIR__ . '/inventario_lib.php';   // inv_pc_cats()
 
 $dt_ini      = ($_GET['dt_ini'] ?? date('Y-m-01')) . ' 00:00:00';
 $dt_fim      = ($_GET['dt_fim'] ?? date('Y-m-d'))  . ' 23:59:59';
@@ -66,7 +66,7 @@ try {
             WHERE 1=1 $entCond";
     $st = $pdo->prepare($sql); $st->execute($bind);
     foreach ($st as $r) {
-        $r['categoria'] = INV_PC_CATS[$r['cat_slug']] ?? 'PC Retaguarda';
+        $r['categoria'] = inv_pc_cats()[$r['cat_slug']] ?? 'PC Retaguarda';
         inv_rel_acumula($equip, $r, $STATUS);
     }
 

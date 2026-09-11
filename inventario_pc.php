@@ -494,10 +494,10 @@ $qsStale = $stale_filtro ? '&stale=1' : '';
           </td>
           <td>
             <?php if ($view === 'baixados'): ?>
-              <?= $H(INV_PC_CATS[$cat] ?? $cat) ?>
+              <?= $H(inv_pc_cats()[$cat] ?? $cat) ?>
             <?php else: ?>
               <select class="cat" onchange="mudarCat(<?= (int)$a['id'] ?>, this.value)">
-                <?php foreach (INV_PC_CATS as $cv => $cl): ?>
+                <?php foreach (inv_pc_cats() as $cv => $cl): ?>
                   <option value="<?= $cv ?>" <?= $cat === $cv ? 'selected' : '' ?>><?= $H($cl) ?></option>
                 <?php endforeach; ?>
               </select>
@@ -632,7 +632,7 @@ $qsStale = $stale_filtro ? '&stale=1' : '';
       </div>
       <div class="fld"><label>Categoria</label>
         <select id="f-categoria">
-          <?php foreach (INV_PC_CATS as $cv => $cl): ?><option value="<?= $cv ?>" <?= $slug === $cv ? 'selected' : '' ?>><?= $H($cl) ?></option><?php endforeach; ?>
+          <?php foreach (inv_pc_cats() as $cv => $cl): ?><option value="<?= $cv ?>" <?= $slug === $cv ? 'selected' : '' ?>><?= $H($cl) ?></option><?php endforeach; ?>
         </select>
       </div>
       <?php if ($slug === 'maquinas-virtuais'): ?>
