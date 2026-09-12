@@ -175,6 +175,25 @@ function inv_bootstrap(PDO $pdo): void {
         }
     }
 
+    // Garante os cards de computadores (executado sempre, mesmo com a semente geral já rodada)
+    $temCard = $pdo->prepare("SELECT COUNT(*) FROM portal_inv_cards WHERE slug = ?");
+    $insC2   = $pdo->prepare("INSERT INTO portal_inv_cards (slug,titulo,descricao,icone,cor,fonte,ordem) VALUES (?,?,?,?,?,'computer',?)");
+    $upC2    = $pdo->prepare("UPDATE portal_inv_cards SET titulo=?, descricao=?, icone=?, cor=?, fonte='computer', ordem=? WHERE slug=?");
+    foreach ([
+        ['pcs-retaguarda',  'PCs Retaguarda',    'Computadores de escritório e back-office', 'bi-pc-display', '#0097a7', 5],
+        ['notebooks',       'Notebooks',         'Notebooks e ultrabooks',                   'bi-laptop',     '#00838f', 6],
+        ['pdvs',            'PDVs',              'Frentes de caixa / pontos de venda',       'bi-cart-check', '#00796b', 7],
+        ['radios-pc',       'Rádios',            'Rádios comunicadores e HTs',               'bi-walkie-talkie', '#0277bd', 9],
+        ['maquinas-virtuais','Servidores / VMs', 'Servidores físicos e máquinas virtuais',   'bi-hdd-stack',  '#5e35b1', 10],
+    ] as [$sl,$ti,$de,$ic,$co,$or]) {
+        $temCard->execute([$sl]);
+        if ($temCard->fetchColumn()) {
+            $upC2->execute([$ti, $de, $ic, $co, $or, $sl]);
+        } else {
+            $insC2->execute([$sl,$ti,$de,$ic,$co,$or]);
+        }
+    }
+
     // Semente inicial geral (só roda se ainda não há nenhum card)
     if ((int)$pdo->query("SELECT COUNT(*) FROM portal_inv_cards")->fetchColumn() > 3) return;
 
@@ -204,25 +223,6 @@ function inv_bootstrap(PDO $pdo): void {
         $o = 10;
         foreach ($subs as $s) { $insSub->execute([$cardId,$s,$o]); $o += 10; }
         $ordem += 10;
-    }
-
-    // Garante os cards de computadores (executado sempre, não só na semente inicial)
-    $temCard = $pdo->prepare("SELECT COUNT(*) FROM portal_inv_cards WHERE slug = ?");
-    $insC2   = $pdo->prepare("INSERT INTO portal_inv_cards (slug,titulo,descricao,icone,cor,fonte,ordem) VALUES (?,?,?,?,?,'computer',?)");
-    $upC2    = $pdo->prepare("UPDATE portal_inv_cards SET titulo=?, descricao=?, icone=?, cor=?, fonte='computer', ordem=? WHERE slug=?");
-    foreach ([
-        ['pcs-retaguarda',  'PCs Retaguarda',    'Computadores de escritório e back-office', 'bi-pc-display', '#0097a7', 5],
-        ['notebooks',       'Notebooks',         'Notebooks e ultrabooks',                   'bi-laptop',     '#00838f', 6],
-        ['pdvs',            'PDVs',              'Frentes de caixa / pontos de venda',       'bi-cart-check', '#00796b', 7],
-        ['radios-pc',       'Rádios',            'Rádios comunicadores e HTs',               'bi-walkie-talkie', '#0277bd', 9],
-        ['maquinas-virtuais','Servidores / VMs', 'Servidores físicos e máquinas virtuais',   'bi-hdd-stack',  '#5e35b1', 10],
-    ] as [$sl,$ti,$de,$ic,$co,$or]) {
-        $temCard->execute([$sl]);
-        if ($temCard->fetchColumn()) {
-            $upC2->execute([$ti, $de, $ic, $co, $or, $sl]);
-        } else {
-            $insC2->execute([$sl,$ti,$de,$ic,$co,$or]);
-        }
     }
 }
 
