@@ -127,6 +127,7 @@ $podeConfig = !isset($_SESSION['portal_perfil_cards']) || $_SESSION['portal_perf
   <div style="display:flex;gap:.5rem;align-items:center">
     <?php if ($podeConfig): ?>
       <a href="alertas_config.php"><i class="bi bi-gear me-1"></i>Configurar alertas</a>
+      <a href="backup_maquinas.php"><i class="bi bi-hdd-network me-1"></i>Máquinas de backup</a>
     <?php endif; ?>
     <button type="button" id="btnAtualizar" class="btn-refresh" onclick="atualizarAlertas(true)">
       <i class="bi bi-arrow-clockwise"></i> Atualizar
