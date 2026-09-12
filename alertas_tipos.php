@@ -15,6 +15,7 @@ require_once __DIR__ . '/alertas_lib.php';
 require_once __DIR__ . '/entidade_alias.php';
 require_once __DIR__ . '/agenda/db.php';
 require_once __DIR__ . '/backup_lib.php';
+require_once __DIR__ . '/dude_lib.php';
 
 // cria a tabela ao incluir (padrão do portal)
 (function () {
@@ -88,6 +89,53 @@ function alertas_catalogo(): array
             'check'  => 'alerta_check_backup_silencio',
             'render' => 'alerta_render_backup_silencio',
             'icone'  => 'bi-wifi-off',
+            'cor'    => 'warning',
+        ],
+        'dude_device' => [
+            'nome'      => 'Sem comunicação (IPs/dispositivos)',
+            'descricao' => 'Dispositivo monitorado pelo The Dude está offline (sem resposta de ping).',
+            'params'    => [],
+            'check'  => 'alerta_check_dude_device',
+            'render' => 'alerta_render_dude',
+            'icone'  => 'bi-hdd-network',
+            'cor'    => 'danger',
+        ],
+        'dude_link' => [
+            'nome'      => 'Enlace offline (VPN/Internet)',
+            'descricao' => 'Link de VPN ou de internet monitorado pelo The Dude caiu.',
+            'params'    => [],
+            'check'  => 'alerta_check_dude_link',
+            'render' => 'alerta_render_dude',
+            'icone'  => 'bi-diagram-3',
+            'cor'    => 'danger',
+        ],
+        'dude_latencia' => [
+            'nome'      => 'Latência alta entre links',
+            'descricao' => 'Latência acima do limiar configurado no The Dude.',
+            'params'    => [],
+            'check'  => 'alerta_check_dude_latencia',
+            'render' => 'alerta_render_dude',
+            'icone'  => 'bi-speedometer2',
+            'cor'    => 'warning',
+        ],
+        'dude_service' => [
+            'nome'      => 'Serviço offline (The Dude)',
+            'descricao' => 'Serviço monitorado pelo The Dude está fora do ar.',
+            'params'    => [],
+            'check'  => 'alerta_check_dude_service',
+            'render' => 'alerta_render_dude',
+            'icone'  => 'bi-hdd-stack',
+            'cor'    => 'danger',
+        ],
+        'dude_sem_contato' => [
+            'nome'      => 'The Dude não está notificando',
+            'descricao' => 'Nenhuma notificação recebida do The Dude há X horas — pode ser o Dude ou a rede até ele.',
+            'params'    => [
+                'horas' => ['label' => 'Horas sem notificação', 'default' => 6, 'min' => 1, 'max' => 168],
+            ],
+            'check'  => 'alerta_check_dude_sem_contato',
+            'render' => 'alerta_render_dude',
+            'icone'  => 'bi-plug',
             'cor'    => 'warning',
         ],
     ];
