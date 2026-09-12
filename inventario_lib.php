@@ -147,7 +147,8 @@ function inv_bootstrap(PDO $pdo): void {
         ['pcs-retaguarda',  'PCs Retaguarda',    'Computadores de escritório e back-office', 'bi-pc-display', '#0097a7', 5],
         ['notebooks',       'Notebooks',         'Notebooks e ultrabooks',                   'bi-laptop',     '#00838f', 6],
         ['pdvs',            'PDVs',              'Frentes de caixa / pontos de venda',       'bi-cart-check', '#00796b', 7],
-        ['maquinas-virtuais','Servidores / VMs', 'Servidores físicos e máquinas virtuais',   'bi-hdd-stack',  '#5e35b1', 8],
+        ['radios',          'Rádios',            'Rádios comunicadores e HTs',               'bi-walkie-talkie', '#0277bd', 9],
+        ['maquinas-virtuais','Servidores / VMs', 'Servidores físicos e máquinas virtuais',   'bi-hdd-stack',  '#5e35b1', 10],
     ] as [$sl,$ti,$de,$ic,$co,$or]) {
         $temCard->execute([$sl]);
         if (!$temCard->fetchColumn()) $insC2->execute([$sl,$ti,$de,$ic,$co,$or]);
@@ -428,6 +429,7 @@ function inv_pc_cats(): array {
         'pcs-retaguarda'    => 'PC Retaguarda',
         'notebooks'         => 'Notebook',
         'pdvs'              => 'PDV',
+        'radios'            => 'Rádios',
         'maquinas-virtuais' => 'Servidor / VM',
     ];
     try {
@@ -436,7 +438,7 @@ function inv_pc_cats(): array {
             $cats[$r['slug']] = $r['titulo'];
         }
     } catch (\Throwable $e) {
-        // mantém só as 4 padrão se a tabela falhar por algum motivo
+        // mantém só as 5 padrão se a tabela falhar por algum motivo
     }
     $cats['__ignorado__'] = 'Ignorado (não é PC)';
     return $cats;
