@@ -158,29 +158,45 @@ function alerta_check_backup_erro(PDO $pdo, array $p): array
 function alerta_check_backup_silencio(PDO $pdo, array $p): array
 {
     $horasPadrao = (int) ($p['horas'] ?? 26);
-    $st = $pdo->prepare("
-        SELECT id, nome, ultimo_contato, ultima_politica
-        FROM portal_backup_maquinas
-        WHERE ativo = 1
-          AND (ultimo_contato IS NULL
-               OR ultimo_contato <= NOW() - INTERVAL COALESCE(silencio_horas, ?) HOUR)
-        ORDER BY nome
-    ");
-    $st->execute([$horasPadrao]);
-
     $out = [];
-    foreach ($st->fetchAll(PDO::FETCH_ASSOC) as $m) {
-        if ($m['ultimo_contato'] === null) {
-            $detalhe = 'nunca contatou';
-        } else {
-            $horas = max(0, (int) floor((time() - strtotime($m['ultimo_contato'])) / 3600));
-            $detalhe = 'sem contato há ' . $horas . 'h (última: ' . ($m['ultima_politica'] ?: '?') . ')';
-        }
+
+    // 1) máquina ativa que nunca teve NENHUMA execução registrada (ainda não
+    //    dá pra saber quais políticas ela tem, então o alerta é da máquina).
+    $st1 = $pdo->query("
+        SELECT m.id, m.nome
+        FROM portal_backup_maquinas m
+        WHERE m.ativo = 1
+          AND NOT EXISTS (SELECT 1 FROM portal_backup_execucoes e WHERE e.maquina_id = m.id)
+        ORDER BY m.nome
+    ");
+    foreach ($st1->fetchAll(PDO::FETCH_ASSOC) as $m) {
         $out[] = [
             'chave'   => 'backup_silencio:' . $m['id'],
             'titulo'  => (string) $m['nome'],
             'loja'    => '',
-            'detalhe' => $detalhe,
+            'detalhe' => 'nunca contatou',
+        ];
+    }
+
+    // 2) por (máquina, política): uma política que parou de reportar não pode
+    //    ficar escondida por outra política da mesma máquina que continua ok
+    //    (um servidor de backup normalmente roda várias políticas).
+    $st2 = $pdo->prepare("
+        SELECT e.maquina_id, e.politica, MAX(e.recebido_em) AS ultimo, m.nome, m.silencio_horas
+        FROM portal_backup_execucoes e
+        JOIN portal_backup_maquinas m ON m.id = e.maquina_id AND m.ativo = 1
+        GROUP BY e.maquina_id, e.politica, m.nome, m.silencio_horas
+        HAVING ultimo <= NOW() - INTERVAL COALESCE(m.silencio_horas, ?) HOUR
+        ORDER BY m.nome, e.politica
+    ");
+    $st2->execute([$horasPadrao]);
+    foreach ($st2->fetchAll(PDO::FETCH_ASSOC) as $r) {
+        $horas = max(0, (int) floor((time() - strtotime($r['ultimo'])) / 3600));
+        $out[] = [
+            'chave'   => 'backup_silencio:' . $r['maquina_id'] . ':' . $r['politica'],
+            'titulo'  => (string) $r['nome'],
+            'loja'    => '',
+            'detalhe' => $r['politica'] . ': sem contato há ' . $horas . 'h',
         ];
     }
     return $out;

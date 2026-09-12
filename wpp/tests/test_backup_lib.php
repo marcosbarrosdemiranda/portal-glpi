@@ -31,7 +31,7 @@ t_ok(backup_token_novo() !== backup_token_novo(), 'token: não repete');
 if (isset($pdo) && $pdo instanceof PDO) {
     $NOME = '__teste_backup_maquina__';
     $limpa = function () use ($pdo, $NOME) {
-        $pdo->prepare("DELETE FROM portal_backup_maquinas WHERE nome = ?")->execute([$NOME]);
+        $pdo->prepare("DELETE FROM portal_backup_maquinas WHERE nome LIKE ?")->execute([$NOME . '%']);
     };
 
     try {
@@ -72,12 +72,27 @@ if (isset($pdo) && $pdo instanceof PDO) {
         $oc2 = alerta_check_backup_erro($pdo, []);
         t_ok(!array_filter($oc2, fn($o) => $o['chave'] === 'backup_erro:' . $m['id'] . ':Política Teste'), 'check_backup_erro: some depois de um success');
 
-        // --- alerta_check_backup_silencio: horas curtas pega a máquina de teste ---
+        // --- alerta_check_backup_silencio: por política, limiar folgado x apertado ---
+        $chaveSilencioTeste = 'backup_silencio:' . $m['id'] . ':Política Teste';
         $ocS = alerta_check_backup_silencio($pdo, ['horas' => 100000]);
-        t_ok(!array_filter($ocS, fn($o) => $o['chave'] === 'backup_silencio:' . $m['id']), 'check_backup_silencio: contato recente não aparece com limiar folgado');
+        t_ok(!array_filter($ocS, fn($o) => $o['chave'] === $chaveSilencioTeste), 'check_backup_silencio: contato recente não aparece com limiar folgado');
 
         $ocS2 = alerta_check_backup_silencio($pdo, ['horas' => 0]);
-        t_ok((bool) array_filter($ocS2, fn($o) => $o['chave'] === 'backup_silencio:' . $m['id']), 'check_backup_silencio: limiar 0h pega qualquer contato');
+        t_ok((bool) array_filter($ocS2, fn($o) => $o['chave'] === $chaveSilencioTeste), 'check_backup_silencio: limiar 0h pega qualquer contato');
+
+        // --- máquina sem NENHUMA execução ainda -> "nunca contatou" (nível máquina) ---
+        $m2 = backup_maquina_criar($pdo, $NOME . '_nunca', null);
+        $ocNunca = alerta_check_backup_silencio($pdo, ['horas' => 999999]);
+        t_ok((bool) array_filter($ocNunca, fn($o) => $o['chave'] === 'backup_silencio:' . $m2['id']), 'check_backup_silencio: máquina sem execução alguma aparece como "nunca contatou" mesmo com limiar folgado');
+        backup_maquina_excluir($pdo, (int) $m2['id']);
+
+        // --- multi-política: uma política parada não pode ficar escondida por outra ativa na mesma máquina ---
+        backup_registrar_execucao($pdo, (int) $m['id'], 'Política A', 'success', "Política: Política A\nStatus: success");
+        $pdo->prepare("UPDATE portal_backup_execucoes SET recebido_em = NOW() - INTERVAL 100 HOUR WHERE maquina_id = ? AND politica = 'Política A'")->execute([$m['id']]);
+        backup_registrar_execucao($pdo, (int) $m['id'], 'Política B', 'success', "Política: Política B\nStatus: success"); // recente -> ultimo_contato da máquina fica fresco
+        $ocMulti = alerta_check_backup_silencio($pdo, ['horas' => 26]);
+        t_ok((bool) array_filter($ocMulti, fn($o) => $o['chave'] === 'backup_silencio:' . $m['id'] . ':Política A'), 'check_backup_silencio: política A silenciosa aparece mesmo com política B recente na mesma máquina');
+        t_ok(!array_filter($ocMulti, fn($o) => $o['chave'] === 'backup_silencio:' . $m['id'] . ':Política B'), 'check_backup_silencio: política B (recente) não aparece');
 
         // --- renders não lançam e têm o formato esperado ---
         t_ok(strpos(alerta_render_backup_erro([]), 'vazio') !== false, 'render_backup_erro([]) tem a msg vazia');
