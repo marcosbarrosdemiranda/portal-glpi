@@ -1,6 +1,6 @@
 <?php
 // Testa wpp_semear_baseline(): marca o estado atual como "já notificado"
-// SEM ENVIAR nada, e grava snapshot de alertas + watermark de chamados novos.
+// SEM ENVIAR nada, popula portal_alertas_ocorrencias + watermark de chamados novos.
 // Requer banco (glpi2) — roda no deploy via `docker exec glpi-web php .../wpp/tests/run.php`.
 
 require_once __DIR__ . '/../db.php';
@@ -61,10 +61,15 @@ $nAtrib = (int) $pdo->query(
 )->fetchColumn();
 t_ok($nAtrib === $atribAtuais, "baseline marcou as $atribAtuais atribuições atuais");
 
-t_ok(wpp_cfg_get('wpp_snap_alertas') !== null, 'baseline gravou snapshot de alertas (wpp_snap_alertas)');
-$snap = json_decode((string) wpp_cfg_get('wpp_snap_alertas'), true);
-t_ok(is_array($snap) && array_key_exists('sem_inventario', $snap) && array_key_exists('disco_cheio', $snap),
-    'snapshot de alertas tem as duas chaves esperadas');
+// baseline popula portal_alertas_ocorrencias pros tipos do catálogo, sem enviar.
+require_once __DIR__ . '/../../alertas_tipos.php';
+$ocInv = 0;
+foreach (alertas_catalogo() as $slug => $def) {
+    try { $ocInv += count(call_user_func($def['check'], $pdo, alertas_config_do_tipo($pdo, $slug)['params'])); }
+    catch (\Throwable $e) {}
+}
+$ocTab = (int) $pdo->query("SELECT COUNT(*) FROM portal_alertas_ocorrencias")->fetchColumn();
+t_ok($ocTab >= $ocInv && $ocInv >= 0, "baseline semeou portal_alertas_ocorrencias ($ocTab linhas, esperado >= $ocInv do catálogo agora)");
 
 t_ok((bool) preg_match('/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/', (string) wpp_cfg_get('wm_novo')),
     'baseline gravou watermark wm_novo (datetime do banco)');

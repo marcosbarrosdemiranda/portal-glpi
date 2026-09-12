@@ -27,6 +27,17 @@ require_once __DIR__ . '/agenda/db.php';
         abre_chamado TINYINT(1) NOT NULL DEFAULT 0,
         atualizado_em TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
+
+    // estado das ocorrências de alerta (o motor de notificação da Etapa 2 usa
+    // isto pra decidir 🔔 nova / ✅ resolvida / ⏰ lembrete). chave = identificador
+    // estável da ocorrência dentro do tipo. VARCHAR(191): cabe no índice utf8mb4.
+    $pdo->exec("CREATE TABLE IF NOT EXISTS portal_alertas_ocorrencias (
+        tipo VARCHAR(40) NOT NULL,
+        chave VARCHAR(191) NOT NULL,
+        primeiro_visto DATETIME NOT NULL,
+        ultimo_lembrete DATETIME NULL,
+        PRIMARY KEY (tipo, chave)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
 })();
 
 function alertas_catalogo(): array
@@ -98,7 +109,7 @@ function alertas_config_do_tipo(PDO $pdo, string $tipo): array
     ];
 }
 
-/** @return array ocorrências: cada uma ['chave','titulo','loja','cat','dias','nunca'] */
+/** @return array ocorrências: cada uma ['chave','titulo','loja','cat','dias','nunca','quando','detalhe'] */
 function alerta_check_sem_inventario(PDO $pdo, array $p): array
 {
     $rows = alertas_sem_inventario($pdo, (int) ($p['dias'] ?? 7));
@@ -106,32 +117,36 @@ function alerta_check_sem_inventario(PDO $pdo, array $p): array
     foreach ($rows as $m) {
         $nunca = empty($m['last_inventory_update']) || $m['last_inventory_update'][0] === '0';
         $out[] = [
-            'chave'  => 'sem_inv:' . ($m['name'] ?? ''),
-            'titulo' => $m['name'] ?: '(sem nome)',
-            'loja'   => apelido_entidade($m['loja'] ?? '') ?: 'Sem loja',
-            'cat'    => (string) ($m['cat'] ?? ''),
-            'nunca'  => $nunca,
-            'dias'   => $nunca ? null : (int) floor((time() - strtotime($m['last_inventory_update'])) / 86400),
-            'quando' => $nunca ? '' : substr((string) $m['last_inventory_update'], 0, 10),
+            'chave'   => 'sem_inv:' . ($m['name'] ?? ''),
+            'titulo'  => $m['name'] ?: '(sem nome)',
+            'loja'    => apelido_entidade($m['loja'] ?? '') ?: 'Sem loja',
+            'cat'     => (string) ($m['cat'] ?? ''),
+            'nunca'   => $nunca,
+            'dias'    => $nunca ? null : (int) floor((time() - strtotime($m['last_inventory_update'])) / 86400),
+            'quando'  => $nunca ? '' : substr((string) $m['last_inventory_update'], 0, 10),
+            'detalhe' => $nunca
+                ? 'nunca reportou inventário'
+                : ((int) floor((time() - strtotime($m['last_inventory_update'])) / 86400)) . ' dias sem reportar',
         ];
     }
     return $out;
 }
 
-/** @return array ocorrências: cada uma ['chave','titulo','loja','pct','usado','total','volume'] */
+/** @return array ocorrências: cada uma ['chave','titulo','loja','pct','usado','total','volume','detalhe'] */
 function alerta_check_disco_cheio(PDO $pdo, array $p): array
 {
     $rows = alertas_disco_cheio($pdo, (int) ($p['pct'] ?? 90));
     $out = [];
     foreach ($rows as $d) {
         $out[] = [
-            'chave'  => 'disco:' . ($d['name'] ?? '') . '|' . ($d['volume'] ?? ''),
-            'titulo' => (string) ($d['name'] ?? ''),
-            'loja'   => apelido_entidade($d['loja'] ?? '') ?: '—',
-            'pct'    => (int) $d['pct'],
-            'usado'  => (float) $d['totalsize'] - (float) $d['freesize'],
-            'total'  => (float) $d['totalsize'],
-            'volume' => (string) ($d['volume'] ?? ''),
+            'chave'   => 'disco:' . ($d['name'] ?? '') . '|' . ($d['volume'] ?? ''),
+            'titulo'  => (string) ($d['name'] ?? ''),
+            'loja'    => apelido_entidade($d['loja'] ?? '') ?: '—',
+            'pct'     => (int) $d['pct'],
+            'usado'   => (float) $d['totalsize'] - (float) $d['freesize'],
+            'total'   => (float) $d['totalsize'],
+            'volume'  => (string) ($d['volume'] ?? ''),
+            'detalhe' => (string) ($d['volume'] ?? '?') . ' · ' . (int) $d['pct'] . '% cheio',
         ];
     }
     return $out;

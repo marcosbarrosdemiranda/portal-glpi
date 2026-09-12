@@ -142,138 +142,140 @@ t_eq(
 );
 
 // ---------------------------------------------------------------------------
-// alertas_novos() — diff de snapshots (puro, sem banco)
+// gat_alerta_titulo_da_chave() + builders de mensagem de alerta (puros)
 // ---------------------------------------------------------------------------
-$anteriorSnap = [
-    'sem_inventario' => [['name' => 'PC-A'], ['name' => 'PC-B']],
-    'disco_cheio'    => [['name' => 'PC-X', 'volume' => 'C:']],
-];
-$atualSnap = [
-    'sem_inventario' => [['name' => 'PC-B'], ['name' => 'PC-C']],   // PC-C novo, PC-A saiu
-    'disco_cheio'    => [
-        ['name' => 'PC-X', 'volume' => 'C:'],   // já existia
-        ['name' => 'PC-X', 'volume' => 'D:'],   // novo (mesma máquina, outro volume)
-    ],
-];
-$diff = alertas_novos($atualSnap, $anteriorSnap);
-t_eq(array_column($diff['inv'], 'name'), ['PC-C'], 'alertas_novos: só PC-C é novo no inventário');
-t_eq(count($diff['disco']), 1, 'alertas_novos: só um volume novo em disco');
-t_eq($diff['disco'][0]['volume'], 'D:', 'alertas_novos: o volume novo é o D: da mesma máquina');
+t_eq(gat_alerta_titulo_da_chave('sem_inv:PC-CAIXA-01'), 'PC-CAIXA-01', 'titulo_da_chave: sem_inv');
+t_eq(gat_alerta_titulo_da_chave('disco:SRV-01|C:'), 'SRV-01 (C:)', 'titulo_da_chave: disco vira "nome (volume)"');
+t_eq(gat_alerta_titulo_da_chave('coisa-sem-dois-pontos'), 'coisa-sem-dois-pontos', 'titulo_da_chave: fallback');
 
-// anterior malformado -> tudo é novo
-$diffVazio = alertas_novos($atualSnap, ['lixo' => 1]);
-t_eq(count($diffVazio['inv']), 2, 'alertas_novos: anterior malformado -> todo inventário é novo');
-t_eq(count($diffVazio['disco']), 2, 'alertas_novos: anterior malformado -> todo disco é novo');
-
-// nada mudou -> nada novo
-$diffIgual = alertas_novos($anteriorSnap, $anteriorSnap);
-t_ok(!$diffIgual['inv'] && !$diffIgual['disco'], 'alertas_novos: snapshots iguais -> nada novo');
-
-// ---------------------------------------------------------------------------
-// gat_msg_digest() — montagem da mensagem (puro, sem banco)
-// ---------------------------------------------------------------------------
-$atualDigest = [
-    'sem_inventario' => [
-        ['name' => 'PC-CAIXA-01', 'loja' => 'Entidade raiz > Grupo Gmais > Supermercado Santos - JDM'],
-        ['name' => 'PC-RET-02',   'loja' => 'Loja sem apelido'],
-        ['name' => 'PC-RET-03',   'loja' => ''],
-    ],
-    'disco_cheio' => [
-        ['name' => 'SRV-01', 'loja' => 'Entidade raiz > Grupo Gmais > Supermercado Santos - BTO', 'volume' => 'D:', 'pct' => 95],
-    ],
-];
-$msgDigest = gat_msg_digest(
-    $atualDigest,
-    [$atualDigest['sem_inventario'][0], $atualDigest['sem_inventario'][2]],
-    $atualDigest['disco_cheio']
-);
+$oNovo = ['chave' => 'sem_inv:PC-01', 'titulo' => 'PC-01', 'loja' => 'Loja 3', 'detalhe' => '12 dias sem reportar'];
 t_eq(
-    $msgDigest,
-    "🔔 *Alertas do parque*\n\n"
-    . "📉 Sem inventário +7d: 3 (novos: PC-CAIXA-01 (Lj 003), PC-RET-03)\n"
-    . "💾 Disco cheio: 1 (novos: SRV-01 (Lj 001) D: 95%)",
-    'gat_msg_digest: totais + listas de novos com apelido_entidade na loja'
+    gat_msg_alerta_novo('Máquinas sem reportar inventário', $oNovo),
+    "🔔 *Máquinas sem reportar inventário*\nPC-01 — Loja 3\n12 dias sem reportar",
+    'msg_alerta_novo: nome / titulo — loja / detalhe'
+);
+// loja neutra ('—' ou vazio) não vira " — —"
+$oSemLoja = ['chave' => 'disco:SRV|C:', 'titulo' => 'SRV', 'loja' => '—', 'detalhe' => 'C: · 95% cheio'];
+t_eq(
+    gat_msg_alerta_novo('Discos quase cheios', $oSemLoja),
+    "🔔 *Discos quase cheios*\nSRV\nC: · 95% cheio",
+    'msg_alerta_novo: loja "—" é omitida'
 );
 
-// sem novos em nenhuma categoria -> só os totais
 t_eq(
-    gat_msg_digest($atualDigest, [], []),
-    "🔔 *Alertas do parque*\n\n📉 Sem inventário +7d: 3\n💾 Disco cheio: 1",
-    'gat_msg_digest: sem novos -> apenas os totais'
+    gat_msg_alerta_resolvido('Discos quase cheios', 'disco:SRV-01|C:'),
+    "✅ *Resolvido — Discos quase cheios*\nSRV-01 (C:)",
+    'msg_alerta_resolvido: extrai o titulo legível da chave'
 );
 
-// truncamento em 5 com "…+N"
-$muitos = [];
-for ($i = 1; $i <= 7; $i++) $muitos[] = ['name' => "PC-{$i}", 'loja' => ''];
-$msgTrunc = gat_msg_digest(['sem_inventario' => $muitos, 'disco_cheio' => []], $muitos, []);
+$devidas = [];
+for ($i = 1; $i <= 10; $i++) $devidas[] = ['titulo' => "PC-$i", 'loja' => 'Loja 1'];
+$msgLem = gat_msg_alerta_lembrete('Máquinas sem reportar inventário', $devidas);
+t_ok(strpos($msgLem, "⏰ *Máquinas sem reportar inventário — ainda pendente* (10)") === 0, 'msg_alerta_lembrete: cabeçalho com total');
+t_eq(substr_count($msgLem, "\n• "), 8, 'msg_alerta_lembrete: no máximo 8 linhas de item');
+t_ok(strpos($msgLem, "…+2") !== false, 'msg_alerta_lembrete: sufixo "…+2" quando passa de 8');
 t_eq(
-    $msgTrunc,
-    "🔔 *Alertas do parque*\n\n"
-    . "📉 Sem inventário +7d: 7 (novos: PC-1, PC-2, PC-3, PC-4, PC-5 …+2)\n"
-    . "💾 Disco cheio: 0",
-    'gat_msg_digest: lista de novos trunca em 5 com "…+2"'
+    gat_msg_alerta_lembrete('X', [['titulo' => 'A', 'loja' => 'L1'], ['titulo' => 'B', 'loja' => '']]),
+    "⏰ *X — ainda pendente* (2)\n• A — L1\n• B",
+    'msg_alerta_lembrete: 2 itens, loja vazia omitida, sem sufixo'
 );
+
+// gat_enviar sem fake -> cai no evo_send_text (aqui só garante que o seam existe e é usado)
+$GLOBALS['__wpp_fake_send'] = fn($d, $t) => ['ok' => true, 'eco' => [$d, $t]];
+$r = gat_enviar('123@g.us', 'oi');
+t_ok(!empty($r['ok']) && $r['eco'][0] === '123@g.us', 'gat_enviar: usa $GLOBALS[__wpp_fake_send] quando definido');
+unset($GLOBALS['__wpp_fake_send']);
 
 // ---------------------------------------------------------------------------
-// gat_alertas() — throttle e branch "nada novo" (precisa de banco)
+// gat_alertas_tipo() — sincroniza portal_alertas_ocorrencias e envia por ocorrência
+// (precisa de banco: roda no deploy contra glpi2). Usa um tipo sintético
+// '__teste_alerta__' e um check-fake -> não toca nos alertas reais.
 // ---------------------------------------------------------------------------
 if (isset($pdo) && $pdo instanceof PDO) {
-    $oldOn    = wpp_cfg_get('on_alertas');
-    $oldGrp   = wpp_cfg_get('grupo_alertas_jid');
-    $oldInt   = wpp_cfg_get('cfg_digest_alertas_min');
-    $oldSnap  = wpp_cfg_get('wpp_snap_alertas');
-    $oldWm    = wpp_cfg_get('wm_alertas_digest');
+    $TIPO = '__teste_alerta__';
+    $GRP  = '111222333@g.us';
+    $limpa = function () use ($pdo, $TIPO) {
+        $pdo->prepare("DELETE FROM portal_alertas_ocorrencias WHERE tipo = ?")->execute([$TIPO]);
+    };
+    // check-fake: devolve o que estiver em $GLOBALS['__fake_ocorr']
+    $defFake = ['nome' => 'Alerta de Teste', 'check' => function ($pdo, $params) {
+        return $GLOBALS['__fake_ocorr'] ?? [];
+    }];
+    $cfg = fn(bool $notif, int $lem = 0) => ['notif_whatsapp' => $notif, 'params' => [], 'lembrete_min' => $lem];
+    $oc  = fn(string $k) => ['chave' => $k, 'titulo' => $k, 'loja' => 'L1', 'detalhe' => 'x'];
 
     try {
-        // toggle desligado -> não toca em nada
-        wpp_cfg_set('on_alertas', '0');
-        wpp_cfg_set('grupo_alertas_jid', '999888777@g.us');
-        $pdo->exec("DELETE FROM portal_wpp_config WHERE chave = 'wm_alertas_digest'");
-        $pdo->exec("DELETE FROM portal_wpp_config WHERE chave = 'wpp_snap_alertas'");
-        gat_alertas($pdo);
-        t_ok(
-            wpp_cfg_get('wpp_snap_alertas') === null && wpp_cfg_get('wm_alertas_digest') === null,
-            'gat_alertas: on_alertas=0 não grava snapshot nem watermark'
-        );
+        // -- NOVA + notif on: 1 envio, 1 linha inserida --
+        $limpa();
+        $enviadas = [];
+        $GLOBALS['__wpp_fake_send'] = function ($d, $t) use (&$enviadas) { $enviadas[] = [$d, $t]; return ['ok' => true]; };
+        $GLOBALS['__fake_ocorr'] = [$oc('a'), $oc('b')];
+        gat_alertas_tipo($pdo, $TIPO, $defFake, $cfg(true), $GRP);
+        t_eq(count($enviadas), 2, 'gat_alertas_tipo: 2 ocorrências novas -> 2 envios');
+        t_eq((int) $pdo->query("SELECT COUNT(*) FROM portal_alertas_ocorrencias WHERE tipo='$TIPO'")->fetchColumn(), 2,
+             'gat_alertas_tipo: 2 linhas gravadas');
 
-        // grupo vazio -> sai sem tocar no snapshot
-        wpp_cfg_set('on_alertas', '1');
-        wpp_cfg_set('grupo_alertas_jid', '');
-        gat_alertas($pdo);
-        t_ok(
-            wpp_cfg_get('wpp_snap_alertas') === null && wpp_cfg_get('wm_alertas_digest') === null,
-            'gat_alertas: grupo vazio não grava snapshot nem watermark'
-        );
+        // -- 2ª passada, mesmas ocorrências: nada novo, 0 envios --
+        $enviadas = [];
+        gat_alertas_tipo($pdo, $TIPO, $defFake, $cfg(true), $GRP);
+        t_eq(count($enviadas), 0, 'gat_alertas_tipo: sem mudança -> 0 envios');
 
-        // throttle: watermark recente -> nem chega a montar snapshot
-        wpp_cfg_set('grupo_alertas_jid', '999888777@g.us');
-        wpp_cfg_set('cfg_digest_alertas_min', '15');
-        wpp_cfg_set('wm_alertas_digest', (string) $pdo->query("SELECT NOW()")->fetchColumn());
-        $outAntes = (int) $pdo->query("SELECT COUNT(*) FROM portal_wpp_log WHERE direcao='out'")->fetchColumn();
-        gat_alertas($pdo);
-        $outDepois = (int) $pdo->query("SELECT COUNT(*) FROM portal_wpp_log WHERE direcao='out'")->fetchColumn();
-        t_ok($outDepois === $outAntes, 'gat_alertas: dentro do intervalo não envia nada');
-        t_ok(wpp_cfg_get('wpp_snap_alertas') === null, 'gat_alertas: throttle não grava snapshot');
+        // -- RESOLVIDA: 'b' sumiu -> 1 envio "resolvido" + linha apagada --
+        $enviadas = [];
+        $GLOBALS['__fake_ocorr'] = [$oc('a')];
+        gat_alertas_tipo($pdo, $TIPO, $defFake, $cfg(true), $GRP);
+        t_eq(count($enviadas), 1, 'gat_alertas_tipo: 1 resolvida -> 1 envio');
+        t_ok(strpos($enviadas[0][1], '✅ *Resolvido') === 0, 'gat_alertas_tipo: mensagem de resolvido');
+        t_eq((int) $pdo->query("SELECT COUNT(*) FROM portal_alertas_ocorrencias WHERE tipo='$TIPO'")->fetchColumn(), 1,
+             'gat_alertas_tipo: linha da resolvida apagada');
 
-        // branch "nada novo": snapshot == estado atual, sem watermark ->
-        // atualiza snapshot mas não envia nem grava watermark
-        $pdo->exec("DELETE FROM portal_wpp_config WHERE chave = 'wm_alertas_digest'");
-        wpp_cfg_set('wpp_snap_alertas', json_encode(alertas_snapshot($pdo)));
-        $outAntes = (int) $pdo->query("SELECT COUNT(*) FROM portal_wpp_log WHERE direcao='out'")->fetchColumn();
-        gat_alertas($pdo);
-        $outDepois = (int) $pdo->query("SELECT COUNT(*) FROM portal_wpp_log WHERE direcao='out'")->fetchColumn();
-        t_ok($outDepois === $outAntes, 'gat_alertas: nada novo -> não envia');
-        t_ok(wpp_cfg_get('wm_alertas_digest') === null, 'gat_alertas: nada novo -> não grava watermark');
-        t_ok(wpp_cfg_get('wpp_snap_alertas') !== null, 'gat_alertas: nada novo -> atualiza o snapshot');
+        // -- LEMBRETE: lembrete_min=30, primeiro_visto forçado pra 40min atrás -> 1 lembrete --
+        $pdo->prepare("UPDATE portal_alertas_ocorrencias SET primeiro_visto = NOW() - INTERVAL 40 MINUTE, ultimo_lembrete = NULL WHERE tipo=? AND chave='a'")->execute([$TIPO]);
+        $enviadas = [];
+        gat_alertas_tipo($pdo, $TIPO, $defFake, $cfg(true, 30), $GRP);
+        t_eq(count($enviadas), 1, 'gat_alertas_tipo: lembrete vencido -> 1 envio');
+        t_ok(strpos($enviadas[0][1], '⏰ *Alerta de Teste — ainda pendente') === 0, 'gat_alertas_tipo: mensagem de lembrete');
+        t_ok($pdo->query("SELECT ultimo_lembrete FROM portal_alertas_ocorrencias WHERE tipo='$TIPO' AND chave='a'")->fetchColumn() !== null,
+             'gat_alertas_tipo: ultimo_lembrete atualizado');
+
+        // -- lembrete_min=0: nunca manda lembrete --
+        $pdo->prepare("UPDATE portal_alertas_ocorrencias SET primeiro_visto = NOW() - INTERVAL 40 MINUTE, ultimo_lembrete = NULL WHERE tipo=? AND chave='a'")->execute([$TIPO]);
+        $enviadas = [];
+        gat_alertas_tipo($pdo, $TIPO, $defFake, $cfg(true, 0), $GRP);
+        t_eq(count($enviadas), 0, 'gat_alertas_tipo: lembrete_min=0 -> 0 lembretes');
+
+        // -- notif off: grava/apaga mas NÃO envia --
+        $limpa();
+        $enviadas = [];
+        $GLOBALS['__fake_ocorr'] = [$oc('c')];
+        gat_alertas_tipo($pdo, $TIPO, $defFake, $cfg(false), $GRP);
+        t_eq(count($enviadas), 0, 'gat_alertas_tipo: notif off -> 0 envios');
+        t_eq((int) $pdo->query("SELECT COUNT(*) FROM portal_alertas_ocorrencias WHERE tipo='$TIPO'")->fetchColumn(), 1,
+             'gat_alertas_tipo: notif off ainda mantém a tabela em dia');
+
+        // -- envio FALHA: estado NÃO muda --
+        $limpa();
+        $GLOBALS['__wpp_fake_send'] = fn($d, $t) => ['ok' => false, 'erro' => 'simulado'];
+        $GLOBALS['__fake_ocorr'] = [$oc('d')];
+        gat_alertas_tipo($pdo, $TIPO, $defFake, $cfg(true), $GRP);
+        t_eq((int) $pdo->query("SELECT COUNT(*) FROM portal_alertas_ocorrencias WHERE tipo='$TIPO'")->fetchColumn(), 0,
+             'gat_alertas_tipo: envio falhou -> nada gravado (re-tenta depois)');
+
+        // -- grupo vazio: equivale a notif off --
+        $limpa();
+        $enviadas = [];
+        $GLOBALS['__wpp_fake_send'] = function ($d, $t) use (&$enviadas) { $enviadas[] = 1; return ['ok' => true]; };
+        $GLOBALS['__fake_ocorr'] = [$oc('e')];
+        gat_alertas_tipo($pdo, $TIPO, $defFake, $cfg(true), '');
+        t_eq(count($enviadas), 0, 'gat_alertas_tipo: grupo vazio -> 0 envios');
+        t_eq((int) $pdo->query("SELECT COUNT(*) FROM portal_alertas_ocorrencias WHERE tipo='$TIPO'")->fetchColumn(), 1,
+             'gat_alertas_tipo: grupo vazio ainda popula a tabela');
     } finally {
-        if ($oldOn   !== null) wpp_cfg_set('on_alertas', $oldOn);           else $pdo->exec("DELETE FROM portal_wpp_config WHERE chave = 'on_alertas'");
-        if ($oldGrp  !== null) wpp_cfg_set('grupo_alertas_jid', $oldGrp);   else $pdo->exec("DELETE FROM portal_wpp_config WHERE chave = 'grupo_alertas_jid'");
-        if ($oldInt  !== null) wpp_cfg_set('cfg_digest_alertas_min', $oldInt); else $pdo->exec("DELETE FROM portal_wpp_config WHERE chave = 'cfg_digest_alertas_min'");
-        if ($oldSnap !== null) wpp_cfg_set('wpp_snap_alertas', $oldSnap);   else $pdo->exec("DELETE FROM portal_wpp_config WHERE chave = 'wpp_snap_alertas'");
-        if ($oldWm   !== null) wpp_cfg_set('wm_alertas_digest', $oldWm);    else $pdo->exec("DELETE FROM portal_wpp_config WHERE chave = 'wm_alertas_digest'");
+        unset($GLOBALS['__wpp_fake_send'], $GLOBALS['__fake_ocorr']);
+        $limpa();
     }
 } else {
-    echo "  -- gat_alertas(): banco indisponível, testes de throttle pulados\n";
+    echo "  -- gat_alertas_tipo(): banco indisponível, testes pulados\n";
 }
 
 // ---------------------------------------------------------------------------

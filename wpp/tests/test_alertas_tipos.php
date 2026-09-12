@@ -57,7 +57,8 @@ try {
         $oc = call_user_func($cat[$tipo]['check'], $pdo, alertas_config_do_tipo($pdo, $tipo)['params']);
         t_ok(is_array($oc), "$tipo check retorna array");
         foreach ($oc as $o) {
-            t_ok(isset($o['chave'], $o['titulo']), "$tipo ocorrência tem chave e titulo");
+            t_ok(isset($o['chave'], $o['titulo'], $o['detalhe']), "$tipo ocorrência tem chave, titulo e detalhe");
+            t_ok(is_string($o['detalhe']) && $o['detalhe'] !== '', "$tipo detalhe é string não-vazia");
             break; // basta a primeira
         }
         // render de lista vazia -> mensagem "ok"
