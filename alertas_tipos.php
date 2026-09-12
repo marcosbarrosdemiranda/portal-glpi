@@ -14,6 +14,7 @@
 require_once __DIR__ . '/alertas_lib.php';
 require_once __DIR__ . '/entidade_alias.php';
 require_once __DIR__ . '/agenda/db.php';
+require_once __DIR__ . '/backup_lib.php';
 
 // cria a tabela ao incluir (padrão do portal)
 (function () {
@@ -67,6 +68,26 @@ function alertas_catalogo(): array
             'check'  => 'alerta_check_disco_cheio',
             'render' => 'alerta_render_disco_cheio',
             'icone'  => 'bi-hdd-fill',
+            'cor'    => 'warning',
+        ],
+        'backup_erro' => [
+            'nome'      => 'Falha de backup',
+            'descricao' => 'Job de backup (back-gmais) cuja última execução reportada foi erro.',
+            'params'    => [],
+            'check'  => 'alerta_check_backup_erro',
+            'render' => 'alerta_render_backup_erro',
+            'icone'  => 'bi-hdd-network-fill',
+            'cor'    => 'danger',
+        ],
+        'backup_silencio' => [
+            'nome'      => 'Backup sem contato',
+            'descricao' => 'Máquina de backup cadastrada que não reporta nenhum resultado (sucesso ou erro) há X horas.',
+            'params'    => [
+                'horas' => ['label' => 'Horas sem contato', 'default' => 26, 'min' => 2, 'max' => 168],
+            ],
+            'check'  => 'alerta_check_backup_silencio',
+            'render' => 'alerta_render_backup_silencio',
+            'icone'  => 'bi-wifi-off',
             'cor'    => 'warning',
         ],
     ];
