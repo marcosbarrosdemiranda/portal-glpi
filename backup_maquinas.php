@@ -122,7 +122,7 @@ if ($action !== '') {
 <div class="topbar">
   <div class="brand"><i class="bi bi-hdd-network"></i> Máquinas de Backup</div>
   <div style="display:flex;gap:.5rem;align-items:center">
-    <a href="alertas.php"><i class="bi bi-bell me-1"></i>Central de Alertas</a>
+    <a href="alertas_config.php"><i class="bi bi-arrow-left me-1"></i>Configurar Alertas</a>
     <a href="dashboard.php"><i class="bi bi-grid me-1"></i>Início</a>
   </div>
 </div>

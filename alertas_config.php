@@ -169,6 +169,7 @@ if ($action !== '') {
 <div class="topbar">
   <div class="brand"><i class="bi bi-sliders"></i> Configurar Alertas</div>
   <div>
+    <a href="backup_maquinas.php"><i class="bi bi-hdd-network me-1"></i>Máquinas de backup</a>
     <a href="alertas.php"><i class="bi bi-arrow-left me-1"></i>Central de Alertas</a>
   </div>
 </div>
