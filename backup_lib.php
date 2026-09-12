@@ -163,7 +163,7 @@ function alerta_check_backup_silencio(PDO $pdo, array $p): array
         FROM portal_backup_maquinas
         WHERE ativo = 1
           AND (ultimo_contato IS NULL
-               OR ultimo_contato < NOW() - INTERVAL COALESCE(silencio_horas, ?) HOUR)
+               OR ultimo_contato <= NOW() - INTERVAL COALESCE(silencio_horas, ?) HOUR)
         ORDER BY nome
     ");
     $st->execute([$horasPadrao]);
