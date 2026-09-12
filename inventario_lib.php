@@ -143,6 +143,7 @@ function inv_bootstrap(PDO $pdo): void {
     // Garante os cards de computadores (mesmo que a semente geral já tenha rodado)
     $temCard = $pdo->prepare("SELECT COUNT(*) FROM portal_inv_cards WHERE slug = ?");
     $insC2   = $pdo->prepare("INSERT INTO portal_inv_cards (slug,titulo,descricao,icone,cor,fonte,ordem) VALUES (?,?,?,?,?,'computer',?)");
+    $upC2    = $pdo->prepare("UPDATE portal_inv_cards SET titulo=?, descricao=?, icone=?, cor=?, fonte='computer', ordem=? WHERE slug=?");
     foreach ([
         ['pcs-retaguarda',  'PCs Retaguarda',    'Computadores de escritório e back-office', 'bi-pc-display', '#0097a7', 5],
         ['notebooks',       'Notebooks',         'Notebooks e ultrabooks',                   'bi-laptop',     '#00838f', 6],
@@ -151,7 +152,11 @@ function inv_bootstrap(PDO $pdo): void {
         ['maquinas-virtuais','Servidores / VMs', 'Servidores físicos e máquinas virtuais',   'bi-hdd-stack',  '#5e35b1', 10],
     ] as [$sl,$ti,$de,$ic,$co,$or]) {
         $temCard->execute([$sl]);
-        if (!$temCard->fetchColumn()) $insC2->execute([$sl,$ti,$de,$ic,$co,$or]);
+        if ($temCard->fetchColumn()) {
+            $upC2->execute([$ti, $de, $ic, $co, $or, $sl]);
+        } else {
+            $insC2->execute([$sl,$ti,$de,$ic,$co,$or]);
+        }
     }
 
     // Notebooks: classifica pelo tipo de hardware do GLPI (idempotente — só toca máquina sem categoria)
