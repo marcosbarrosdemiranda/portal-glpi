@@ -17,7 +17,7 @@ $cards = $_SESSION['portal_perfil_cards'] ?? null;
 if ($cards !== null && !isset($cards['notificacoes_config'])) { header('Location: dashboard.php'); exit; }
 
 $H = fn($s) => htmlspecialchars((string) $s, ENT_QUOTES, 'UTF-8');
-const BACKUP_WEBHOOK_BASE = 'http://192.168.1.198:7412/glpi2/portal-glpi/webhook_backup.php';
+const BACKUP_WEBHOOK_BASE = 'https://ti.grupogmais.com:7412/glpi2/portal-glpi/webhook_backup.php';
 
 /* ─────────── Handlers AJAX ─────────── */
 $action = $_GET['action'] ?? '';
@@ -169,22 +169,69 @@ function statusTexto(m) {
 function linhaMaquina(m) {
   var div = document.createElement('div');
   div.className = 'maquina';
+  div.dataset.id = m.id;
+  div.dataset.nome = m.nome;
+  div.dataset.ativo = m.ativo;
+  div.dataset.horas = m.silencio_horas != null ? m.silencio_horas : '';
   div.innerHTML =
-    '<div class="d-flex justify-content-between align-items-start flex-wrap gap-2">' +
+    '<div class="d-flex justify-content-between align-items-start flex-wrap gap-2 view-mode">' +
       '<div>' +
         '<div class="nome">' + m.nome + (m.ativo == 0 ? ' <span class="badge bg-secondary">inativa</span>' : '') + '</div>' +
         '<div class="status ' + statusClasse(m) + '">' + statusTexto(m) + '</div>' +
+        '<div class="small text-muted">alerta se ficar ' + (m.silencio_horas != null ? m.silencio_horas : '26 (padrão)') + 'h sem contato</div>' +
       '</div>' +
       '<div class="d-flex gap-1">' +
-        '<button type="button" class="btn btn-sm btn-outline-secondary" onclick="toggleAtiva(' + m.id + ',' + (m.ativo == 1 ? 0 : 1) + ',\'' + m.nome.replace(/'/g, "\\'") + '\')">' + (m.ativo == 1 ? 'Desativar' : 'Ativar') + '</button>' +
+        '<button type="button" class="btn btn-sm btn-outline-primary" onclick="editarMaquina(this)"><i class="bi bi-pencil"></i> Editar</button>' +
+        '<button type="button" class="btn btn-sm btn-outline-secondary" onclick="toggleAtiva(this)">' + (m.ativo == 1 ? 'Desativar' : 'Ativar') + '</button>' +
         '<button type="button" class="btn btn-sm btn-outline-danger" onclick="excluirMaquina(' + m.id + ',\'' + m.nome.replace(/'/g, "\\'") + '\')"><i class="bi bi-trash"></i></button>' +
       '</div>' +
+    '</div>' +
+    '<div class="edit-mode d-none d-flex gap-2 flex-wrap align-items-end mt-2">' +
+      '<div>' +
+        '<label class="form-label small mb-0">Nome</label>' +
+        '<input type="text" class="form-control form-control-sm edit-nome" style="width:220px" value="' + m.nome.replace(/"/g, '&quot;') + '">' +
+      '</div>' +
+      '<div>' +
+        '<label class="form-label small mb-0">Horas sem contato p/ alertar</label>' +
+        '<input type="number" class="form-control form-control-sm edit-horas" style="width:150px" min="2" max="168" placeholder="padrão: 26" value="' + (m.silencio_horas != null ? m.silencio_horas : '') + '">' +
+      '</div>' +
+      '<button type="button" class="btn btn-primary btn-sm" onclick="salvarEdicao(this)">Salvar</button>' +
+      '<button type="button" class="btn btn-outline-secondary btn-sm" onclick="cancelarEdicao(this)">Cancelar</button>' +
+      '<div class="fb-edit small text-danger w-100"></div>' +
     '</div>' +
     '<div class="url-box">' +
       '<input type="text" class="form-control form-control-sm" readonly value="' + m.webhook_url + '">' +
       '<button type="button" class="btn btn-sm btn-outline-primary" onclick="copiarUrl(this)"><i class="bi bi-clipboard"></i></button>' +
     '</div>';
   return div;
+}
+function editarMaquina(btn) {
+  var linha = btn.closest('.maquina');
+  linha.querySelector('.view-mode').classList.add('d-none');
+  var edit = linha.querySelector('.edit-mode');
+  edit.classList.remove('d-none');
+  edit.classList.add('d-flex');
+}
+function cancelarEdicao(btn) {
+  var linha = btn.closest('.maquina');
+  linha.querySelector('.view-mode').classList.remove('d-none');
+  var edit = linha.querySelector('.edit-mode');
+  edit.classList.add('d-none');
+  edit.classList.remove('d-flex');
+}
+function salvarEdicao(btn) {
+  var linha = btn.closest('.maquina');
+  var nome = linha.querySelector('.edit-nome').value.trim();
+  var horas = linha.querySelector('.edit-horas').value.trim();
+  var fb = linha.querySelector('.fb-edit');
+  if (!nome) { fb.textContent = 'informe um nome'; return; }
+  var params = new URLSearchParams({ id: linha.dataset.id, nome: nome, ativo: linha.dataset.ativo, silencio_horas: horas });
+  fetch('backup_maquinas.php?action=salvar', { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body: params })
+    .then(function (r) { return r.json(); })
+    .then(function (d) {
+      if (!d.ok) { fb.textContent = d.erro || 'erro ao salvar'; return; }
+      carregarLista();
+    });
 }
 function copiarUrl(btn) {
   var input = btn.previousElementSibling;
@@ -221,8 +268,10 @@ function criarMaquina() {
       carregarLista();
     });
 }
-function toggleAtiva(id, ativo, nome) {
-  var params = new URLSearchParams({ id: id, nome: nome, ativo: ativo });
+function toggleAtiva(btn) {
+  var linha = btn.closest('.maquina');
+  var novoAtivo = linha.dataset.ativo == '1' ? 0 : 1;
+  var params = new URLSearchParams({ id: linha.dataset.id, nome: linha.dataset.nome, ativo: novoAtivo, silencio_horas: linha.dataset.horas });
   fetch('backup_maquinas.php?action=salvar', { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body: params })
     .then(function (r) { return r.json(); })
     .then(function () { carregarLista(); });
