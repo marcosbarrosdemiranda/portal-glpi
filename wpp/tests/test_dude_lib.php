@@ -30,16 +30,18 @@ if (isset($pdo) && $pdo instanceof PDO) {
 
         // --- registrar_estado + check do tipo certo / não vaza pra outro tipo ---
         $limpa();
-        dude_registrar_estado($pdo, 'device', 'PC-01', 'PC Caixa 1', '10.0.0.5', 'down', 'sem resposta ao ping');
+        dude_registrar_estado($pdo, 'device', 'PC-01', 'PC Caixa 1', '10.0.0.5', 'Loja 05', 'down', 'sem resposta ao ping');
         $ocDevice = alerta_check_dude_device($pdo, []);
         t_ok((bool) array_filter($ocDevice, fn($o) => $o['chave'] === 'dude:device:PC-01'), 'check_dude_device: aparece quando status=down');
-        t_ok(str_contains(array_values(array_filter($ocDevice, fn($o) => $o['chave'] === 'dude:device:PC-01'))[0]['detalhe'], 'sem resposta ao ping'), 'check_dude_device: detalhe traz o motivo');
+        $achouPC01 = array_values(array_filter($ocDevice, fn($o) => $o['chave'] === 'dude:device:PC-01'))[0];
+        t_ok(str_contains($achouPC01['detalhe'], 'sem resposta ao ping'), 'check_dude_device: detalhe traz o motivo');
+        t_eq($achouPC01['loja'], 'Loja 05', 'check_dude_device: loja vem do que o mapa do Dude mandou');
 
         $ocLink = alerta_check_dude_link($pdo, []);
         t_ok(!array_filter($ocLink, fn($o) => $o['chave'] === 'dude:device:PC-01'), 'check_dude_link: não mostra ocorrência de outro tipo (device)');
 
         // --- up resolve ---
-        dude_registrar_estado($pdo, 'device', 'PC-01', 'PC Caixa 1', '10.0.0.5', 'up', '');
+        dude_registrar_estado($pdo, 'device', 'PC-01', 'PC Caixa 1', '10.0.0.5', 'Loja 05', 'up', '');
         $ocDevice2 = alerta_check_dude_device($pdo, []);
         t_ok(!array_filter($ocDevice2, fn($o) => $o['chave'] === 'dude:device:PC-01'), 'check_dude_device: some depois de um up');
 
@@ -59,6 +61,9 @@ if (isset($pdo) && $pdo instanceof PDO) {
         // --- renders ---
         t_ok(strpos(alerta_render_dude([]), 'vazio') !== false, 'render_dude([]) tem a msg vazia');
         t_ok(strlen(alerta_render_dude($ocDevice)) > 20, 'render_dude(ocorr) devolve HTML');
+        t_ok(str_contains(alerta_render_dude($ocDevice), 'Loja 05'), 'render_dude: agrupa por loja quando tem loja preenchida');
+        $ocSemLoja = [['chave' => 'x', 'titulo' => 'T', 'loja' => '', 'detalhe' => 'D']];
+        t_ok(!str_contains(alerta_render_dude($ocSemLoja), 'loja-h'), 'render_dude: sem loja preenchida cai na tabela simples (sem cabeçalho de grupo)');
     } finally {
         $limpa();
         // restaura o token original (string vazia = nunca tinha sido gerado)

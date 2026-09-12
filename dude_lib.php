@@ -21,11 +21,20 @@ require_once __DIR__ . '/wpp/db.php'; // wpp_cfg_get()/wpp_cfg_set() — mesmo m
         chave         VARCHAR(160) NOT NULL,
         nome          VARCHAR(160) DEFAULT '',
         endereco      VARCHAR(120) DEFAULT '',
+        loja          VARCHAR(120) DEFAULT '',
         status        ENUM('up','down') NOT NULL,
         detalhe       VARCHAR(255) DEFAULT '',
         atualizado_em DATETIME NOT NULL,
         PRIMARY KEY (tipo, chave)
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
+
+    // migração leve: coluna loja acrescentada depois do primeiro deploy
+    // (Dude organizado em mapas por loja — cada mapa manda seu próprio nome fixo)
+    $cols = [];
+    foreach ($pdo->query("SHOW COLUMNS FROM portal_dude_estado") as $r) $cols[] = $r['Field'];
+    if (!in_array('loja', $cols, true)) {
+        $pdo->exec("ALTER TABLE portal_dude_estado ADD COLUMN loja VARCHAR(120) DEFAULT '' AFTER endereco");
+    }
 })();
 
 /* ───────────────────────────── Token + estado ───────────────────────────── */
@@ -46,15 +55,19 @@ function dude_gerar_novo_token(PDO $pdo): string
     return $token;
 }
 
-/** Upsert do estado de 1 (tipo, chave). $tipo já deve estar validado pelo chamador. */
-function dude_registrar_estado(PDO $pdo, string $tipo, string $chave, string $nome, string $endereco, string $status, string $detalhe): void
+/**
+ * Upsert do estado de 1 (tipo, chave). $tipo já deve estar validado pelo
+ * chamador. $loja é opcional (string vazia = sem agrupamento) — cada mapa do
+ * Dude manda um valor fixo próprio na notificação (ex.: "Loja 05").
+ */
+function dude_registrar_estado(PDO $pdo, string $tipo, string $chave, string $nome, string $endereco, string $loja, string $status, string $detalhe): void
 {
     $pdo->prepare(
-        "INSERT INTO portal_dude_estado (tipo, chave, nome, endereco, status, detalhe, atualizado_em)
-         VALUES (?,?,?,?,?,?,NOW())
-         ON DUPLICATE KEY UPDATE nome=VALUES(nome), endereco=VALUES(endereco),
+        "INSERT INTO portal_dude_estado (tipo, chave, nome, endereco, loja, status, detalhe, atualizado_em)
+         VALUES (?,?,?,?,?,?,?,NOW())
+         ON DUPLICATE KEY UPDATE nome=VALUES(nome), endereco=VALUES(endereco), loja=VALUES(loja),
              status=VALUES(status), detalhe=VALUES(detalhe), atualizado_em=NOW()"
-    )->execute([$tipo, $chave, $nome, $endereco, $status, $detalhe]);
+    )->execute([$tipo, $chave, $nome, $endereco, $loja, $status, $detalhe]);
 }
 
 /** Timestamp (string DATETIME) da última notificação recebida de qualquer tipo, ou null se nunca houve. */
@@ -70,9 +83,9 @@ function dude_ultima_notificacao(PDO $pdo): ?string
 function dude_check_tipo(PDO $pdo, string $tipo): array
 {
     $st = $pdo->prepare(
-        "SELECT chave, nome, endereco, detalhe, atualizado_em
+        "SELECT chave, nome, endereco, loja, detalhe, atualizado_em
          FROM portal_dude_estado WHERE tipo = ? AND status = 'down'
-         ORDER BY atualizado_em"
+         ORDER BY loja, atualizado_em"
     );
     $st->execute([$tipo]);
 
@@ -82,7 +95,7 @@ function dude_check_tipo(PDO $pdo, string $tipo): array
         $out[] = [
             'chave'   => 'dude:' . $tipo . ':' . $r['chave'],
             'titulo'  => $r['nome'] !== '' ? $r['nome'] : $r['chave'],
-            'loja'    => '',
+            'loja'    => (string) $r['loja'],
             'detalhe' => trim(trim($r['endereco'] . ' · ' . $r['detalhe'], ' ·')) . " (desde {$desde})",
         ];
     }
@@ -114,16 +127,42 @@ function alerta_check_dude_sem_contato(PDO $pdo, array $p): array
 }
 
 /** innerHTML do corpo da seção — tabela simples, reusada pelos 5 tipos do Dude. */
+/**
+ * innerHTML do corpo da seção — reusada pelos 5 tipos do Dude. Agrupa por
+ * loja (mesmo visual de alerta_render_sem_inventario) quando pelo menos uma
+ * ocorrência tem loja preenchida — cada mapa do Dude manda a sua; tipos que
+ * nunca preenchem loja (ex.: dude_sem_contato) caem na tabela simples.
+ */
 function alerta_render_dude(array $ocorr): string
 {
     if (!$ocorr) {
         return '<div class="vazio"><i class="bi bi-check-circle-fill me-1"></i>Nada fora do ar.</div>';
     }
     $H = fn($s) => htmlspecialchars((string) $s, ENT_QUOTES, 'UTF-8');
-    $out = '<table><thead><tr><th>Dispositivo/Enlace</th><th>Detalhe</th></tr></thead><tbody>';
-    foreach ($ocorr as $o) {
-        $out .= '<tr><td style="font-weight:600">' . $H($o['titulo']) . '</td>'
-              . '<td style="color:#6b7280">' . $H($o['detalhe']) . '</td></tr>';
+    $temLoja = (bool) array_filter($ocorr, fn($o) => trim((string) ($o['loja'] ?? '')) !== '');
+
+    if (!$temLoja) {
+        $out = '<table><thead><tr><th>Dispositivo/Enlace</th><th>Detalhe</th></tr></thead><tbody>';
+        foreach ($ocorr as $o) {
+            $out .= '<tr><td style="font-weight:600">' . $H($o['titulo']) . '</td>'
+                  . '<td style="color:#6b7280">' . $H($o['detalhe']) . '</td></tr>';
+        }
+        return $out . '</tbody></table>';
     }
-    return $out . '</tbody></table>';
+
+    $porLoja = [];
+    foreach ($ocorr as $o) $porLoja[trim((string) ($o['loja'] ?? '')) ?: 'Sem loja'][] = $o;
+    ksort($porLoja, SORT_NATURAL | SORT_FLAG_CASE);
+
+    $out = '';
+    foreach ($porLoja as $loja => $itens) {
+        $out .= '<div class="loja-h"><i class="bi bi-shop"></i> ' . $H($loja)
+              . ' <span style="color:#9ca3af;font-weight:400">(' . count($itens) . ')</span></div><table><tbody>';
+        foreach ($itens as $o) {
+            $out .= '<tr><td style="font-weight:600">' . $H($o['titulo']) . '</td>'
+                  . '<td style="color:#6b7280">' . $H($o['detalhe']) . '</td></tr>';
+        }
+        $out .= '</tbody></table>';
+    }
+    return $out;
 }
