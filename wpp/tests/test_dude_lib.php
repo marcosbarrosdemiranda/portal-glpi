@@ -38,19 +38,20 @@ if (isset($pdo) && $pdo instanceof PDO) {
 
         // --- registrar_estado + check do tipo certo / não vaza pra outro tipo ---
         $limpa();
-        dude_registrar_estado($pdo, 'device', $CHAVE_TESTE, 'PC Caixa 1', '10.0.0.5', 'Loja 05', 'down', 'sem resposta ao ping');
+        dude_registrar_estado($pdo, 'device', $CHAVE_TESTE, 'PC Caixa 1', '10.0.0.5', 'Loja 05', 'PDV', 'down', 'sem resposta ao ping');
         $ocDevice = alerta_check_dude_device($pdo, []);
         $chaveEsperada = 'dude:device:' . $CHAVE_TESTE;
         t_ok((bool) array_filter($ocDevice, fn($o) => $o['chave'] === $chaveEsperada), 'check_dude_device: aparece quando status=down');
         $achouPC01 = array_values(array_filter($ocDevice, fn($o) => $o['chave'] === $chaveEsperada))[0];
         t_ok(str_contains($achouPC01['detalhe'], 'sem resposta ao ping'), 'check_dude_device: detalhe traz o motivo');
         t_eq($achouPC01['loja'], 'Loja 05', 'check_dude_device: loja vem do que o mapa do Dude mandou');
+        t_eq($achouPC01['categoria'], 'PDV', 'check_dude_device: categoria vem do que a notification mandou');
 
         $ocLink = alerta_check_dude_link($pdo, []);
         t_ok(!array_filter($ocLink, fn($o) => $o['chave'] === $chaveEsperada), 'check_dude_link: não mostra ocorrência de outro tipo (device)');
 
         // --- up resolve ---
-        dude_registrar_estado($pdo, 'device', $CHAVE_TESTE, 'PC Caixa 1', '10.0.0.5', 'Loja 05', 'up', '');
+        dude_registrar_estado($pdo, 'device', $CHAVE_TESTE, 'PC Caixa 1', '10.0.0.5', 'Loja 05', 'PDV', 'up', '');
         $ocDevice2 = alerta_check_dude_device($pdo, []);
         t_ok(!array_filter($ocDevice2, fn($o) => $o['chave'] === $chaveEsperada), 'check_dude_device: some depois de um up');
 

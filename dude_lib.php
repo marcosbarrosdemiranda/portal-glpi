@@ -22,18 +22,23 @@ require_once __DIR__ . '/wpp/db.php'; // wpp_cfg_get()/wpp_cfg_set() — mesmo m
         nome          VARCHAR(160) DEFAULT '',
         endereco      VARCHAR(120) DEFAULT '',
         loja          VARCHAR(120) DEFAULT '',
+        categoria     VARCHAR(40)  DEFAULT '',
         status        ENUM('up','down') NOT NULL,
         detalhe       VARCHAR(255) DEFAULT '',
         atualizado_em DATETIME NOT NULL,
         PRIMARY KEY (tipo, chave)
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
 
-    // migração leve: coluna loja acrescentada depois do primeiro deploy
-    // (Dude organizado em mapas por loja — cada mapa manda seu próprio nome fixo)
+    // migrações leves acrescentadas depois do primeiro deploy
     $cols = [];
     foreach ($pdo->query("SHOW COLUMNS FROM portal_dude_estado") as $r) $cols[] = $r['Field'];
     if (!in_array('loja', $cols, true)) {
         $pdo->exec("ALTER TABLE portal_dude_estado ADD COLUMN loja VARCHAR(120) DEFAULT '' AFTER endereco");
+    }
+    if (!in_array('categoria', $cols, true)) {
+        // "PDV", "Servidor" etc. — fixo por notification/grupo no Dude, igual a loja.
+        // Guardado pra regras futuras (ex.: horário restrito de notificação por categoria).
+        $pdo->exec("ALTER TABLE portal_dude_estado ADD COLUMN categoria VARCHAR(40) DEFAULT '' AFTER loja");
     }
 })();
 
@@ -57,17 +62,20 @@ function dude_gerar_novo_token(PDO $pdo): string
 
 /**
  * Upsert do estado de 1 (tipo, chave). $tipo já deve estar validado pelo
- * chamador. $loja é opcional (string vazia = sem agrupamento) — cada mapa do
- * Dude manda um valor fixo próprio na notificação (ex.: "Loja 05").
+ * chamador. $loja e $categoria são opcionais (string vazia = sem
+ * agrupamento) — cada mapa/notification do Dude manda um valor fixo próprio
+ * (ex.: loja="Loja 05", categoria="PDV"). $categoria ainda não é usada em
+ * nenhuma regra — guardada pra uso futuro (ex.: horário restrito por tipo
+ * de equipamento).
  */
-function dude_registrar_estado(PDO $pdo, string $tipo, string $chave, string $nome, string $endereco, string $loja, string $status, string $detalhe): void
+function dude_registrar_estado(PDO $pdo, string $tipo, string $chave, string $nome, string $endereco, string $loja, string $categoria, string $status, string $detalhe): void
 {
     $pdo->prepare(
-        "INSERT INTO portal_dude_estado (tipo, chave, nome, endereco, loja, status, detalhe, atualizado_em)
-         VALUES (?,?,?,?,?,?,?,NOW())
+        "INSERT INTO portal_dude_estado (tipo, chave, nome, endereco, loja, categoria, status, detalhe, atualizado_em)
+         VALUES (?,?,?,?,?,?,?,?,NOW())
          ON DUPLICATE KEY UPDATE nome=VALUES(nome), endereco=VALUES(endereco), loja=VALUES(loja),
-             status=VALUES(status), detalhe=VALUES(detalhe), atualizado_em=NOW()"
-    )->execute([$tipo, $chave, $nome, $endereco, $loja, $status, $detalhe]);
+             categoria=VALUES(categoria), status=VALUES(status), detalhe=VALUES(detalhe), atualizado_em=NOW()"
+    )->execute([$tipo, $chave, $nome, $endereco, $loja, $categoria, $status, $detalhe]);
 }
 
 /** Timestamp (string DATETIME) da última notificação recebida de qualquer tipo, ou null se nunca houve. */
@@ -79,11 +87,11 @@ function dude_ultima_notificacao(PDO $pdo): ?string
 
 /* ───────────────────────────── Catálogo da Central de Alertas ───────────────────────────── */
 
-/** @return array ocorrências: cada uma ['chave','titulo','loja','detalhe'] */
+/** @return array ocorrências: cada uma ['chave','titulo','loja','categoria','detalhe'] */
 function dude_check_tipo(PDO $pdo, string $tipo): array
 {
     $st = $pdo->prepare(
-        "SELECT chave, nome, endereco, loja, detalhe, atualizado_em
+        "SELECT chave, nome, endereco, loja, categoria, detalhe, atualizado_em
          FROM portal_dude_estado WHERE tipo = ? AND status = 'down'
          ORDER BY loja, atualizado_em"
     );
@@ -93,10 +101,11 @@ function dude_check_tipo(PDO $pdo, string $tipo): array
     foreach ($st->fetchAll(PDO::FETCH_ASSOC) as $r) {
         $desde = date('H:i', strtotime($r['atualizado_em']));
         $out[] = [
-            'chave'   => 'dude:' . $tipo . ':' . $r['chave'],
-            'titulo'  => $r['nome'] !== '' ? $r['nome'] : $r['chave'],
-            'loja'    => (string) $r['loja'],
-            'detalhe' => trim(trim($r['endereco'] . ' · ' . $r['detalhe'], ' ·')) . " (desde {$desde})",
+            'chave'     => 'dude:' . $tipo . ':' . $r['chave'],
+            'titulo'    => $r['nome'] !== '' ? $r['nome'] : $r['chave'],
+            'loja'      => (string) $r['loja'],
+            'categoria' => (string) $r['categoria'],
+            'detalhe'   => trim(trim($r['endereco'] . ' · ' . $r['detalhe'], ' ·')) . " (desde {$desde})",
         ];
     }
     return $out;

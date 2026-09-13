@@ -46,15 +46,16 @@ if (!in_array($tipo, DUDE_TIPOS_VALIDOS, true) || $estado === '') {
     exit;
 }
 
-$chave    = trim((string) ($_GET['chave'] ?? ''));
-$nome     = trim((string) ($_GET['nome'] ?? ''));
-$endereco = trim((string) ($_GET['addr'] ?? ''));
-$loja     = trim((string) ($_GET['loja'] ?? '')); // fixo por mapa do Dude (ex.: "Loja 05")
-$detalhe  = trim((string) ($_GET['detalhe'] ?? ''));
+$chave     = trim((string) ($_GET['chave'] ?? ''));
+$nome      = trim((string) ($_GET['nome'] ?? ''));
+$endereco  = trim((string) ($_GET['addr'] ?? ''));
+$loja      = trim((string) ($_GET['loja'] ?? '')); // fixo por mapa do Dude (ex.: "Loja 05")
+$categoria = trim((string) ($_GET['categoria'] ?? '')); // fixo por notification/grupo (ex.: "PDV")
+$detalhe   = trim((string) ($_GET['detalhe'] ?? ''));
 if ($chave === '') $chave = $nome !== '' ? $nome : ($endereco !== '' ? $endereco : 'sem-id');
 
 try {
-    dude_registrar_estado($pdo, $tipo, $chave, $nome, $endereco, $loja, $estado, $detalhe);
+    dude_registrar_estado($pdo, $tipo, $chave, $nome, $endereco, $loja, $categoria, $estado, $detalhe);
 } catch (\Throwable $e) {
     error_log('the_dude_webhook: ' . $e->getMessage());
 }
