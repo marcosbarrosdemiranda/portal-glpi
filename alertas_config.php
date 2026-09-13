@@ -113,6 +113,40 @@ if ($action !== '') {
         exit;
     }
 
+    if ($action === 'horarios_listar') {
+        $tipos = [];
+        foreach (alertas_catalogo() as $slug => $def) {
+            $tipos[] = ['tipo' => $slug, 'nome' => $def['nome'], 'horario' => alertas_horario_atual($pdo, $slug)];
+        }
+        echo json_encode(['ok' => true, 'tipos' => $tipos]);
+        exit;
+    }
+
+    if ($action === 'horario_salvar') {
+        if ($_SERVER['REQUEST_METHOD'] !== 'POST') { echo json_encode(['ok' => false, 'erro' => 'método inválido']); exit; }
+        $tipo = trim((string) ($_POST['tipo'] ?? ''));
+        if (!isset(alertas_catalogo()[$tipo])) { echo json_encode(['ok' => false, 'erro' => 'tipo desconhecido']); exit; }
+
+        $inicio = trim((string) ($_POST['horario_inicio'] ?? ''));
+        $fim    = trim((string) ($_POST['horario_fim'] ?? ''));
+        if ($inicio === '' && $fim === '') {
+            alertas_horario_remover($pdo, $tipo);
+            echo json_encode(['ok' => true]);
+            exit;
+        }
+        if (!preg_match('/^\d{2}:\d{2}$/', $inicio) || !preg_match('/^\d{2}:\d{2}$/', $fim)) {
+            echo json_encode(['ok' => false, 'erro' => 'preencha os dois horários (HH:MM), ou deixe os dois em branco pra sempre notificar']);
+            exit;
+        }
+        try {
+            alertas_horario_salvar($pdo, $tipo, $inicio . ':00', $fim . ':00');
+            echo json_encode(['ok' => true]);
+        } catch (\Throwable $e) {
+            echo json_encode(['ok' => false, 'erro' => 'falha ao salvar']);
+        }
+        exit;
+    }
+
     echo json_encode(['ok' => false, 'erro' => 'ação desconhecida']);
     exit;
 }
@@ -182,6 +216,13 @@ if ($action !== '') {
 <div class="wrap">
   <div id="lista">
     <div class="text-muted small">Carregando…</div>
+  </div>
+
+  <div style="background:#fff;border:1px solid #e5e7eb;border-radius:12px;box-shadow:0 2px 8px rgba(0,0,0,.06);padding:1.1rem 1.25rem;margin-top:1.5rem">
+    <h6 class="mb-2"><i class="bi bi-clock me-1"></i>Horário de notificação</h6>
+    <p class="small text-muted mb-2">Fora do horário, o tipo continua sendo checado mas não vira alerta (nem painel, nem WhatsApp). Deixe os dois campos em branco pra notificar 24h.</p>
+    <div id="horario-lista">Carregando…</div>
+    <div id="fb-horario" class="small mt-2"></div>
   </div>
 </div>
 
@@ -399,6 +440,58 @@ if ($action !== '') {
   }
 
   carregar();
+})();
+</script>
+
+<script>
+(function () {
+  'use strict';
+  function $h(id) { return document.getElementById(id); }
+  function fbHorario(tipo, msg) {
+    var el = $h('fb-horario');
+    el.className = 'small mt-2 ' + (tipo === 'ok' ? 'text-success' : (tipo === 'err' ? 'text-danger' : 'text-muted'));
+    el.textContent = msg;
+  }
+  function linhaHorario(t) {
+    var div = document.createElement('div');
+    div.className = 'd-flex gap-2 flex-wrap align-items-end mb-2 pb-2';
+    div.style.borderBottom = '1px solid #f3f4f6';
+    var ini = t.horario ? t.horario.horario_inicio.substring(0, 5) : '';
+    var fim = t.horario ? t.horario.horario_fim.substring(0, 5) : '';
+    div.innerHTML =
+      '<div style="min-width:220px"><b>' + t.nome + '</b></div>' +
+      '<div><label class="form-label small mb-0">Notifica das</label>' +
+        '<input type="time" class="form-control form-control-sm hr-inicio" style="width:110px" value="' + ini + '"></div>' +
+      '<div><label class="form-label small mb-0">até</label>' +
+        '<input type="time" class="form-control form-control-sm hr-fim" style="width:110px" value="' + fim + '"></div>' +
+      '<button type="button" class="btn btn-primary btn-sm" onclick="window.__salvarHorario(this, \'' + t.tipo + '\')">Salvar</button>';
+    return div;
+  }
+  function carregarHorarios() {
+    fetch('alertas_config.php?action=horarios_listar')
+      .then(function (r) { return r.json(); })
+      .then(function (d) {
+        var lista = $h('horario-lista');
+        lista.innerHTML = '';
+        if (!d.ok || !d.tipos.length) { lista.innerHTML = '<div class="text-muted small">Nenhum tipo no catálogo.</div>'; return; }
+        d.tipos.forEach(function (t) { lista.appendChild(linhaHorario(t)); });
+      });
+  }
+  window.__salvarHorario = function (btn, tipo) {
+    var linha = btn.closest('div.d-flex');
+    var params = new URLSearchParams({
+      tipo: tipo,
+      horario_inicio: linha.querySelector('.hr-inicio').value,
+      horario_fim: linha.querySelector('.hr-fim').value,
+    });
+    fetch('alertas_config.php?action=horario_salvar', { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body: params })
+      .then(function (r) { return r.json(); })
+      .then(function (d) {
+        if (!d.ok) { fbHorario('err', d.erro || 'erro ao salvar'); return; }
+        fbHorario('ok', tipo + ' salvo.');
+      });
+  };
+  carregarHorarios();
 })();
 </script>
 </body>

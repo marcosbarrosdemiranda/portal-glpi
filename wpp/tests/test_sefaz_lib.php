@@ -100,6 +100,31 @@ if (isset($pdo) && $pdo instanceof PDO) {
     } finally {
         $limpa();
     }
+
+    // --- alertas_horario_* (tipo, não fonte — tabela separada) ---
+    $TIPO_TESTE = '__teste_horario__';
+    $limpaHorario = function () use ($pdo, $TIPO_TESTE) {
+        $pdo->prepare("DELETE FROM portal_alertas_horario WHERE tipo = ?")->execute([$TIPO_TESTE]);
+    };
+    try {
+        $limpaHorario();
+        t_ok(alertas_horario_permitido($pdo, $TIPO_TESTE), 'horario_permitido: sem config -> sempre true');
+        t_ok(alertas_horario_atual($pdo, $TIPO_TESTE) === null, 'horario_atual: sem config -> null');
+
+        $agora = time();
+        alertas_horario_salvar($pdo, $TIPO_TESTE, date('H:i:s', $agora - 3600), date('H:i:s', $agora + 3600));
+        t_ok(alertas_horario_permitido($pdo, $TIPO_TESTE), 'horario_permitido: agora dentro da janela -> true');
+        $atual = alertas_horario_atual($pdo, $TIPO_TESTE);
+        t_ok($atual !== null, 'horario_atual: reflete o que foi salvo');
+
+        alertas_horario_salvar($pdo, $TIPO_TESTE, date('H:i:s', $agora + 2 * 3600), date('H:i:s', $agora + 3 * 3600));
+        t_ok(!alertas_horario_permitido($pdo, $TIPO_TESTE), 'horario_permitido: agora fora da janela -> false');
+
+        alertas_horario_remover($pdo, $TIPO_TESTE);
+        t_ok(alertas_horario_permitido($pdo, $TIPO_TESTE), 'horario_permitido: removido -> volta a sempre true');
+    } finally {
+        $limpaHorario();
+    }
 } else {
     echo "  -- testes de banco (sefaz_lib): banco indisponível, pulados\n";
 }

@@ -24,9 +24,19 @@ const SEFAZ_CTE_TABELA_ID = 'ctl00_ContentPlaceHolder1_gdvDisponibilidade';
 const SEFAZ_CTE_SERVICOS = ['Recepção Sinc', 'Status Serviço', 'Recepção CT-e OS', 'Recepção GTVE', 'Recepção Evento', 'Consulta Cadastro'];
 const SEFAZ_CACHE_MINUTOS = 5;
 
-// cria a tabela de cache ao incluir (padrão do portal)
+// cria as tabelas ao incluir (padrão do portal)
 (function () {
     global $pdo;
+    // horário em que "amarelo"/"vermelho" vira alerta, por tipo de alerta
+    // (não só SEFAZ — generalizável pra outro tipo que precise disso no
+    // futuro). Sem linha pra um tipo = sempre notifica, 24h.
+    $pdo->exec("CREATE TABLE IF NOT EXISTS portal_alertas_horario (
+        tipo           VARCHAR(40) NOT NULL PRIMARY KEY,
+        horario_inicio TIME NOT NULL,
+        horario_fim    TIME NOT NULL,
+        atualizado_em  TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
+
     $pdo->exec("CREATE TABLE IF NOT EXISTS portal_sefaz_status (
         fonte         VARCHAR(20) NOT NULL,
         servico       VARCHAR(60) NOT NULL,
@@ -125,10 +135,53 @@ function sefaz_garantir_cache_fresco(PDO $pdo, string $fonte, int $minutos, call
     }
 }
 
+/**
+ * true = pode virar alerta agora (tipo sem restrição configurada, OU
+ * dentro do horário permitido). false = fora do horário. Suporta janela
+ * que cruza meia-noite. Mesma lógica de dude_categoria_no_horario, mas
+ * chaveada por TIPO de alerta em vez de categoria de dispositivo.
+ */
+function alertas_horario_permitido(PDO $pdo, string $tipo): bool
+{
+    $st = $pdo->prepare("SELECT horario_inicio, horario_fim FROM portal_alertas_horario WHERE tipo = ?");
+    $st->execute([$tipo]);
+    $row = $st->fetch(PDO::FETCH_ASSOC);
+    if (!$row) return true; // sem config = sempre notifica
+
+    $agora = date('H:i:s');
+    $ini = (string) $row['horario_inicio'];
+    $fim = (string) $row['horario_fim'];
+    if ($ini <= $fim) return $agora >= $ini && $agora <= $fim;
+    return $agora >= $ini || $agora <= $fim; // janela cruza meia-noite
+}
+
+/** Upsert do horário permitido de 1 tipo de alerta. */
+function alertas_horario_salvar(PDO $pdo, string $tipo, string $horarioInicio, string $horarioFim): void
+{
+    $pdo->prepare(
+        "INSERT INTO portal_alertas_horario (tipo, horario_inicio, horario_fim) VALUES (?,?,?)
+         ON DUPLICATE KEY UPDATE horario_inicio=VALUES(horario_inicio), horario_fim=VALUES(horario_fim)"
+    )->execute([$tipo, $horarioInicio, $horarioFim]);
+}
+
+function alertas_horario_remover(PDO $pdo, string $tipo): void
+{
+    $pdo->prepare("DELETE FROM portal_alertas_horario WHERE tipo = ?")->execute([$tipo]);
+}
+
+function alertas_horario_atual(PDO $pdo, string $tipo): ?array
+{
+    $st = $pdo->prepare("SELECT horario_inicio, horario_fim FROM portal_alertas_horario WHERE tipo = ?");
+    $st->execute([$tipo]);
+    $row = $st->fetch(PDO::FETCH_ASSOC);
+    return $row ?: null;
+}
+
 /** @return array ocorrências: 1 por serviço não-verde (cada um resolve independente) */
 function alerta_check_sefaz_ms(PDO $pdo, array $p): array
 {
     sefaz_garantir_cache_fresco($pdo, 'cte_ms', SEFAZ_CACHE_MINUTOS, 'sefaz_cte_buscar_status_ms');
+    if (!alertas_horario_permitido($pdo, 'sefaz_ms')) return [];
 
     $st = $pdo->prepare("SELECT servico, status FROM portal_sefaz_status WHERE fonte = ? AND status != 'verde' ORDER BY servico");
     $st->execute(['cte_ms']);
