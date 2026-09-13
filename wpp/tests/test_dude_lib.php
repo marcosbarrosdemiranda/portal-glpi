@@ -10,9 +10,17 @@ global $pdo;
 // porque precisa do banco pra confirmar persistência.
 // ---------------------------------------------------------------------------
 if (isset($pdo) && $pdo instanceof PDO) {
-    $TIPO_TESTE = '__teste_dude__';
-    $limpa = function () use ($pdo, $TIPO_TESTE) {
-        $pdo->prepare("DELETE FROM portal_dude_estado WHERE tipo = ?")->execute([$TIPO_TESTE]);
+    // CHAVE (não tipo) é o que identifica a linha de teste — tipo fica
+    // 'device' de verdade, senão não testaria o dispatch real. Cuidado:
+    // portal_dude_estado é tabela COMPARTILHADA (pode ter dado real depois
+    // que o Dude entrar no ar) — nunca fazer UPDATE/DELETE sem filtrar pela
+    // chave de teste. Bug corrigido em 2026-09-13: a versão anterior filtrava
+    // a limpeza por um "tipo" que nunca era usado nos inserts, e um UPDATE
+    // sem WHERE mexia na tabela inteira — deixou lixo residente que a
+    // Central de Alertas pegou e mandou WhatsApp de verdade.
+    $CHAVE_TESTE = '__teste_PC-01__';
+    $limpa = function () use ($pdo, $CHAVE_TESTE) {
+        $pdo->prepare("DELETE FROM portal_dude_estado WHERE chave = ?")->execute([$CHAVE_TESTE]);
     };
 
     // guarda o token original pra restaurar no finally (não pode invalidar
@@ -30,33 +38,34 @@ if (isset($pdo) && $pdo instanceof PDO) {
 
         // --- registrar_estado + check do tipo certo / não vaza pra outro tipo ---
         $limpa();
-        dude_registrar_estado($pdo, 'device', 'PC-01', 'PC Caixa 1', '10.0.0.5', 'Loja 05', 'down', 'sem resposta ao ping');
+        dude_registrar_estado($pdo, 'device', $CHAVE_TESTE, 'PC Caixa 1', '10.0.0.5', 'Loja 05', 'down', 'sem resposta ao ping');
         $ocDevice = alerta_check_dude_device($pdo, []);
-        t_ok((bool) array_filter($ocDevice, fn($o) => $o['chave'] === 'dude:device:PC-01'), 'check_dude_device: aparece quando status=down');
-        $achouPC01 = array_values(array_filter($ocDevice, fn($o) => $o['chave'] === 'dude:device:PC-01'))[0];
+        $chaveEsperada = 'dude:device:' . $CHAVE_TESTE;
+        t_ok((bool) array_filter($ocDevice, fn($o) => $o['chave'] === $chaveEsperada), 'check_dude_device: aparece quando status=down');
+        $achouPC01 = array_values(array_filter($ocDevice, fn($o) => $o['chave'] === $chaveEsperada))[0];
         t_ok(str_contains($achouPC01['detalhe'], 'sem resposta ao ping'), 'check_dude_device: detalhe traz o motivo');
         t_eq($achouPC01['loja'], 'Loja 05', 'check_dude_device: loja vem do que o mapa do Dude mandou');
 
         $ocLink = alerta_check_dude_link($pdo, []);
-        t_ok(!array_filter($ocLink, fn($o) => $o['chave'] === 'dude:device:PC-01'), 'check_dude_link: não mostra ocorrência de outro tipo (device)');
+        t_ok(!array_filter($ocLink, fn($o) => $o['chave'] === $chaveEsperada), 'check_dude_link: não mostra ocorrência de outro tipo (device)');
 
         // --- up resolve ---
-        dude_registrar_estado($pdo, 'device', 'PC-01', 'PC Caixa 1', '10.0.0.5', 'Loja 05', 'up', '');
+        dude_registrar_estado($pdo, 'device', $CHAVE_TESTE, 'PC Caixa 1', '10.0.0.5', 'Loja 05', 'up', '');
         $ocDevice2 = alerta_check_dude_device($pdo, []);
-        t_ok(!array_filter($ocDevice2, fn($o) => $o['chave'] === 'dude:device:PC-01'), 'check_dude_device: some depois de um up');
+        t_ok(!array_filter($ocDevice2, fn($o) => $o['chave'] === $chaveEsperada), 'check_dude_device: some depois de um up');
 
         // --- ultima_notificacao reflete o registro mais recente ---
         $ultima = dude_ultima_notificacao($pdo);
         t_ok($ultima !== null, 'ultima_notificacao: não é null depois de registrar algo');
 
-        // --- sem_contato: contato recente -> vazio; forçando pro passado -> aparece ---
+        // --- sem_contato: contato recente (o que acabamos de registrar) não dispara.
+        // NÃO testamos o caminho "disparou" aqui: dude_ultima_notificacao() é
+        // MAX(atualizado_em) da tabela INTEIRA (é um watchdog global, não por
+        // dispositivo) — forçar isso pro passado exigiria mexer em toda a
+        // tabela compartilhada, o que pode alarmar de verdade se houver dado
+        // real. Cobertura desse ramo fica por inspeção manual/E2E, não aqui.
         $ocSC = alerta_check_dude_sem_contato($pdo, ['horas' => 6]);
         t_ok(!$ocSC, 'check_dude_sem_contato: contato recente não dispara');
-
-        $pdo->exec("UPDATE portal_dude_estado SET atualizado_em = NOW() - INTERVAL 10 HOUR");
-        $ocSC2 = alerta_check_dude_sem_contato($pdo, ['horas' => 6]);
-        t_ok((bool) $ocSC2, 'check_dude_sem_contato: dispara quando passou do limiar');
-        t_ok(str_contains($ocSC2[0]['detalhe'], 'última notificação há'), 'check_dude_sem_contato: detalhe tem o texto esperado');
 
         // --- renders ---
         t_ok(strpos(alerta_render_dude([]), 'vazio') !== false, 'render_dude([]) tem a msg vazia');
