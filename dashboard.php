@@ -97,19 +97,19 @@ function pode_ver(string $key, ?array $cards): bool {
        margin-top volta pra -3rem. */
     .hero {
       background: linear-gradient(135deg, var(--primary) 0%, #1565c0 100%);
-      color: white; padding: 1.5rem 2rem 2.5rem;
+      color: white; padding: .9rem 2rem 1.6rem;
       text-align: center;
     }
-    .hero h2 { font-size: 1.4rem; font-weight: 300; margin: 0; }
+    .hero h2 { font-size: 1.15rem; font-weight: 300; margin: 0; }
     .hero h2 strong { font-weight: 700; }
-    .hero p  { opacity: .8; margin-top: .35rem; font-size: .9rem; }
+    .hero p  { opacity: .8; margin-top: .25rem; font-size: .8rem; }
 
     /* ── Cards ── */
     /* Layout em 5 colunas (era 3) + cards um pouco menores — pedido 2026-09-13.
        Mudança isolada só de CSS: pra reverter pro layout anterior, restaurar
        max-width:900px / minmax(240px,1fr) / padding 2rem 1.5rem / ícone 70px. */
     .cards-wrap {
-      max-width: 1300px; margin: -1.5rem auto 2rem;
+      max-width: 1300px; margin: -.9rem auto 2rem;
       padding: 0 1.5rem;
       display: grid;
       grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
