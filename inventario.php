@@ -142,6 +142,7 @@ $cards_glpi = inv_cards($pdo);
   <div class="brand"><i class="bi bi-box-seam me-1"></i> Inventário</div>
   <span class="spacer"></span>
   <a href="inventario_relatorio.php"><i class="bi bi-file-earmark-pdf me-1"></i>Exportar tudo (PDF)</a>
+  <a href="alertas_historico.php"><i class="bi bi-clock-history me-1"></i>Histórico de Alertas</a>
   <a href="inventario_admin.php"><i class="bi bi-gear me-1"></i>Configurar</a>
   <a href="dashboard.php"><i class="bi bi-grid me-1"></i>Início</a>
 </div>

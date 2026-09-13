@@ -41,7 +41,69 @@ require_once __DIR__ . '/sefaz_lib.php';
         ultimo_lembrete DATETIME NULL,
         PRIMARY KEY (tipo, chave)
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
+
+    // histórico permanente de transições (nova/resolvida) — diferente de
+    // portal_alertas_ocorrencias (que só guarda o estado ATUAL e apaga a linha
+    // quando resolve). Alimentado por gat_alertas_tipo() a cada passada do worker.
+    $pdo->exec("CREATE TABLE IF NOT EXISTS portal_alertas_historico (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        tipo VARCHAR(40) NOT NULL,
+        chave VARCHAR(191) NOT NULL,
+        evento ENUM('nova','resolvida') NOT NULL,
+        titulo VARCHAR(255) NULL,
+        loja VARCHAR(255) NULL,
+        detalhe VARCHAR(500) NULL,
+        criado_em DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        INDEX idx_tipo_criado (tipo, criado_em),
+        INDEX idx_criado (criado_em)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
 })();
+
+// Grava uma transição no histórico. Chamada só a partir de gat_alertas_tipo()
+// (único ponto que muda portal_alertas_ocorrencias de verdade), então o
+// histórico reflete exatamente o que o motor decidiu, notificação tendo
+// disparado ou não (o mute de WhatsApp não deve mudar o que fica registrado).
+function alertas_historico_registrar(
+    PDO $pdo, string $tipo, string $chave, string $evento,
+    ?string $titulo = null, ?string $loja = null, ?string $detalhe = null
+): void {
+    $st = $pdo->prepare(
+        "INSERT INTO portal_alertas_historico (tipo, chave, evento, titulo, loja, detalhe, criado_em)
+         VALUES (?, ?, ?, ?, ?, ?, NOW())"
+    );
+    $st->execute([$tipo, $chave, $evento, $titulo, $loja, $detalhe]);
+}
+
+/**
+ * Lista o histórico com filtros opcionais, mais recente primeiro.
+ * @return array{linhas: array, total: int}
+ */
+function alertas_historico_listar(
+    PDO $pdo, string $tipo = '', string $evento = '', int $dias = 0,
+    int $limite = 50, int $pagina = 1
+): array {
+    $where = [];
+    $params = [];
+    if ($tipo !== '') { $where[] = 'tipo = ?'; $params[] = $tipo; }
+    if ($evento !== '') { $where[] = 'evento = ?'; $params[] = $evento; }
+    if ($dias > 0) { $where[] = 'criado_em >= NOW() - INTERVAL ? DAY'; $params[] = $dias; }
+    $sqlWhere = $where ? ('WHERE ' . implode(' AND ', $where)) : '';
+
+    $stCount = $pdo->prepare("SELECT COUNT(*) FROM portal_alertas_historico $sqlWhere");
+    $stCount->execute($params);
+    $total = (int) $stCount->fetchColumn();
+
+    $limite = max(1, min(500, $limite));
+    $offset = max(0, ($pagina - 1) * $limite);
+    $st = $pdo->prepare(
+        "SELECT id, tipo, chave, evento, titulo, loja, detalhe, criado_em
+         FROM portal_alertas_historico $sqlWhere
+         ORDER BY criado_em DESC, id DESC
+         LIMIT $limite OFFSET $offset"
+    );
+    $st->execute($params);
+    return ['linhas' => $st->fetchAll(PDO::FETCH_ASSOC), 'total' => $total];
+}
 
 function alertas_catalogo(): array
 {

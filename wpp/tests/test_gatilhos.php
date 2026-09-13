@@ -196,6 +196,7 @@ if (isset($pdo) && $pdo instanceof PDO) {
     $GRP  = '111222333@g.us';
     $limpa = function () use ($pdo, $TIPO) {
         $pdo->prepare("DELETE FROM portal_alertas_ocorrencias WHERE tipo = ?")->execute([$TIPO]);
+        $pdo->prepare("DELETE FROM portal_alertas_historico WHERE tipo = ?")->execute([$TIPO]);
     };
     // check-fake: devolve o que estiver em $GLOBALS['__fake_ocorr']
     $defFake = ['nome' => 'Alerta de Teste', 'check' => function ($pdo, $params) {
@@ -214,6 +215,8 @@ if (isset($pdo) && $pdo instanceof PDO) {
         t_eq(count($enviadas), 2, 'gat_alertas_tipo: 2 ocorrências novas -> 2 envios');
         t_eq((int) $pdo->query("SELECT COUNT(*) FROM portal_alertas_ocorrencias WHERE tipo='$TIPO'")->fetchColumn(), 2,
              'gat_alertas_tipo: 2 linhas gravadas');
+        t_eq((int) $pdo->query("SELECT COUNT(*) FROM portal_alertas_historico WHERE tipo='$TIPO' AND evento='nova'")->fetchColumn(), 2,
+             'gat_alertas_tipo: 2 novas registradas no histórico');
 
         // -- 2ª passada, mesmas ocorrências: nada novo, 0 envios --
         $enviadas = [];
@@ -228,6 +231,8 @@ if (isset($pdo) && $pdo instanceof PDO) {
         t_ok(strpos($enviadas[0][1], '✅ *Resolvido') === 0, 'gat_alertas_tipo: mensagem de resolvido');
         t_eq((int) $pdo->query("SELECT COUNT(*) FROM portal_alertas_ocorrencias WHERE tipo='$TIPO'")->fetchColumn(), 1,
              'gat_alertas_tipo: linha da resolvida apagada');
+        t_eq((int) $pdo->query("SELECT COUNT(*) FROM portal_alertas_historico WHERE tipo='$TIPO' AND evento='resolvida'")->fetchColumn(), 1,
+             'gat_alertas_tipo: resolvida registrada no histórico');
 
         // -- LEMBRETE: lembrete_min=30, primeiro_visto forçado pra 40min atrás -> 1 lembrete --
         $pdo->prepare("UPDATE portal_alertas_ocorrencias SET primeiro_visto = NOW() - INTERVAL 40 MINUTE, ultimo_lembrete = NULL WHERE tipo=? AND chave='a'")->execute([$TIPO]);
@@ -252,6 +257,8 @@ if (isset($pdo) && $pdo instanceof PDO) {
         t_eq(count($enviadas), 0, 'gat_alertas_tipo: notif off -> 0 envios');
         t_eq((int) $pdo->query("SELECT COUNT(*) FROM portal_alertas_ocorrencias WHERE tipo='$TIPO'")->fetchColumn(), 1,
              'gat_alertas_tipo: notif off ainda mantém a tabela em dia');
+        t_eq((int) $pdo->query("SELECT COUNT(*) FROM portal_alertas_historico WHERE tipo='$TIPO' AND evento='nova'")->fetchColumn(), 1,
+             'gat_alertas_tipo: notif off ainda registra no histórico');
 
         // -- envio FALHA: estado NÃO muda --
         $limpa();
@@ -260,6 +267,8 @@ if (isset($pdo) && $pdo instanceof PDO) {
         gat_alertas_tipo($pdo, $TIPO, $defFake, $cfg(true), $GRP);
         t_eq((int) $pdo->query("SELECT COUNT(*) FROM portal_alertas_ocorrencias WHERE tipo='$TIPO'")->fetchColumn(), 0,
              'gat_alertas_tipo: envio falhou -> nada gravado (re-tenta depois)');
+        t_eq((int) $pdo->query("SELECT COUNT(*) FROM portal_alertas_historico WHERE tipo='$TIPO'")->fetchColumn(), 0,
+             'gat_alertas_tipo: envio falhou -> histórico também não grava');
 
         // -- grupo vazio: equivale a notif off --
         $limpa();

@@ -70,6 +70,32 @@ try {
         // render com dados -> string não vazia
         if ($oc) t_ok(strlen(call_user_func($cat[$tipo]['render'], $oc)) > 20, "$tipo render(ocorr) devolve HTML");
     }
+
+    // ── alertas_historico_registrar/listar — tipo sintético, isolado dos dados reais ──
+    $TH = '__teste_historico__';
+    $pdo->prepare("DELETE FROM portal_alertas_historico WHERE tipo = ?")->execute([$TH]);
+    t_ok((bool) $pdo->query("SHOW TABLES LIKE 'portal_alertas_historico'")->fetch(), 'portal_alertas_historico existe');
+
+    alertas_historico_registrar($pdo, $TH, 'chave1', 'nova', 'Título 1', 'Loja X', 'detalhe 1');
+    alertas_historico_registrar($pdo, $TH, 'chave1', 'resolvida', 'Título 1');
+    alertas_historico_registrar($pdo, $TH, 'chave2', 'nova', 'Título 2', 'Loja Y', 'detalhe 2');
+
+    $r = alertas_historico_listar($pdo, $TH);
+    t_eq($r['total'], 3, 'historico_listar: sem filtro, conta as 3 linhas gravadas');
+    t_eq(count($r['linhas']), 3, 'historico_listar: devolve as 3 linhas');
+    t_eq($r['linhas'][0]['evento'], 'nova', 'historico_listar: mais recente primeiro (chave2/nova)');
+
+    $rNova = alertas_historico_listar($pdo, $TH, 'nova');
+    t_eq($rNova['total'], 2, 'historico_listar: filtro evento=nova -> 2');
+
+    $rResolvida = alertas_historico_listar($pdo, $TH, 'resolvida');
+    t_eq($rResolvida['total'], 1, 'historico_listar: filtro evento=resolvida -> 1');
+
+    $rLimite = alertas_historico_listar($pdo, $TH, '', 0, 1, 1);
+    t_eq(count($rLimite['linhas']), 1, 'historico_listar: limite=1 devolve 1 linha');
+    t_eq($rLimite['total'], 3, 'historico_listar: total ignora o limite da página');
+
+    $pdo->prepare("DELETE FROM portal_alertas_historico WHERE tipo = ?")->execute([$TH]);
 } finally {
     // restaura as duas linhas reais exatamente como estavam antes do teste
     foreach (['sem_inventario', 'disco_cheio'] as $t) {

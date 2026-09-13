@@ -412,6 +412,10 @@ function gat_alertas_tipo(PDO $pdo, string $slug, array $def, array $cfg, string
             if (empty($r['ok'])) continue;   // não grava -> re-tenta na próxima passada
         }
         $ins->execute([$slug, $o['chave']]);
+        alertas_historico_registrar(
+            $pdo, $slug, (string) $o['chave'], 'nova',
+            $o['titulo'] ?? null, $o['loja'] ?? null, $o['detalhe'] ?? null
+        );
     }
 
     // RESOLVIDAS
@@ -422,6 +426,7 @@ function gat_alertas_tipo(PDO $pdo, string $slug, array $def, array $cfg, string
             if (empty($r['ok'])) continue;   // não apaga -> re-tenta
         }
         $del->execute([$slug, $chave]);
+        alertas_historico_registrar($pdo, $slug, (string) $chave, 'resolvida', gat_alerta_titulo_da_chave((string) $chave));
     }
 
     // LEMBRETE
