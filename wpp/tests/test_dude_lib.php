@@ -20,9 +20,13 @@ if (isset($pdo) && $pdo instanceof PDO) {
     // Central de Alertas pegou e mandou WhatsApp de verdade.
     $CHAVE_TESTE = '__teste_PC-01__';
     $CAT_TESTE = '__cat_teste__';
-    $limpa = function () use ($pdo, $CHAVE_TESTE, $CAT_TESTE) {
+    $LOJA_TESTE = '__loja_teste__';
+    $DATA_TESTE = '2099-12-31'; // data bem no futuro, improvável de colidir com feriado real cadastrado
+    $limpa = function () use ($pdo, $CHAVE_TESTE, $CAT_TESTE, $LOJA_TESTE, $DATA_TESTE) {
         $pdo->prepare("DELETE FROM portal_dude_estado WHERE chave LIKE '__teste_%' OR chave LIKE '__cat_%'")->execute();
         $pdo->prepare("DELETE FROM portal_dude_categoria_config WHERE categoria = ?")->execute([$CAT_TESTE]);
+        $pdo->prepare("DELETE FROM portal_dude_horario_excecao WHERE categoria = ?")->execute([$CAT_TESTE]);
+        $pdo->prepare("DELETE FROM portal_dude_feriado WHERE data = ? OR loja = ?")->execute([$DATA_TESTE, $LOJA_TESTE]);
     };
 
     // guarda o token original pra restaurar no finally (não pode invalidar
@@ -90,6 +94,64 @@ if (isset($pdo) && $pdo instanceof PDO) {
         dude_categoria_config_salvar($pdo, $CAT_TESTE, date('H:i:s', $agora - 3600), date('H:i:s', $agora + 3600), null);
         $ocDentroHorario = alerta_check_dude_device($pdo, []);
         t_ok((bool) array_filter($ocDentroHorario, fn($o) => $o['chave'] === $chaveEsperada), 'check_dude_device: dentro do horário da categoria -> aparece');
+
+        // --- exceção de horário por loja + dia da semana ---
+        $diaHoje = (int) date('w');
+        t_ok(dude_lojas_vistas($pdo) !== null, 'lojas_vistas: não lança');
+
+        // categoria fora do horário padrão agora, mas essa loja tem exceção que INCLUI agora
+        dude_categoria_config_salvar($pdo, $CAT_TESTE, date('H:i:s', $agora + 2 * 3600), date('H:i:s', $agora + 3 * 3600), null);
+        t_ok(!dude_categoria_no_horario($pdo, $CAT_TESTE, $LOJA_TESTE), 'categoria_no_horario(loja): sem exceção ainda, cai no padrão (fora) -> false');
+
+        dude_horario_excecao_salvar($pdo, $CAT_TESTE, $LOJA_TESTE, $diaHoje, date('H:i:s', $agora - 3600), date('H:i:s', $agora + 3600));
+        t_ok(dude_categoria_no_horario($pdo, $CAT_TESTE, $LOJA_TESTE), 'categoria_no_horario(loja): exceção de hoje inclui agora -> true (ignora o padrão)');
+        t_ok(!dude_categoria_no_horario($pdo, $CAT_TESTE, '__outra_loja_sem_excecao__'), 'categoria_no_horario(loja): outra loja sem exceção continua usando o padrão -> false');
+
+        $listaExc = dude_horario_excecao_listar($pdo);
+        $achouExc = array_values(array_filter($listaExc, fn($e) => $e['categoria'] === $CAT_TESTE && $e['loja'] === $LOJA_TESTE));
+        t_eq(count($achouExc), 1, 'horario_excecao_listar: exceção salva aparece na lista');
+        t_eq((int) $achouExc[0]['dia_semana'], $diaHoje, 'horario_excecao_listar: dia_semana salvo corretamente');
+
+        // dude_check_device respeita a exceção por loja
+        dude_registrar_estado($pdo, 'device', $CHAVE_TESTE, 'PC Caixa 1', '10.0.0.5', $LOJA_TESTE, $CAT_TESTE, 'down', 'fora do ar');
+        $ocComExcecao = alerta_check_dude_device($pdo, []);
+        $chaveLojaTeste = 'dude:device:' . $CHAVE_TESTE;
+        t_ok((bool) array_filter($ocComExcecao, fn($o) => $o['chave'] === $chaveLojaTeste), 'check_dude_device: exceção da loja inclui agora -> aparece mesmo com padrão da categoria fora');
+
+        // horarioInicio/horarioFim null remove a exceção (volta ao padrão)
+        dude_horario_excecao_salvar($pdo, $CAT_TESTE, $LOJA_TESTE, $diaHoje, null, null);
+        t_ok(!dude_categoria_no_horario($pdo, $CAT_TESTE, $LOJA_TESTE), 'horario_excecao_salvar(null): remove a exceção -> volta ao padrão (fora)');
+
+        // --- feriados ---
+        t_ok(!dude_feriado_hoje($pdo, $LOJA_TESTE), 'feriado_hoje: sem cadastro -> false');
+
+        dude_feriado_salvar($pdo, $DATA_TESTE, $LOJA_TESTE);
+        $listaFer = dude_feriado_listar($pdo);
+        $achouFer = array_values(array_filter($listaFer, fn($f) => $f['data'] === $DATA_TESTE && $f['loja'] === $LOJA_TESTE));
+        t_eq(count($achouFer), 1, 'feriado_listar: feriado salvo aparece na lista');
+
+        // feriado de loja='' (todas) silencia qualquer loja, mesmo sem linha específica
+        dude_feriado_salvar($pdo, $DATA_TESTE, '');
+        t_ok(dude_feriado_hoje($pdo, '__loja_qualquer_sem_feriado_proprio__') === false, 'feriado_hoje: feriado é numa data futura (DATA_TESTE), não hoje -> false mesmo com linha "todas as lojas"');
+
+        dude_feriado_excluir($pdo, $DATA_TESTE, $LOJA_TESTE);
+        dude_feriado_excluir($pdo, $DATA_TESTE, '');
+        $listaFer2 = dude_feriado_listar($pdo);
+        t_ok(!array_filter($listaFer2, fn($f) => $f['data'] === $DATA_TESTE), 'feriado_excluir: remove os dois cadastrados');
+
+        // feriado_hoje==true de verdade, e bloqueando alerta_check_dude_device — usando CURDATE()
+        $hojeStr = date('Y-m-d');
+        dude_feriado_salvar($pdo, $hojeStr, $LOJA_TESTE);
+        t_ok(dude_feriado_hoje($pdo, $LOJA_TESTE), 'feriado_hoje: cadastrado pra hoje + loja certa -> true');
+        t_ok(!dude_feriado_hoje($pdo, '__outra_loja_sem_feriado__'), 'feriado_hoje: cadastrado só pra uma loja não afeta outra');
+
+        // limpa a exceção de horário de novo (senão o próximo check reaparece) antes de testar o feriado bloqueando
+        dude_horario_excecao_salvar($pdo, $CAT_TESTE, $LOJA_TESTE, $diaHoje, date('H:i:s', $agora - 3600), date('H:i:s', $agora + 3600));
+        $ocComFeriado = alerta_check_dude_device($pdo, []);
+        t_ok(!array_filter($ocComFeriado, fn($o) => $o['chave'] === $chaveLojaTeste), 'check_dude_device: feriado de hoje silencia mesmo dentro do horário permitido');
+        $pdo->prepare("DELETE FROM portal_dude_feriado WHERE data = ? AND loja = ?")->execute([$hojeStr, $LOJA_TESTE]);
+        dude_horario_excecao_excluir($pdo, $CAT_TESTE, $LOJA_TESTE, $diaHoje);
+        $pdo->prepare("DELETE FROM portal_dude_estado WHERE chave = ?")->execute([$CHAVE_TESTE]);
 
         // --- alerta_check_dude_ligado_muito_tempo: genérico por categoria ---
         dude_categoria_config_salvar($pdo, $CAT_TESTE, null, null, 1); // limite 1h, sem restrição de horário

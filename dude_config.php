@@ -124,6 +124,103 @@ if ($action !== '') {
         exit;
     }
 
+    if ($action === 'lojas_listar') {
+        echo json_encode(['ok' => true, 'lojas' => dude_lojas_vistas($pdo)]);
+        exit;
+    }
+
+    if ($action === 'excecoes_listar') {
+        echo json_encode(['ok' => true, 'excecoes' => dude_horario_excecao_listar($pdo)]);
+        exit;
+    }
+
+    if ($action === 'excecoes_salvar') {
+        if ($_SERVER['REQUEST_METHOD'] !== 'POST') { echo json_encode(['ok' => false, 'erro' => 'método inválido']); exit; }
+        $categoria = trim((string) ($_POST['categoria'] ?? ''));
+        $loja      = trim((string) ($_POST['loja'] ?? ''));
+        $diaSemana = (int) ($_POST['dia_semana'] ?? -1);
+        if ($categoria === '' || $loja === '' || $diaSemana < 0 || $diaSemana > 6) {
+            echo json_encode(['ok' => false, 'erro' => 'categoria, loja e dia da semana são obrigatórios']);
+            exit;
+        }
+
+        $horaInicio = trim((string) ($_POST['horario_inicio'] ?? ''));
+        $horaFim    = trim((string) ($_POST['horario_fim'] ?? ''));
+        if ($horaInicio === '' || $horaFim === '') {
+            echo json_encode(['ok' => false, 'erro' => 'preencha os dois horários (pra remover a exceção, use o botão excluir)']);
+            exit;
+        }
+        if (!preg_match('/^\d{2}:\d{2}$/', $horaInicio) || !preg_match('/^\d{2}:\d{2}$/', $horaFim)) {
+            echo json_encode(['ok' => false, 'erro' => 'horário inválido (use HH:MM)']);
+            exit;
+        }
+
+        try {
+            dude_horario_excecao_salvar($pdo, $categoria, $loja, $diaSemana, $horaInicio . ':00', $horaFim . ':00');
+            echo json_encode(['ok' => true]);
+        } catch (\Throwable $e) {
+            echo json_encode(['ok' => false, 'erro' => 'falha ao salvar']);
+        }
+        exit;
+    }
+
+    if ($action === 'excecoes_excluir') {
+        if ($_SERVER['REQUEST_METHOD'] !== 'POST') { echo json_encode(['ok' => false, 'erro' => 'método inválido']); exit; }
+        $categoria = trim((string) ($_POST['categoria'] ?? ''));
+        $loja      = trim((string) ($_POST['loja'] ?? ''));
+        $diaSemana = (int) ($_POST['dia_semana'] ?? -1);
+        if ($categoria === '' || $loja === '' || $diaSemana < 0 || $diaSemana > 6) {
+            echo json_encode(['ok' => false, 'erro' => 'parâmetros inválidos']);
+            exit;
+        }
+        try {
+            dude_horario_excecao_excluir($pdo, $categoria, $loja, $diaSemana);
+            echo json_encode(['ok' => true]);
+        } catch (\Throwable $e) {
+            echo json_encode(['ok' => false, 'erro' => 'falha ao excluir']);
+        }
+        exit;
+    }
+
+    if ($action === 'feriados_listar') {
+        echo json_encode(['ok' => true, 'feriados' => dude_feriado_listar($pdo)]);
+        exit;
+    }
+
+    if ($action === 'feriados_salvar') {
+        if ($_SERVER['REQUEST_METHOD'] !== 'POST') { echo json_encode(['ok' => false, 'erro' => 'método inválido']); exit; }
+        $data = trim((string) ($_POST['data'] ?? ''));
+        $loja = trim((string) ($_POST['loja'] ?? '')); // '' = todas as lojas
+        if (!preg_match('/^\d{4}-\d{2}-\d{2}$/', $data)) {
+            echo json_encode(['ok' => false, 'erro' => 'data inválida']);
+            exit;
+        }
+        try {
+            dude_feriado_salvar($pdo, $data, $loja);
+            echo json_encode(['ok' => true]);
+        } catch (\Throwable $e) {
+            echo json_encode(['ok' => false, 'erro' => 'falha ao salvar']);
+        }
+        exit;
+    }
+
+    if ($action === 'feriados_excluir') {
+        if ($_SERVER['REQUEST_METHOD'] !== 'POST') { echo json_encode(['ok' => false, 'erro' => 'método inválido']); exit; }
+        $data = trim((string) ($_POST['data'] ?? ''));
+        $loja = trim((string) ($_POST['loja'] ?? ''));
+        if (!preg_match('/^\d{4}-\d{2}-\d{2}$/', $data)) {
+            echo json_encode(['ok' => false, 'erro' => 'data inválida']);
+            exit;
+        }
+        try {
+            dude_feriado_excluir($pdo, $data, $loja);
+            echo json_encode(['ok' => true]);
+        } catch (\Throwable $e) {
+            echo json_encode(['ok' => false, 'erro' => 'falha ao excluir']);
+        }
+        exit;
+    }
+
     echo json_encode(['ok' => false, 'erro' => 'ação desconhecida']);
     exit;
 }
@@ -188,6 +285,46 @@ if ($action !== '') {
     <p class="small text-muted mb-2">Horário em branco = notifica "sem comunicação" a qualquer hora. Horas ligado em branco = não checa "ligado há muito tempo" pra essa categoria.</p>
     <div id="cat-lista">Carregando…</div>
     <div id="fb-cat" class="small mt-2"></div>
+  </div>
+
+  <div class="card-box">
+    <h6 class="mb-2">Exceções por loja e dia da semana</h6>
+    <p class="small text-muted mb-2">Ex.: PDV fecha mais cedo aos domingos em algumas lojas. Cadastre só as exceções — loja/dia sem linha aqui usa o horário padrão da categoria acima.</p>
+    <div class="d-flex gap-2 flex-wrap align-items-end mb-2">
+      <div><label class="form-label small mb-0">Categoria</label>
+        <select id="exc-categoria" class="form-select form-select-sm" style="width:140px"></select></div>
+      <div><label class="form-label small mb-0">Loja</label>
+        <select id="exc-loja" class="form-select form-select-sm" style="width:140px"></select></div>
+      <div><label class="form-label small mb-0">Dia da semana</label>
+        <select id="exc-dia" class="form-select form-select-sm" style="width:130px">
+          <option value="0">Domingo</option><option value="1">Segunda</option><option value="2">Terça</option>
+          <option value="3">Quarta</option><option value="4">Quinta</option><option value="5">Sexta</option>
+          <option value="6">Sábado</option>
+        </select></div>
+      <div><label class="form-label small mb-0">Notifica das</label>
+        <input type="time" id="exc-inicio" class="form-control form-control-sm" style="width:110px"></div>
+      <div><label class="form-label small mb-0">até</label>
+        <input type="time" id="exc-fim" class="form-control form-control-sm" style="width:110px"></div>
+      <button type="button" class="btn btn-primary btn-sm" onclick="salvarExcecao()">Adicionar</button>
+    </div>
+    <div id="exc-lista" class="small"></div>
+    <div id="fb-exc" class="small mt-2"></div>
+  </div>
+
+  <div class="card-box">
+    <h6 class="mb-2">Feriados / dias sem notificação</h6>
+    <p class="small text-muted mb-2">Silencia todos os alertas de dispositivo (PDV etc.) numa data específica — de uma loja só, ou de todas.</p>
+    <div class="d-flex gap-2 flex-wrap align-items-end mb-2">
+      <div><label class="form-label small mb-0">Data</label>
+        <input type="date" id="fer-data" class="form-control form-control-sm" style="width:150px"></div>
+      <div><label class="form-label small mb-0">Loja</label>
+        <select id="fer-loja" class="form-select form-select-sm" style="width:160px">
+          <option value="">Todas as lojas</option>
+        </select></div>
+      <button type="button" class="btn btn-primary btn-sm" onclick="salvarFeriado()">Adicionar</button>
+    </div>
+    <div id="fer-lista" class="small"></div>
+    <div id="fb-fer" class="small mt-2"></div>
   </div>
 
   <div class="card-box runbook">
@@ -311,6 +448,122 @@ function salvarCategoria(btn, categoria) {
     });
 }
 carregarCategorias();
+
+/* ─────────── Exceções por loja/dia da semana ─────────── */
+var DIAS = ['Domingo','Segunda','Terça','Quarta','Quinta','Sexta','Sábado'];
+function feedbackExc(tipo, msg) {
+  var el = $('fb-exc');
+  el.className = 'small mt-2 ' + (tipo === 'ok' ? 'text-success' : (tipo === 'err' ? 'text-danger' : 'text-muted'));
+  el.textContent = msg;
+}
+function carregarSelects() {
+  fetch('dude_config.php?action=categorias_listar').then(function (r) { return r.json(); }).then(function (d) {
+    var sel = $('exc-categoria');
+    sel.innerHTML = '';
+    (d.categorias || []).forEach(function (c) {
+      var opt = document.createElement('option'); opt.value = c.categoria; opt.textContent = c.categoria;
+      sel.appendChild(opt);
+    });
+  });
+  fetch('dude_config.php?action=lojas_listar').then(function (r) { return r.json(); }).then(function (d) {
+    var selExc = $('exc-loja'), selFer = $('fer-loja');
+    selExc.innerHTML = '';
+    (d.lojas || []).forEach(function (l) {
+      selExc.appendChild(new Option(l, l));
+      selFer.appendChild(new Option(l, l));
+    });
+  });
+}
+function linhaExcecao(e) {
+  var div = document.createElement('div');
+  div.className = 'd-flex gap-2 align-items-center mb-1';
+  div.innerHTML =
+    '<span style="min-width:280px">' + e.categoria + ' · ' + e.loja + ' · ' + DIAS[e.dia_semana] +
+    ' · ' + hhmm(e.horario_inicio) + '–' + hhmm(e.horario_fim) + '</span>' +
+    '<button type="button" class="btn btn-outline-danger btn-sm">Excluir</button>';
+  div.querySelector('button').onclick = function () { excluirExcecao(e.categoria, e.loja, e.dia_semana); };
+  return div;
+}
+function carregarExcecoes() {
+  fetch('dude_config.php?action=excecoes_listar').then(function (r) { return r.json(); }).then(function (d) {
+    var lista = $('exc-lista');
+    lista.innerHTML = '';
+    if (!d.ok || !d.excecoes.length) { lista.innerHTML = '<div class="text-muted">Nenhuma exceção cadastrada.</div>'; return; }
+    d.excecoes.forEach(function (e) { lista.appendChild(linhaExcecao(e)); });
+  });
+}
+function salvarExcecao() {
+  var params = new URLSearchParams({
+    categoria: $('exc-categoria').value, loja: $('exc-loja').value, dia_semana: $('exc-dia').value,
+    horario_inicio: $('exc-inicio').value, horario_fim: $('exc-fim').value,
+  });
+  fetch('dude_config.php?action=excecoes_salvar', { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body: params })
+    .then(function (r) { return r.json(); })
+    .then(function (d) {
+      if (!d.ok) { feedbackExc('err', d.erro || 'erro ao salvar'); return; }
+      feedbackExc('ok', 'exceção salva.');
+      carregarExcecoes();
+    });
+}
+function excluirExcecao(categoria, loja, diaSemana) {
+  var params = new URLSearchParams({ categoria: categoria, loja: loja, dia_semana: diaSemana });
+  fetch('dude_config.php?action=excecoes_excluir', { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body: params })
+    .then(function (r) { return r.json(); })
+    .then(function (d) {
+      if (!d.ok) { feedbackExc('err', d.erro || 'erro ao excluir'); return; }
+      feedbackExc('ok', 'exceção removida.');
+      carregarExcecoes();
+    });
+}
+carregarSelects();
+carregarExcecoes();
+
+/* ─────────── Feriados ─────────── */
+function feedbackFer(tipo, msg) {
+  var el = $('fb-fer');
+  el.className = 'small mt-2 ' + (tipo === 'ok' ? 'text-success' : (tipo === 'err' ? 'text-danger' : 'text-muted'));
+  el.textContent = msg;
+}
+function linhaFeriado(f) {
+  var div = document.createElement('div');
+  div.className = 'd-flex gap-2 align-items-center mb-1';
+  div.innerHTML =
+    '<span style="min-width:220px">' + f.data + ' · ' + (f.loja === '' ? 'Todas as lojas' : f.loja) + '</span>' +
+    '<button type="button" class="btn btn-outline-danger btn-sm">Excluir</button>';
+  div.querySelector('button').onclick = function () { excluirFeriado(f.data, f.loja); };
+  return div;
+}
+function carregarFeriados() {
+  fetch('dude_config.php?action=feriados_listar').then(function (r) { return r.json(); }).then(function (d) {
+    var lista = $('fer-lista');
+    lista.innerHTML = '';
+    if (!d.ok || !d.feriados.length) { lista.innerHTML = '<div class="text-muted">Nenhum feriado cadastrado.</div>'; return; }
+    d.feriados.forEach(function (f) { lista.appendChild(linhaFeriado(f)); });
+  });
+}
+function salvarFeriado() {
+  var data = $('fer-data').value;
+  if (!data) { feedbackFer('err', 'escolha uma data'); return; }
+  var params = new URLSearchParams({ data: data, loja: $('fer-loja').value });
+  fetch('dude_config.php?action=feriados_salvar', { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body: params })
+    .then(function (r) { return r.json(); })
+    .then(function (d) {
+      if (!d.ok) { feedbackFer('err', d.erro || 'erro ao salvar'); return; }
+      feedbackFer('ok', 'feriado salvo.');
+      carregarFeriados();
+    });
+}
+function excluirFeriado(data, loja) {
+  var params = new URLSearchParams({ data: data, loja: loja });
+  fetch('dude_config.php?action=feriados_excluir', { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body: params })
+    .then(function (r) { return r.json(); })
+    .then(function (d) {
+      if (!d.ok) { feedbackFer('err', d.erro || 'erro ao excluir'); return; }
+      feedbackFer('ok', 'feriado removido.');
+      carregarFeriados();
+    });
+}
+carregarFeriados();
 </script>
 </body>
 </html>
