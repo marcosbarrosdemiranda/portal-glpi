@@ -92,21 +92,24 @@ function pode_ver(string $key, ?array $cards): bool {
     .btn-logout:hover { background: rgba(255,255,255,.25); color: white; }
 
     /* ── Hero ── */
+    /* Reduzido pela metade — pedido 2026-09-13 (era padding: 3rem 2rem 5rem).
+       Reverter: padding: 3rem 2rem 5rem; h2 font-size: 1.8rem; e cards-wrap
+       margin-top volta pra -3rem. */
     .hero {
       background: linear-gradient(135deg, var(--primary) 0%, #1565c0 100%);
-      color: white; padding: 3rem 2rem 5rem;
+      color: white; padding: 1.5rem 2rem 2.5rem;
       text-align: center;
     }
-    .hero h2 { font-size: 1.8rem; font-weight: 300; margin: 0; }
+    .hero h2 { font-size: 1.4rem; font-weight: 300; margin: 0; }
     .hero h2 strong { font-weight: 700; }
-    .hero p  { opacity: .8; margin-top: .5rem; font-size: 1rem; }
+    .hero p  { opacity: .8; margin-top: .35rem; font-size: .9rem; }
 
     /* ── Cards ── */
     /* Layout em 5 colunas (era 3) + cards um pouco menores — pedido 2026-09-13.
        Mudança isolada só de CSS: pra reverter pro layout anterior, restaurar
        max-width:900px / minmax(240px,1fr) / padding 2rem 1.5rem / ícone 70px. */
     .cards-wrap {
-      max-width: 1300px; margin: -3rem auto 2rem;
+      max-width: 1300px; margin: -1.5rem auto 2rem;
       padding: 0 1.5rem;
       display: grid;
       grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
