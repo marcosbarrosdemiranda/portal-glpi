@@ -21,6 +21,12 @@ t_eq(evo_destino_payload('6733221100'), '556733221100@s.whatsapp.net', 'evo_dest
 t_eq(evo_destino_payload('5567996063666'), '5567996063666@s.whatsapp.net', 'evo_destino_payload: já tem DDI (13 díg.) -> não duplica');
 t_eq(evo_destino_payload('123@g.us'), '123@g.us', 'evo_destino_payload: JID de grupo passa direto, sem mexer');
 
+// evo_resolver_numero acerta o JID real quando o número tem o 9 mas o WhatsApp
+// registrou sem ele (bug corrigido 2026-09-13: sendText 400ava pra esses casos).
+// Grupo (@g.us) e formatos inesperados não disparam consulta de rede.
+t_eq(evo_resolver_numero('123@g.us'), '123@g.us', 'evo_resolver_numero: JID de grupo passa direto, sem consultar rede');
+t_ok(is_string(evo_resolver_numero('5567996063666@s.whatsapp.net')), 'evo_resolver_numero: sempre retorna string, mesmo se a consulta falhar');
+
 // evo_send_text é bloqueado pra destino não permitido (não faz request de verdade).
 // Obs: evo_api.php agora puxa guardrails.php -> db.php, então esta suíte exige banco.
 require_once __DIR__ . '/../guardrails.php';

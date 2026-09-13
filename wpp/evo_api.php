@@ -126,10 +126,34 @@ function evo_destino_payload(string $destino): string {
     return $tel . '@s.whatsapp.net';
 }
 
+// Resolve o JID real de um contato (não de grupo) antes do envio.
+//
+// Bug corrigido em 2026-09-13: alguns números brasileiros estão registrados no
+// WhatsApp SEM o 9º dígito (formato antigo), mesmo o telefone "existindo" com
+// o 9 (ex.: 5567996063666). O sendText exige o JID EXATO que a Evolution
+// reconhece, senão devolve 400 (confirmado ao vivo: "5567996063666" -> 400
+// Bad Request/exists=false; "5567996063666" E "556796063666" resolvidos via
+// /chat/whatsappNumbers -> ambos apontam pro mesmo jid real "556796063666").
+// Por isso, em vez de confiar no palpite de evo_destino_payload(), confere
+// com a Evolution antes de enviar. Falha de rede na consulta não trava o
+// envio — segue com o palpite original.
+function evo_resolver_numero(string $jidOuNumero): string {
+    if (!str_ends_with($jidOuNumero, '@s.whatsapp.net')) {
+        return $jidOuNumero; // grupo (@g.us) ou já não é o formato esperado -> não mexe
+    }
+    $numero = substr($jidOuNumero, 0, -strlen('@s.whatsapp.net'));
+    $r = evo_request('POST', '/chat/whatsappNumbers/' . EVO_INSTANCE, ['numbers' => [$numero]], 10);
+    $item = is_array($r['data']) ? ($r['data'][0] ?? null) : null;
+    if ($r['ok'] && is_array($item) && !empty($item['exists']) && is_string($item['jid'] ?? null)) {
+        return $item['jid'];
+    }
+    return $jidOuNumero;
+}
+
 // Envia texto simples. Passa o $destino ORIGINAL pro guardrail (ele lida com
-// dígitos e com JID de grupo); o número normalizado vai só no payload.
+// dígitos e com JID de grupo); o número normalizado/resolvido vai só no payload.
 function evo_send_text(string $destino, string $texto): array {
-    $number = evo_destino_payload($destino);
+    $number = evo_resolver_numero(evo_destino_payload($destino));
     return evo_guarded_send(
         $destino,
         fn() => evo_request('POST', '/message/sendText/' . EVO_INSTANCE, [
@@ -148,7 +172,7 @@ function evo_send_media(
     string $mime = 'image/jpeg',
     string $nome = 'arquivo'
 ): array {
-    $number = evo_destino_payload($destino);
+    $number = evo_resolver_numero(evo_destino_payload($destino));
     return evo_guarded_send(
         $destino,
         fn() => evo_request('POST', '/message/sendMedia/' . EVO_INSTANCE, [
