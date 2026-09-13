@@ -102,19 +102,22 @@ function pode_ver(string $key, ?array $cards): bool {
     .hero p  { opacity: .8; margin-top: .5rem; font-size: 1rem; }
 
     /* ── Cards ── */
+    /* Layout em 5 colunas (era 3) + cards um pouco menores — pedido 2026-09-13.
+       Mudança isolada só de CSS: pra reverter pro layout anterior, restaurar
+       max-width:900px / minmax(240px,1fr) / padding 2rem 1.5rem / ícone 70px. */
     .cards-wrap {
-      max-width: 900px; margin: -3rem auto 2rem;
+      max-width: 1300px; margin: -3rem auto 2rem;
       padding: 0 1.5rem;
       display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
-      gap: 1.25rem;
+      grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+      gap: 1.1rem;
     }
 
     .dash-card {
       background: white;
-      border-radius: 16px;
+      border-radius: 14px;
       box-shadow: 0 4px 24px rgba(0,0,0,.1);
-      padding: 2rem 1.5rem;
+      padding: 1.5rem 1.1rem;
       text-align: center;
       text-decoration: none;
       color: #333;
@@ -129,14 +132,14 @@ function pode_ver(string $key, ?array $cards): bool {
     }
 
     .dash-card .card-icon {
-      width: 70px; height: 70px;
+      width: 58px; height: 58px;
       border-radius: 50%;
       display: flex; align-items: center; justify-content: center;
-      margin: 0 auto 1.25rem;
-      font-size: 2rem;
+      margin: 0 auto 1rem;
+      font-size: 1.6rem;
     }
-    .dash-card h5 { font-weight: 700; font-size: 1.1rem; margin: 0 0 .4rem; }
-    .dash-card p  { font-size: .85rem; color: #888; margin: 0; }
+    .dash-card h5 { font-weight: 700; font-size: 1rem; margin: 0 0 .35rem; }
+    .dash-card p  { font-size: .8rem; color: #888; margin: 0; }
 
     /* Cores por card */
     .card-agenda    { border-top-color: #1a73e8; }
