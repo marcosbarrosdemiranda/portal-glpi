@@ -16,6 +16,7 @@ require_once __DIR__ . '/entidade_alias.php';
 require_once __DIR__ . '/agenda/db.php';
 require_once __DIR__ . '/backup_lib.php';
 require_once __DIR__ . '/dude_lib.php';
+require_once __DIR__ . '/sefaz_lib.php';
 
 // cria a tabela ao incluir (padrão do portal)
 (function () {
@@ -146,6 +147,15 @@ function alertas_catalogo(): array
             'render' => 'alerta_render_dude',
             'icone'  => 'bi-clock-history',
             'cor'    => 'warning',
+        ],
+        'sefaz_ms' => [
+            'nome'      => 'SEFAZ MS instável/fora do ar',
+            'descricao' => 'Disponibilidade dos serviços de CT-e pra MS, consultada na página oficial do SEFAZ (cache de 5min).',
+            'params'    => [],
+            'check'  => 'alerta_check_sefaz_ms',
+            'render' => 'alerta_render_sefaz',
+            'icone'  => 'bi-building',
+            'cor'    => 'danger',
         ],
     ];
 }
