@@ -524,7 +524,33 @@ function inv_computers_do_card(PDO $pdo, string $cardSlug, string $view = 'ativo
             WHERE c.is_deleted = 0 AND c.is_template = 0 AND $cond
             ORDER BY e.completename, c.name";
     $rows = $pdo->query($sql)->fetchAll();
+    $rows = inv_dedup_por_serial($rows);
     return array_values(array_filter($rows, fn($r) => ($r['cat_salva'] ?: 'pcs-retaguarda') === $cardSlug));
+}
+
+/**
+ * Colapsa duplicidade real do GLPI: o mesmo PC físico às vezes fica com 2
+ * linhas em glpi_computers (o agente troca de deviceid após reinstalação/
+ * reimagem e a regra de importação do GLPI não casa pelo serial — cria uma
+ * máquina nova em vez de atualizar a existente, e a antiga fica órfã, sem
+ * agente ligado). Aqui, na listagem, mantém só UMA por serial (a de
+ * last_inventory_update mais recente — é a que o agente ativo ainda
+ * atualiza). Não mexe nos dados do GLPI, só no que aparece pro usuário.
+ */
+function inv_dedup_por_serial(array $rows): array {
+    $porSerial = [];
+    $semSerial = [];
+    foreach ($rows as $r) {
+        $serial = trim((string) ($r['serial'] ?? ''));
+        if ($serial === '') { $semSerial[] = $r; continue; }
+        $atual = $porSerial[$serial] ?? null;
+        if ($atual === null || (string) $r['ultimo_inv'] > (string) $atual['ultimo_inv']) {
+            $porSerial[$serial] = $r;
+        }
+    }
+    $out = array_merge(array_values($porSerial), $semSerial);
+    usort($out, fn($a, $b) => [(string) $a['entidade'], (string) $a['name']] <=> [(string) $b['entidade'], (string) $b['name']]);
+    return $out;
 }
 
 /* ───────────────────────────── Baixa / desativação ───────────────────────────── */
