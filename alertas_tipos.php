@@ -138,6 +138,15 @@ function alertas_catalogo(): array
             'icone'  => 'bi-plug',
             'cor'    => 'warning',
         ],
+        'dude_ligado_muito_tempo' => [
+            'nome'      => 'Equipamento ligado há muito tempo',
+            'descricao' => 'Dispositivo de uma categoria com limite configurado (Configurar Alertas → The Dude) ligado continuamente além do esperado.',
+            'params'    => [],
+            'check'  => 'alerta_check_dude_ligado_muito_tempo',
+            'render' => 'alerta_render_dude',
+            'icone'  => 'bi-clock-history',
+            'cor'    => 'warning',
+        ],
     ];
 }
 

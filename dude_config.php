@@ -64,7 +64,7 @@ if ($action !== '') {
         // limpa o teste na hora (down + up), nunca deixa ocorrência pendurada
         try {
             if ($token !== '') {
-                dude_registrar_estado($pdo, 'device', '__teste_dude_config__', 'Teste de conexão', '', '', 'up', '');
+                dude_registrar_estado($pdo, 'device', '__teste_dude_config__', 'Teste de conexão', '', '', '', 'up', '');
                 $pdo->prepare("DELETE FROM portal_dude_estado WHERE chave = '__teste_dude_config__'")->execute();
             }
         } catch (\Throwable $e) {}
@@ -75,6 +75,51 @@ if ($action !== '') {
             echo json_encode(['ok' => true]);
         } else {
             echo json_encode(['ok' => false, 'erro' => "resposta HTTP $status"]);
+        }
+        exit;
+    }
+
+    if ($action === 'categorias_listar') {
+        echo json_encode(['ok' => true, 'categorias' => dude_categoria_config_listar($pdo)]);
+        exit;
+    }
+
+    if ($action === 'categorias_salvar') {
+        if ($_SERVER['REQUEST_METHOD'] !== 'POST') { echo json_encode(['ok' => false, 'erro' => 'método inválido']); exit; }
+        $categoria = trim((string) ($_POST['categoria'] ?? ''));
+        if ($categoria === '') { echo json_encode(['ok' => false, 'erro' => 'categoria inválida']); exit; }
+
+        $horaInicio = trim((string) ($_POST['horario_inicio'] ?? ''));
+        $horaFim    = trim((string) ($_POST['horario_fim'] ?? ''));
+        if (($horaInicio === '') !== ($horaFim === '')) {
+            echo json_encode(['ok' => false, 'erro' => 'preencha os dois horários, ou deixe os dois em branco (sempre notifica)']);
+            exit;
+        }
+        if ($horaInicio !== '' && (!preg_match('/^\d{2}:\d{2}$/', $horaInicio) || !preg_match('/^\d{2}:\d{2}$/', $horaFim))) {
+            echo json_encode(['ok' => false, 'erro' => 'horário inválido (use HH:MM)']);
+            exit;
+        }
+
+        $ligadoStr = trim((string) ($_POST['ligado_horas_max'] ?? ''));
+        $ligado = null;
+        if ($ligadoStr !== '') {
+            $ligado = (int) $ligadoStr;
+            if ($ligado < 1 || $ligado > 720) {
+                echo json_encode(['ok' => false, 'erro' => 'horas ligado: informe de 1 a 720, ou deixe em branco']);
+                exit;
+            }
+        }
+
+        try {
+            dude_categoria_config_salvar(
+                $pdo, $categoria,
+                $horaInicio !== '' ? $horaInicio . ':00' : null,
+                $horaFim !== '' ? $horaFim . ':00' : null,
+                $ligado
+            );
+            echo json_encode(['ok' => true]);
+        } catch (\Throwable $e) {
+            echo json_encode(['ok' => false, 'erro' => 'falha ao salvar']);
         }
         exit;
     }
@@ -138,17 +183,25 @@ if ($action !== '') {
     <div id="fb" class="small mt-2"></div>
   </div>
 
+  <div class="card-box">
+    <h6 class="mb-2">Regras por categoria (PDV, Servidor, PCs Retaguarda...)</h6>
+    <p class="small text-muted mb-2">Horário em branco = notifica "sem comunicação" a qualquer hora. Horas ligado em branco = não checa "ligado há muito tempo" pra essa categoria.</p>
+    <div id="cat-lista">Carregando…</div>
+    <div id="fb-cat" class="small mt-2"></div>
+  </div>
+
   <div class="card-box runbook">
     <h6 class="mb-2">Como configurar no cliente do Dude</h6>
-    <p>Você tem 4 mapas (um por loja) — configure 1 Notification por mapa, com <code>&amp;loja=</code> fixo pra cada um (ex.: <code>Loja+05</code>).</p>
+    <p>Você tem 4 mapas (um por loja) — configure 1 Notification por mapa/categoria, com <code>&amp;loja=</code> e <code>&amp;categoria=</code> fixos (ex.: <code>Loja+05</code> / <code>PDV</code>).</p>
     <ol>
-      <li>No cliente do Dude: <b>Settings → Notifications → New</b>, tipo <b>Execute</b> (ou HTTP, se disponível).</li>
-      <li>Comando/URL (ajuste <code>tipo=</code> pra <code>device</code>, <code>link</code>, <code>latencia</code> ou <code>service</code> conforme o objeto):
-        <br><code>curl "&lt;URL do webhook&gt;&amp;tipo=device&amp;chave=[Device.Id]&amp;nome=[Device.Name]&amp;addr=[Device.Address]&amp;loja=Loja+05&amp;estado=down&amp;detalhe=[Device.Comment]"</code>
+      <li>No cliente do Dude: <b>Settings → Notifications → New</b>, tipo <b>Execute on server</b> (não "Locally", a menos que o PC fique ligado 24/7).</li>
+      <li>Comando (confirmado funcionando — variáveis dessa versão do Dude são só <code>[Device.Name]</code> e <code>[Device.FirstAddress]</code>; <code>[Device.Id]</code>/<code>[Device.Address]</code> não existem):
+        <br><code>cmd.exe /c curl.exe -g "&lt;URL do webhook&gt;&amp;tipo=device&amp;chave=[Device.Name]&amp;nome=[Device.Name]&amp;addr=[Device.FirstAddress]&amp;loja=Loja+05&amp;categoria=PDV&amp;estado=down" &gt;&gt; %TEMP%\dude_log.txt 2&gt;&amp;1</code>
       </li>
-      <li>Disparar em <b>down</b> (status muda pra fora do ar) e em <b>up</b> (voltou) — sem o <code>up</code>, o alerta nunca resolve sozinho.</li>
-      <li>Aplicar a Notification no objeto (device/link/probe) ou no mapa inteiro.</li>
-      <li>Pra latência: configure o probe com o limiar desejado no próprio Dude — o portal só recebe down/up, quem decide o limiar é o Dude.</li>
+      <li>Precisa do <code>cmd.exe /c</code> na frente (senão redirecionamento/variável não funcionam) e do <code>-g</code> no curl (senão colchetes de variável não-preenchida quebram o comando).</li>
+      <li>Disparar em <b>down</b> e em <b>up</b> — sem o <code>up</code>, o alerta nunca resolve sozinho. Dá pra usar 1 notification só com <code>estado=[Device.Status]</code> (se essa variável existir na sua versão) marcando os 2 checkboxes (Ativo/Inativo) na aba Avançado.</li>
+      <li>Pra latência/enlace/serviço: troca <code>tipo=device</code> por <code>latencia</code>/<code>link</code>/<code>service</code>. Essas 3 não respeitam o horário por categoria (só "device" respeita) — sempre alertam.</li>
+      <li>O container do Dude pode não ter <code>curl</code> instalado (aconteceu aqui) — se o teste não gerar log nenhum, confirmar com o TI: <code>docker exec dude apt-get install -y curl</code>.</li>
     </ol>
   </div>
 </div>
@@ -202,6 +255,62 @@ function testar() {
     .finally(function () { btn.disabled = false; });
 }
 carregarStatus();
+
+/* ─────────── Categorias ─────────── */
+function feedbackCat(tipo, msg) {
+  var el = $('fb-cat');
+  el.className = 'small mt-2 ' + (tipo === 'ok' ? 'text-success' : (tipo === 'err' ? 'text-danger' : 'text-muted'));
+  el.textContent = msg;
+}
+function hhmm(t) {
+  // "06:00:00" -> "06:00"; null -> ""
+  if (!t) return '';
+  return t.substring(0, 5);
+}
+function linhaCategoria(c) {
+  var div = document.createElement('div');
+  div.className = 'd-flex gap-2 flex-wrap align-items-end mb-2 pb-2';
+  div.style.borderBottom = '1px solid #f3f4f6';
+  div.innerHTML =
+    '<div style="min-width:110px"><b>' + c.categoria + '</b></div>' +
+    '<div><label class="form-label small mb-0">Notifica das</label>' +
+      '<input type="time" class="form-control form-control-sm cat-inicio" style="width:110px" value="' + hhmm(c.horario_inicio) + '"></div>' +
+    '<div><label class="form-label small mb-0">até</label>' +
+      '<input type="time" class="form-control form-control-sm cat-fim" style="width:110px" value="' + hhmm(c.horario_fim) + '"></div>' +
+    '<div><label class="form-label small mb-0">Horas ligado p/ alertar</label>' +
+      '<input type="number" min="1" max="720" class="form-control form-control-sm cat-ligado" style="width:110px" placeholder="não checa" value="' + (c.ligado_horas_max != null ? c.ligado_horas_max : '') + '"></div>' +
+    '<button type="button" class="btn btn-primary btn-sm" onclick="salvarCategoria(this, \'' + c.categoria.replace(/'/g, "\\'") + '\')">Salvar</button>';
+  return div;
+}
+function carregarCategorias() {
+  fetch('dude_config.php?action=categorias_listar')
+    .then(function (r) { return r.json(); })
+    .then(function (d) {
+      var lista = $('cat-lista');
+      lista.innerHTML = '';
+      if (!d.ok || !d.categorias.length) {
+        lista.innerHTML = '<div class="text-muted small">Nenhuma categoria vista ainda — configure <code>&categoria=</code> nas notifications do Dude primeiro.</div>';
+        return;
+      }
+      d.categorias.forEach(function (c) { lista.appendChild(linhaCategoria(c)); });
+    });
+}
+function salvarCategoria(btn, categoria) {
+  var linha = btn.closest('div.d-flex');
+  var params = new URLSearchParams({
+    categoria: categoria,
+    horario_inicio: linha.querySelector('.cat-inicio').value,
+    horario_fim: linha.querySelector('.cat-fim').value,
+    ligado_horas_max: linha.querySelector('.cat-ligado').value,
+  });
+  fetch('dude_config.php?action=categorias_salvar', { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body: params })
+    .then(function (r) { return r.json(); })
+    .then(function (d) {
+      if (!d.ok) { feedbackCat('err', d.erro || 'erro ao salvar'); return; }
+      feedbackCat('ok', categoria + ' salvo.');
+    });
+}
+carregarCategorias();
 </script>
 </body>
 </html>

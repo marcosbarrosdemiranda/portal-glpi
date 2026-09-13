@@ -19,8 +19,10 @@ if (isset($pdo) && $pdo instanceof PDO) {
     // sem WHERE mexia na tabela inteira — deixou lixo residente que a
     // Central de Alertas pegou e mandou WhatsApp de verdade.
     $CHAVE_TESTE = '__teste_PC-01__';
-    $limpa = function () use ($pdo, $CHAVE_TESTE) {
-        $pdo->prepare("DELETE FROM portal_dude_estado WHERE chave = ?")->execute([$CHAVE_TESTE]);
+    $CAT_TESTE = '__cat_teste__';
+    $limpa = function () use ($pdo, $CHAVE_TESTE, $CAT_TESTE) {
+        $pdo->prepare("DELETE FROM portal_dude_estado WHERE chave LIKE '__teste_%' OR chave LIKE '__cat_%'")->execute();
+        $pdo->prepare("DELETE FROM portal_dude_categoria_config WHERE categoria = ?")->execute([$CAT_TESTE]);
     };
 
     // guarda o token original pra restaurar no finally (não pode invalidar
@@ -38,20 +40,20 @@ if (isset($pdo) && $pdo instanceof PDO) {
 
         // --- registrar_estado + check do tipo certo / não vaza pra outro tipo ---
         $limpa();
-        dude_registrar_estado($pdo, 'device', $CHAVE_TESTE, 'PC Caixa 1', '10.0.0.5', 'Loja 05', 'PDV', 'down', 'sem resposta ao ping');
+        dude_registrar_estado($pdo, 'device', $CHAVE_TESTE, 'PC Caixa 1', '10.0.0.5', 'Loja 05', '__cat_teste__', 'down', 'sem resposta ao ping');
         $ocDevice = alerta_check_dude_device($pdo, []);
         $chaveEsperada = 'dude:device:' . $CHAVE_TESTE;
         t_ok((bool) array_filter($ocDevice, fn($o) => $o['chave'] === $chaveEsperada), 'check_dude_device: aparece quando status=down');
         $achouPC01 = array_values(array_filter($ocDevice, fn($o) => $o['chave'] === $chaveEsperada))[0];
         t_ok(str_contains($achouPC01['detalhe'], 'sem resposta ao ping'), 'check_dude_device: detalhe traz o motivo');
         t_eq($achouPC01['loja'], 'Loja 05', 'check_dude_device: loja vem do que o mapa do Dude mandou');
-        t_eq($achouPC01['categoria'], 'PDV', 'check_dude_device: categoria vem do que a notification mandou');
+        t_eq($achouPC01['categoria'], '__cat_teste__', 'check_dude_device: categoria vem do que a notification mandou');
 
         $ocLink = alerta_check_dude_link($pdo, []);
         t_ok(!array_filter($ocLink, fn($o) => $o['chave'] === $chaveEsperada), 'check_dude_link: não mostra ocorrência de outro tipo (device)');
 
         // --- up resolve ---
-        dude_registrar_estado($pdo, 'device', $CHAVE_TESTE, 'PC Caixa 1', '10.0.0.5', 'Loja 05', 'PDV', 'up', '');
+        dude_registrar_estado($pdo, 'device', $CHAVE_TESTE, 'PC Caixa 1', '10.0.0.5', 'Loja 05', '__cat_teste__', 'up', '');
         $ocDevice2 = alerta_check_dude_device($pdo, []);
         t_ok(!array_filter($ocDevice2, fn($o) => $o['chave'] === $chaveEsperada), 'check_dude_device: some depois de um up');
 
@@ -68,10 +70,49 @@ if (isset($pdo) && $pdo instanceof PDO) {
         $ocSC = alerta_check_dude_sem_contato($pdo, ['horas' => 6]);
         t_ok(!$ocSC, 'check_dude_sem_contato: contato recente não dispara');
 
+        // --- categoria_no_horario: sem config = sempre true ---
+        t_ok(dude_categoria_no_horario($pdo, $CAT_TESTE), 'categoria_no_horario: sem config -> sempre true');
+        t_ok(dude_categoria_no_horario($pdo, ''), 'categoria_no_horario: categoria vazia -> sempre true');
+
+        // --- categoria_no_horario: janela que inclui/exclui a hora atual ---
+        $agora = time();
+        dude_categoria_config_salvar($pdo, $CAT_TESTE, date('H:i:s', $agora - 3600), date('H:i:s', $agora + 3600), null);
+        t_ok(dude_categoria_no_horario($pdo, $CAT_TESTE), 'categoria_no_horario: agora dentro da janela -> true');
+
+        dude_categoria_config_salvar($pdo, $CAT_TESTE, date('H:i:s', $agora + 2 * 3600), date('H:i:s', $agora + 3 * 3600), null);
+        t_ok(!dude_categoria_no_horario($pdo, $CAT_TESTE), 'categoria_no_horario: agora fora da janela -> false');
+
+        // --- alerta_check_dude_device respeita o horário (só esse tipo, por decisão do usuário) ---
+        dude_registrar_estado($pdo, 'device', $CHAVE_TESTE, 'PC Caixa 1', '10.0.0.5', 'Loja 05', $CAT_TESTE, 'down', 'fora do ar');
+        $ocForaHorario = alerta_check_dude_device($pdo, []);
+        t_ok(!array_filter($ocForaHorario, fn($o) => $o['chave'] === $chaveEsperada), 'check_dude_device: fora do horário da categoria -> não aparece');
+
+        dude_categoria_config_salvar($pdo, $CAT_TESTE, date('H:i:s', $agora - 3600), date('H:i:s', $agora + 3600), null);
+        $ocDentroHorario = alerta_check_dude_device($pdo, []);
+        t_ok((bool) array_filter($ocDentroHorario, fn($o) => $o['chave'] === $chaveEsperada), 'check_dude_device: dentro do horário da categoria -> aparece');
+
+        // --- alerta_check_dude_ligado_muito_tempo: genérico por categoria ---
+        dude_categoria_config_salvar($pdo, $CAT_TESTE, null, null, 1); // limite 1h, sem restrição de horário
+        dude_registrar_estado($pdo, 'device', $CHAVE_TESTE, 'PC Caixa 1', '10.0.0.5', 'Loja 05', $CAT_TESTE, 'up', '');
+        $pdo->prepare("UPDATE portal_dude_estado SET atualizado_em = NOW() - INTERVAL 2 HOUR WHERE chave = ?")->execute([$CHAVE_TESTE]);
+        $ocLigado = alerta_check_dude_ligado_muito_tempo($pdo, []);
+        $chaveLigado = 'dude:ligado:' . $CHAVE_TESTE;
+        t_ok((bool) array_filter($ocLigado, fn($o) => $o['chave'] === $chaveLigado), 'check_dude_ligado_muito_tempo: up há 2h com limite 1h -> aparece');
+
+        $pdo->prepare("UPDATE portal_dude_estado SET atualizado_em = NOW() WHERE chave = ?")->execute([$CHAVE_TESTE]);
+        $ocLigado2 = alerta_check_dude_ligado_muito_tempo($pdo, []);
+        t_ok(!array_filter($ocLigado2, fn($o) => $o['chave'] === $chaveLigado), 'check_dude_ligado_muito_tempo: up recente -> não aparece');
+
+        // --- categoria_config_listar reflete o que foi salvo ---
+        $listaCat = dude_categoria_config_listar($pdo);
+        $achouCat = array_values(array_filter($listaCat, fn($c) => $c['categoria'] === $CAT_TESTE));
+        t_ok(count($achouCat) === 1, 'categoria_config_listar: categoria vista aparece na lista');
+        t_eq((int) $achouCat[0]['ligado_horas_max'], 1, 'categoria_config_listar: ligado_horas_max salvo corretamente');
+
         // --- renders ---
         t_ok(strpos(alerta_render_dude([]), 'vazio') !== false, 'render_dude([]) tem a msg vazia');
         t_ok(strlen(alerta_render_dude($ocDevice)) > 20, 'render_dude(ocorr) devolve HTML');
-        t_ok(str_contains(alerta_render_dude($ocDevice), 'PDV'), 'render_dude: agrupa por categoria quando preenchida');
+        t_ok(str_contains(alerta_render_dude($ocDevice), '__cat_teste__'), 'render_dude: agrupa por categoria quando preenchida');
         t_ok(str_contains(alerta_render_dude($ocDevice), 'Loja 05'), 'render_dude: sub-agrupa por loja dentro da categoria');
         $ocSemNada = [['chave' => 'x', 'titulo' => 'T', 'loja' => '', 'categoria' => '', 'detalhe' => 'D']];
         t_ok(!str_contains(alerta_render_dude($ocSemNada), 'loja-h'), 'render_dude: sem loja nem categoria cai na tabela simples (sem cabeçalho de grupo)');
