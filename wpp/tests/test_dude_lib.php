@@ -71,9 +71,12 @@ if (isset($pdo) && $pdo instanceof PDO) {
         // --- renders ---
         t_ok(strpos(alerta_render_dude([]), 'vazio') !== false, 'render_dude([]) tem a msg vazia');
         t_ok(strlen(alerta_render_dude($ocDevice)) > 20, 'render_dude(ocorr) devolve HTML');
-        t_ok(str_contains(alerta_render_dude($ocDevice), 'Loja 05'), 'render_dude: agrupa por loja quando tem loja preenchida');
-        $ocSemLoja = [['chave' => 'x', 'titulo' => 'T', 'loja' => '', 'detalhe' => 'D']];
-        t_ok(!str_contains(alerta_render_dude($ocSemLoja), 'loja-h'), 'render_dude: sem loja preenchida cai na tabela simples (sem cabeçalho de grupo)');
+        t_ok(str_contains(alerta_render_dude($ocDevice), 'PDV'), 'render_dude: agrupa por categoria quando preenchida');
+        t_ok(str_contains(alerta_render_dude($ocDevice), 'Loja 05'), 'render_dude: sub-agrupa por loja dentro da categoria');
+        $ocSemNada = [['chave' => 'x', 'titulo' => 'T', 'loja' => '', 'categoria' => '', 'detalhe' => 'D']];
+        t_ok(!str_contains(alerta_render_dude($ocSemNada), 'loja-h'), 'render_dude: sem loja nem categoria cai na tabela simples (sem cabeçalho de grupo)');
+        $ocSoCategoria = [['chave' => 'y', 'titulo' => 'S', 'loja' => '', 'categoria' => 'Servidor', 'detalhe' => 'D']];
+        t_ok(str_contains(alerta_render_dude($ocSoCategoria), 'Servidor') && str_contains(alerta_render_dude($ocSoCategoria), 'Sem loja'), 'render_dude: só categoria preenchida ainda agrupa (loja vira "Sem loja")');
     } finally {
         $limpa();
         // restaura o token original (string vazia = nunca tinha sido gerado)

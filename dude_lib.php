@@ -135,12 +135,12 @@ function alerta_check_dude_sem_contato(PDO $pdo, array $p): array
     ]];
 }
 
-/** innerHTML do corpo da seção — tabela simples, reusada pelos 5 tipos do Dude. */
 /**
  * innerHTML do corpo da seção — reusada pelos 5 tipos do Dude. Agrupa por
- * loja (mesmo visual de alerta_render_sem_inventario) quando pelo menos uma
- * ocorrência tem loja preenchida — cada mapa do Dude manda a sua; tipos que
- * nunca preenchem loja (ex.: dude_sem_contato) caem na tabela simples.
+ * categoria (ex.: PDV, Servidor) e, dentro de cada categoria, por loja —
+ * cada notification do Dude manda os dois valores fixos (mapa = loja,
+ * grupo de equipamento = categoria). Tipos que nunca preenchem nenhum dos
+ * dois (ex.: dude_sem_contato) caem na tabela simples.
  */
 function alerta_render_dude(array $ocorr): string
 {
@@ -148,9 +148,12 @@ function alerta_render_dude(array $ocorr): string
         return '<div class="vazio"><i class="bi bi-check-circle-fill me-1"></i>Nada fora do ar.</div>';
     }
     $H = fn($s) => htmlspecialchars((string) $s, ENT_QUOTES, 'UTF-8');
-    $temLoja = (bool) array_filter($ocorr, fn($o) => trim((string) ($o['loja'] ?? '')) !== '');
+    $temAgrupamento = (bool) array_filter(
+        $ocorr,
+        fn($o) => trim((string) ($o['categoria'] ?? '')) !== '' || trim((string) ($o['loja'] ?? '')) !== ''
+    );
 
-    if (!$temLoja) {
+    if (!$temAgrupamento) {
         $out = '<table><thead><tr><th>Dispositivo/Enlace</th><th>Detalhe</th></tr></thead><tbody>';
         foreach ($ocorr as $o) {
             $out .= '<tr><td style="font-weight:600">' . $H($o['titulo']) . '</td>'
@@ -159,19 +162,29 @@ function alerta_render_dude(array $ocorr): string
         return $out . '</tbody></table>';
     }
 
-    $porLoja = [];
-    foreach ($ocorr as $o) $porLoja[trim((string) ($o['loja'] ?? '')) ?: 'Sem loja'][] = $o;
-    ksort($porLoja, SORT_NATURAL | SORT_FLAG_CASE);
+    $porCategoria = [];
+    foreach ($ocorr as $o) {
+        $cat  = trim((string) ($o['categoria'] ?? '')) ?: 'Sem categoria';
+        $loja = trim((string) ($o['loja'] ?? '')) ?: 'Sem loja';
+        $porCategoria[$cat][$loja][] = $o;
+    }
+    ksort($porCategoria, SORT_NATURAL | SORT_FLAG_CASE);
 
     $out = '';
-    foreach ($porLoja as $loja => $itens) {
-        $out .= '<div class="loja-h"><i class="bi bi-shop"></i> ' . $H($loja)
-              . ' <span style="color:#9ca3af;font-weight:400">(' . count($itens) . ')</span></div><table><tbody>';
-        foreach ($itens as $o) {
-            $out .= '<tr><td style="font-weight:600">' . $H($o['titulo']) . '</td>'
-                  . '<td style="color:#6b7280">' . $H($o['detalhe']) . '</td></tr>';
+    foreach ($porCategoria as $cat => $porLoja) {
+        ksort($porLoja, SORT_NATURAL | SORT_FLAG_CASE);
+        $totalCat = array_sum(array_map('count', $porLoja));
+        $out .= '<div class="loja-h" style="font-size:.9rem"><i class="bi bi-tag-fill"></i> ' . $H($cat)
+              . ' <span style="color:#9ca3af;font-weight:400">(' . $totalCat . ')</span></div>';
+        foreach ($porLoja as $loja => $itens) {
+            $out .= '<div class="loja-h" style="margin-left:1rem;font-size:.82rem"><i class="bi bi-shop"></i> ' . $H($loja)
+                  . ' <span style="color:#9ca3af;font-weight:400">(' . count($itens) . ')</span></div><table><tbody>';
+            foreach ($itens as $o) {
+                $out .= '<tr><td style="font-weight:600">' . $H($o['titulo']) . '</td>'
+                      . '<td style="color:#6b7280">' . $H($o['detalhe']) . '</td></tr>';
+            }
+            $out .= '</tbody></table>';
         }
-        $out .= '</tbody></table>';
     }
     return $out;
 }
