@@ -106,11 +106,24 @@ function evo_ensure_instance(): array {
 // Converte o destino pro formato que a Evolution espera no campo "number":
 // JID (tem '@', ex: grupo '...@g.us') passa como veio; caso contrário
 // normaliza os dígitos e vira "<digitos>@s.whatsapp.net".
+//
+// Bug corrigido em 2026-09-13: portal_wpp_contatos/autorizados guardam o
+// telefone SEM DDI (10-11 dígitos = DDD+número, é o formato usado na
+// allowlist do guardrail — não mudar isso, quebraria a permissão de todo
+// mundo). Mas a Evolution/WhatsApp exige o DDI no payload de envio — sem
+// ele, o número nunca resolve (confirmado via /chat/whatsappNumbers:
+// "67996063666" -> exists=false, "5567996063666" -> exists=true). Por
+// isso o DDI é acrescentado só AQUI, na hora de montar o payload, não em
+// wpp_norm_telefone() (que segue sendo usado pra comparação/allowlist).
 function evo_destino_payload(string $destino): string {
     if (strpos($destino, '@') !== false) {
         return $destino;
     }
-    return wpp_norm_telefone($destino) . '@s.whatsapp.net';
+    $tel = wpp_norm_telefone($destino);
+    if (in_array(strlen($tel), [10, 11], true)) {
+        $tel = '55' . $tel; // DDD+número sem DDI -> assume Brasil
+    }
+    return $tel . '@s.whatsapp.net';
 }
 
 // Envia texto simples. Passa o $destino ORIGINAL pro guardrail (ele lida com
