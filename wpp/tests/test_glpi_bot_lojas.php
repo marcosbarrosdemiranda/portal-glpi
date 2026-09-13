@@ -8,14 +8,20 @@ $pdo->exec("DELETE FROM glpi_users WHERE name LIKE 'teste_e3_%'");
 $pdo->exec("DELETE FROM glpi_profiles_users WHERE users_id IN (SELECT id FROM glpi_users WHERE name LIKE 'teste_e3_%')");
 
 try {
+    // glpi_entities.id NÃO é auto_increment no schema real do GLPI (id=0 já
+    // é a "Entidade raiz" de verdade) — diferente da tabela-stub local. Por
+    // isso todo INSERT aqui informa um id explícito, calculado a partir do
+    // maior id existente, pra nunca colidir com entidade real.
+    $idBase = (int) $pdo->query("SELECT COALESCE(MAX(id), 0) FROM glpi_entities")->fetchColumn() + 1000;
+
     // Níveis batem com a árvore real do GLPI daqui: level 1 = "Entidade raiz"
     // (id=0, já excluída pelo id > 0), level 2 = a holding ("Grupo Gmais"),
     // level 3 = lojas de verdade.
     // holding (level 2) — NÃO deve aparecer em bot_lojas()
-    $pdo->exec("INSERT INTO glpi_entities (name, completename, level) VALUES ('teste_e3_holding', 'Entidade raiz > teste_e3_holding', 2)");
+    $pdo->exec("INSERT INTO glpi_entities (id, name, completename, level) VALUES ($idBase, 'teste_e3_holding', 'Entidade raiz > teste_e3_holding', 2)");
     // 2 lojas (level 3) — devem aparecer, em ordem alfabética de completename
-    $pdo->exec("INSERT INTO glpi_entities (name, completename, level) VALUES ('teste_e3_lojaB', 'Entidade raiz > teste_e3_holding > teste_e3_lojaB', 3)");
-    $pdo->exec("INSERT INTO glpi_entities (name, completename, level) VALUES ('teste_e3_lojaA', 'Entidade raiz > teste_e3_holding > teste_e3_lojaA', 3)");
+    $pdo->exec("INSERT INTO glpi_entities (id, name, completename, level) VALUES (" . ($idBase + 1) . ", 'teste_e3_lojaB', 'Entidade raiz > teste_e3_holding > teste_e3_lojaB', 3)");
+    $pdo->exec("INSERT INTO glpi_entities (id, name, completename, level) VALUES (" . ($idBase + 2) . ", 'teste_e3_lojaA', 'Entidade raiz > teste_e3_holding > teste_e3_lojaA', 3)");
     $idLojaA = (int) $pdo->query("SELECT id FROM glpi_entities WHERE name='teste_e3_lojaA'")->fetchColumn();
     $idLojaB = (int) $pdo->query("SELECT id FROM glpi_entities WHERE name='teste_e3_lojaB'")->fetchColumn();
 

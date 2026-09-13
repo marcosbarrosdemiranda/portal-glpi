@@ -28,9 +28,15 @@ $pdo->exec("DELETE FROM glpi_entities WHERE name LIKE 'teste_menu_%'");
 $pdo->exec("DELETE FROM glpi_users WHERE name LIKE 'teste_menu_%'");
 
 try {
+    // glpi_entities.id NÃO é auto_increment no schema real do GLPI (id=0 já
+    // é a "Entidade raiz" de verdade) — diferente da tabela-stub local. Por
+    // isso o INSERT informa um id explícito, calculado a partir do maior id
+    // existente, pra nunca colidir com entidade real.
+    $idEntidadeTeste = (int) $pdo->query("SELECT COALESCE(MAX(id), 0) FROM glpi_entities")->fetchColumn() + 1000;
+
     // fixture: 1 loja com 1 usuario. level 3 porque bot_lojas() filtra
     // `level > 2` — na árvore real do GLPI, level 2 é a holding, não loja.
-    $pdo->exec("INSERT INTO glpi_entities (name, completename, level) VALUES ('teste_menu_loja', 'Entidade raiz > Grupo > teste_menu_loja', 3)");
+    $pdo->exec("INSERT INTO glpi_entities (id, name, completename, level) VALUES ($idEntidadeTeste, 'teste_menu_loja', 'Entidade raiz > Grupo > teste_menu_loja', 3)");
     $idLoja = (int) $pdo->query("SELECT id FROM glpi_entities WHERE name='teste_menu_loja'")->fetchColumn();
     $pdo->exec("INSERT INTO glpi_users (name, realname, firstname, entities_id, is_active, is_deleted) VALUES ('teste_menu_userloja', 'Sobrenome', 'DaLoja', $idLoja, 1, 0)");
     $idUserLoja = (int) $pdo->query("SELECT id FROM glpi_users WHERE name='teste_menu_userloja'")->fetchColumn();
