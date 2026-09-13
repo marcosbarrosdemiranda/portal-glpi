@@ -31,8 +31,16 @@ if ($atual === '' || !hash_equals($atual, $token)) {
 }
 
 $tipo   = (string) ($_GET['tipo'] ?? '');
-$estado = (string) ($_GET['estado'] ?? '');
-if (!in_array($tipo, DUDE_TIPOS_VALIDOS, true) || !in_array($estado, ['up', 'down'], true)) {
+// aceita qualquer maiúscula/minúscula (ex.: [Service.Status] do Dude manda "Up"/"Down")
+// e sinônimos comuns, pra permitir 1 notification só usando a variável de status
+// em vez de precisar de uma notification fixa por evento (down) e outra (up).
+$estadoBruto = strtolower(trim((string) ($_GET['estado'] ?? '')));
+$mapaEstado = [
+    'up' => 'up', 'active' => 'up', 'ativo' => 'up', 'ok' => 'up',
+    'down' => 'down', 'inactive' => 'down', 'inativo' => 'down', 'timeout' => 'down',
+];
+$estado = $mapaEstado[$estadoBruto] ?? '';
+if (!in_array($tipo, DUDE_TIPOS_VALIDOS, true) || $estado === '') {
     http_response_code(400);
     echo json_encode(['ok' => false, 'erro' => 'tipo ou estado invalido']);
     exit;
