@@ -598,8 +598,33 @@ $qsStale = $stale_filtro ? '&stale=1' : '';
           else $orfas[] = $r;
       }
       uasort($fisicos, fn($a, $b) => strnatcasecmp($a['name'], $b['name']));
-      foreach ($fisicos as $fid => $f) $arvore($f, $vmsPorHost[$fid] ?? []);
-      if ($orfas) $arvore([], $orfas);
+
+      // Renderiza a árvore host->VMs de um subconjunto de físicos/órfãs.
+      $arvoreDoGrupo = function(array $fisicosDoGrupo, array $orfasDoGrupo) use ($arvore, $vmsPorHost) {
+          foreach ($fisicosDoGrupo as $fid => $f) $arvore($f, $vmsPorHost[$fid] ?? []);
+          if ($orfasDoGrupo) $arvore([], $orfasDoGrupo);
+      };
+
+      if ($loja_filtro) {
+          // já filtrado a uma loja só -> árvore direto, sem agrupar de novo
+          $arvoreDoGrupo($fisicos, $orfas);
+      } else {
+          // agrupa por loja primeiro (mesmo padrão usado pelas outras categorias),
+          // e a árvore host->VMs fica dentro de cada loja
+          $porLoja = [];
+          foreach ($fisicos as $fid => $f) { $porLoja[apelido_entidade($entMap[(int)$f['entities_id']] ?? '') ?: 'Sem loja']['fisicos'][$fid] = $f; }
+          foreach ($orfas as $o) { $porLoja[apelido_entidade($entMap[(int)$o['entities_id']] ?? '') ?: 'Sem loja']['orfas'][] = $o; }
+          ksort($porLoja, SORT_NATURAL | SORT_FLAG_CASE);
+          foreach ($porLoja as $ln => $g): ?>
+            <div class="grp">
+              <div class="grp-hd" onclick="this.parentElement.classList.toggle('open')">
+                <span><i class="bi bi-shop"></i> <?= $H($ln) ?></span>
+                <span class="grp-n"><?= count($g['fisicos'] ?? []) + count($g['orfas'] ?? []) ?> <i class="bi bi-chevron-down chev"></i></span>
+              </div>
+              <div class="grp-bd" style="padding:.5rem"><?php $arvoreDoGrupo($g['fisicos'] ?? [], $g['orfas'] ?? []); ?></div>
+            </div>
+          <?php endforeach;
+      }
     ?>
   <?php elseif ($loja_filtro): ?>
     <?php $tabela($rows); ?>
