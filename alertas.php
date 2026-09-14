@@ -5,6 +5,7 @@ if (($_SESSION['perfil'] ?? '') === 'self-service') { header('Location: dashboar
 
 require_once __DIR__ . '/agenda/db.php';
 require_once __DIR__ . '/alertas_tipos.php';   // já puxa alertas_lib.php + entidade_alias.php
+require_once __DIR__ . '/inventario_lib.php';  // cria portal_inv_pc_cat (classificação __ignorado__ usada no total)
 
 function h($s) { return htmlspecialchars((string)$s, ENT_QUOTES, 'UTF-8'); }
 
@@ -15,7 +16,17 @@ function h($s) { return htmlspecialchars((string)$s, ENT_QUOTES, 'UTF-8'); }
  */
 function alertas_carregar(PDO $pdo): array
 {
-    $total = (int) $pdo->query("SELECT COUNT(*) FROM glpi_computers WHERE is_deleted=0 AND is_template=0")->fetchColumn();
+    // Exclui os classificados como "__ignorado__" em portal_inv_pc_cat (containers
+    // Docker, sensores etc. que o agente GLPI cadastra como Computer sem ser PC de
+    // verdade — mesma classificação que o Inventário de PCs já usa pra escondê-los
+    // da view "Em uso"). Computer sem linha ainda em portal_inv_pc_cat continua
+    // contando normalmente (mesmo comportamento de antes pra quem não foi classificado).
+    $total = (int) $pdo->query("
+        SELECT COUNT(*) FROM glpi_computers c
+        LEFT JOIN portal_inv_pc_cat cat ON cat.computer_id = c.id
+        WHERE c.is_deleted=0 AND c.is_template=0
+          AND (cat.categoria IS NULL OR cat.categoria != '__ignorado__')
+    ")->fetchColumn();
 
     $secoes = [];
     foreach (alertas_catalogo() as $slug => $def) {
