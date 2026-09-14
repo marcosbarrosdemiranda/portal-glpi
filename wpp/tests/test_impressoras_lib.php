@@ -135,3 +135,53 @@ try {
 } finally {
     $pdo->prepare("DELETE FROM portal_impressoras WHERE apelido LIKE '__teste_imp_%'")->execute();
 }
+
+// --- impressora_snmp_parsear: alertas ativos (prtAlertTable) ---
+$semAlerta = impressora_snmp_parsear(['sysDescr' => 'HP M404dn', 'alertas_severidade' => [], 'alertas_descricao' => []]);
+t_eq(count($semAlerta['alertas']), 0, 'snmp_parsear: sem linha na prtAlertTable -> sem alertas');
+
+$comAlerta = impressora_snmp_parsear([
+    'sysDescr' => 'HP M404dn',
+    'alertas_severidade' => ['3', '1', '4'],
+    'alertas_descricao'  => ['Paper Jam', 'Informational note', 'Cover Open'],
+]);
+t_eq(count($comAlerta['alertas']), 2, 'snmp_parsear: severidade 1 (other/informativo) e ignorada, so 3/4 contam');
+t_eq($comAlerta['alertas'][0]['descricao'], 'Paper Jam', 'snmp_parsear: descricao do alerta critico');
+t_eq($comAlerta['alertas'][0]['severidade'], 3, 'snmp_parsear: severidade critica = 3');
+t_eq($comAlerta['alertas'][1]['descricao'], 'Cover Open', 'snmp_parsear: descricao do alerta de warning (severidade 4)');
+
+// --- alerta_check_impressora_erro ---
+$pdo->prepare("DELETE FROM portal_impressoras WHERE apelido LIKE '__teste_imp_%'")->execute();
+try {
+    $idErro = impressora_cadastrar($pdo, '10.0.9.80', '__teste_imp_erro__', 'Loja 10', 'public');
+    $idOk   = impressora_cadastrar($pdo, '10.0.9.81', '__teste_imp_ok__', 'Loja 10', 'public');
+
+    impressora_status_salvar($pdo, $idErro, ['online' => true, 'modelo' => 'M', 'serial' => null, 'firmware' => null, 'paginas_total' => 5, 'consumiveis' => [], 'alertas' => [['severidade' => 3, 'descricao' => 'Paper Jam']]]);
+    impressora_status_salvar($pdo, $idOk, ['online' => true, 'modelo' => 'M', 'serial' => null, 'firmware' => null, 'paginas_total' => 5, 'consumiveis' => [], 'alertas' => []]);
+
+    $ocErro = alerta_check_impressora_erro($pdo, []);
+    $achouErro = array_filter($ocErro, fn($o) => str_contains($o['chave'], (string) $idErro));
+    t_ok((bool) $achouErro, 'check_impressora_erro: impressora com alerta ativo aparece');
+    $achouOk = array_filter($ocErro, fn($o) => str_contains($o['chave'], (string) $idOk));
+    t_ok(!$achouOk, 'check_impressora_erro: impressora sem alerta nao aparece');
+} finally {
+    $pdo->prepare("DELETE FROM portal_impressoras WHERE apelido LIKE '__teste_imp_%'")->execute();
+}
+
+// --- impressora_paginas_por_mes ---
+$pdo->prepare("DELETE FROM portal_impressoras WHERE apelido LIKE '__teste_imp_%'")->execute();
+try {
+    $idMes = impressora_cadastrar($pdo, '10.0.9.90', '__teste_imp_mensal__', 'Loja 11', 'public');
+
+    // mes atual: 3 leituras, contador subindo de 100 a 130
+    $pdo->prepare("INSERT INTO portal_impressoras_historico (impressora_id, paginas_total, registrado_em) VALUES (?, 100, DATE_FORMAT(NOW(), '%Y-%m-01 08:00:00'))")->execute([$idMes]);
+    $pdo->prepare("INSERT INTO portal_impressoras_historico (impressora_id, paginas_total, registrado_em) VALUES (?, 130, NOW())")->execute([$idMes]);
+
+    $mensal = impressora_paginas_por_mes($pdo, $idMes, 12);
+    t_eq(count($mensal), 1, 'paginas_por_mes: 1 mes com dado');
+    $mesAtual = date('Y-m');
+    t_eq($mensal[0]['mes'], $mesAtual, 'paginas_por_mes: mes formatado YYYY-MM');
+    t_eq($mensal[0]['paginas'], 30, 'paginas_por_mes: 1o mes rastreado -> delta dentro do proprio mes (130-100)');
+} finally {
+    $pdo->prepare("DELETE FROM portal_impressoras WHERE apelido LIKE '__teste_imp_%'")->execute();
+}

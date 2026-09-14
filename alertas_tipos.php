@@ -240,6 +240,15 @@ function alertas_catalogo(): array
             'icone'  => 'bi-droplet-half',
             'cor'    => 'warning',
         ],
+        'impressora_erro' => [
+            'nome'      => 'Impressora com erro (papel/tampa/atolamento)',
+            'descricao' => 'Alerta ativo reportado pela própria impressora via SNMP (atolamento de papel, sem papel, tampa aberta etc).',
+            'params'    => [],
+            'check'  => 'alerta_check_impressora_erro',
+            'render' => 'alerta_render_dude',
+            'icone'  => 'bi-exclamation-triangle',
+            'cor'    => 'danger',
+        ],
     ];
 }
 
@@ -376,6 +385,36 @@ function alerta_check_impressora_toner_baixo(PDO $pdo, array $p): array
             'loja'      => (string) $r['loja'],
             'categoria' => 'Impressora',
             'detalhe'   => implode(', ', $baixos),
+        ];
+    }
+    return $out;
+}
+
+/**
+ * @return array ocorrências: impressora com pelo menos 1 alerta ativo
+ * (atolamento, sem papel, tampa aberta etc — prtAlertTable, severidade
+ * critical/warning).
+ */
+function alerta_check_impressora_erro(PDO $pdo, array $p): array
+{
+    $st = $pdo->query("
+        SELECT i.id, i.apelido, i.loja, s.alertas_json
+        FROM portal_impressoras i
+        JOIN portal_impressoras_status s ON s.impressora_id = i.id
+        WHERE i.ativo = 1 AND s.online = 1 AND s.alertas_json IS NOT NULL
+        ORDER BY i.loja, i.apelido
+    ");
+    $out = [];
+    foreach ($st->fetchAll(PDO::FETCH_ASSOC) as $r) {
+        $alertas = json_decode($r['alertas_json'], true) ?: [];
+        if (!$alertas) continue;
+        $descricoes = array_column($alertas, 'descricao');
+        $out[] = [
+            'chave'     => 'impressora:erro:' . $r['id'],
+            'titulo'    => $r['apelido'],
+            'loja'      => (string) $r['loja'],
+            'categoria' => 'Impressora',
+            'detalhe'   => implode(', ', $descricoes),
         ];
     }
     return $out;

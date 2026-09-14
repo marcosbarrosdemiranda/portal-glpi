@@ -33,6 +33,13 @@ require_once __DIR__ . '/agenda/db.php';
         FOREIGN KEY (impressora_id) REFERENCES portal_impressoras(id) ON DELETE CASCADE
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
 
+    // migração leve — coluna acrescentada depois do primeiro deploy (padrão do portal)
+    $colsStatus = [];
+    foreach ($pdo->query("SHOW COLUMNS FROM portal_impressoras_status") as $r) $colsStatus[] = $r['Field'];
+    if (!in_array('alertas_json', $colsStatus, true)) {
+        $pdo->exec("ALTER TABLE portal_impressoras_status ADD COLUMN alertas_json MEDIUMTEXT NULL AFTER consumiveis_json");
+    }
+
     $pdo->exec("CREATE TABLE IF NOT EXISTS portal_impressoras_historico (
         id            INT AUTO_INCREMENT PRIMARY KEY,
         impressora_id INT NOT NULL,
@@ -87,6 +94,12 @@ const IMPRESSORA_OID_PAGINAS    = '1.3.6.1.2.1.43.10.2.1.4.1.1';
 const IMPRESSORA_OID_SUP_DESC   = '1.3.6.1.2.1.43.11.1.1.6.1';
 const IMPRESSORA_OID_SUP_NIVEL  = '1.3.6.1.2.1.43.11.1.1.9.1';
 const IMPRESSORA_OID_SUP_MAX    = '1.3.6.1.2.1.43.11.1.1.8.1';
+// prtAlertTable (RFC 3805) - tabela de alertas ativos (atolamento, sem
+// papel, tampa aberta etc). Descricao ja vem em texto legivel do proprio
+// firmware da impressora - mais simples e universal que decodificar os
+// ~250 codigos numericos possiveis de prtAlertCode.
+const IMPRESSORA_OID_ALERT_SEVERIDADE = '1.3.6.1.2.1.43.18.1.1.2';
+const IMPRESSORA_OID_ALERT_DESCRICAO  = '1.3.6.1.2.1.43.18.1.1.8';
 
 /**
  * Consulta SNMP de verdade (I/O de rede) — separada de impressora_snmp_parsear()
@@ -106,6 +119,8 @@ function impressora_snmp_consultar(string $ip, string $comunidade, int $timeoutM
         'consumiveis_descricoes' => @snmp2_walk($ip, $comunidade, IMPRESSORA_OID_SUP_DESC, $timeoutUs, 1) ?: [],
         'consumiveis_niveis'     => @snmp2_walk($ip, $comunidade, IMPRESSORA_OID_SUP_NIVEL, $timeoutUs, 1) ?: [],
         'consumiveis_maximos'    => @snmp2_walk($ip, $comunidade, IMPRESSORA_OID_SUP_MAX, $timeoutUs, 1) ?: [],
+        'alertas_severidade' => @snmp2_walk($ip, $comunidade, IMPRESSORA_OID_ALERT_SEVERIDADE, $timeoutUs, 1) ?: [],
+        'alertas_descricao'  => @snmp2_walk($ip, $comunidade, IMPRESSORA_OID_ALERT_DESCRICAO, $timeoutUs, 1) ?: [],
     ];
 
     return impressora_snmp_parsear($bruto);
@@ -123,7 +138,7 @@ function impressora_snmp_parsear(array $bruto): array
 {
     $sysDescr = $bruto['sysDescr'] ?? false;
     if ($sysDescr === false || $sysDescr === null || $sysDescr === '') {
-        return ['online' => false, 'modelo' => null, 'serial' => null, 'firmware' => null, 'paginas_total' => null, 'consumiveis' => []];
+        return ['online' => false, 'modelo' => null, 'serial' => null, 'firmware' => null, 'paginas_total' => null, 'consumiveis' => [], 'alertas' => []];
     }
 
     $serial = $bruto['serial'] ?? null;
@@ -151,6 +166,18 @@ function impressora_snmp_parsear(array $bruto): array
         $i++;
     }
 
+    // Alertas ativos (prtAlertTable). Severidade 1 = "other"/informativo,
+    // ignorada — só 3 (critical) e 4 (warning) são alertas de verdade
+    // (valores padronizados pelo RFC 3805, PrtAlertSeverityLevelTC).
+    $alertas = [];
+    $severidades = array_values($bruto['alertas_severidade'] ?? []);
+    $descricoesAlerta = array_values($bruto['alertas_descricao'] ?? []);
+    foreach ($descricoesAlerta as $idx => $desc) {
+        $sev = isset($severidades[$idx]) && is_numeric($severidades[$idx]) ? (int) $severidades[$idx] : null;
+        if ($sev !== 3 && $sev !== 4) continue;
+        $alertas[] = ['severidade' => $sev, 'descricao' => (string) $desc];
+    }
+
     return [
         'online'        => true,
         'modelo'        => trim((string) $sysDescr),
@@ -158,6 +185,7 @@ function impressora_snmp_parsear(array $bruto): array
         'firmware'      => null, // sysDescr costuma trazer versao junto do modelo, sem OID separado universal
         'paginas_total' => $paginas,
         'consumiveis'   => $consumiveis,
+        'alertas'       => $alertas,
     ];
 }
 
@@ -167,11 +195,11 @@ function impressora_status_salvar(PDO $pdo, int $impressoraId, array $consulta):
 {
     $pdo->prepare(
         "INSERT INTO portal_impressoras_status
-            (impressora_id, online, modelo, serial, firmware, paginas_total, consumiveis_json, atualizado_em)
-         VALUES (?,?,?,?,?,?,?,NOW())
+            (impressora_id, online, modelo, serial, firmware, paginas_total, consumiveis_json, alertas_json, atualizado_em)
+         VALUES (?,?,?,?,?,?,?,?,NOW())
          ON DUPLICATE KEY UPDATE online=VALUES(online), modelo=VALUES(modelo), serial=VALUES(serial),
              firmware=VALUES(firmware), paginas_total=VALUES(paginas_total),
-             consumiveis_json=VALUES(consumiveis_json), atualizado_em=NOW()"
+             consumiveis_json=VALUES(consumiveis_json), alertas_json=VALUES(alertas_json), atualizado_em=NOW()"
     )->execute([
         $impressoraId,
         $consulta['online'] ? 1 : 0,
@@ -180,6 +208,7 @@ function impressora_status_salvar(PDO $pdo, int $impressoraId, array $consulta):
         $consulta['firmware'] ?? null,
         $consulta['paginas_total'] ?? null,
         !empty($consulta['consumiveis']) ? json_encode($consulta['consumiveis']) : null,
+        !empty($consulta['alertas']) ? json_encode($consulta['alertas']) : null,
     ]);
 
     $paginas = $consulta['paginas_total'] ?? null;
@@ -207,6 +236,7 @@ function impressora_status_atual(PDO $pdo, int $impressoraId): ?array
     $row = $st->fetch(PDO::FETCH_ASSOC);
     if ($row === false) return null;
     $row['consumiveis'] = $row['consumiveis_json'] ? json_decode($row['consumiveis_json'], true) : [];
+    $row['alertas']     = $row['alertas_json'] ? json_decode($row['alertas_json'], true) : [];
     return $row;
 }
 
@@ -220,4 +250,34 @@ function impressora_historico_paginas(PDO $pdo, int $impressoraId, int $dias = 9
     );
     $st->execute([$impressoraId, $dias]);
     return $st->fetchAll(PDO::FETCH_ASSOC);
+}
+
+/**
+ * Páginas impressas POR MÊS (delta do contador, não o total acumulado).
+ * O 1o mês rastreado usa a leitura mais antiga do próprio mês como base
+ * (não dá pra saber o contador antes de começar a rastrear); os meses
+ * seguintes usam o fechamento do mês anterior, o que é preciso mesmo
+ * quando o mês vira sem nenhuma leitura exatamente no dia 1.
+ *
+ * @return array [['mes'=>'YYYY-MM','paginas'=>int], ...] mais antigo primeiro.
+ */
+function impressora_paginas_por_mes(PDO $pdo, int $impressoraId, int $meses = 12): array
+{
+    $st = $pdo->prepare(
+        "SELECT DATE_FORMAT(registrado_em, '%Y-%m') AS mes,
+                MIN(paginas_total) AS abertura, MAX(paginas_total) AS fechamento
+         FROM portal_impressoras_historico
+         WHERE impressora_id = ? AND registrado_em >= DATE_SUB(NOW(), INTERVAL ? MONTH)
+         GROUP BY mes ORDER BY mes"
+    );
+    $st->execute([$impressoraId, $meses]);
+
+    $out = [];
+    $fechamentoAnterior = null;
+    foreach ($st->fetchAll(PDO::FETCH_ASSOC) as $linha) {
+        $base = $fechamentoAnterior ?? (int) $linha['abertura'];
+        $out[] = ['mes' => $linha['mes'], 'paginas' => max(0, (int) $linha['fechamento'] - $base)];
+        $fechamentoAnterior = (int) $linha['fechamento'];
+    }
+    return $out;
 }
