@@ -112,7 +112,7 @@ if (isset($pdo) && $pdo instanceof PDO) {
 
         // --- backup_resumo_dia / backup_resumo_texto ---
         $DATA_TESTE = '2099-06-15'; // data bem no futuro, nao colide com execucao real
-        backup_registrar_execucao($pdo, (int) $m['id'], 'Política Resumo', 'success', "Política: Política Resumo\nStatus: success\nArquivos: 42\nDados: 3.2 GiB");
+        backup_registrar_execucao($pdo, (int) $m['id'], 'Política Resumo', 'success', "Política: Política Resumo\nStatus: success\nArquivos: 42\nDados: 3.2 GiB\nInício: {$DATA_TESTE}T04:00:00-04:00\nFim: {$DATA_TESTE}T04:05:00-04:00");
         $pdo->prepare("UPDATE portal_backup_execucoes SET recebido_em = ? WHERE maquina_id = ? AND politica = 'Política Resumo'")
             ->execute([$DATA_TESTE . ' 04:00:00', $m['id']]);
 
@@ -132,13 +132,21 @@ if (isset($pdo) && $pdo instanceof PDO) {
         t_eq($porPolitica['Política Resumo']['arquivos'], '42', 'resumo_dia: arquivos extraído da mensagem');
         t_eq($porPolitica['Política Resumo']['dados'], '3.2 GiB', 'resumo_dia: dados (tamanho) extraído da mensagem');
         t_eq($porPolitica['Política Resumo']['maquina'], $NOME, 'resumo_dia: nome da máquina');
+        t_eq($porPolitica['Política Resumo']['inicio'], "{$DATA_TESTE}T04:00:00-04:00", 'resumo_dia: inicio extraído da mensagem');
+        t_eq($porPolitica['Política Resumo']['fim'], "{$DATA_TESTE}T04:05:00-04:00", 'resumo_dia: fim extraído da mensagem');
         t_eq($porPolitica['Política Resumo Erro']['status'], 'error', 'resumo_dia: status da execução error');
+        t_ok($porPolitica['Política Resumo Erro']['inicio'] === null, 'resumo_dia: sem Início na mensagem -> null, não lança');
+
+        t_eq(backup_hora_curta("{$DATA_TESTE}T04:00:00-04:00"), '04:00', 'hora_curta: extrai HH:MM do timestamp ISO');
+        t_ok(backup_hora_curta(null) === null, 'hora_curta: null -> null');
+        t_ok(backup_hora_curta('lixo-invalido') === null, 'hora_curta: string inválida -> null, não lança');
 
         $texto = backup_resumo_texto($resumo, $DATA_TESTE);
         t_ok(str_contains($texto, $DATA_TESTE) || str_contains($texto, '15/06/2099'), 'resumo_texto: cita a data');
         t_ok(str_contains($texto, 'Política Resumo') && str_contains($texto, '3.2 GiB'), 'resumo_texto: cita política e tamanho');
         t_ok(str_contains($texto, 'Política Resumo Erro'), 'resumo_texto: cita a que deu erro também');
         t_ok(str_contains($texto, $NOME), 'resumo_texto: cita o nome da máquina');
+        t_ok(str_contains($texto, '[04:00–04:05]'), 'resumo_texto: cita o horário de início-fim quando diferentes');
 
         $resumoVazio = backup_resumo_dia($pdo, '2099-01-01');
         t_eq(count($resumoVazio), 0, 'resumo_dia: data sem execução -> array vazio');

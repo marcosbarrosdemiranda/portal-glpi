@@ -47,7 +47,7 @@ require_once __DIR__ . '/agenda/db.php';
  */
 function backup_parse_mensagem(string $message): array
 {
-    $out = ['politica' => null, 'status' => null, 'erro' => null, 'arquivos' => null, 'dados' => null, 'fim' => null];
+    $out = ['politica' => null, 'status' => null, 'erro' => null, 'arquivos' => null, 'dados' => null, 'inicio' => null, 'fim' => null];
     foreach (explode("\n", $message) as $linha) {
         if (!str_contains($linha, ':')) continue;
         [$chave, $valor] = explode(':', $linha, 2);
@@ -58,6 +58,7 @@ function backup_parse_mensagem(string $message): array
             case 'Erro':     $out['erro']     = $valor !== '' ? $valor : null; break;
             case 'Arquivos': $out['arquivos'] = $valor !== '' ? $valor : null; break;
             case 'Dados':    $out['dados']    = $valor !== '' ? $valor : null; break;
+            case 'Início':   $out['inicio']   = $valor !== '' ? $valor : null; break;
             case 'Fim':      $out['fim']      = $valor !== '' ? $valor : null; break;
         }
     }
@@ -260,10 +261,29 @@ function backup_resumo_dia(PDO $pdo, string $data): array
             'status'      => $r['status'],
             'arquivos'    => $extra['arquivos'],
             'dados'       => $extra['dados'],
+            'inicio'      => $extra['inicio'],
+            'fim'         => $extra['fim'],
             'recebido_em' => $r['recebido_em'],
         ];
     }
     return $out;
+}
+
+/**
+ * "2026-09-14T06:30:00-04:00" -> "06:30". Timestamp ausente/inválido -> null,
+ * nunca lança. Usa DateTime (não strtotime()+date()) de propósito: preserva
+ * o horário de parede do fuso gravado na própria mensagem (-04:00, igual o
+ * back-gmais manda), em vez de converter pro timezone padrão do PHP no
+ * servidor (que resultaria num horário deslocado, ex.: 04:00 virando 08:00).
+ */
+function backup_hora_curta(?string $isoTimestamp): ?string
+{
+    if ($isoTimestamp === null) return null;
+    try {
+        return (new DateTime($isoTimestamp))->format('H:i');
+    } catch (\Throwable $e) {
+        return null;
+    }
 }
 
 /**
@@ -300,6 +320,13 @@ function backup_resumo_texto(array $execucoes, string $data): string
             $out .= '  ' . $icone($e['status']) . ' ' . $e['politica'];
             if ($e['dados'] !== null) $out .= ' — ' . $e['dados'];
             if ($e['arquivos'] !== null) $out .= ' (' . $e['arquivos'] . ' arquivo' . ($e['arquivos'] === '1' ? '' : 's') . ')';
+            $horaIni = backup_hora_curta($e['inicio']);
+            $horaFim = backup_hora_curta($e['fim']);
+            if ($horaIni !== null && $horaFim !== null) {
+                $out .= ' [' . $horaIni . ($horaFim !== $horaIni ? '–' . $horaFim : '') . ']';
+            } elseif ($horaIni !== null) {
+                $out .= ' [' . $horaIni . ']';
+            }
             $out .= "\n";
         }
     }
