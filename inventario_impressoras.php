@@ -196,6 +196,9 @@ function linhaImpressora(item) {
   const imp = item.impressora, st = item.status;
   const div = document.createElement('div');
   div.className = 'imp-card';
+  div.style.cursor = 'pointer';
+  div.title = 'Clique para ver o histórico';
+  div.onclick = function () { verHistorico(imp.id, imp.apelido); };
   const online = st && st.online == 1;
   let html = '<div class="d-flex justify-content-between align-items-start flex-wrap gap-2">';
   html += '<div><span class="status-dot ' + (online ? 'status-on' : 'status-off') + '"></span>';
@@ -210,8 +213,7 @@ function linhaImpressora(item) {
   } else {
     html += '<span class="small text-muted">ainda sem leitura</span>';
   }
-  html += '</div><div class="d-flex gap-2">';
-  html += '<button type="button" class="btn btn-outline-secondary btn-sm" onclick="verHistorico(' + imp.id + ', \'' + imp.apelido.replace(/'/g, "\\'") + '\')">Histórico</button>';
+  html += '</div><div class="d-flex gap-2" onclick="event.stopPropagation()">';
   if (IS_ADMIN) {
     html += '<button type="button" class="btn btn-outline-primary btn-sm" onclick="editarImpressora(' + imp.id + ', \'' + imp.ip + '\', \'' + imp.apelido.replace(/'/g, "\\'") + '\', \'' + (imp.loja || '').replace(/'/g, "\\'") + '\', \'' + imp.comunidade + '\')">Editar</button>';
     html += '<button type="button" class="btn btn-outline-danger btn-sm" onclick="excluirImpressora(' + imp.id + ')">Excluir</button>';
