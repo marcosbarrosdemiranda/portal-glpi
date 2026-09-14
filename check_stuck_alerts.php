@@ -1,4 +1,19 @@
 <?php
+/**
+ * check_stuck_alerts.php — diagnóstico: acha alertas do Dude "presos" (o
+ * dispositivo já voltou, mas a ocorrência em portal_alertas_ocorrencias
+ * continua lá). Uso: docker exec glpi-web php .../check_stuck_alerts.php
+ *
+ * Web-gated (precisa login) — CLI (docker exec) não passa por
+ * auth_guard, já que só quem tem acesso ao servidor chega lá.
+ */
+if (PHP_SAPI !== 'cli') {
+    require_once __DIR__ . '/auth_guard.php';
+    if (empty($_SESSION['autenticado'])) { header('Location: auth.php'); exit; }
+    if (($_SESSION['perfil'] ?? '') === 'self-service') { header('Location: dashboard.php'); exit; }
+    header('Content-Type: text/plain; charset=utf-8');
+}
+
 require_once __DIR__ . '/agenda/db.php';
 
 $sql = "
@@ -42,4 +57,3 @@ try {
 } catch (Exception $e) {
     echo "Erro: " . $e->getMessage() . "\n";
 }
-?>
