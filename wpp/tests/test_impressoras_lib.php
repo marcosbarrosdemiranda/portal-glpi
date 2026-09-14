@@ -63,3 +63,47 @@ t_ok($semConsumiveis['online'], 'snmp_parsear: online mesmo sem serial/paginas')
 t_ok($semConsumiveis['serial'] === null, 'snmp_parsear: serial=false -> null');
 t_ok($semConsumiveis['paginas_total'] === null, 'snmp_parsear: paginas_total=null -> null');
 t_eq(count($semConsumiveis['consumiveis']), 0, 'snmp_parsear: sem consumiveis -> array vazio');
+
+// --- status + historico (precisa de uma impressora cadastrada) ---
+$pdo->prepare("DELETE FROM portal_impressoras WHERE apelido LIKE '__teste_imp_%'")->execute();
+try {
+    $idImp = impressora_cadastrar($pdo, '10.0.9.60', '__teste_imp_status__', 'Loja 07', 'public');
+
+    $consulta1 = [
+        'online' => true, 'modelo' => 'Konica bizhub C227', 'serial' => 'SN001', 'firmware' => null,
+        'paginas_total' => 1000, 'consumiveis' => [['nome' => 'Toner Preto', 'nivel' => 80, 'max' => 100]],
+    ];
+    impressora_status_salvar($pdo, $idImp, $consulta1);
+
+    $status = impressora_status_atual($pdo, $idImp);
+    t_ok($status !== null, 'status_atual: existe depois de salvar');
+    t_eq($status['modelo'], 'Konica bizhub C227', 'status_atual: modelo salvo');
+    t_eq($status['paginas_total'], 1000, 'status_atual: paginas_total salvo');
+    t_eq($status['consumiveis'][0]['nome'], 'Toner Preto', 'status_atual: consumiveis_json decodificado');
+
+    $hist1 = impressora_historico_paginas($pdo, $idImp);
+    t_eq(count($hist1), 1, 'historico_paginas: 1a leitura grava 1 linha');
+
+    // 2a leitura com o MESMO contador -> nao duplica no historico
+    impressora_status_salvar($pdo, $idImp, $consulta1);
+    $hist2 = impressora_historico_paginas($pdo, $idImp);
+    t_eq(count($hist2), 1, 'historico_paginas: contador igual -> nao acrescenta linha nova');
+
+    // 3a leitura com contador MAIOR -> acrescenta
+    $consulta2 = $consulta1;
+    $consulta2['paginas_total'] = 1050;
+    impressora_status_salvar($pdo, $idImp, $consulta2);
+    $hist3 = impressora_historico_paginas($pdo, $idImp);
+    t_eq(count($hist3), 2, 'historico_paginas: contador mudou -> acrescenta linha');
+    t_eq($hist3[1]['paginas_total'], 1050, 'historico_paginas: ordenado por data, ultimo valor certo');
+
+    // offline: online=false ainda atualiza o status (fica sabendo que caiu), sem novo historico se paginas_total=null
+    $offlineConsulta = ['online' => false, 'modelo' => null, 'serial' => null, 'firmware' => null, 'paginas_total' => null, 'consumiveis' => []];
+    impressora_status_salvar($pdo, $idImp, $offlineConsulta);
+    $statusOffline = impressora_status_atual($pdo, $idImp);
+    t_eq((int) $statusOffline['online'], 0, 'status_salvar: online=false atualiza o status');
+    $histOffline = impressora_historico_paginas($pdo, $idImp);
+    t_eq(count($histOffline), 2, 'status_salvar: offline (paginas_total null) nao acrescenta linha no historico');
+} finally {
+    $pdo->prepare("DELETE FROM portal_impressoras WHERE apelido LIKE '__teste_imp_%'")->execute();
+}

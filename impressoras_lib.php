@@ -160,3 +160,64 @@ function impressora_snmp_parsear(array $bruto): array
         'consumiveis'   => $consumiveis,
     ];
 }
+
+/* ───────────────────────────── Status + histórico ───────────────────────────── */
+
+function impressora_status_salvar(PDO $pdo, int $impressoraId, array $consulta): void
+{
+    $pdo->prepare(
+        "INSERT INTO portal_impressoras_status
+            (impressora_id, online, modelo, serial, firmware, paginas_total, consumiveis_json, atualizado_em)
+         VALUES (?,?,?,?,?,?,?,NOW())
+         ON DUPLICATE KEY UPDATE online=VALUES(online), modelo=VALUES(modelo), serial=VALUES(serial),
+             firmware=VALUES(firmware), paginas_total=VALUES(paginas_total),
+             consumiveis_json=VALUES(consumiveis_json), atualizado_em=NOW()"
+    )->execute([
+        $impressoraId,
+        $consulta['online'] ? 1 : 0,
+        $consulta['modelo'] ?? null,
+        $consulta['serial'] ?? null,
+        $consulta['firmware'] ?? null,
+        $consulta['paginas_total'] ?? null,
+        !empty($consulta['consumiveis']) ? json_encode($consulta['consumiveis']) : null,
+    ]);
+
+    $paginas = $consulta['paginas_total'] ?? null;
+    if ($paginas === null) {
+        return; // offline ou modelo nao reporta contador - nao ha o que gravar no historico
+    }
+
+    $ultimo = $pdo->prepare(
+        "SELECT paginas_total FROM portal_impressoras_historico WHERE impressora_id = ? ORDER BY registrado_em DESC, id DESC LIMIT 1"
+    );
+    $ultimo->execute([$impressoraId]);
+    $anterior = $ultimo->fetchColumn();
+
+    if ($anterior === false || (int) $anterior !== (int) $paginas) {
+        $pdo->prepare(
+            "INSERT INTO portal_impressoras_historico (impressora_id, paginas_total, registrado_em) VALUES (?, ?, NOW())"
+        )->execute([$impressoraId, $paginas]);
+    }
+}
+
+function impressora_status_atual(PDO $pdo, int $impressoraId): ?array
+{
+    $st = $pdo->prepare("SELECT * FROM portal_impressoras_status WHERE impressora_id = ?");
+    $st->execute([$impressoraId]);
+    $row = $st->fetch(PDO::FETCH_ASSOC);
+    if ($row === false) return null;
+    $row['consumiveis'] = $row['consumiveis_json'] ? json_decode($row['consumiveis_json'], true) : [];
+    return $row;
+}
+
+/** @return array linhas ['paginas_total'=>int,'registrado_em'=>string], mais antiga primeiro. */
+function impressora_historico_paginas(PDO $pdo, int $impressoraId, int $dias = 90): array
+{
+    $st = $pdo->prepare(
+        "SELECT paginas_total, registrado_em FROM portal_impressoras_historico
+         WHERE impressora_id = ? AND registrado_em >= NOW() - INTERVAL ? DAY
+         ORDER BY registrado_em, id"
+    );
+    $st->execute([$impressoraId, $dias]);
+    return $st->fetchAll(PDO::FETCH_ASSOC);
+}
