@@ -281,3 +281,29 @@ function impressora_paginas_por_mes(PDO $pdo, int $impressoraId, int $meses = 12
     }
     return $out;
 }
+
+/**
+ * Consulta SNMP de todas as impressoras ativas e grava status + histórico —
+ * mesma lógica do impressoras_worker.php, reaproveitada aqui pro botão
+ * "Atualizar agora" da tela. 1 impressora falhando não impede as outras.
+ * Sem teste automatizado: depende da extensão snmp (só existe nas imagens
+ * glpi-web/portal-impressoras-worker, não no ambiente de teste descartável)
+ * e de rede de verdade — mesma razão de impressora_snmp_consultar() não
+ * ser testada diretamente, só o parsing (impressora_snmp_parsear).
+ *
+ * @return int quantidade de impressoras consultadas com sucesso (sem contar falhas).
+ */
+function impressora_atualizar_todas(PDO $pdo): int
+{
+    $sucesso = 0;
+    foreach (impressora_listar($pdo) as $imp) {
+        try {
+            $consulta = impressora_snmp_consultar($imp['ip'], $imp['comunidade']);
+            impressora_status_salvar($pdo, (int) $imp['id'], $consulta);
+            $sucesso++;
+        } catch (\Throwable $e) {
+            error_log('impressora_atualizar_todas: falha ao consultar ' . $imp['ip'] . ': ' . $e->getMessage());
+        }
+    }
+    return $sucesso;
+}

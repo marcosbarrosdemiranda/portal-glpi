@@ -7,13 +7,4 @@ require_once __DIR__ . '/impressoras_lib.php';
 
 global $pdo;
 
-foreach (impressora_listar($pdo) as $imp) {
-    try {
-        $consulta = impressora_snmp_consultar($imp['ip'], $imp['comunidade']);
-        impressora_status_salvar($pdo, (int) $imp['id'], $consulta);
-    } catch (\Throwable $e) {
-        // 1 impressora falhando (rede fora, IP mudou etc.) nao pode
-        // impedir a consulta das outras.
-        error_log('impressoras_worker: falha ao consultar ' . $imp['ip'] . ': ' . $e->getMessage());
-    }
-}
+impressora_atualizar_todas($pdo);

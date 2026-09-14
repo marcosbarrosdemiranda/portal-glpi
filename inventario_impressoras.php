@@ -34,6 +34,13 @@ if ($action !== '') {
         exit;
     }
 
+    if ($action === 'atualizar_agora') {
+        if ($_SERVER['REQUEST_METHOD'] !== 'POST') { echo json_encode(['ok' => false, 'erro' => 'metodo invalido']); exit; }
+        $n = impressora_atualizar_todas($pdo);
+        echo json_encode(['ok' => true, 'consultadas' => $n]);
+        exit;
+    }
+
     if ($action === 'historico') {
         $id = (int) ($_GET['id'] ?? 0);
         if ($id <= 0) { echo json_encode(['ok' => false, 'erro' => 'id invalido']); exit; }
@@ -146,7 +153,13 @@ if ($action !== '') {
   <?php endif; ?>
 
   <div class="card-box">
-    <h6 class="mb-2">Impressoras</h6>
+    <div class="d-flex justify-content-between align-items-center mb-2">
+      <h6 class="mb-0">Impressoras</h6>
+      <button type="button" class="btn btn-outline-secondary btn-sm" id="btn-atualizar" onclick="atualizarAgora()">
+        <i class="bi bi-arrow-clockwise me-1"></i>Atualizar agora
+      </button>
+    </div>
+    <div id="fb-atualizar" class="small mb-2"></div>
     <div id="lista">Carregando…</div>
   </div>
 
@@ -215,6 +228,26 @@ function carregarLojas() {
     sel.innerHTML = '<option value="">selecione…</option>';
     (d.lojas || []).forEach(function (l) { sel.appendChild(new Option(l.nome, l.nome)); });
   });
+}
+
+function atualizarAgora() {
+  const btn = $('btn-atualizar');
+  const fb = $('fb-atualizar');
+  btn.disabled = true;
+  btn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span>Consultando…';
+  fb.className = 'small mb-2 text-muted';
+  fb.textContent = 'Consultando cada impressora via SNMP — pode levar alguns segundos por impressora (mais se alguma estiver desligada).';
+  fetch('inventario_impressoras.php?action=atualizar_agora', { method: 'POST' })
+    .then(function (r) { return r.json(); })
+    .then(function (d) {
+      fb.className = 'small mb-2 ' + (d.ok ? 'text-success' : 'text-danger');
+      fb.textContent = d.ok ? (d.consultadas + ' impressora(s) consultada(s) agora.') : (d.erro || 'erro ao atualizar');
+      carregarLista();
+    })
+    .finally(function () {
+      btn.disabled = false;
+      btn.innerHTML = '<i class="bi bi-arrow-clockwise me-1"></i>Atualizar agora';
+    });
 }
 
 function carregarLista() {
