@@ -73,6 +73,20 @@ services:
     networks:
       - glpi-net
 
+  # Consulta SNMP de cada impressora cadastrada a cada 20 min, grava status
+  # + histórico de páginas. Mesma imagem do glpi-web (precisa da extensão snmp).
+  portal-impressoras-worker:
+    build: .
+    container_name: portal-impressoras-worker
+    restart: unless-stopped
+    depends_on:
+      - glpi-db
+    volumes:
+      - C:\docker\glpi-portal\glpi2:/var/www/html/glpi2
+    entrypoint: ["sh", "-c", "while true; do php /var/www/html/glpi2/portal-glpi/impressoras_worker.php; sleep 1200; done"]
+    networks:
+      - glpi-net
+
   # Banco dedicado da Evolution API. O MariaDB 10.4 do glpi-db NÃO roda as
   # migrations do Prisma da Evolution — a migration
   # 20240813153900_add_unique_index_for_remoted_jid... derruba a conexão (P1017).
