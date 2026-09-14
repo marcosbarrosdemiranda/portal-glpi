@@ -875,7 +875,7 @@ $libera_data_passada = ($cards_portal === null) || (($cards_portal['agenda_data_
 
 <!-- ── Modal: Responder Chamado ── -->
 <div class="modal fade" id="modalResposta" tabindex="-1">
-  <div class="modal-dialog modal-lg">
+  <div class="modal-dialog modal-xl">
     <div class="modal-content">
       <div class="modal-header" style="border-bottom:3px solid #d93025;">
         <h5 class="modal-title fw-bold" id="modalRespostaTitulo">
@@ -892,17 +892,21 @@ $libera_data_passada = ($cards_portal === null) || (($cards_portal['agenda_data_
           <span id="resp-chamado-label" class="fw-semibold"></span>
         </div>
 
-        <!-- Checklist rotina (visível apenas para chamados recorrentes com checklist) -->
-        <div id="resp-checklist" style="display:none" class="mb-3">
-          <label class="form-label fw-semibold">✅ Itens verificados</label>
-          <div id="resp-checklist-itens" class="d-flex flex-column gap-2 p-3 border rounded" style="background:#f8fafc"></div>
-        </div>
+        <!-- Checklist rotina + Resposta — lado a lado quando há checklist (usa o
+             espaço vazio à direita da lista de itens em vez de empilhar embaixo) -->
+        <div class="row g-3">
+          <!-- Checklist rotina (visível apenas para chamados recorrentes com checklist) -->
+          <div id="resp-checklist" style="display:none" class="col-12 mb-3">
+            <label class="form-label fw-semibold">✅ Itens verificados</label>
+            <div id="resp-checklist-itens" class="d-flex flex-column gap-2 p-3 border rounded" style="background:#f8fafc"></div>
+          </div>
 
-        <!-- Resposta -->
-        <div class="mb-3">
-          <label class="form-label fw-semibold" id="resp-texto-label">Resposta / Acompanhamento <span class="text-danger">*</span></label>
-          <textarea id="resp-texto" class="form-control" rows="6"
-            placeholder="Descreva o que foi feito, orientações ao usuário, próximos passos..."></textarea>
+          <!-- Resposta -->
+          <div id="resp-texto-wrap" class="col-12 mb-3">
+            <label class="form-label fw-semibold" id="resp-texto-label">Resposta / Acompanhamento <span class="text-danger">*</span></label>
+            <textarea id="resp-texto" class="form-control" rows="6"
+              placeholder="Descreva o que foi feito, orientações ao usuário, próximos passos..."></textarea>
+          </div>
         </div>
 
         <!-- Anexos -->
@@ -2977,11 +2981,14 @@ function abrirModalResposta() {
       if (filhosDiv) cb.addEventListener('change', () => { filhosDiv.style.display = cb.checked ? '' : 'none'; });
     });
     checkWrap.style.display = '';
+    checkWrap.className = 'col-md-5 mb-3';
+    document.getElementById('resp-texto-wrap').className = 'col-md-7 mb-3';
     document.getElementById('resp-texto-label').innerHTML = 'Observações adicionais (opcional)';
     document.getElementById('resp-texto').placeholder = 'Alguma observação sobre os itens verificados...';
-    document.getElementById('resp-texto').rows = 3;
+    document.getElementById('resp-texto').rows = 12;
   } else {
     checkWrap.style.display = 'none';
+    document.getElementById('resp-texto-wrap').className = 'col-12 mb-3';
     document.getElementById('resp-texto-label').innerHTML = 'Resposta / Acompanhamento <span class="text-danger">*</span>';
     document.getElementById('resp-texto').placeholder = 'Descreva o que foi feito, orientações ao usuário, próximos passos...';
     document.getElementById('resp-texto').rows = 6;
