@@ -78,3 +78,85 @@ function impressora_excluir(PDO $pdo, int $id): void
 {
     $pdo->prepare("DELETE FROM portal_impressoras WHERE id = ?")->execute([$id]);
 }
+
+/* ───────────────────────────── SNMP ───────────────────────────── */
+
+const IMPRESSORA_OID_SYSDESCR   = '1.3.6.1.2.1.1.1.0';
+const IMPRESSORA_OID_SERIAL     = '1.3.6.1.2.1.43.5.1.1.17.1';
+const IMPRESSORA_OID_PAGINAS    = '1.3.6.1.2.1.43.10.2.1.4.1.1';
+const IMPRESSORA_OID_SUP_DESC   = '1.3.6.1.2.1.43.11.1.1.6.1';
+const IMPRESSORA_OID_SUP_NIVEL  = '1.3.6.1.2.1.43.11.1.1.9.1';
+const IMPRESSORA_OID_SUP_MAX    = '1.3.6.1.2.1.43.11.1.1.8.1';
+
+/**
+ * Consulta SNMP de verdade (I/O de rede) — separada de impressora_snmp_parsear()
+ * só pra essa poder ser testada sem rede/hardware físico.
+ * Nunca lança: timeout/erro de rede vira ['online' => false, ...].
+ */
+function impressora_snmp_consultar(string $ip, string $comunidade, int $timeoutMs = 2500): array
+{
+    $timeoutUs = $timeoutMs * 1000;
+    snmp_set_valueretrieval(SNMP_VALUE_PLAIN);
+    snmp_set_quick_print(true);
+
+    $bruto = [
+        'sysDescr'      => @snmpget($ip, $comunidade, IMPRESSORA_OID_SYSDESCR, $timeoutUs, 1),
+        'serial'        => @snmpget($ip, $comunidade, IMPRESSORA_OID_SERIAL, $timeoutUs, 1),
+        'paginas_total' => @snmpget($ip, $comunidade, IMPRESSORA_OID_PAGINAS, $timeoutUs, 1),
+        'consumiveis_descricoes' => @snmp2_walk($ip, $comunidade, IMPRESSORA_OID_SUP_DESC, $timeoutUs, 1) ?: [],
+        'consumiveis_niveis'     => @snmp2_walk($ip, $comunidade, IMPRESSORA_OID_SUP_NIVEL, $timeoutUs, 1) ?: [],
+        'consumiveis_maximos'    => @snmp2_walk($ip, $comunidade, IMPRESSORA_OID_SUP_MAX, $timeoutUs, 1) ?: [],
+    ];
+
+    return impressora_snmp_parsear($bruto);
+}
+
+/**
+ * Transforma a resposta bruta do SNMP (ou um array simulado, nos testes) no
+ * formato usado pelo resto do sistema. Nunca lança.
+ *
+ * $bruto: ['sysDescr'=>string|false, 'serial'=>string|false|null,
+ *          'paginas_total'=>string|int|null|false,
+ *          'consumiveis_descricoes'=>array, 'consumiveis_niveis'=>array, 'consumiveis_maximos'=>array]
+ */
+function impressora_snmp_parsear(array $bruto): array
+{
+    $sysDescr = $bruto['sysDescr'] ?? false;
+    if ($sysDescr === false || $sysDescr === null || $sysDescr === '') {
+        return ['online' => false, 'modelo' => null, 'serial' => null, 'firmware' => null, 'paginas_total' => null, 'consumiveis' => []];
+    }
+
+    $serial = $bruto['serial'] ?? null;
+    $serial = (is_string($serial) && $serial !== '') ? trim($serial) : null;
+
+    $paginasRaw = $bruto['paginas_total'] ?? null;
+    $paginas    = (is_numeric($paginasRaw)) ? (int) $paginasRaw : null;
+
+    $consumiveis = [];
+    $descricoes = $bruto['consumiveis_descricoes'] ?? [];
+    $niveis     = array_values($bruto['consumiveis_niveis'] ?? []);
+    $maximos    = array_values($bruto['consumiveis_maximos'] ?? []);
+    $i = 0;
+    foreach (array_values($descricoes) as $nome) {
+        $nivelRaw = $niveis[$i] ?? null;
+        $maxRaw   = $maximos[$i] ?? null;
+        $nivel = is_numeric($nivelRaw) ? (int) $nivelRaw : null;
+        $max   = is_numeric($maxRaw) ? (int) $maxRaw : null;
+        // -2 = "nao reporta percentual" (RFC 3805 prtMarkerSuppliesLevel) - trata como sem dado, nao erro.
+        if ($nivel === -2 || $max === null || $max <= 0) {
+            $nivel = null;
+            $max   = null;
+        }
+        $consumiveis[] = ['nome' => (string) $nome, 'nivel' => $nivel, 'max' => $max];
+        $i++;
+    }
+
+    return [
+        'online'        => true,
+        'modelo'        => trim((string) $sysDescr),
+        'serial'        => $serial,
+        'firmware'      => null, // sysDescr costuma trazer versao junto do modelo, sem OID separado universal
+        'paginas_total' => $paginas,
+        'consumiveis'   => $consumiveis,
+    ];
+}
