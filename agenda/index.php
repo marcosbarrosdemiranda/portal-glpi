@@ -905,7 +905,7 @@ $libera_data_passada = ($cards_portal === null) || (($cards_portal['agenda_data_
                não editável; entra junto na resposta final do chamado na hora de enviar. -->
           <div id="resp-backup" style="display:none" class="col-12 mb-3">
             <label class="form-label fw-semibold">💾 Backup verificados</label>
-            <div id="resp-backup-texto" class="p-3 border rounded" style="background:#f8fafc;white-space:pre-wrap;font-family:monospace;font-size:.82rem"></div>
+            <div id="resp-backup-texto" class="p-3 border rounded" style="background:#f8fafc;white-space:pre-wrap;font-family:monospace;font-size:.72rem"></div>
           </div>
         </div>
 
