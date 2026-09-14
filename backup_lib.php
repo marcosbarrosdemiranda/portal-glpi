@@ -47,7 +47,7 @@ require_once __DIR__ . '/agenda/db.php';
  */
 function backup_parse_mensagem(string $message): array
 {
-    $out = ['politica' => null, 'status' => null, 'erro' => null];
+    $out = ['politica' => null, 'status' => null, 'erro' => null, 'arquivos' => null, 'dados' => null, 'fim' => null];
     foreach (explode("\n", $message) as $linha) {
         if (!str_contains($linha, ':')) continue;
         [$chave, $valor] = explode(':', $linha, 2);
@@ -56,6 +56,9 @@ function backup_parse_mensagem(string $message): array
             case 'Política': $out['politica'] = $valor !== '' ? $valor : null; break;
             case 'Status':   $out['status']   = $valor !== '' ? $valor : null; break;
             case 'Erro':     $out['erro']     = $valor !== '' ? $valor : null; break;
+            case 'Arquivos': $out['arquivos'] = $valor !== '' ? $valor : null; break;
+            case 'Dados':    $out['dados']    = $valor !== '' ? $valor : null; break;
+            case 'Fim':      $out['fim']      = $valor !== '' ? $valor : null; break;
         }
     }
     return $out;
@@ -226,4 +229,79 @@ function alerta_render_backup_silencio(array $ocorr): string
               . '<td style="color:#6b7280">' . $H($o['detalhe']) . '</td></tr>';
     }
     return $out . '</tbody></table>';
+}
+
+/* ───────────────────────────── Resumo diário (rotina "Responder") ───────────────────────────── */
+
+/**
+ * Todas as execuções recebidas num dia (dia CALENDÁRIO, 00:00-23:59 —
+ * mesmo fuso do MySQL/recebido_em), já com o nome da máquina/servidor e os
+ * campos extras (arquivos, dados=tamanho) extraídos da mensagem crua.
+ *
+ * @return array cada item: ['maquina','politica','status','arquivos','dados','recebido_em']
+ */
+function backup_resumo_dia(PDO $pdo, string $data): array
+{
+    $st = $pdo->prepare("
+        SELECT m.nome AS maquina, e.politica, e.status, e.mensagem, e.recebido_em
+        FROM portal_backup_execucoes e
+        JOIN portal_backup_maquinas m ON m.id = e.maquina_id
+        WHERE DATE(e.recebido_em) = ?
+        ORDER BY m.nome, e.politica, e.recebido_em
+    ");
+    $st->execute([$data]);
+
+    $out = [];
+    foreach ($st->fetchAll(PDO::FETCH_ASSOC) as $r) {
+        $extra = backup_parse_mensagem((string) $r['mensagem']);
+        $out[] = [
+            'maquina'     => $r['maquina'],
+            'politica'    => $r['politica'],
+            'status'      => $r['status'],
+            'arquivos'    => $extra['arquivos'],
+            'dados'       => $extra['dados'],
+            'recebido_em' => $r['recebido_em'],
+        ];
+    }
+    return $out;
+}
+
+/**
+ * Texto pronto pra colar na resposta do chamado recorrente de verificação
+ * diária — agrupado por SERVIDOR (hoje tem 2), pra não misturar backups de
+ * máquinas diferentes numa lista só.
+ */
+function backup_resumo_texto(array $execucoes, string $data): string
+{
+    $dataFmt = date('d/m/Y', strtotime($data));
+    if (!$execucoes) {
+        return "Nenhum backup registrado em {$dataFmt}.";
+    }
+
+    $porMaquina = [];
+    foreach ($execucoes as $e) {
+        $porMaquina[$e['maquina']][] = $e;
+    }
+    ksort($porMaquina, SORT_NATURAL | SORT_FLAG_CASE);
+
+    $icone = fn($status) => match ($status) {
+        'success'   => '✅',
+        'error'     => '❌',
+        'warning'   => '⚠️',
+        'cancelled' => '⏹️',
+        'running'   => '⏳',
+        default     => '•',
+    };
+
+    $out = "Verificação de backups — {$dataFmt}\n";
+    foreach ($porMaquina as $maquina => $itens) {
+        $out .= "\n{$maquina}:\n";
+        foreach ($itens as $e) {
+            $out .= '  ' . $icone($e['status']) . ' ' . $e['politica'];
+            if ($e['dados'] !== null) $out .= ' — ' . $e['dados'];
+            if ($e['arquivos'] !== null) $out .= ' (' . $e['arquivos'] . ' arquivo' . ($e['arquivos'] === '1' ? '' : 's') . ')';
+            $out .= "\n";
+        }
+    }
+    return rtrim($out);
 }

@@ -22,6 +22,14 @@ t_ok($p2['erro'] === null, 'parse: erro ausente vira null');
 t_eq(backup_parse_mensagem('')['politica'], null, 'parse: string vazia não lança, tudo null');
 t_eq(backup_parse_mensagem("linha sem dois-pontos")['status'], null, 'parse: linha sem ":" é ignorada');
 
+// --- Arquivos/Dados (tamanho) — vem em mensagens de sucesso reais do back-gmais ---
+$msgOk = "Política: Zukking Precos - Envio\nStatus: success\nModo: mirror\nJob: 2ebfe544\nInício: 2026-09-14T06:30:00-04:00\nFim: 2026-09-14T06:30:09-04:00\nArquivos: 1\nDados: 13.7 MiB";
+$pOk = backup_parse_mensagem($msgOk);
+t_eq($pOk['arquivos'], '1', 'parse: arquivos');
+t_eq($pOk['dados'], '13.7 MiB', 'parse: dados (tamanho)');
+t_eq($pOk['fim'], '2026-09-14T06:30:09-04:00', 'parse: fim');
+t_ok(backup_parse_mensagem('')['arquivos'] === null, 'parse: arquivos ausente -> null');
+
 t_ok(strlen(backup_token_novo()) === 32, 'token: 32 chars');
 t_ok(backup_token_novo() !== backup_token_novo(), 'token: não repete');
 
@@ -101,6 +109,43 @@ if (isset($pdo) && $pdo instanceof PDO) {
         t_ok(strpos(alerta_render_backup_silencio([]), 'vazio') !== false, 'render_backup_silencio([]) tem a msg vazia');
         t_ok(strlen(alerta_render_backup_erro($oc)) > 20, 'render_backup_erro(ocorr) devolve HTML');
         t_ok(strlen(alerta_render_backup_silencio($ocS2)) > 20, 'render_backup_silencio(ocorr) devolve HTML');
+
+        // --- backup_resumo_dia / backup_resumo_texto ---
+        $DATA_TESTE = '2099-06-15'; // data bem no futuro, nao colide com execucao real
+        backup_registrar_execucao($pdo, (int) $m['id'], 'Política Resumo', 'success', "Política: Política Resumo\nStatus: success\nArquivos: 42\nDados: 3.2 GiB");
+        $pdo->prepare("UPDATE portal_backup_execucoes SET recebido_em = ? WHERE maquina_id = ? AND politica = 'Política Resumo'")
+            ->execute([$DATA_TESTE . ' 04:00:00', $m['id']]);
+
+        backup_registrar_execucao($pdo, (int) $m['id'], 'Política Resumo Erro', 'error', "Política: Política Resumo Erro\nStatus: error\nErro: disco cheio");
+        $pdo->prepare("UPDATE portal_backup_execucoes SET recebido_em = ? WHERE maquina_id = ? AND politica = 'Política Resumo Erro'")
+            ->execute([$DATA_TESTE . ' 05:00:00', $m['id']]);
+
+        // execucao de outro dia nao deve entrar no resumo
+        backup_registrar_execucao($pdo, (int) $m['id'], 'Política Fora Do Dia', 'success', "Política: Política Fora Do Dia\nStatus: success");
+        $pdo->prepare("UPDATE portal_backup_execucoes SET recebido_em = ? WHERE maquina_id = ? AND politica = 'Política Fora Do Dia'")
+            ->execute([date('Y-m-d H:i:s', strtotime($DATA_TESTE) + 86400 * 5), $m['id']]);
+
+        $resumo = backup_resumo_dia($pdo, $DATA_TESTE);
+        t_eq(count($resumo), 2, 'resumo_dia: só as 2 execuções da data pedida (ignora a de outro dia)');
+        $porPolitica = array_column($resumo, null, 'politica');
+        t_eq($porPolitica['Política Resumo']['status'], 'success', 'resumo_dia: status da execução success');
+        t_eq($porPolitica['Política Resumo']['arquivos'], '42', 'resumo_dia: arquivos extraído da mensagem');
+        t_eq($porPolitica['Política Resumo']['dados'], '3.2 GiB', 'resumo_dia: dados (tamanho) extraído da mensagem');
+        t_eq($porPolitica['Política Resumo']['maquina'], $NOME, 'resumo_dia: nome da máquina');
+        t_eq($porPolitica['Política Resumo Erro']['status'], 'error', 'resumo_dia: status da execução error');
+
+        $texto = backup_resumo_texto($resumo, $DATA_TESTE);
+        t_ok(str_contains($texto, $DATA_TESTE) || str_contains($texto, '15/06/2099'), 'resumo_texto: cita a data');
+        t_ok(str_contains($texto, 'Política Resumo') && str_contains($texto, '3.2 GiB'), 'resumo_texto: cita política e tamanho');
+        t_ok(str_contains($texto, 'Política Resumo Erro'), 'resumo_texto: cita a que deu erro também');
+        t_ok(str_contains($texto, $NOME), 'resumo_texto: cita o nome da máquina');
+
+        $resumoVazio = backup_resumo_dia($pdo, '2099-01-01');
+        t_eq(count($resumoVazio), 0, 'resumo_dia: data sem execução -> array vazio');
+        $textoVazio = backup_resumo_texto($resumoVazio, '2099-01-01');
+        t_ok(str_contains($textoVazio, 'Nenhum') || str_contains($textoVazio, 'nenhum'), 'resumo_texto: mensagem clara quando não há execução no dia');
+
+        $pdo->prepare("DELETE FROM portal_backup_execucoes WHERE maquina_id = ? AND politica IN ('Política Resumo','Política Resumo Erro','Política Fora Do Dia')")->execute([$m['id']]);
 
         // --- excluir: CASCADE limpa as execuções ---
         $idExcluir = (int) $m['id'];
