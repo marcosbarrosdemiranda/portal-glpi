@@ -41,6 +41,15 @@ if ($action !== '') {
         exit;
     }
 
+    if ($action === 'mensal') {
+        $id    = (int) ($_GET['id'] ?? 0);
+        $meses = (int) ($_GET['meses'] ?? 12);
+        if ($id <= 0) { echo json_encode(['ok' => false, 'erro' => 'id invalido']); exit; }
+        if ($meses < 1 || $meses > 24) $meses = 12;
+        echo json_encode(['ok' => true, 'mensal' => impressora_paginas_por_mes($pdo, $id, $meses)]);
+        exit;
+    }
+
     if (!$is_admin) { echo json_encode(['ok' => false, 'erro' => 'sem permissao']); exit; }
 
     if ($action === 'salvar') {
@@ -142,6 +151,17 @@ if ($action !== '') {
   <div class="card-box d-none" id="card-historico">
     <h6 class="mb-2">Histórico de páginas — <span id="hist-nome"></span></h6>
     <div id="chart-historico"></div>
+
+    <div class="d-flex justify-content-between align-items-center mt-3 mb-1">
+      <h6 class="mb-0">Páginas impressas por mês</h6>
+      <select id="mensal-periodo" class="form-select form-select-sm" style="width:140px" onchange="verMensal()">
+        <option value="3">Últimos 3 meses</option>
+        <option value="6">Últimos 6 meses</option>
+        <option value="12" selected>Últimos 12 meses</option>
+      </select>
+    </div>
+    <div id="chart-mensal"></div>
+    <p class="small text-muted mt-1">O contador começou a ser rastreado hoje — meses anteriores não têm dado ainda; o gráfico cresce conforme o histórico acumula.</p>
   </div>
 </div>
 <footer><i class="bi bi-shield-lock me-1"></i>Central de TI — Impressoras</footer>
@@ -169,6 +189,9 @@ function linhaImpressora(item) {
     html += '<span class="small text-muted">' + (st.modelo || 'modelo desconhecido') + (st.serial ? ' · S/N ' + st.serial : '') + '</span><br>';
     html += '<span class="small">Páginas: ' + (st.paginas_total !== null ? st.paginas_total : '—') + '</span><br>';
     (st.consumiveis || []).forEach(function (c) { html += '<div class="small mt-1">' + barraConsumivel(c) + '</div>'; });
+    (st.alertas || []).forEach(function (a) {
+      html += '<div class="small mt-1 text-danger"><i class="bi bi-exclamation-triangle-fill me-1"></i>' + a.descricao + '</div>';
+    });
   } else {
     html += '<span class="small text-muted">ainda sem leitura</span>';
   }
@@ -230,7 +253,11 @@ function excluirImpressora(id) {
 }
 
 let chartHistorico = null;
+let chartMensal = null;
+let impressoraAtualId = null;
+
 function verHistorico(id, apelido) {
+  impressoraAtualId = id;
   fetch('inventario_impressoras.php?action=historico&id=' + id).then(function (r) { return r.json(); }).then(function (d) {
     if (!d.ok) return;
     $('card-historico').classList.remove('d-none');
@@ -246,6 +273,28 @@ function verHistorico(id, apelido) {
     });
     chartHistorico.render();
   });
+  verMensal();
+}
+
+function verMensal() {
+  if (impressoraAtualId === null) return;
+  const meses = $('mensal-periodo').value;
+  fetch('inventario_impressoras.php?action=mensal&id=' + impressoraAtualId + '&meses=' + meses)
+    .then(function (r) { return r.json(); })
+    .then(function (d) {
+      if (!d.ok) return;
+      const categorias = d.mensal.map(function (m) { return m.mes; });
+      const valores = d.mensal.map(function (m) { return m.paginas; });
+      if (chartMensal) chartMensal.destroy();
+      chartMensal = new ApexCharts($('chart-mensal'), {
+        chart: { type: 'bar', height: 220 },
+        series: [{ name: 'Páginas impressas no mês', data: valores }],
+        xaxis: { categories: categorias },
+        colors: ['#ad1457'],
+        plotOptions: { bar: { columnWidth: '50%' } },
+      });
+      chartMensal.render();
+    });
 }
 
 carregarLojas();
