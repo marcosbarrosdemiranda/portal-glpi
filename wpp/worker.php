@@ -17,6 +17,7 @@ require_once __DIR__ . '/evo_api.php';
 require_once __DIR__ . '/../alertas_lib.php';
 require_once __DIR__ . '/gatilhos.php';
 require_once __DIR__ . '/chatbot.php';
+require_once __DIR__ . '/../dude_lib.php';
 
 // --- Constantes de operação (lidas de portal_wpp_config, com default) ---
 // Definidas como variáveis locais de propósito (não define()) pra facilitar
@@ -71,7 +72,9 @@ function wpp_worker_passada(): void
     }
 
     // 4. Gatilhos — cada um isolado num try/catch que loga e segue.
-    foreach (['gat_novo', 'gat_atribuido', 'gat_alertas', 'gat_sla'] as $g) {
+    //    dude_gatilho_verificar_ping: cobre o Dude travar o acompanhamento de
+    //    um device sem avisar - portal confere direto via ping (só down 30+min).
+    foreach (['gat_novo', 'gat_atribuido', 'gat_alertas', 'gat_sla', 'dude_gatilho_verificar_ping'] as $g) {
         try {
             $g($pdo);
         } catch (\Throwable $e) {

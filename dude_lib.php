@@ -419,3 +419,70 @@ function alerta_render_dude(array $ocorr): string
     }
     return $out;
 }
+
+/* ───────────────────────────── Verificação direta (ping) ───────────────────────────── */
+
+/**
+ * Verifica se um IP responde (ICMP + fallback TCP) — mesmo mecanismo de
+ * ping.php. Cobre o caso do Dude travar o acompanhamento de um device
+ * específico sem avisar: o portal confere direto, sem depender do Dude.
+ * Nunca lança. Suporta seam de teste via $GLOBALS['__dude_ping_fake'].
+ */
+function dude_ping_ip(string $ip): bool
+{
+    if (isset($GLOBALS['__dude_ping_fake']) && is_callable($GLOBALS['__dude_ping_fake'])) {
+        return (bool) ($GLOBALS['__dude_ping_fake'])($ip);
+    }
+    if (!filter_var($ip, FILTER_VALIDATE_IP)) return false;
+
+    $ipSafe = escapeshellarg($ip);
+    $isWin  = strtoupper(substr(PHP_OS, 0, 3)) === 'WIN';
+    $cmd    = $isWin ? "ping -n 1 -w 1000 $ipSafe" : "ping -c 1 -W 1 $ipSafe 2>/dev/null";
+    @exec($cmd, $out, $code);
+    if ($code === 0) return true;
+
+    foreach ([445, 3389, 135, 139, 80, 443, 22] as $porta) {
+        $conn = @fsockopen($ip, $porta, $errno, $errstr, 0.5);
+        if ($conn !== false) { fclose($conn); return true; }
+    }
+    return false;
+}
+
+/**
+ * Confere via ping direto os devices 'down' há pelo menos $minutosMin
+ * minutos (0 = todos os down agora — usado pelo botão manual "Atualizar").
+ * Corrige pra 'up' os que responderem. 1 device falhando não trava os outros.
+ *
+ * @return array chaves corrigidas
+ */
+function dude_verificar_down(PDO $pdo, int $minutosMin = 0): array
+{
+    $st = $pdo->prepare(
+        "SELECT chave, endereco FROM portal_dude_estado
+         WHERE tipo = 'device' AND status = 'down' AND endereco != ''
+           AND TIMESTAMPDIFF(MINUTE, atualizado_em, NOW()) >= ?"
+    );
+    $st->execute([$minutosMin]);
+
+    $corrigidos = [];
+    foreach ($st->fetchAll(PDO::FETCH_ASSOC) as $r) {
+        try {
+            if (dude_ping_ip((string) $r['endereco'])) {
+                $pdo->prepare(
+                    "UPDATE portal_dude_estado SET status='up', detalhe='confirmado via ping direto do portal', atualizado_em=NOW()
+                     WHERE tipo='device' AND chave=?"
+                )->execute([$r['chave']]);
+                $corrigidos[] = $r['chave'];
+            }
+        } catch (\Throwable $e) {
+            // 1 device falhando no ping nao pode travar a verificacao dos outros
+        }
+    }
+    return $corrigidos;
+}
+
+/** Chamado pelo worker a cada passada — só devices down há 30+ min (evita pingar toda hora à toa). */
+function dude_gatilho_verificar_ping(PDO $pdo): void
+{
+    dude_verificar_down($pdo, 30);
+}

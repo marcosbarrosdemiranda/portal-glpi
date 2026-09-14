@@ -6,6 +6,7 @@ if (($_SESSION['perfil'] ?? '') === 'self-service') { header('Location: dashboar
 require_once __DIR__ . '/agenda/db.php';
 require_once __DIR__ . '/alertas_tipos.php';   // já puxa alertas_lib.php + entidade_alias.php
 require_once __DIR__ . '/inventario_lib.php';  // cria portal_inv_pc_cat (classificação __ignorado__ usada no total)
+require_once __DIR__ . '/dude_lib.php';        // dude_verificar_down() - ping direto no botão Atualizar
 
 function h($s) { return htmlspecialchars((string)$s, ENT_QUOTES, 'UTF-8'); }
 
@@ -58,10 +59,20 @@ function alertas_carregar(PDO $pdo): array
     return ['secoes' => $secoes, 'total' => $total];
 }
 
-$dados = alertas_carregar($pdo);
-
 // ── Endpoint AJAX do auto-refresh / botão Atualizar ──
 if (($_GET['action'] ?? '') === 'dados') {
+    // Clique manual (não o auto-refresh de fundo, que manda &bg=1): força
+    // conferir via ping direto os devices do Dude "down" há muito tempo,
+    // cobrindo o caso do Dude travar o acompanhamento sem avisar.
+    if (empty($_GET['bg'])) {
+        try {
+            dude_verificar_down($pdo, 0);
+        } catch (\Throwable $e) {
+            // falha na verificação não pode impedir o refresh normal
+        }
+    }
+
+    $dados = alertas_carregar($pdo);
     header('Content-Type: application/json');
     echo json_encode([
         'ok'     => true,
@@ -74,6 +85,8 @@ if (($_GET['action'] ?? '') === 'dados') {
     ]);
     exit;
 }
+
+$dados = alertas_carregar($pdo); // carga inicial da página (a via AJAX já saiu acima)
 
 // perfil restrito sem 'notificacoes_config' não vê o link de configuração
 $podeConfig = !isset($_SESSION['portal_perfil_cards']) || $_SESSION['portal_perfil_cards'] === null

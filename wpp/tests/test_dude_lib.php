@@ -190,6 +190,44 @@ if (isset($pdo) && $pdo instanceof PDO) {
             $pdo->prepare("DELETE FROM portal_wpp_config WHERE chave = 'dude_token'")->execute();
         }
     }
+
+    // --- dude_ping_ip: usa o seam de teste, não bate rede de verdade ---
+    $GLOBALS['__dude_ping_fake'] = fn(string $ip) => $ip === '10.0.0.1';
+    t_ok(dude_ping_ip('10.0.0.1'), 'ping_ip: seam de teste responde true pro IP configurado');
+    t_ok(!dude_ping_ip('10.0.0.2'), 'ping_ip: seam de teste responde false pra outro IP');
+    unset($GLOBALS['__dude_ping_fake']);
+    t_ok(!dude_ping_ip('nao-e-um-ip'), 'ping_ip: sem seam, IP invalido -> false, nunca lança');
+
+    // --- dude_verificar_down: corrige pra 'up' quem responde ao ping ---
+    $CHAVE_A = '__teste_ping_a__';
+    $CHAVE_B = '__teste_ping_b__';
+    $pdo->prepare("DELETE FROM portal_dude_estado WHERE chave IN (?, ?)")->execute([$CHAVE_A, $CHAVE_B]);
+    try {
+        dude_registrar_estado($pdo, 'device', $CHAVE_A, 'Teste A', '10.0.0.1', 'Loja X', '', 'down', 'fora do ar');
+        dude_registrar_estado($pdo, 'device', $CHAVE_B, 'Teste B', '10.0.0.2', 'Loja X', '', 'down', 'fora do ar');
+        // A fica "down ha muito tempo" (30+ min), B acabou de cair agora
+        $pdo->prepare("UPDATE portal_dude_estado SET atualizado_em = NOW() - INTERVAL 45 MINUTE WHERE chave = ?")->execute([$CHAVE_A]);
+
+        $GLOBALS['__dude_ping_fake'] = fn(string $ip) => $ip === '10.0.0.1'; // só o A responde
+
+        // limiar 30min: só A é candidato (B é recente demais) -> só A pode ser corrigido
+        $corrigidos30 = dude_verificar_down($pdo, 30);
+        t_ok(in_array($CHAVE_A, $corrigidos30, true), 'verificar_down(30min): A (down ha 45min, responde ping) -> corrigido');
+        t_ok(!in_array($CHAVE_B, $corrigidos30, true), 'verificar_down(30min): B (down recente) -> nao e nem candidato');
+
+        $statusA = $pdo->query("SELECT status FROM portal_dude_estado WHERE chave = '$CHAVE_A'")->fetchColumn();
+        t_eq($statusA, 'up', 'verificar_down: status de A realmente virou up no banco');
+
+        // B ainda down, sem responder ping -> botao manual (minutosMin=0) nao corrige
+        $corrigidosManual = dude_verificar_down($pdo, 0);
+        t_ok(!in_array($CHAVE_B, $corrigidosManual, true), 'verificar_down(0min manual): B nao responde ping -> nao corrigido');
+        $statusB = $pdo->query("SELECT status FROM portal_dude_estado WHERE chave = '$CHAVE_B'")->fetchColumn();
+        t_eq($statusB, 'down', 'verificar_down: B continua down (nunca respondeu)');
+
+        unset($GLOBALS['__dude_ping_fake']);
+    } finally {
+        $pdo->prepare("DELETE FROM portal_dude_estado WHERE chave IN (?, ?)")->execute([$CHAVE_A, $CHAVE_B]);
+    }
 } else {
     echo "  -- testes de banco (dude_lib): banco indisponível, pulados\n";
 }
