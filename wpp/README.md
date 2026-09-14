@@ -723,3 +723,66 @@ Aba Gatilhos -> desliga "Chatbot de entrada" (mesmo da Etapa 1/2).
 ====================================================================
  FIM - FASE 3 ETAPA 3
 ====================================================================
+
+====================================================================
+ INVENTARIO - IMPRESSORAS (SNMP)
+====================================================================
+
+O QUE FAZ
+--------------------------------------------------------------------
+  * Cadastro manual de impressoras (IP + apelido + loja + comunidade
+    SNMP) em inventario_impressoras.php.
+  * Worker dedicado (portal-impressoras-worker) consulta cada
+    impressora via SNMP a cada 20 min: modelo, serial, contador de
+    paginas, niveis de consumivel (toner/drum/etc).
+  * Historico de paginas por impressora (grafico), so grava linha
+    nova quando o contador muda.
+  * 2 tipos novos na Central de Alertas: impressora offline e toner
+    abaixo de 10%.
+
+PRE-REQUISITO
+--------------------------------------------------------------------
+[x] Extensao snmp instalada no container glpi-web - confirmado com
+    `docker exec glpi-web php -m` (2026-09-13).
+[ ] Impressoras respondem SNMP na rede (comunidade default "public"
+    - confirmar com o time de rede se alguma usa comunidade
+    diferente ou tem SNMP desabilitado por politica de seguranca).
+
+ARQUIVOS SINCRONIZADOS (deploy 2026-09-13)
+----
+  - docker/Dockerfile (rebuild do glpi-web e do portal-wpp-worker)
+  - impressoras_lib.php
+  - impressoras_worker.php
+  - inventario_impressoras.php
+  - inventario.php
+  - alertas_tipos.php
+  - wpp/tests/test_impressoras_lib.php
+  - docker-compose.yml do servidor (editado a mao - novo servico
+    portal-impressoras-worker)
+
+VERIFICACAO FIM-A-FIM (pendente confirmar com impressora real)
+--------------------------------------------------------------------
+[ ] 1. Abrir Inventario -> card Impressoras nao esta mais "Em breve".
+[ ] 2. Cadastrar 1 impressora real (IP de uma Brother/HP/Konica da
+       rede).
+[ ] 3. Esperar ate 20 min (ou rodar `docker exec glpi-web php
+       /var/www/html/glpi2/portal-glpi/impressoras_worker.php` na
+       mao pra nao esperar) -> recarregar a tela -> confere modelo,
+       serial, paginas e consumiveis aparecendo.
+[ ] 4. Clicar em "Historico" -> grafico aparece (mesmo que com 1
+       ponto so, na primeira leitura).
+[ ] 5. Desligar/desconectar a impressora de teste da rede -> proximo
+       ciclo do worker -> confere que ela aparece em "offline" na
+       tela e (se a Central de Alertas estiver configurada pra esse
+       tipo) dispara aviso.
+
+ROLLBACK
+--------------------------------------------------------------------
+docker compose stop portal-impressoras-worker && docker compose rm -f portal-impressoras-worker
+(o card de Impressoras continua habilitado, so para de coletar dado
+novo - reverter inventario.php separadamente se precisar esconder o
+card de novo)
+
+====================================================================
+ FIM - INVENTARIO IMPRESSORAS
+====================================================================

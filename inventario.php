@@ -153,12 +153,11 @@ $cards_glpi = inv_cards($pdo);
 </div>
 
 <div class="cat-grid">
-  <div class="cat-card disabled">
+  <a href="inventario_impressoras.php" class="cat-card" style="border-top-color:#e91e63">
     <div class="cat-icon printer-icon"><i class="bi bi-printer"></i></div>
     <h3>Impressoras</h3>
-    <p>Impressoras, multifuncionais e scanners</p>
-    <span class="badge-embreve">Em breve</span>
-  </div>
+    <p>Impressoras de rede — status, consumíveis e histórico (SNMP)</p>
+  </a>
 
   <a href="inventario_redes.php" class="cat-card" style="border-top-color:#2e7d32">
     <div class="cat-icon net-icon"><i class="bi bi-diagram-3"></i></div>
