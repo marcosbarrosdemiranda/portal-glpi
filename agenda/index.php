@@ -2970,9 +2970,9 @@ function abrirModalResposta() {
 
   // Lado a lado só quando os dois aparecem juntos — senão cada um fica
   // sozinho ocupando a largura toda.
-  const colChecklist = (checklist && mostrarBackup) ? 'col-md-6 mb-3' : 'col-12 mb-3';
-  checkWrap.className = colChecklist;
-  boxBackup.className = colChecklist;
+  const ladoALado = checklist && mostrarBackup;
+  checkWrap.className = ladoALado ? 'col-md-4 mb-3' : 'col-12 mb-3';
+  boxBackup.className  = ladoALado ? 'col-md-8 mb-3' : 'col-12 mb-3';
 
   if (checklist) {
     const itens = checklist[1];
