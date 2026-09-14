@@ -9,6 +9,7 @@ RUN apt-get update && apt-get install -y \
         libbz2-dev \
         libonig-dev \
         libsqlite3-dev \
+        libsnmp-dev \
         iputils-ping \
     && docker-php-ext-configure gd --with-freetype --with-jpeg \
     && docker-php-ext-install -j$(nproc) \
@@ -22,6 +23,7 @@ RUN apt-get update && apt-get install -y \
         exif \
         zip \
         opcache \
+        snmp \
     && a2enmod rewrite \
     && rm -rf /var/lib/apt/lists/*
 
