@@ -107,3 +107,31 @@ try {
 } finally {
     $pdo->prepare("DELETE FROM portal_impressoras WHERE apelido LIKE '__teste_imp_%'")->execute();
 }
+
+// --- integracao com a Central de Alertas ---
+require_once __DIR__ . '/../../alertas_tipos.php';
+
+$pdo->prepare("DELETE FROM portal_impressoras WHERE apelido LIKE '__teste_imp_%'")->execute();
+try {
+    $idOn  = impressora_cadastrar($pdo, '10.0.9.70', '__teste_imp_online__', 'Loja 08', 'public');
+    $idOff = impressora_cadastrar($pdo, '10.0.9.71', '__teste_imp_offline__', 'Loja 08', 'public');
+    $idTonerBaixo = impressora_cadastrar($pdo, '10.0.9.72', '__teste_imp_toner__', 'Loja 09', 'public');
+
+    impressora_status_salvar($pdo, $idOn, ['online' => true, 'modelo' => 'M1', 'serial' => null, 'firmware' => null, 'paginas_total' => 10, 'consumiveis' => [['nome' => 'Toner', 'nivel' => 90, 'max' => 100]]]);
+    impressora_status_salvar($pdo, $idOff, ['online' => false, 'modelo' => null, 'serial' => null, 'firmware' => null, 'paginas_total' => null, 'consumiveis' => []]);
+    impressora_status_salvar($pdo, $idTonerBaixo, ['online' => true, 'modelo' => 'M3', 'serial' => null, 'firmware' => null, 'paginas_total' => 20, 'consumiveis' => [['nome' => 'Toner Preto', 'nivel' => 5, 'max' => 100]]]);
+
+    $ocOffline = alerta_check_impressora_offline($pdo, []);
+    $achouOff = array_filter($ocOffline, fn($o) => str_contains($o['chave'], (string) $idOff));
+    t_ok((bool) $achouOff, 'check_impressora_offline: impressora offline aparece');
+    $achouOn = array_filter($ocOffline, fn($o) => str_contains($o['chave'], (string) $idOn));
+    t_ok(!$achouOn, 'check_impressora_offline: impressora online nao aparece');
+
+    $ocToner = alerta_check_impressora_toner_baixo($pdo, ['limiar' => 10]);
+    $achouToner = array_filter($ocToner, fn($o) => str_contains($o['chave'], (string) $idTonerBaixo));
+    t_ok((bool) $achouToner, 'check_impressora_toner_baixo: consumivel abaixo do limiar aparece');
+    $achouOnToner = array_filter($ocToner, fn($o) => str_contains($o['chave'], (string) $idOn));
+    t_ok(!$achouOnToner, 'check_impressora_toner_baixo: consumivel acima do limiar nao aparece');
+} finally {
+    $pdo->prepare("DELETE FROM portal_impressoras WHERE apelido LIKE '__teste_imp_%'")->execute();
+}

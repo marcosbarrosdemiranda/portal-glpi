@@ -17,6 +17,7 @@ require_once __DIR__ . '/agenda/db.php';
 require_once __DIR__ . '/backup_lib.php';
 require_once __DIR__ . '/dude_lib.php';
 require_once __DIR__ . '/sefaz_lib.php';
+require_once __DIR__ . '/impressoras_lib.php';
 
 // cria a tabela ao incluir (padrão do portal)
 (function () {
@@ -219,6 +220,26 @@ function alertas_catalogo(): array
             'icone'  => 'bi-building',
             'cor'    => 'danger',
         ],
+        'impressora_offline' => [
+            'nome'      => 'Impressora offline',
+            'descricao' => 'Impressora cadastrada sem resposta SNMP no último ciclo do worker.',
+            'params'    => [],
+            'check'  => 'alerta_check_impressora_offline',
+            'render' => 'alerta_render_dude',
+            'icone'  => 'bi-printer',
+            'cor'    => 'danger',
+        ],
+        'impressora_toner_baixo' => [
+            'nome'      => 'Toner/consumível baixo',
+            'descricao' => 'Consumível (toner, drum, coletor) de uma impressora abaixo do limiar configurado.',
+            'params'    => [
+                'limiar' => ['label' => 'Nível mínimo (%)', 'default' => 10, 'min' => 1, 'max' => 50],
+            ],
+            'check'  => 'alerta_check_impressora_toner_baixo',
+            'render' => 'alerta_render_dude',
+            'icone'  => 'bi-droplet-half',
+            'cor'    => 'warning',
+        ],
     ];
 }
 
@@ -297,6 +318,64 @@ function alerta_check_disco_cheio(PDO $pdo, array $p): array
             'total'   => (float) $d['totalsize'],
             'volume'  => (string) ($d['volume'] ?? ''),
             'detalhe' => (string) ($d['volume'] ?? '?') . ' · ' . (int) $d['pct'] . '% cheio',
+        ];
+    }
+    return $out;
+}
+
+/** @return array ocorrências: impressora cadastrada, sem resposta SNMP no último poll. */
+function alerta_check_impressora_offline(PDO $pdo, array $p): array
+{
+    $st = $pdo->query("
+        SELECT i.id, i.apelido, i.loja, s.atualizado_em
+        FROM portal_impressoras i
+        JOIN portal_impressoras_status s ON s.impressora_id = i.id
+        WHERE i.ativo = 1 AND s.online = 0
+        ORDER BY i.loja, i.apelido
+    ");
+    $out = [];
+    foreach ($st->fetchAll(PDO::FETCH_ASSOC) as $r) {
+        $out[] = [
+            'chave'     => 'impressora:offline:' . $r['id'],
+            'titulo'    => $r['apelido'],
+            'loja'      => (string) $r['loja'],
+            'categoria' => 'Impressora',
+            'detalhe'   => 'sem resposta SNMP (desde ' . date('d/m H:i', strtotime($r['atualizado_em'])) . ')',
+        ];
+    }
+    return $out;
+}
+
+/**
+ * @return array ocorrências: algum consumível (toner/drum/etc.) abaixo do
+ * limiar configurado (default 10%). $p['limiar'] em porcentagem inteira.
+ */
+function alerta_check_impressora_toner_baixo(PDO $pdo, array $p): array
+{
+    $limiar = (int) ($p['limiar'] ?? 10);
+    $st = $pdo->query("
+        SELECT i.id, i.apelido, i.loja, s.consumiveis_json
+        FROM portal_impressoras i
+        JOIN portal_impressoras_status s ON s.impressora_id = i.id
+        WHERE i.ativo = 1 AND s.online = 1 AND s.consumiveis_json IS NOT NULL
+        ORDER BY i.loja, i.apelido
+    ");
+    $out = [];
+    foreach ($st->fetchAll(PDO::FETCH_ASSOC) as $r) {
+        $consumiveis = json_decode($r['consumiveis_json'], true) ?: [];
+        $baixos = [];
+        foreach ($consumiveis as $c) {
+            if ($c['nivel'] === null || $c['max'] === null || $c['max'] <= 0) continue;
+            $pct = ($c['nivel'] / $c['max']) * 100;
+            if ($pct < $limiar) $baixos[] = $c['nome'] . ' (' . round($pct) . '%)';
+        }
+        if (!$baixos) continue;
+        $out[] = [
+            'chave'     => 'impressora:toner:' . $r['id'],
+            'titulo'    => $r['apelido'],
+            'loja'      => (string) $r['loja'],
+            'categoria' => 'Impressora',
+            'detalhe'   => implode(', ', $baixos),
         ];
     }
     return $out;
