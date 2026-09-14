@@ -892,21 +892,24 @@ $libera_data_passada = ($cards_portal === null) || (($cards_portal['agenda_data_
           <span id="resp-chamado-label" class="fw-semibold"></span>
         </div>
 
-        <!-- Checklist rotina + Resposta — lado a lado quando há checklist (usa o
-             espaço vazio à direita da lista de itens em vez de empilhar embaixo) -->
-        <div class="row g-3">
-          <!-- Checklist rotina (visível apenas para chamados recorrentes com checklist) -->
-          <div id="resp-checklist" style="display:none" class="col-12 mb-3">
-            <label class="form-label fw-semibold">✅ Itens verificados</label>
-            <div id="resp-checklist-itens" class="d-flex flex-column gap-2 p-3 border rounded" style="background:#f8fafc"></div>
-          </div>
+        <!-- Checklist rotina (visível apenas para chamados recorrentes com checklist) -->
+        <div id="resp-checklist" style="display:none" class="mb-3">
+          <label class="form-label fw-semibold">✅ Itens verificados</label>
+          <div id="resp-checklist-itens" class="d-flex flex-column gap-2 p-3 border rounded" style="background:#f8fafc"></div>
+        </div>
 
-          <!-- Resposta -->
-          <div id="resp-texto-wrap" class="col-12 mb-3">
-            <label class="form-label fw-semibold" id="resp-texto-label">Resposta / Acompanhamento <span class="text-danger">*</span></label>
-            <textarea id="resp-texto" class="form-control" rows="6"
-              placeholder="Descreva o que foi feito, orientações ao usuário, próximos passos..."></textarea>
-          </div>
+        <!-- Resumo automático de backup (só na rotina diária de backup) — informativo,
+             não editável; entra junto na resposta final do chamado na hora de enviar. -->
+        <div id="resp-backup" style="display:none" class="mb-3">
+          <label class="form-label fw-semibold">💾 Backup verificados</label>
+          <div id="resp-backup-texto" class="p-3 border rounded" style="background:#f8fafc;white-space:pre-wrap;font-family:monospace;font-size:.82rem"></div>
+        </div>
+
+        <!-- Resposta -->
+        <div id="resp-texto-wrap" class="mb-3">
+          <label class="form-label fw-semibold" id="resp-texto-label">Resposta / Acompanhamento <span class="text-danger">*</span></label>
+          <textarea id="resp-texto" class="form-control" rows="6"
+            placeholder="Descreva o que foi feito, orientações ao usuário, próximos passos..."></textarea>
         </div>
 
         <!-- Anexos -->
@@ -2937,17 +2940,21 @@ function abrirModalResposta() {
   document.getElementById('resp-concluido').checked   = true;  // padrão: responder ja conclui
   arquivosAnexos = [];
 
-  // Rotina diária de verificação de backup: pré-preenche a resposta com o
-  // resumo de ontem (arquivos/tamanho por servidor), pra não precisar abrir
-  // outra tela pra conferir.
+  // Rotina diária de verificação de backup: mostra o resumo de ontem
+  // (arquivos/tamanho por servidor) numa caixa própria, separada da
+  // "Observações adicionais" — pra não precisar abrir outra tela pra
+  // conferir. Entra junto na resposta final do chamado (ver enviarResposta()).
+  const boxBackup = document.getElementById('resp-backup');
+  const textoBackup = document.getElementById('resp-backup-texto');
+  boxBackup.style.display = 'none';
+  textoBackup.textContent = '';
   if (titulo.includes('Backup, Relatórios e Banco de Dados')) {
-    const campoTexto = document.getElementById('resp-texto');
-    campoTexto.placeholder = 'Carregando resumo de backups de ontem…';
+    boxBackup.style.display = '';
+    textoBackup.textContent = 'Carregando resumo de backups de ontem…';
     fetch('../backup_resumo_ajax.php')
       .then(r => r.json())
-      .then(d => { if (d.ok) campoTexto.value = d.texto; })
-      .catch(() => {})
-      .finally(() => { campoTexto.placeholder = ''; });
+      .then(d => { textoBackup.textContent = d.ok ? d.texto : 'Falha ao carregar o resumo — preencha manualmente.'; })
+      .catch(() => { textoBackup.textContent = 'Falha ao carregar o resumo — preencha manualmente.'; });
   }
 
   // Checklist para chamados recorrentes
@@ -2981,14 +2988,11 @@ function abrirModalResposta() {
       if (filhosDiv) cb.addEventListener('change', () => { filhosDiv.style.display = cb.checked ? '' : 'none'; });
     });
     checkWrap.style.display = '';
-    checkWrap.className = 'col-md-5 mb-3';
-    document.getElementById('resp-texto-wrap').className = 'col-md-7 mb-3';
     document.getElementById('resp-texto-label').innerHTML = 'Observações adicionais (opcional)';
     document.getElementById('resp-texto').placeholder = 'Alguma observação sobre os itens verificados...';
-    document.getElementById('resp-texto').rows = 12;
+    document.getElementById('resp-texto').rows = 3;
   } else {
     checkWrap.style.display = 'none';
-    document.getElementById('resp-texto-wrap').className = 'col-12 mb-3';
     document.getElementById('resp-texto-label').innerHTML = 'Resposta / Acompanhamento <span class="text-danger">*</span>';
     document.getElementById('resp-texto').placeholder = 'Descreva o que foi feito, orientações ao usuário, próximos passos...';
     document.getElementById('resp-texto').rows = 6;
@@ -3136,9 +3140,13 @@ function removerArquivoCriar(i) {
 
 async function enviarResposta() {
   const ticketId = document.getElementById('resp-ticket-id').value;
-  let texto      = document.getElementById('resp-texto').value.trim();
+  const textoObs = document.getElementById('resp-texto').value.trim();
 
-  // Monta texto do checklist se visível
+  // Junta os blocos visíveis na mesma ordem da tela: Itens verificados →
+  // Backup verificados → Observações. Visualmente são 3 caixas separadas,
+  // mas viram 1 resposta só no chamado.
+  const blocos = [];
+
   const checkWrap = document.getElementById('resp-checklist');
   if (checkWrap.style.display !== 'none') {
     const linhas = [];
@@ -3155,8 +3163,18 @@ async function enviarResposta() {
         }
       }
     });
-    texto = linhas.join('\n') + (texto ? '\n\n' + texto : '');
+    blocos.push(linhas.join('\n'));
   }
+
+  const boxBackup = document.getElementById('resp-backup');
+  if (boxBackup.style.display !== 'none') {
+    const textoBackup = document.getElementById('resp-backup-texto').textContent.trim();
+    if (textoBackup) blocos.push(textoBackup);
+  }
+
+  if (textoObs) blocos.push(textoObs);
+
+  let texto = blocos.join('\n\n');
 
   if (!texto) { alert('Marque ao menos um item ou digite uma resposta antes de enviar.'); return; }
 
