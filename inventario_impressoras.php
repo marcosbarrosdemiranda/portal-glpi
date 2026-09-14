@@ -9,6 +9,7 @@ if (($_SESSION['perfil'] ?? '') === 'self-service') { header('Location: dashboar
 
 require_once __DIR__ . '/agenda/db.php';
 require_once __DIR__ . '/impressoras_lib.php';
+require_once __DIR__ . '/wpp/glpi_bot.php'; // bot_lojas() - mesma lista de lojas usada no picker do chatbot
 
 $is_admin = in_array($_SESSION['perfil'] ?? '', ['admin', 'super-admin', 'tecnico']);
 $H = fn($s) => htmlspecialchars((string) $s, ENT_QUOTES, 'UTF-8');
@@ -17,6 +18,11 @@ $H = fn($s) => htmlspecialchars((string) $s, ENT_QUOTES, 'UTF-8');
 $action = $_GET['action'] ?? '';
 if ($action !== '') {
     header('Content-Type: application/json');
+
+    if ($action === 'lojas') {
+        echo json_encode(['ok' => true, 'lojas' => bot_lojas()]);
+        exit;
+    }
 
     if ($action === 'listar') {
         $lista = [];
@@ -117,9 +123,10 @@ if ($action !== '') {
       <div><label class="form-label small mb-0">Apelido</label>
         <input type="text" id="f-apelido" class="form-control form-control-sm" style="width:180px"></div>
       <div><label class="form-label small mb-0">Loja</label>
-        <input type="text" id="f-loja" class="form-control form-control-sm" style="width:140px"></div>
+        <select id="f-loja" class="form-select form-select-sm" style="width:160px"><option value="">Carregando…</option></select></div>
       <div><label class="form-label small mb-0">Comunidade SNMP</label>
-        <input type="text" id="f-comunidade" class="form-control form-control-sm" style="width:130px" value="public"></div>
+        <input type="text" id="f-comunidade" class="form-control form-control-sm" style="width:130px" value="public" title="Deixe 'public' — é o padrão de quase toda impressora, só muda se o time de rede configurou outra senha">
+        <div class="form-text" style="font-size:.7rem">deixe "public" se não souber</div></div>
       <input type="hidden" id="f-id" value="0">
       <button type="button" class="btn btn-primary btn-sm" onclick="salvarImpressora()">Salvar</button>
     </div>
@@ -174,6 +181,15 @@ function linhaImpressora(item) {
   html += '</div></div>';
   div.innerHTML = html;
   return div;
+}
+
+function carregarLojas() {
+  fetch('inventario_impressoras.php?action=lojas').then(function (r) { return r.json(); }).then(function (d) {
+    const sel = $('f-loja');
+    if (!sel) return;
+    sel.innerHTML = '<option value="">selecione…</option>';
+    (d.lojas || []).forEach(function (l) { sel.appendChild(new Option(l.nome, l.nome)); });
+  });
 }
 
 function carregarLista() {
@@ -232,6 +248,7 @@ function verHistorico(id, apelido) {
   });
 }
 
+carregarLojas();
 carregarLista();
 </script>
 </body>
