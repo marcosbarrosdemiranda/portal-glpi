@@ -110,6 +110,8 @@ if ($action !== '') {
     .status-off { background:#ef4444; }
     .consumivel-bar { background:#e5e7eb; border-radius:6px; height:8px; overflow:hidden; width:120px; display:inline-block; vertical-align:middle; }
     .consumivel-fill { height:100%; background:#e91e63; }
+    .loja-h { font-size:.85rem; font-weight:600; color:#374151; margin:.9rem 0 .4rem; display:flex; align-items:center; gap:.35rem; }
+    .loja-h:first-child { margin-top:0; }
     footer { text-align:center; color:#bbb; font-size:.78rem; padding:2rem; }
   </style>
 </head>
@@ -220,7 +222,21 @@ function carregarLista() {
     const lista = $('lista');
     lista.innerHTML = '';
     if (!d.ok || !d.lista.length) { lista.innerHTML = '<div class="text-muted small">Nenhuma impressora cadastrada.</div>'; return; }
-    d.lista.forEach(function (item) { lista.appendChild(linhaImpressora(item)); });
+
+    // agrupa por loja (mesmo padrão usado no PDV/PC retaguarda)
+    const porLoja = {};
+    d.lista.forEach(function (item) {
+      const loja = item.impressora.loja || 'Sem loja';
+      (porLoja[loja] = porLoja[loja] || []).push(item);
+    });
+    Object.keys(porLoja).sort(function (a, b) { return a.localeCompare(b, 'pt-BR', { numeric: true }); }).forEach(function (loja) {
+      const itens = porLoja[loja];
+      const cab = document.createElement('div');
+      cab.className = 'loja-h';
+      cab.innerHTML = '<i class="bi bi-shop"></i> ' + loja + ' <span class="text-muted fw-normal">(' + itens.length + ')</span>';
+      lista.appendChild(cab);
+      itens.forEach(function (item) { lista.appendChild(linhaImpressora(item)); });
+    });
   });
 }
 
