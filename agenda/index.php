@@ -2933,6 +2933,19 @@ function abrirModalResposta() {
   document.getElementById('resp-concluido').checked   = true;  // padrão: responder ja conclui
   arquivosAnexos = [];
 
+  // Rotina diária de verificação de backup: pré-preenche a resposta com o
+  // resumo de ontem (arquivos/tamanho por servidor), pra não precisar abrir
+  // outra tela pra conferir.
+  if (titulo.includes('Backup, Relatórios e Banco de Dados')) {
+    const campoTexto = document.getElementById('resp-texto');
+    campoTexto.placeholder = 'Carregando resumo de backups de ontem…';
+    fetch('../backup_resumo_ajax.php')
+      .then(r => r.json())
+      .then(d => { if (d.ok) campoTexto.value = d.texto; })
+      .catch(() => {})
+      .finally(() => { campoTexto.placeholder = ''; });
+  }
+
   // Checklist para chamados recorrentes
   const tituloLimpo = titulo.replace(/^#\d+\s*[-–]\s*/, '').trim();
   const checklist = Object.entries(ROTINA_CHECKLISTS).find(([k]) => tituloLimpo.includes(k));
