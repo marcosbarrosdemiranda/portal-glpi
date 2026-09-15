@@ -483,8 +483,50 @@ function dude_verificar_down(PDO $pdo, int $minutosMin = 0): array
     return $corrigidos;
 }
 
-/** Chamado pelo worker a cada passada — só devices down há 30+ min (evita pingar toda hora à toa). */
+/**
+ * Confere via ping direto os devices 'up' cuja categoria tem ligado_horas_max
+ * configurado e que não atualizam há pelo menos $horasMin horas — mesmo
+ * incidente do Dude travar notificação de um device específico (visto em
+ * central-alertas-dude-travado.md), só que travado no lado "ligado" em vez
+ * do lado "caído": o device caiu de verdade mas o webhook de "down" nunca
+ * chegou, então o estado antigo 'up' fica preso e dispara falso positivo em
+ * "ligado há muito tempo" em vez do alerta correto de "device caído".
+ * Corrige pra 'down' os que não responderem. 1 device falhando não trava os outros.
+ *
+ * @return array chaves corrigidas
+ */
+function dude_verificar_up(PDO $pdo, int $horasMin = 3): array
+{
+    $st = $pdo->prepare(
+        "SELECT e.chave, e.endereco FROM portal_dude_estado e
+         JOIN portal_dude_categoria_config c ON c.categoria = e.categoria
+         WHERE e.tipo = 'device' AND e.status = 'up' AND e.endereco != ''
+           AND c.ligado_horas_max IS NOT NULL
+           AND TIMESTAMPDIFF(HOUR, e.atualizado_em, NOW()) >= ?"
+    );
+    $st->execute([$horasMin]);
+
+    $corrigidos = [];
+    foreach ($st->fetchAll(PDO::FETCH_ASSOC) as $r) {
+        try {
+            if (!dude_ping_ip((string) $r['endereco'])) {
+                $pdo->prepare(
+                    "UPDATE portal_dude_estado SET status='down', detalhe='sem resposta a ping direto do portal', atualizado_em=NOW()
+                     WHERE tipo='device' AND chave=?"
+                )->execute([$r['chave']]);
+                $corrigidos[] = $r['chave'];
+            }
+        } catch (\Throwable $e) {
+            // 1 device falhando no ping nao pode travar a verificacao dos outros
+        }
+    }
+    return $corrigidos;
+}
+
+/** Chamado pelo worker a cada passada — devices down há 30+ min (evita pingar toda hora à toa)
+ *  e devices 'up' travados há 3+ horas (lado espelhado do mesmo incidente). */
 function dude_gatilho_verificar_ping(PDO $pdo): void
 {
     dude_verificar_down($pdo, 30);
+    dude_verificar_up($pdo, 3);
 }

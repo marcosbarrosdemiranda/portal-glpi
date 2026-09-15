@@ -228,6 +228,48 @@ if (isset($pdo) && $pdo instanceof PDO) {
     } finally {
         $pdo->prepare("DELETE FROM portal_dude_estado WHERE chave IN (?, ?)")->execute([$CHAVE_A, $CHAVE_B]);
     }
+
+    // --- dude_verificar_up: corrige pra 'down' quem NAO responde ao ping (device travado em 'up') ---
+    $CAT_U = '__teste_categoria_up__';
+    $CHAVE_C = '__teste_ping_c__'; // travado há muito tempo, nao responde -> deve virar down
+    $CHAVE_D = '__teste_ping_d__'; // travado há muito tempo, responde -> continua up
+    $CHAVE_E = '__teste_ping_e__'; // atualizado recentemente, nao responde -> nao e candidato ainda
+    $pdo->prepare("DELETE FROM portal_dude_estado WHERE chave IN (?, ?, ?)")->execute([$CHAVE_C, $CHAVE_D, $CHAVE_E]);
+    $configOrig = $pdo->query("SELECT horario_inicio, horario_fim, ligado_horas_max FROM portal_dude_categoria_config WHERE categoria = '$CAT_U'")->fetch(PDO::FETCH_ASSOC);
+    try {
+        dude_categoria_config_salvar($pdo, $CAT_U, null, null, 24);
+
+        dude_registrar_estado($pdo, 'device', $CHAVE_C, 'Teste C', '10.0.0.3', 'Loja X', $CAT_U, 'up', 'ok');
+        dude_registrar_estado($pdo, 'device', $CHAVE_D, 'Teste D', '10.0.0.4', 'Loja X', $CAT_U, 'up', 'ok');
+        dude_registrar_estado($pdo, 'device', $CHAVE_E, 'Teste E', '10.0.0.5', 'Loja X', $CAT_U, 'up', 'ok');
+        // C e D travados há 5h (candidatos); E atualizado agora mesmo (nao e candidato)
+        $pdo->prepare("UPDATE portal_dude_estado SET atualizado_em = NOW() - INTERVAL 5 HOUR WHERE chave IN (?, ?)")->execute([$CHAVE_C, $CHAVE_D]);
+
+        $GLOBALS['__dude_ping_fake'] = fn(string $ip) => $ip === '10.0.0.4'; // só D responde
+
+        // limiar 3h: C e D sao candidatos, E nao
+        $corrigidos3h = dude_verificar_up($pdo, 3);
+        t_ok(in_array($CHAVE_C, $corrigidos3h, true), 'verificar_up(3h): C (travado 5h, nao responde) -> corrigido pra down');
+        t_ok(!in_array($CHAVE_D, $corrigidos3h, true), 'verificar_up(3h): D (travado 5h, responde ping) -> continua up');
+        t_ok(!in_array($CHAVE_E, $corrigidos3h, true), 'verificar_up(3h): E (atualizado agora) -> nem e candidato');
+
+        $statusC = $pdo->query("SELECT status FROM portal_dude_estado WHERE chave = '$CHAVE_C'")->fetchColumn();
+        t_eq($statusC, 'down', 'verificar_up: status de C realmente virou down no banco');
+        $statusD = $pdo->query("SELECT status FROM portal_dude_estado WHERE chave = '$CHAVE_D'")->fetchColumn();
+        t_eq($statusD, 'up', 'verificar_up: D continua up (respondeu ping)');
+        $statusE = $pdo->query("SELECT status FROM portal_dude_estado WHERE chave = '$CHAVE_E'")->fetchColumn();
+        t_eq($statusE, 'up', 'verificar_up: E continua up (ainda nao e candidato)');
+
+        unset($GLOBALS['__dude_ping_fake']);
+    } finally {
+        $pdo->prepare("DELETE FROM portal_dude_estado WHERE chave IN (?, ?, ?)")->execute([$CHAVE_C, $CHAVE_D, $CHAVE_E]);
+        if ($configOrig) {
+            $pdo->prepare("UPDATE portal_dude_categoria_config SET horario_inicio=?, horario_fim=?, ligado_horas_max=? WHERE categoria=?")
+                ->execute([$configOrig['horario_inicio'], $configOrig['horario_fim'], $configOrig['ligado_horas_max'], $CAT_U]);
+        } else {
+            $pdo->prepare("DELETE FROM portal_dude_categoria_config WHERE categoria = ?")->execute([$CAT_U]);
+        }
+    }
 } else {
     echo "  -- testes de banco (dude_lib): banco indisponível, pulados\n";
 }

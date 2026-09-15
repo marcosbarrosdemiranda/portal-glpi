@@ -6,7 +6,7 @@ if (($_SESSION['perfil'] ?? '') === 'self-service') { header('Location: dashboar
 require_once __DIR__ . '/agenda/db.php';
 require_once __DIR__ . '/alertas_tipos.php';   // já puxa alertas_lib.php + entidade_alias.php
 require_once __DIR__ . '/inventario_lib.php';  // cria portal_inv_pc_cat (classificação __ignorado__ usada no total)
-require_once __DIR__ . '/dude_lib.php';        // dude_verificar_down() - ping direto no botão Atualizar
+require_once __DIR__ . '/dude_lib.php';        // dude_verificar_down()/dude_verificar_up() - ping direto no botão Atualizar
 
 function h($s) { return htmlspecialchars((string)$s, ENT_QUOTES, 'UTF-8'); }
 
@@ -81,6 +81,7 @@ if (($_GET['action'] ?? '') === 'dados') {
     if (empty($_GET['bg'])) {
         try {
             dude_verificar_down($pdo, 0);
+            dude_verificar_up($pdo, 0);
         } catch (\Throwable $e) {
             // falha na verificação não pode impedir o refresh normal
         }
