@@ -373,7 +373,7 @@ function alerta_check_dude_sem_contato(PDO $pdo, array $p): array
  * grupo de equipamento = categoria). Tipos que nunca preenchem nenhum dos
  * dois (ex.: dude_sem_contato) caem na tabela simples.
  */
-function alerta_render_dude(array $ocorr): string
+function alerta_render_dude(array $ocorr, string $tipo = ''): string
 {
     if (!$ocorr) {
         return '<div class="vazio"><i class="bi bi-check-circle-fill me-1"></i>Nada fora do ar.</div>';
@@ -385,10 +385,11 @@ function alerta_render_dude(array $ocorr): string
     );
 
     if (!$temAgrupamento) {
-        $out = '<table><thead><tr><th>Dispositivo/Enlace</th><th>Detalhe</th></tr></thead><tbody>';
+        $out = '<table><thead><tr><th>Dispositivo/Enlace</th><th>Detalhe</th><th></th></tr></thead><tbody>';
         foreach ($ocorr as $o) {
             $out .= '<tr><td style="font-weight:600">' . $H($o['titulo']) . '</td>'
-                  . '<td style="color:#6b7280">' . $H($o['detalhe']) . '</td></tr>';
+                  . '<td style="color:#6b7280">' . $H($o['detalhe']) . '</td>'
+                  . '<td>' . alerta_botao_dispensar_html($tipo, (string) $o['chave']) . '</td></tr>';
         }
         return $out . '</tbody></table>';
     }
@@ -412,7 +413,8 @@ function alerta_render_dude(array $ocorr): string
                   . ' <span style="color:#9ca3af;font-weight:400">(' . count($itens) . ')</span></div><table><tbody>';
             foreach ($itens as $o) {
                 $out .= '<tr><td style="font-weight:600">' . $H($o['titulo']) . '</td>'
-                      . '<td style="color:#6b7280">' . $H($o['detalhe']) . '</td></tr>';
+                      . '<td style="color:#6b7280">' . $H($o['detalhe']) . '</td>'
+                      . '<td>' . alerta_botao_dispensar_html($tipo, (string) $o['chave']) . '</td></tr>';
             }
             $out .= '</tbody></table>';
         }

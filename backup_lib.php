@@ -203,31 +203,33 @@ function alerta_check_backup_silencio(PDO $pdo, array $p): array
 }
 
 /** innerHTML do corpo da seção — tabela simples, mesmo visual dos outros tipos. */
-function alerta_render_backup_erro(array $ocorr): string
+function alerta_render_backup_erro(array $ocorr, string $tipo = ''): string
 {
     if (!$ocorr) {
         return '<div class="vazio"><i class="bi bi-check-circle-fill me-1"></i>Nenhum backup com falha.</div>';
     }
     $H = fn($s) => htmlspecialchars((string) $s, ENT_QUOTES, 'UTF-8');
-    $out = '<table><thead><tr><th>Máquina</th><th>Detalhe</th></tr></thead><tbody>';
+    $out = '<table><thead><tr><th>Máquina</th><th>Detalhe</th><th></th></tr></thead><tbody>';
     foreach ($ocorr as $o) {
         $out .= '<tr><td style="font-weight:600">' . $H($o['titulo']) . '</td>'
-              . '<td style="color:#6b7280">' . $H($o['detalhe']) . '</td></tr>';
+              . '<td style="color:#6b7280">' . $H($o['detalhe']) . '</td>'
+              . '<td>' . alerta_botao_dispensar_html($tipo, (string) $o['chave']) . '</td></tr>';
     }
     return $out . '</tbody></table>';
 }
 
 /** innerHTML do corpo da seção — tabela simples, mesmo visual dos outros tipos. */
-function alerta_render_backup_silencio(array $ocorr): string
+function alerta_render_backup_silencio(array $ocorr, string $tipo = ''): string
 {
     if (!$ocorr) {
         return '<div class="vazio"><i class="bi bi-check-circle-fill me-1"></i>Todas as máquinas de backup estão em contato.</div>';
     }
     $H = fn($s) => htmlspecialchars((string) $s, ENT_QUOTES, 'UTF-8');
-    $out = '<table><thead><tr><th>Máquina</th><th>Detalhe</th></tr></thead><tbody>';
+    $out = '<table><thead><tr><th>Máquina</th><th>Detalhe</th><th></th></tr></thead><tbody>';
     foreach ($ocorr as $o) {
         $out .= '<tr><td style="font-weight:600">' . $H($o['titulo']) . '</td>'
-              . '<td style="color:#6b7280">' . $H($o['detalhe']) . '</td></tr>';
+              . '<td style="color:#6b7280">' . $H($o['detalhe']) . '</td>'
+              . '<td>' . alerta_botao_dispensar_html($tipo, (string) $o['chave']) . '</td></tr>';
     }
     return $out . '</tbody></table>';
 }

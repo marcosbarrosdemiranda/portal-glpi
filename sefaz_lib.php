@@ -200,16 +200,17 @@ function alerta_check_sefaz_ms(PDO $pdo, array $p): array
 }
 
 /** innerHTML do corpo da seção — tabela simples, 1 linha por serviço degradado. */
-function alerta_render_sefaz(array $ocorr): string
+function alerta_render_sefaz(array $ocorr, string $tipo = ''): string
 {
     if (!$ocorr) {
         return '<div class="vazio"><i class="bi bi-check-circle-fill me-1"></i>SEFAZ normal.</div>';
     }
     $H = fn($s) => htmlspecialchars((string) $s, ENT_QUOTES, 'UTF-8');
-    $out = '<table><thead><tr><th>Serviço</th><th>Detalhe</th></tr></thead><tbody>';
+    $out = '<table><thead><tr><th>Serviço</th><th>Detalhe</th><th></th></tr></thead><tbody>';
     foreach ($ocorr as $o) {
         $out .= '<tr><td style="font-weight:600">' . $H($o['titulo']) . '</td>'
-              . '<td style="color:#6b7280">' . $H($o['detalhe']) . '</td></tr>';
+              . '<td style="color:#6b7280">' . $H($o['detalhe']) . '</td>'
+              . '<td>' . alerta_botao_dispensar_html($tipo, (string) $o['chave']) . '</td></tr>';
     }
     return $out . '</tbody></table>';
 }

@@ -96,6 +96,69 @@ try {
     t_eq($rLimite['total'], 3, 'historico_listar: total ignora o limite da página');
 
     $pdo->prepare("DELETE FROM portal_alertas_historico WHERE tipo = ?")->execute([$TH]);
+
+    // ── alerta_dispensar / alertas_filtrar_dispensados — chave sintética num tipo real ──
+    // usa 'sem_inventario' (tipo real do catálogo) mas com uma chave que nunca existe
+    // de verdade, pra não mexer em dado de produção. Trava o envio real via
+    // __wpp_fake_send (mesmo seam de gat_enviar) e restaura no finally.
+    $TIPO_D = 'sem_inventario';
+    $CHAVE_D = '__teste_dispensar__:PC-FAKE';
+    $pdo->prepare("DELETE FROM portal_alertas_ocorrencias WHERE tipo = ? AND chave = ?")
+        ->execute([$TIPO_D, $CHAVE_D]);
+    $pdo->prepare("DELETE FROM portal_alertas_historico WHERE tipo = ? AND chave = ?")
+        ->execute([$TIPO_D, $CHAVE_D]);
+
+    $enviados = [];
+    $GLOBALS['__wpp_fake_send'] = function ($destino, $texto) use (&$enviados) {
+        $enviados[] = ['destino' => $destino, 'texto' => $texto];
+        return ['ok' => true];
+    };
+    try {
+        $r = alerta_dispensar($pdo, $TIPO_D, $CHAVE_D, 'obs qualquer', 'Tester');
+        t_eq($r['ok'], false, 'dispensar: ocorrência inexistente -> erro');
+
+        $pdo->prepare("INSERT INTO portal_alertas_ocorrencias (tipo, chave, primeiro_visto) VALUES (?, ?, NOW())")
+            ->execute([$TIPO_D, $CHAVE_D]);
+
+        $ocFake = [['chave' => $CHAVE_D, 'titulo' => 'PC-FAKE', 'cat' => '', 'loja' => 'Loja Teste', 'dias' => 30, 'quando' => '2026-01-01', 'nunca' => false]];
+        $filtrado = alertas_filtrar_dispensados($pdo, $TIPO_D, $ocFake);
+        t_eq(count($filtrado), 1, 'filtrar_dispensados: ainda não dispensada -> continua na lista');
+
+        $r2 = alerta_dispensar($pdo, $TIPO_D, $CHAVE_D, 'verificado manualmente', 'Tester');
+        t_eq($r2['ok'], true, 'dispensar: ocorrência existente -> ok');
+        t_eq(count($enviados), 1, 'dispensar: disparou 1 envio via seam de teste (não WhatsApp real)');
+        t_ok(strpos($enviados[0]['texto'], 'Resolvido (manual)') !== false, 'dispensar: mensagem menciona resolução manual');
+
+        $st = $pdo->prepare("SELECT dispensado_em, dispensado_obs, dispensado_por FROM portal_alertas_ocorrencias WHERE tipo=? AND chave=?");
+        $st->execute([$TIPO_D, $CHAVE_D]);
+        $row = $st->fetch(PDO::FETCH_ASSOC);
+        t_ok($row && $row['dispensado_em'] !== null, 'dispensar: grava dispensado_em');
+        t_eq($row['dispensado_obs'], 'verificado manualmente', 'dispensar: grava a observação');
+        t_eq($row['dispensado_por'], 'Tester', 'dispensar: grava quem marcou');
+
+        $filtrado2 = alertas_filtrar_dispensados($pdo, $TIPO_D, $ocFake);
+        t_eq(count($filtrado2), 0, 'filtrar_dispensados: dispensada -> some da lista ativa');
+
+        $histD = alertas_historico_listar($pdo, $TIPO_D, '', 0, 10);
+        $achou = false;
+        foreach ($histD['linhas'] as $lin) {
+            if ($lin['chave'] === $CHAVE_D && $lin['evento'] === 'resolvida') $achou = true;
+        }
+        t_ok($achou, 'dispensar: fica registrada no histórico como resolvida');
+
+        $r3 = alerta_dispensar($pdo, '__tipo_inexistente__', $CHAVE_D, '', 'Tester');
+        t_eq($r3['ok'], false, 'dispensar: tipo desconhecido -> erro');
+
+        $htmlBtn = alerta_botao_dispensar_html($TIPO_D, $CHAVE_D);
+        t_ok(strpos($htmlBtn, 'btn-dispensar') !== false, 'botao_dispensar_html: gera botão com a classe certa');
+        t_ok(strpos($htmlBtn, htmlspecialchars($CHAVE_D, ENT_QUOTES, 'UTF-8')) !== false, 'botao_dispensar_html: chave escapada vai no data-chave');
+    } finally {
+        unset($GLOBALS['__wpp_fake_send']);
+        $pdo->prepare("DELETE FROM portal_alertas_ocorrencias WHERE tipo = ? AND chave = ?")
+            ->execute([$TIPO_D, $CHAVE_D]);
+        $pdo->prepare("DELETE FROM portal_alertas_historico WHERE tipo = ? AND chave = ?")
+            ->execute([$TIPO_D, $CHAVE_D]);
+    }
 } finally {
     // restaura as duas linhas reais exatamente como estavam antes do teste
     foreach (['sem_inventario', 'disco_cheio'] as $t) {

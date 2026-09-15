@@ -391,7 +391,7 @@ function gat_alertas_tipo(PDO $pdo, string $slug, array $def, array $cfg, string
     foreach ($atuais as $o) $porChave[$o['chave']] = $o;
 
     $st = $pdo->prepare(
-        "SELECT chave, primeiro_visto, ultimo_lembrete
+        "SELECT chave, primeiro_visto, ultimo_lembrete, dispensado_em
          FROM portal_alertas_ocorrencias WHERE tipo = ?"
     );
     $st->execute([$slug]);
@@ -445,6 +445,7 @@ function gat_alertas_tipo(PDO $pdo, string $slug, array $def, array $cfg, string
         foreach ($atuais as $o) {
             $g = $guardadas[$o['chave']] ?? null;
             if (!$g) continue;   // recém-inserida nesta passada
+            if (!empty($g['dispensado_em'])) continue;   // resolvida manualmente -> sem lembrete
             $ref = $g['ultimo_lembrete'] ?: $g['primeiro_visto'];
             if ($agora - strtotime((string) $ref) >= $limite) $devidas[] = $o;
         }

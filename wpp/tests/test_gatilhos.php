@@ -250,6 +250,13 @@ if (isset($pdo) && $pdo instanceof PDO) {
         gat_alertas_tipo($pdo, $TIPO, $defFake, $cfg(true, 0), $GRP);
         t_eq(count($enviadas), 0, 'gat_alertas_tipo: lembrete_min=0 -> 0 lembretes');
 
+        // -- LEMBRETE: ocorrencia dispensada manualmente -> nao reenvia mesmo vencida --
+        $pdo->prepare("UPDATE portal_alertas_ocorrencias SET dispensado_em = NOW(), dispensado_obs = 'x', dispensado_por = 'y' WHERE tipo=? AND chave='a'")->execute([$TIPO]);
+        $pdo->prepare("UPDATE portal_alertas_ocorrencias SET primeiro_visto = NOW() - INTERVAL 40 MINUTE, ultimo_lembrete = NULL WHERE tipo=? AND chave='a'")->execute([$TIPO]);
+        $enviadas = [];
+        gat_alertas_tipo($pdo, $TIPO, $defFake, $cfg(true, 30), $GRP);
+        t_eq(count($enviadas), 0, 'gat_alertas_tipo: ocorrencia dispensada manualmente -> lembrete nao reenvia');
+
         // -- notif off: grava/apaga mas NÃO envia --
         $limpa();
         $enviadas = [];

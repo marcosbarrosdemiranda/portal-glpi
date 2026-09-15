@@ -18,6 +18,7 @@ require_once __DIR__ . '/backup_lib.php';
 require_once __DIR__ . '/dude_lib.php';
 require_once __DIR__ . '/sefaz_lib.php';
 require_once __DIR__ . '/impressoras_lib.php';
+require_once __DIR__ . '/wpp/evo_api.php'; // evo_send_text() — usado por alerta_dispensar()
 
 // cria a tabela ao incluir (padrão do portal)
 (function () {
@@ -42,6 +43,17 @@ require_once __DIR__ . '/impressoras_lib.php';
         ultimo_lembrete DATETIME NULL,
         PRIMARY KEY (tipo, chave)
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
+
+    // migração leve — colunas de "resolver manualmente" (falso positivo, já
+    // verificado etc.) acrescentadas depois do primeiro deploy
+    $colsOc = [];
+    foreach ($pdo->query("SHOW COLUMNS FROM portal_alertas_ocorrencias") as $r) $colsOc[] = $r['Field'];
+    if (!in_array('dispensado_em', $colsOc, true)) {
+        $pdo->exec("ALTER TABLE portal_alertas_ocorrencias
+            ADD COLUMN dispensado_em DATETIME NULL,
+            ADD COLUMN dispensado_obs VARCHAR(255) NULL,
+            ADD COLUMN dispensado_por VARCHAR(120) NULL");
+    }
 
     // histórico permanente de transições (nova/resolvida) — diferente de
     // portal_alertas_ocorrencias (que só guarda o estado ATUAL e apaga a linha
@@ -73,6 +85,81 @@ function alertas_historico_registrar(
          VALUES (?, ?, ?, ?, ?, ?, NOW())"
     );
     $st->execute([$tipo, $chave, $evento, $titulo, $loja, $detalhe]);
+}
+
+/**
+ * Remove de $ocorr (resultado de check()) as chaves já marcadas como
+ * resolvidas manualmente (dispensado_em preenchido) — usado só na hora de
+ * MOSTRAR a lista de alertas ativos (alertas_carregar). A linha continua
+ * existindo em portal_alertas_ocorrencias pra o worker não tratar como nova
+ * de novo enquanto a condição real não mudar de verdade (ver gat_alertas_tipo).
+ */
+function alertas_filtrar_dispensados(PDO $pdo, string $tipo, array $ocorr): array
+{
+    if (!$ocorr) return $ocorr;
+    $chaves = array_column($ocorr, 'chave');
+    $ph = implode(',', array_fill(0, count($chaves), '?'));
+    $st = $pdo->prepare(
+        "SELECT chave FROM portal_alertas_ocorrencias
+         WHERE tipo = ? AND chave IN ($ph) AND dispensado_em IS NOT NULL"
+    );
+    $st->execute(array_merge([$tipo], $chaves));
+    $dispensados = $st->fetchAll(PDO::FETCH_COLUMN);
+    if (!$dispensados) return $ocorr;
+    return array_values(array_filter($ocorr, fn($o) => !in_array($o['chave'], $dispensados, true)));
+}
+
+/**
+ * Marca 1 ocorrência ativa como resolvida manualmente: avisa no grupo (✅,
+ * igual uma resolução de verdade), registra no histórico com a observação,
+ * e some da lista de alertas ativos a partir de agora — sem apagar a linha
+ * de portal_alertas_ocorrencias (assim o worker não recria ela como "nova"
+ * de novo enquanto a condição real não mudar). Se a mesma condição
+ * desaparecer e voltar a acontecer depois, é tratada como ocorrência nova.
+ */
+function alerta_dispensar(PDO $pdo, string $tipo, string $chave, string $obs, string $por): array
+{
+    if (!isset(alertas_catalogo()[$tipo])) return ['ok' => false, 'erro' => 'tipo desconhecido'];
+
+    $st = $pdo->prepare("SELECT 1 FROM portal_alertas_ocorrencias WHERE tipo = ? AND chave = ?");
+    $st->execute([$tipo, $chave]);
+    if (!$st->fetchColumn()) return ['ok' => false, 'erro' => 'ocorrência não encontrada (já pode ter sido resolvida)'];
+
+    $pdo->prepare(
+        "UPDATE portal_alertas_ocorrencias SET dispensado_em = NOW(), dispensado_obs = ?, dispensado_por = ?
+         WHERE tipo = ? AND chave = ?"
+    )->execute([$obs, $por, $tipo, $chave]);
+
+    $nome = alertas_catalogo()[$tipo]['nome'];
+    $grupo = (string) wpp_cfg_get('grupo_alertas_jid', '');
+    if ($grupo !== '') {
+        $msg = "✅ *Resolvido (manual) — {$nome}*\n{$chave}\nPor: {$por}";
+        if ($obs !== '') $msg .= "\nObs: {$obs}";
+        // mesmo seam de teste de gat_enviar() (wpp/gatilhos.php) — sem isso,
+        // rodar o teste em produção dispararia uma mensagem real no grupo.
+        if (isset($GLOBALS['__wpp_fake_send']) && is_callable($GLOBALS['__wpp_fake_send'])) {
+            ($GLOBALS['__wpp_fake_send'])($grupo, $msg);
+        } else {
+            evo_send_text($grupo, $msg);
+        }
+    }
+
+    $detalheHist = 'Manual por ' . $por . ($obs !== '' ? (': ' . $obs) : '');
+    alertas_historico_registrar($pdo, $tipo, $chave, 'resolvida', $nome, null, $detalheHist);
+
+    return ['ok' => true];
+}
+
+/**
+ * Botão "resolver manualmente" — embutido em toda função alerta_render_*
+ * (mesmo componente reaproveitado em todos os tipos). O clique é tratado
+ * genericamente em alertas.php (delegação de evento por .btn-dispensar).
+ */
+function alerta_botao_dispensar_html(string $tipo, string $chave): string
+{
+    $H = fn($s) => htmlspecialchars((string) $s, ENT_QUOTES, 'UTF-8');
+    return '<button type="button" class="btn-dispensar" data-tipo="' . $H($tipo) . '" data-chave="' . $H($chave)
+         . '" title="Marcar como resolvido manualmente (falso positivo, já verificado etc.)">✓</button>';
 }
 
 /**
@@ -421,7 +508,7 @@ function alerta_check_impressora_erro(PDO $pdo, array $p): array
 }
 
 /** innerHTML do corpo da seção — agrupado por loja. */
-function alerta_render_sem_inventario(array $ocorr): string
+function alerta_render_sem_inventario(array $ocorr, string $tipo = ''): string
 {
     if (!$ocorr) {
         return '<div class="vazio"><i class="bi bi-check-circle-fill me-1"></i>Todo o parque reportou.</div>';
@@ -441,7 +528,8 @@ function alerta_render_sem_inventario(array $ocorr): string
                 : '<span class="pill pill-amber">' . (int) $m['dias'] . ' dias (' . $H($m['quando']) . ')</span>';
             $out .= '<tr><td style="font-weight:600">' . $H($m['titulo']) . '</td>'
                   . '<td style="color:#6b7280">' . $H($m['cat']) . '</td>'
-                  . '<td style="text-align:right">' . $pill . '</td></tr>';
+                  . '<td style="text-align:right">' . $pill . '</td>'
+                  . '<td>' . alerta_botao_dispensar_html($tipo, (string) $m['chave']) . '</td></tr>';
         }
         $out .= '</tbody></table>';
     }
@@ -449,20 +537,21 @@ function alerta_render_sem_inventario(array $ocorr): string
 }
 
 /** innerHTML do corpo da seção — tabela com barra de uso. */
-function alerta_render_disco_cheio(array $ocorr): string
+function alerta_render_disco_cheio(array $ocorr, string $tipo = ''): string
 {
     if (!$ocorr) {
         return '<div class="vazio"><i class="bi bi-check-circle-fill me-1"></i>Nenhum volume acima do limiar.</div>';
     }
     $H  = fn($s) => htmlspecialchars((string) $s, ENT_QUOTES, 'UTF-8');
     $gb = fn($mb) => ($n = (float) $mb) >= 1024 ? round($n / 1024, $n >= 10240 ? 0 : 1) . ' GB' : round($n) . ' MB';
-    $out = '<table><thead><tr><th>Máquina</th><th>Loja</th><th>Volume</th><th>Uso</th></tr></thead><tbody>';
+    $out = '<table><thead><tr><th>Máquina</th><th>Loja</th><th>Volume</th><th>Uso</th><th></th></tr></thead><tbody>';
     foreach ($ocorr as $d) {
         $out .= '<tr><td style="font-weight:600">' . $H($d['titulo']) . '</td>'
               . '<td style="color:#6b7280">' . $H($d['loja']) . '</td>'
               . '<td>' . $H($d['volume']) . '</td>'
               . '<td><span class="bar"><span style="width:' . (int) $d['pct'] . '%"></span></span>'
-              . (int) $d['pct'] . '% · ' . $gb($d['usado']) . ' / ' . $gb($d['total']) . '</td></tr>';
+              . (int) $d['pct'] . '% · ' . $gb($d['usado']) . ' / ' . $gb($d['total']) . '</td>'
+              . '<td>' . alerta_botao_dispensar_html($tipo, (string) $d['chave']) . '</td></tr>';
     }
     return $out . '</tbody></table>';
 }

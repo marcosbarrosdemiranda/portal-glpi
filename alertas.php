@@ -35,6 +35,7 @@ function alertas_carregar(PDO $pdo): array
         if (!$cfg['ativo']) continue;
         try {
             $ocorr = call_user_func($def['check'], $pdo, $cfg['params']);
+            $ocorr = alertas_filtrar_dispensados($pdo, $slug, $ocorr);
         } catch (\Throwable $e) {
             $ocorr = [];
         }
@@ -53,10 +54,23 @@ function alertas_carregar(PDO $pdo): array
             'cor'   => $def['cor'],
             'n'     => $n,
             'sub'   => $sub,
-            'html'  => call_user_func($def['render'], $ocorr),
+            'html'  => call_user_func($def['render'], $ocorr, $slug),
         ];
     }
     return ['secoes' => $secoes, 'total' => $total];
+}
+
+// ── Endpoint AJAX: marcar 1 ocorrência como resolvida manualmente ──
+if (($_GET['action'] ?? '') === 'dispensar') {
+    header('Content-Type: application/json');
+    if ($_SERVER['REQUEST_METHOD'] !== 'POST') { echo json_encode(['ok' => false, 'erro' => 'método inválido']); exit; }
+    $tipo  = trim((string) ($_POST['tipo'] ?? ''));
+    $chave = trim((string) ($_POST['chave'] ?? ''));
+    $obs   = trim((string) ($_POST['obs'] ?? ''));
+    if ($tipo === '' || $chave === '') { echo json_encode(['ok' => false, 'erro' => 'tipo/chave obrigatórios']); exit; }
+    $por = (string) ($_SESSION['nome'] ?? $_SESSION['usuario'] ?? 'Atendente');
+    echo json_encode(alerta_dispensar($pdo, $tipo, $chave, $obs, $por));
+    exit;
 }
 
 // ── Endpoint AJAX do auto-refresh / botão Atualizar ──
@@ -143,6 +157,10 @@ $podeConfig = !isset($_SESSION['portal_perfil_cards']) || $_SESSION['portal_perf
     .flash { animation:flash 1s ease; }
     @keyframes flash { 0%{ background:#fff9c4; } 100%{ background:transparent; } }
     .stat .n { border-radius:6px; padding:0 .2rem; }
+    .btn-dispensar { border:1px solid #d1d5db; background:#fff; color:#6b7280; border-radius:6px;
+                      width:26px; height:26px; line-height:1; cursor:pointer; font-size:.85rem; }
+    .btn-dispensar:hover { background:#ecfdf5; border-color:#16a34a; color:#16a34a; }
+    .btn-dispensar:disabled { opacity:.5; cursor:default; }
   </style>
 </head>
 <body>
@@ -251,6 +269,30 @@ $podeConfig = !isset($_SESSION['portal_perfil_cards']) || $_SESSION['portal_perf
     }
   }
   window.atualizarAlertas = atualizarAlertas;
+
+  // botão "✓" nas linhas de ocorrência -> marca como resolvido manualmente
+  document.addEventListener('click', async function (ev) {
+    const b = ev.target.closest('.btn-dispensar');
+    if (!b) return;
+    if (b.disabled) return;
+    const obs = window.prompt('Observação (opcional) — o que foi verificado?', '');
+    if (obs === null) return;   // cancelou
+    b.disabled = true;
+    try {
+      const fd = new URLSearchParams({ tipo: b.dataset.tipo, chave: b.dataset.chave, obs: obs });
+      const r = await fetch('alertas.php?action=dispensar', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'X-Requested-With': 'fetch' },
+        body: fd.toString()
+      });
+      const d = await r.json();
+      if (!d || !d.ok) { alert('Erro ao marcar como resolvido: ' + (d && d.erro ? d.erro : 'falha desconhecida')); b.disabled = false; return; }
+      atualizarAlertas(true);
+    } catch (e) {
+      alert('Erro ao marcar como resolvido: ' + e.message);
+      b.disabled = false;
+    }
+  });
 
   function pararAuto(msg) {
     if (auto) { clearInterval(auto); auto = null; }
