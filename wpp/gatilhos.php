@@ -404,10 +404,17 @@ function gat_alertas_tipo(PDO $pdo, string $slug, array $def, array $cfg, string
         "DELETE FROM portal_alertas_ocorrencias WHERE tipo = ? AND chave = ?"
     );
 
+    // Horário de silêncio por tipo (portal_alertas_horario, configurável em
+    // alertas_config.php) — só se aplica quando notif_whatsapp está ligado;
+    // com notif desligado o comportamento de sempre gravar sem enviar
+    // continua igual (não é affetado por horário nenhum).
+    $dentroDoHorario = !$notifica || alertas_horario_permitido($pdo, $slug);
+
     // NOVAS
     foreach ($atuais as $o) {
         if (isset($guardadas[$o['chave']])) continue;
         if ($notifica) {
+            if (!$dentroDoHorario) continue;   // fora do horário -> não grava, re-tenta quando a janela abrir (igual envio falhar)
             $r = gat_enviar($grupo, gat_msg_alerta_novo($nome, $o));
             if (empty($r['ok'])) continue;   // não grava -> re-tenta na próxima passada
         }
@@ -429,8 +436,9 @@ function gat_alertas_tipo(PDO $pdo, string $slug, array $def, array $cfg, string
         alertas_historico_registrar($pdo, $slug, (string) $chave, 'resolvida', gat_alerta_titulo_da_chave((string) $chave));
     }
 
-    // LEMBRETE
-    if ($notifica && (int) ($cfg['lembrete_min'] ?? 0) > 0) {
+    // LEMBRETE — também respeita o horário de silêncio (nada de reenviar às 3h
+    // só porque venceu o intervalo; espera a janela abrir de novo).
+    if ($notifica && $dentroDoHorario && (int) ($cfg['lembrete_min'] ?? 0) > 0) {
         $agora   = strtotime(wpp_agora_db($pdo));
         $limite  = (int) $cfg['lembrete_min'] * 60;
         $devidas = [];

@@ -197,6 +197,7 @@ if (isset($pdo) && $pdo instanceof PDO) {
     $limpa = function () use ($pdo, $TIPO) {
         $pdo->prepare("DELETE FROM portal_alertas_ocorrencias WHERE tipo = ?")->execute([$TIPO]);
         $pdo->prepare("DELETE FROM portal_alertas_historico WHERE tipo = ?")->execute([$TIPO]);
+        $pdo->prepare("DELETE FROM portal_alertas_horario WHERE tipo = ?")->execute([$TIPO]);
     };
     // check-fake: devolve o que estiver em $GLOBALS['__fake_ocorr']
     $defFake = ['nome' => 'Alerta de Teste', 'check' => function ($pdo, $params) {
@@ -269,6 +270,43 @@ if (isset($pdo) && $pdo instanceof PDO) {
              'gat_alertas_tipo: envio falhou -> nada gravado (re-tenta depois)');
         t_eq((int) $pdo->query("SELECT COUNT(*) FROM portal_alertas_historico WHERE tipo='$TIPO'")->fetchColumn(), 0,
              'gat_alertas_tipo: envio falhou -> histórico também não grava');
+
+        // -- horario de silencio: NOVA fora da janela permitida -> nao grava, nao envia (igual envio falhar) --
+        $limpa();
+        $GLOBALS['__wpp_fake_send'] = function ($d, $t) use (&$enviadas) { $enviadas[] = [$d, $t]; return ['ok' => true]; };
+        $agora = time();
+        // janela que NAO inclui agora (comeca daqui 2h, termina daqui 3h)
+        alertas_horario_salvar($pdo, $TIPO, date('H:i:s', $agora + 2 * 3600), date('H:i:s', $agora + 3 * 3600));
+        $enviadas = [];
+        $GLOBALS['__fake_ocorr'] = [$oc('e')];
+        gat_alertas_tipo($pdo, $TIPO, $defFake, $cfg(true), $GRP);
+        t_eq(count($enviadas), 0, 'gat_alertas_tipo: fora do horario permitido -> 0 envios');
+        t_eq((int) $pdo->query("SELECT COUNT(*) FROM portal_alertas_ocorrencias WHERE tipo='$TIPO'")->fetchColumn(), 0,
+             'gat_alertas_tipo: fora do horario -> nada gravado (retenta quando a janela abrir)');
+
+        // -- mesma ocorrencia, agora DENTRO da janela permitida -> notifica normalmente (o que ficou "preso" sai na hora) --
+        alertas_horario_salvar($pdo, $TIPO, date('H:i:s', $agora - 3600), date('H:i:s', $agora + 3600));
+        $enviadas = [];
+        gat_alertas_tipo($pdo, $TIPO, $defFake, $cfg(true), $GRP);
+        t_eq(count($enviadas), 1, 'gat_alertas_tipo: janela abriu -> a ocorrencia que ficou presa notifica na hora');
+        t_eq((int) $pdo->query("SELECT COUNT(*) FROM portal_alertas_ocorrencias WHERE tipo='$TIPO'")->fetchColumn(), 1,
+             'gat_alertas_tipo: agora sim gravada');
+
+        // -- LEMBRETE tambem respeita o horario: mesmo vencido, fora da janela nao reenvia --
+        $pdo->prepare("UPDATE portal_alertas_ocorrencias SET primeiro_visto = NOW() - INTERVAL 40 MINUTE, ultimo_lembrete = NULL WHERE tipo=? AND chave='e'")->execute([$TIPO]);
+        alertas_horario_salvar($pdo, $TIPO, date('H:i:s', $agora + 2 * 3600), date('H:i:s', $agora + 3 * 3600));
+        $enviadas = [];
+        gat_alertas_tipo($pdo, $TIPO, $defFake, $cfg(true, 30), $GRP);
+        t_eq(count($enviadas), 0, 'gat_alertas_tipo: lembrete vencido mas fora do horario -> nao reenvia');
+
+        // -- notif_whatsapp=0 ignora o horario (continua so gravando, nunca manda) --
+        alertas_horario_remover($pdo, $TIPO);
+        $limpa();
+        $enviadas = [];
+        $GLOBALS['__fake_ocorr'] = [$oc('f')];
+        gat_alertas_tipo($pdo, $TIPO, $defFake, $cfg(false), $GRP);
+        t_eq((int) $pdo->query("SELECT COUNT(*) FROM portal_alertas_ocorrencias WHERE tipo='$TIPO'")->fetchColumn(), 1,
+             'gat_alertas_tipo: notif off ainda grava mesmo com horario configuravel disponivel (nao afeta esse caminho)');
 
         // -- grupo vazio: equivale a notif off --
         $limpa();
