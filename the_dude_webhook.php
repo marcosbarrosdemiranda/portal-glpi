@@ -37,9 +37,18 @@ $tipo   = (string) ($_GET['tipo'] ?? '');
 $estadoBruto = strtolower(trim((string) ($_GET['estado'] ?? '')));
 $mapaEstado = [
     'up' => 'up', 'active' => 'up', 'ativo' => 'up', 'ok' => 'up',
+    'partially up' => 'up',
     'down' => 'down', 'inactive' => 'down', 'inativo' => 'down', 'timeout' => 'down',
+    'partially down' => 'down',
 ];
-$estado = $mapaEstado[$estadoBruto] ?? '';
+// Fallback: se contém "down" em qualquer variação, trata como down; idem para "up"
+if ($estado === '') {
+    if (stripos($estadoBruto, 'down') !== false) {
+        $estado = 'down';
+    } elseif (stripos($estadoBruto, 'up') !== false) {
+        $estado = 'up';
+    }
+}
 if (!in_array($tipo, DUDE_TIPOS_VALIDOS, true) || $estado === '') {
     http_response_code(400);
     echo json_encode(['ok' => false, 'erro' => 'tipo ou estado invalido']);
