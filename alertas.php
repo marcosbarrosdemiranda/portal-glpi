@@ -245,7 +245,9 @@ $podeConfig = !isset($_SESSION['portal_perfil_cards']) || $_SESSION['portal_perf
     btn.classList.add('loading');
     try {
       // auto-refresh nao renova a sessao de inatividade (convencao do auth_guard)
-      const url = 'alertas.php?action=dados' + (manual ? '' : '&bg=1');
+      //&_t= evita cache do navegador nas requisições AJAX
+      const ts = Date.now();
+      const url = 'alertas.php?action=dados' + (manual ? '' : '&bg=1') + '&_t=' + ts;
       const r = await fetch(url, { headers: { 'X-Requested-With': 'fetch' } });
       if (r.status === 440 || r.status === 401) { pararAuto('Sessão expirada — recarregue a página (F5).'); return; }
       if (!r.ok) throw new Error('HTTP ' + r.status);
@@ -288,7 +290,11 @@ $podeConfig = !isset($_SESSION['portal_perfil_cards']) || $_SESSION['portal_perf
       });
       const d = await r.json();
       if (!d || !d.ok) { alert('Erro ao marcar como resolvido: ' + (d && d.erro ? d.erro : 'falha desconhecida')); b.disabled = false; return; }
-      atualizarAlertas(true);
+      // remove a linha da UI imediatamente (feedback visual instantâneo)
+      const row = b.closest('tr');
+      if (row) row.remove();
+      // atualiza os contadores na hora
+      setTimeout(() => atualizarAlertas(true), 300);
     } catch (e) {
       alert('Erro ao marcar como resolvido: ' + e.message);
       b.disabled = false;
