@@ -286,7 +286,12 @@ function dude_check_tipo(PDO $pdo, string $tipo): array
     $st->execute([$tipo]);
 
     $out = [];
+    $seen = [];
     foreach ($st->fetchAll(PDO::FETCH_ASSOC) as $r) {
+        $key = ($r['loja'] ?? '') . ':' . ($r['nome'] !== '' ? $r['nome'] : $r['chave']);
+        if (isset($seen[$key])) continue;
+        $seen[$key] = true;
+
         $desde = date('H:i', strtotime($r['atualizado_em']));
         $out[] = [
             'chave'     => 'dude:' . $tipo . ':' . $r['chave'],
