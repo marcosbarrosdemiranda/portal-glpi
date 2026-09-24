@@ -17,6 +17,7 @@ require_once __DIR__ . '/agenda/db.php';
 require_once __DIR__ . '/backup_lib.php';
 require_once __DIR__ . '/dude_lib.php';
 require_once __DIR__ . '/sefaz_lib.php';
+require_once __DIR__ . '/solides_lib.php';
 require_once __DIR__ . '/impressoras_lib.php';
 require_once __DIR__ . '/wpp/evo_api.php'; // evo_send_text() — usado por alerta_dispensar()
 
@@ -306,6 +307,28 @@ function alertas_catalogo(): array
             'render' => 'alerta_render_sefaz',
             'icone'  => 'bi-building',
             'cor'    => 'danger',
+        ],
+        'solides_checagem' => [
+            'nome'      => 'Ponto (API Sólides) com problema',
+            'descricao' => 'Checagem de saúde do Ponto fora do normal (sync com erro/parado, falha parcial na API da Sólides, fila do WhatsApp, motor de alertas). Vem do webhook do Ponto a cada 5 min.',
+            'params'    => [
+                'minutos' => ['label' => 'Ignorar diagnóstico mais velho que (min)', 'default' => 15, 'min' => 6, 'max' => 240],
+            ],
+            'check'  => 'alerta_check_solides_checagem',
+            'render' => 'alerta_render_solides',
+            'icone'  => 'bi-fingerprint',
+            'cor'    => 'danger',
+        ],
+        'solides_sem_contato' => [
+            'nome'      => 'Ponto (API Sólides) sem contato',
+            'descricao' => 'O Ponto parou de mandar o diagnóstico de saúde (esperado a cada 5 min) — Ponto, rede ou webhook fora do ar.',
+            'params'    => [
+                'minutos' => ['label' => 'Minutos sem contato', 'default' => 15, 'min' => 6, 'max' => 240],
+            ],
+            'check'  => 'alerta_check_solides_sem_contato',
+            'render' => 'alerta_render_solides',
+            'icone'  => 'bi-wifi-off',
+            'cor'    => 'warning',
         ],
         'impressora_offline' => [
             'nome'      => 'Impressora offline',

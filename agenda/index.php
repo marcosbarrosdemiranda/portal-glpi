@@ -907,6 +907,13 @@ $libera_data_passada = ($cards_portal === null) || (($cards_portal['agenda_data_
             <label class="form-label fw-semibold">💾 Backup verificados</label>
             <div id="resp-backup-texto" class="p-3 border rounded" style="background:#f8fafc;white-space:pre-wrap;font-family:monospace;font-size:.72rem"></div>
           </div>
+
+          <!-- Relatório do Ponto (API Sólides) — mesma rotina diária, mesmo padrão
+               da caixa de backup: informativo e entra junto na resposta final. -->
+          <div id="resp-solides" style="display:none" class="col-12 mb-3">
+            <label class="form-label fw-semibold">🕒 Ponto (API Sólides)</label>
+            <div id="resp-solides-texto" class="p-3 border rounded" style="background:#f8fafc;white-space:pre-wrap;font-family:monospace;font-size:.72rem"></div>
+          </div>
         </div>
 
         <!-- Resposta -->
@@ -2962,6 +2969,20 @@ function abrirModalResposta() {
       .catch(() => { textoBackup.textContent = 'Falha ao carregar o resumo — preencha manualmente.'; });
   }
 
+  // Mesma rotina: anormalidades do Ponto (API Sólides) de ontem + hoje.
+  const boxSolides = document.getElementById('resp-solides');
+  const textoSolides = document.getElementById('resp-solides-texto');
+  boxSolides.style.display = 'none';
+  textoSolides.textContent = '';
+  if (mostrarBackup) {
+    boxSolides.style.display = '';
+    textoSolides.textContent = 'Carregando relatório do Ponto…';
+    fetch('../solides_resumo_ajax.php')
+      .then(r => r.json())
+      .then(d => { textoSolides.textContent = d.ok ? d.texto : 'Ponto (API Sólides): falha ao carregar o relatório (' + (d.erro || 'erro') + ') — preencha manualmente.'; })
+      .catch(() => { textoSolides.textContent = 'Ponto (API Sólides): falha ao carregar o relatório — preencha manualmente.'; });
+  }
+
   // Checklist para chamados recorrentes
   const tituloLimpo = titulo.replace(/^#\d+\s*[-–]\s*/, '').trim();
   const checklist = Object.entries(ROTINA_CHECKLISTS).find(([k]) => tituloLimpo.includes(k));
@@ -3182,6 +3203,12 @@ async function enviarResposta() {
   if (boxBackup.style.display !== 'none') {
     const textoBackup = document.getElementById('resp-backup-texto').textContent.trim();
     if (textoBackup) blocos.push(textoBackup);
+  }
+
+  const boxSolides = document.getElementById('resp-solides');
+  if (boxSolides.style.display !== 'none') {
+    const textoSolides = document.getElementById('resp-solides-texto').textContent.trim();
+    if (textoSolides) blocos.push(textoSolides);
   }
 
   if (textoObs) blocos.push(textoObs);

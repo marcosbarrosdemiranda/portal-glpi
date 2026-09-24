@@ -13,14 +13,14 @@ Autenticação nas duas chamadas: header `X-Token-Saude: <token>`. O token fica 
 
 O que o Ponto conta como anormalidade: sync com erro · falha parcial na API da Sólides · sync parado além do limite (30 min rápido, 2h horário) · WhatsApp com falha.
 
-- [ ] **1. Central de Alertas — alerta em tempo real da API Sólides**
+- [x] **1. Central de Alertas — alerta em tempo real da API Sólides** (feito 2026-09-24, webhook_solides.php + solides_config.php)
   - Mesmo padrão de ocorrência do back-gmais (🔔/✅/⏰)
   - Duas opções (decidir na spec):
     - Pull: portal consulta `GET https://ponto.grupogmais.com:7413/api/saude` → campos `status` (ok / alerta / falha) e `resumo` (uma linha)
     - Push: webhook já pronto no painel do Ponto — colar a URL do portal, marcar Ativo; o Ponto faz POST com o mesmo JSON a cada 5 min
   - Nos primeiros dias: até as 08:00 de 24/09 aparece "Sync horário: ainda sem execuções registradas" (some sozinho)
   - ⚠️ Tipo novo nasce com WhatsApp ativo — inserir `notif_whatsapp=0` ANTES de testar
-- [ ] **2. Chamado diário das 07:00 (#11366) — relatório da API Sólides**
+- [x] **2. Chamado diário das 07:00 (#11366) — relatório da API Sólides** (feito 2026-09-24, solides_resumo_ajax.php + caixa na Agenda)
   - Mesma forma do resumo do back-gmais (base: `backup_lib.php`/`backup_resumo_texto`, `backup_resumo_ajax.php`, `agenda/index.php`/`abrirModalResposta`)
   - Fonte: `GET https://ponto.grupogmais.com:7413/api/saude/relatorio`
     - `resumo`: uma linha, ex. "Ontem (23/09): sem anormalidades · Hoje (24/09): 1 anormalidade(s), todas resolvidas"
