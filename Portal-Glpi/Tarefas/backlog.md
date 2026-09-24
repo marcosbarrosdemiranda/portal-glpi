@@ -7,15 +7,25 @@
 
 ## 📥 Demandas pendentes (registradas 2026-09-24)
 
-- [ ] **Central de Alertas — monitorar a API Sólides via webhook**
-  - Aplicação nossa (projeto API Solides, roda na mesma VM do Dude — 192.168.1.246)
-  - Seguir o padrão dos tipos já existentes (back-gmais, The Dude): webhook → ocorrência 🔔/✅/⏰
-  - A definir na spec: quais eventos a API envia (queda, erro de sync, sem contato) e se é push (webhook) ou precisa de heartbeat
+### API Sólides (Ponto) — as duas demandas são da mesma ferramenta, no estilo back-gmais
+
+Autenticação nas duas chamadas: header `X-Token-Saude: <token>`. O token fica no painel do Ponto → Saúde do sistema → Monitoramento externo (Mostrar/Copiar). Sem token ou token errado → 401. **Token não vai no git.**
+
+O que o Ponto conta como anormalidade: sync com erro · falha parcial na API da Sólides · sync parado além do limite (30 min rápido, 2h horário) · WhatsApp com falha.
+
+- [ ] **1. Central de Alertas — alerta em tempo real da API Sólides**
+  - Mesmo padrão de ocorrência do back-gmais (🔔/✅/⏰)
+  - Duas opções (decidir na spec):
+    - Pull: portal consulta `GET https://ponto.grupogmais.com:7413/api/saude` → campos `status` (ok / alerta / falha) e `resumo` (uma linha)
+    - Push: webhook já pronto no painel do Ponto — colar a URL do portal, marcar Ativo; o Ponto faz POST com o mesmo JSON a cada 5 min
+  - Nos primeiros dias: até as 08:00 de 24/09 aparece "Sync horário: ainda sem execuções registradas" (some sozinho)
   - ⚠️ Tipo novo nasce com WhatsApp ativo — inserir `notif_whatsapp=0` ANTES de testar
-- [ ] **Chamado diário #11366 — "Backup, Relatórios e Banco de Dados - Rotina Diária"**
-  - Colocar o relatório automático igual ao do back-gmais (resumo de ontem por servidor, ✅/❌, tamanho, arquivos)
-  - Base existente: `backup_lib.php` (`backup_resumo_texto`), `backup_resumo_ajax.php`, `agenda/index.php` (`abrirModalResposta`)
-  - A definir na spec: o resumo hoje só pré-preenche a resposta no card da Agenda — confirmar se #11366 precisa receber o texto no próprio chamado GLPI (followup) e se entra também a parte de Banco de Dados (PostgreSQL, ainda bloqueado por acesso SSH)
+- [ ] **2. Chamado diário das 07:00 (#11366) — relatório da API Sólides**
+  - Mesma forma do resumo do back-gmais (base: `backup_lib.php`/`backup_resumo_texto`, `backup_resumo_ajax.php`, `agenda/index.php`/`abrirModalResposta`)
+  - Fonte: `GET https://ponto.grupogmais.com:7413/api/saude/relatorio`
+    - `resumo`: uma linha, ex. "Ontem (23/09): sem anormalidades · Hoje (24/09): 1 anormalidade(s), todas resolvidas"
+    - `dias[]`: ontem e hoje; cada anormalidade tem `titulo`, `inicio`, `fim`, `resolvida` e `texto` pronto (ex. "Sync rápido: erro às 03:00 — resolvido às 03:10 · HTTP 500 em /punch/")
+  - Nos primeiros dias: "ontem" vem como "sem histórico registrado" (registro começou 24/09 07:08); a partir de 25/09 vem completo
 
 ## 🔥 Alta Prioridade
 
