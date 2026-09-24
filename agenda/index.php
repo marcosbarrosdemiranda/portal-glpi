@@ -895,10 +895,21 @@ $libera_data_passada = ($cards_portal === null) || (($cards_portal['agenda_data_
         <!-- Checklist rotina + Backup verificados — lado a lado quando os dois
              aparecem (usa o espaço vazio à direita da lista de itens). -->
         <div class="row g-3">
+          <!-- Coluna da esquerda: checklist + relatório do Ponto logo abaixo dele,
+               ocupando o espaço que sobra ao lado do Backup verificados. -->
+          <div id="resp-col-esq" style="display:none" class="col-12">
           <!-- Checklist rotina (visível apenas para chamados recorrentes com checklist) -->
-          <div id="resp-checklist" style="display:none" class="col-12 mb-3">
+          <div id="resp-checklist" style="display:none" class="mb-3">
             <label class="form-label fw-semibold">✅ Itens verificados</label>
             <div id="resp-checklist-itens" class="d-flex flex-column gap-2 p-3 border rounded" style="background:#f8fafc"></div>
+          </div>
+
+          <!-- Relatório do Ponto (API Sólides) — mesma rotina diária, mesmo padrão
+               da caixa de backup: informativo e entra junto na resposta final. -->
+          <div id="resp-solides" style="display:none" class="mb-3">
+            <label class="form-label fw-semibold">🕒 Ponto (API Sólides)</label>
+            <div id="resp-solides-texto" class="p-3 border rounded" style="background:#f8fafc;white-space:pre-wrap;font-family:monospace;font-size:.72rem"></div>
+          </div>
           </div>
 
           <!-- Resumo automático de backup (só na rotina diária de backup) — informativo,
@@ -906,13 +917,6 @@ $libera_data_passada = ($cards_portal === null) || (($cards_portal['agenda_data_
           <div id="resp-backup" style="display:none" class="col-12 mb-3">
             <label class="form-label fw-semibold">💾 Backup verificados</label>
             <div id="resp-backup-texto" class="p-3 border rounded" style="background:#f8fafc;white-space:pre-wrap;font-family:monospace;font-size:.72rem"></div>
-          </div>
-
-          <!-- Relatório do Ponto (API Sólides) — mesma rotina diária, mesmo padrão
-               da caixa de backup: informativo e entra junto na resposta final. -->
-          <div id="resp-solides" style="display:none" class="col-12 mb-3">
-            <label class="form-label fw-semibold">🕒 Ponto (API Sólides)</label>
-            <div id="resp-solides-texto" class="p-3 border rounded" style="background:#f8fafc;white-space:pre-wrap;font-family:monospace;font-size:.72rem"></div>
           </div>
         </div>
 
@@ -2992,7 +2996,9 @@ function abrirModalResposta() {
   // Lado a lado só quando os dois aparecem juntos — senão cada um fica
   // sozinho ocupando a largura toda.
   const ladoALado = checklist && mostrarBackup;
-  checkWrap.className = ladoALado ? 'col-md-4 mb-3' : 'col-12 mb-3';
+  const colEsq = document.getElementById('resp-col-esq');
+  colEsq.style.display = (checklist || mostrarBackup) ? '' : 'none';
+  colEsq.className    = ladoALado ? 'col-md-4' : 'col-12';
   boxBackup.className  = ladoALado ? 'col-md-8 mb-3' : 'col-12 mb-3';
 
   if (checklist) {
