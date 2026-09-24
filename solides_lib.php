@@ -223,14 +223,26 @@ function solides_relatorio_texto(array $rel): string
         return 'Ponto (API Sólides): relatório veio vazio ou em formato inesperado.';
     }
 
-    $out = "Ponto (API Sólides) — anormalidades\n";
+    // corpo: 1 linha de resumo por dia + anormalidades daquele dia
+    $corpo = '';
+    $total = 0;
+    $abertas = 0;
     foreach ($dias as $d) {
         if (!is_array($d)) continue;
-        $out .= "\n" . (string) ($d['resumo'] ?? '') . "\n";
+        $corpo .= (string) ($d['resumo'] ?? '') . "\n";
         foreach (($d['anormalidades'] ?? []) as $a) {
             if (!is_array($a)) continue;
-            $out .= '  ' . (!empty($a['resolvida']) ? '✅' : '❌') . ' ' . (string) ($a['texto'] ?? $a['titulo'] ?? '') . "\n";
+            $total++;
+            if (empty($a['resolvida'])) $abertas++;
+            $corpo .= '  ' . (!empty($a['resolvida']) ? '✅' : '❌') . ' ' . (string) ($a['texto'] ?? $a['titulo'] ?? '') . "\n";
         }
     }
-    return rtrim($out);
+
+    // cabeçalho já diz o veredito — "anormalidades" sozinho parecia que teve problema
+    $cabecalho = match (true) {
+        $total === 0  => '✅ sem anormalidades',
+        $abertas > 0  => "❌ {$total} anormalidade(s), {$abertas} em aberto",
+        default       => "⚠️ {$total} anormalidade(s), todas resolvidas",
+    };
+    return rtrim("Ponto (API Sólides): {$cabecalho}\n" . $corpo);
 }

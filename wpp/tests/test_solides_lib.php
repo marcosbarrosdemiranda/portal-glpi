@@ -67,6 +67,20 @@ t_ok(str_contains($txt, "Ontem (23/09): sem anormalidades"), 'relatorio_texto: l
 t_ok(str_contains($txt, "  ✅ Sync rápido: erro às 03:00 — resolvido às 03:10 · HTTP 500 em /punch/"), 'relatorio_texto: resolvida -> ✅ + texto pronto');
 t_ok(str_contains($txt, "  ❌ WhatsApp: 1 mensagem(ns) com falha às 08:00"), 'relatorio_texto: em aberto -> ❌');
 t_ok(strpos($txt, 'Ontem') < strpos($txt, 'Hoje'), 'relatorio_texto: ontem antes de hoje');
+t_ok(str_starts_with($txt, "Ponto (API Sólides): ❌ 2 anormalidade(s), 1 em aberto"), 'relatorio_texto: cabeçalho diz quantas e quantas em aberto');
+
+$semNada = solides_relatorio_texto(['dias' => [
+    ['resumo' => 'Ontem (23/09): sem histórico registrado', 'semHistorico' => true, 'anormalidades' => []],
+    ['resumo' => 'Hoje (24/09): sem anormalidades', 'semHistorico' => false, 'anormalidades' => []],
+]]);
+t_ok(str_starts_with($semNada, "Ponto (API Sólides): ✅ sem anormalidades\n"), 'relatorio_texto: nenhuma anormalidade -> cabeçalho "✅ sem anormalidades"');
+t_ok(str_contains($semNada, 'Hoje (24/09): sem anormalidades'), 'relatorio_texto: sem anormalidades ainda lista o resumo de cada dia');
+
+$todasOk = solides_relatorio_texto(['dias' => [
+    ['resumo' => 'Hoje (24/09): 1 anormalidade(s), todas resolvidas', 'anormalidades' => [['resolvida' => true, 'texto' => 'x']]],
+]]);
+t_ok(str_starts_with($todasOk, 'Ponto (API Sólides): ⚠️ 1 anormalidade(s), todas resolvidas'), 'relatorio_texto: todas resolvidas -> ⚠️');
+
 t_eq(solides_relatorio_texto(['dias' => 'lixo']), 'Ponto (API Sólides): relatório veio vazio ou em formato inesperado.', 'relatorio_texto: formato inesperado -> aviso, não quebra');
 
 // ---------------------------------------------------------------------------
