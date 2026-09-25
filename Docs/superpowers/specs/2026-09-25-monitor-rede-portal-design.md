@@ -1,6 +1,6 @@
 # Monitor de rede próprio do portal (substitui o The Dude)
 
-> Status: **roteiro aprovado, implementação por etapas** · criado 2026-09-25
+> Status: **roteiro aprovado, implementação por etapas (7)** · criado 2026-09-25
 > Cada etapa é entregue, deployada e validada antes de começar a próxima.
 > Branch por etapa: `feat/monitor-rede-etapaN` a partir de `infra/migracao-docker-glpi`.
 
@@ -64,7 +64,7 @@ O próprio portal pinga todos os equipamentos cadastrados, a cada 1 minuto, **em
 **Objetivo:** saber exatamente o que vai ser monitorado, direto do inventário, e poder ligar/desligar por equipamento e por grupo.
 - [ ] `monitor_lib.php`: `monitor_listar_inventario()` junta as fontes (GLPI computers por categoria, balanças, pfSense, servidores MGV) → lista única `origem, origem_id, nome, ip, loja, grupo`. Regra de IP: preferir `192.168.x`; IP fixado manualmente vence.
 - [ ] Tabela `portal_monitor_dispositivos` (`origem, origem_id` UNIQUE, `monitorar`, `ip_fixo NULL`, `porta_tcp NULL`, `status ENUM('up','down','desconhecido')`, `status_desde`, `falhas_seguidas`, `sucessos_seguidos`, `ultimo_ping`, `latencia_ms`) + manuais (`origem='manual'`, com nome/IP/loja/grupo próprios).
-- [ ] Config por grupo: colunas novas em `portal_dude_categoria_config` — `monitorar_novos`, `intervalo_seg` (padrão 60), `falhas_para_cair` (padrão 3), `sucessos_para_voltar` (padrão 2), `queda_curta` (`registro` | `resumo_diario` | `na_hora`). Padrões da tabela 1e já semeados. (Envio de WhatsApp/lembrete por grupo e o aviso de queda curta ficam na etapa 4, que mexe no motor.)
+- [ ] Config por grupo: colunas novas em `portal_dude_categoria_config` — `monitorar_novos`, `intervalo_seg` (padrão 60), `falhas_para_cair` (padrão 3), `sucessos_para_voltar` (padrão 2), `queda_curta` (`registro` | `resumo_diario` | `na_hora`). Padrões da tabela 1e já semeados. (Envio de WhatsApp/lembrete por grupo e o aviso de queda curta ficam na etapa 5, que mexe no motor.)
 - [ ] Semente: os 40 do Dude entram como `monitorar=sim` (casados por IP com o inventário); grupos PDVs/Balança/Servidor com `monitorar_novos=sim`, demais grupos `não` até o usuário ligar.
 - [ ] Tela `monitor_dispositivos.php`: lista por grupo/loja com a chave Monitorar, IP efetivo, origem; bloco de config por grupo; cadastro manual. Link em Configurar Alertas.
 - [ ] Chave "Monitorar" também na tela de detalhe do equipamento no inventário.
@@ -94,7 +94,20 @@ O próprio portal pinga todos os equipamentos cadastrados, a cada 1 minuto, **em
 - **Pronto quando:** derrubar um device de teste gera 🔔 em ~3 min e ✅ em ~2 min depois de voltar; PDV desligado fora do horário não alerta.
 - **Estimativa:** ~2h.
 
-### Etapa 4 — Notificação por grupo
+### Etapa 4 — Mapa da rede no Inventário
+**Objetivo:** substituir o mapa do Dude — ver cada loja com seus equipamentos, agrupados, com status, nome e IP.
+- [ ] Card novo **"Mapa da rede"** na tela do Inventário (`inventario.php`, mesmo visual `.cat-card` dos outros) → página `inventario_mapa_rede.php`.
+- [ ] Uma seção (ou aba) por **loja**; dentro, blocos por **grupo** (PDVs, Balanças, Servidores, pfSense…); cada equipamento é um quadradinho com:
+  - cor do status: 🟢 no ar · 🔴 caído · 🟡 queda curta/reinício recente (últimas 24h) · ⚪ não monitorado/desconhecido
+  - nome, IP e "desde HH:MM" (ou "fora há X min")
+  - clique → detalhe do equipamento (histórico de quedas e reinícios, latência, chave Monitorar)
+- [ ] Resumo no topo de cada loja (ex.: "Lj 003 — 14 🟢 · 1 🔴 · 2 🟡") e filtro por loja/grupo/só problemas.
+- [ ] Atualiza sozinho a cada 30 s (mesmo `bg=1` do auth_guard pra não contar como atividade).
+- [ ] Layout em grade (automático). Posicionar à mão como no Dude fica como melhoria futura, se fizer falta.
+- **Pronto quando:** abrindo o card, cada loja aparece com todos os equipamentos monitorados, cores batendo com a Central de Alertas.
+- **Estimativa:** ~3h.
+
+### Etapa 5 — Notificação por grupo
 **Objetivo:** PDVs notificam de um jeito, Balanças de outro.
 - [ ] Colunas novas em `portal_dude_categoria_config`: `notif_whatsapp` (sim/não por grupo), `lembrete_min`, `aviso_queda_curta` (`registro` | `resumo_diario` | `na_hora`). Destino continua o grupo de alertas único.
 - [ ] Motor (`wpp/gatilhos.php` / `gat_alertas_tipo`): hoje WhatsApp e lembrete são por **tipo** de alerta; passa a consultar a config do **grupo** da ocorrência quando ela tiver categoria (tipo continua valendo como chave geral: tipo desligado = nada sai).
@@ -103,15 +116,19 @@ O próprio portal pinga todos os equipamentos cadastrados, a cada 1 minuto, **em
 - **Antes de testar:** mutar WhatsApp (regra do projeto).
 - **Estimativa:** ~3h.
 
-### Etapa 5 — Latência e acabamento
+### Etapa 6 — Latência e acabamento
 - [ ] Alerta de latência alta a partir da `latencia_ms` do monitor (limiar por grupo, N rodadas seguidas) → alimenta `dude_latencia`.
 - [ ] Renomear na interface "The Dude" → "Monitor de rede" (nomes internos `dude_*` ficam, pra não mexer em histórico/config).
 - [ ] Remover tipos sem uso (`dude_link`, `dude_service` — hoje zero registros) com spec de remoção.
 - **Estimativa:** ~2h.
 
-### Etapa 6 — Aposentar o Dude
-- [ ] Depois de 1 semana estável da etapa 3: desligar as Notifications no cliente do Dude, apagar o token do webhook, parar o container `dude` (decisão do usuário).
-- [ ] Atualizar runbook e memória.
+### Etapa 7 — Remover tudo do Dude
+**Objetivo (pedido do usuário):** não sobrar nada do Dude — nem no portal, nem no servidor.
+- [ ] Depois de 1 semana estável da etapa 3: desligar as Notifications no cliente do Dude e parar/remover o container `dude` no 192.168.1.246 (com confirmação do usuário na hora).
+- [ ] Portal: remover `the_dude_webhook.php`, `dude_config.php` (o que ainda for útil — horários, exceções, feriados — já terá migrado pra tela do monitor), token `dude_token` do wpp_cfg, `dude_ping_ip`/`dude_verificar_*`, link "The Dude" em Configurar Alertas, `check_stuck_alerts.php`, testes do webhook. Segue a regra do projeto: spec de remoção + código comentado antes de apagar.
+- [ ] Nomes internos: renomear `dude_*` → `rede_*` (tipos da Central, tabelas `portal_dude_*`, funções) com migração que atualiza `portal_alertas_config`, `portal_alertas_ocorrencias` e `portal_alertas_historico` — sem perder histórico nem config.
+- [ ] Atualizar runbook, docs e memória (`central-alertas-dude*`).
+- **Pronto quando:** `grep -ri dude` no portal não acha nada além do histórico de docs/commits, e a Central/mapa seguem funcionando.
 
 ## 5. Riscos
 
@@ -124,5 +141,6 @@ O próprio portal pinga todos os equipamentos cadastrados, a cada 1 minuto, **em
 | Rede da loja cai inteira → 8 PDVs alertam de uma vez | Aceito na v1 (é informação real); agrupamento por loja fica como melhoria |
 
 ## 6. Fora do escopo
+- Mapa com posição livre arrastável (como o do Dude) — v1 é em grade automática.
 - Monitorar serviços (HTTP/porta de aplicação) — o Ponto já tem webhook próprio.
 - SNMP / tráfego / banda (backlog separado).

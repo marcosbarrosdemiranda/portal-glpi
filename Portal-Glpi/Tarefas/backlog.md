@@ -34,9 +34,10 @@ Roteiro completo: `Docs/superpowers/specs/2026-09-25-monitor-rede-portal-design.
 - [ ] Etapa 1 — Equipamentos do inventário + chave "Monitorar" + config por grupo
 - [ ] Etapa 2 — Motor de ping em paralelo, modo sombra (sem alertar)
 - [ ] Etapa 3 — Virada: monitor passa a alimentar a Central de Alertas
-- [ ] Etapa 4 — Notificação por grupo (WhatsApp, lembrete, destino por categoria)
-- [ ] Etapa 5 — Latência, renomear "The Dude" → "Monitor de rede"
-- [ ] Etapa 6 — Aposentar o Dude
+- [ ] Etapa 4 — Mapa da rede no Inventário (loja → grupos → equipamentos com status, nome e IP)
+- [ ] Etapa 5 — Notificação por grupo (WhatsApp, lembrete, aviso de reinício)
+- [ ] Etapa 6 — Latência, renomear "The Dude" → "Monitor de rede"
+- [ ] Etapa 7 — Remover tudo do Dude (portal, nomes internos, container)
 
 ## 🔥 Alta Prioridade
 
