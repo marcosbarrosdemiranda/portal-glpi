@@ -34,19 +34,29 @@ O próprio portal pinga todos os equipamentos cadastrados, a cada 1 minuto, **em
 1b. **Chave "Monitorar" em cada equipamento** — na tela de detalhe do inventário e na lista do monitor. Tabela `portal_monitor_dispositivos` guarda só o que o inventário não tem: `origem` + `origem_id` (ex.: `glpi_computer:123`, `balanca:7`, `manual:1`), `monitorar` (sim/não), IP fixado, e o estado do ping. Equipamento novo no inventário entra com o padrão do grupo ("monitorar novos automaticamente").
 1c. **Configuração por grupo** (grupo = categoria: PDVs, Balanças, Servidores…) — cada grupo tem a própria forma de alertar. Evolui a `portal_dude_categoria_config` que já existe (horário, ligado muito tempo) com:
    - monitorar novos automaticamente (sim/não)
-   - tolerância: falhas pra considerar caído / sucessos pra considerar de volta (ex.: PDV 5 falhas, Servidor 2)
+   - **intervalo de ping** do grupo (30 s, 1 min, 2 min, 5 min — mínimo 30 s, que é o ciclo do worker)
+   - **tolerância**: falhas seguidas pra considerar caído / sucessos pra considerar de volta
    - WhatsApp ligado/desligado **para aquele grupo**
    - lembrete (a cada X min enquanto continuar fora)
    - horário de notificação + exceções por loja/dia + feriados (já existem)
    - destino: **todos no mesmo grupo de alertas de hoje** (decidido 2026-09-25 — sem grupo por categoria)
-1d. **Quedas curtas / reinício** — com ping a cada 60 s e tolerância 3, um PDV que reinicia (≈ 1–3 min fora) **não gera alerta** (de propósito: é o que evita o falso alarme). Mas a queda curta não some: o monitor registra cada "piscada" (1+ falha seguida de volta antes da tolerância) com horário e duração. Isso aparece na tela do equipamento e pode virar, por grupo, (a) só registro, (b) resumo diário, ou (c) aviso "🔁 PDV reiniciou" na hora.
-1e. **Tempos de detecção** (ping a cada 60 s): caiu → alerta em ≈ tolerância × 1 min (+ até 1 min de espera da rodada) = PDV com 3 falhas ≈ **3–4 min**; voltou → ✅ em ≈ **2–3 min**; lembrete enquanto continuar fora = `lembrete_min` do grupo (0 = sem lembrete). Grupo crítico pode usar tolerância 2 (≈ 2–3 min); intervalo de 30 s fica como opção se precisar.
+1d. **Quedas curtas / reinício** (pedido do usuário: pegar o reinício do PDV, que leva 1–3 min, e saber quando voltou rápido) — queda curta = ficou fora **menos** que a tolerância do grupo e voltou. Não vira alerta de "caiu", vira evento "🔁 reiniciou / voltou rápido (fora X min Y s)". Registrada sempre (tabela própria, visível no equipamento) e, por grupo: (a) só registro, (b) resumo diário, (c) aviso na hora.
+1e. **Padrões sugeridos por grupo** (editáveis na tela; só valem pro que estiver com Monitorar ligado):
+
+| Grupo | Intervalo | Cai após | Queda curta | Alerta "caiu" em | Pega reinício? |
+|---|---|---|---|---|---|
+| PDVs | 30 s | 8 falhas (4 min) | aviso na hora | ≈ 4–4,5 min | sim — fora 1–3 min = 🔁 "reiniciou" |
+| Servidores / pfSense | 30 s | 2 falhas (1 min) | aviso na hora | ≈ 1–1,5 min | sim |
+| Balanças | 2 min | 3 falhas (6 min) | só registro | ≈ 6–8 min | não (intervalo longo, de propósito) |
+| Demais grupos | 1 min | 3 falhas (3 min) | só registro | ≈ 3–4 min | parcial |
+
+   Regra geral: alerta "caiu" ≈ intervalo × falhas (+ até 1 intervalo); ✅ "voltou" ≈ intervalo × sucessos. Lembrete enquanto continuar fora = `lembrete_min` do grupo (0 = sem lembrete).
 2. **Ping em paralelo sem mudar a imagem Docker** — o worker não tem `fping`, mas tem `ping` (iputils). Dispara 1 processo `ping -c 1 -W 1` por IP ao mesmo tempo (`proc_open`) e coleta todos: rodada inteira ≈ 1–2 s, independente de quantos estão fora. (Se um dia passar de ~200 devices, trocar por `fping` = só adicionar `fping` no `docker/Dockerfile`.)
 3. **Confirmação contra falso alarme** — cai só depois de **3 falhas seguidas** (≈ 3 min); volta depois de **2 sucessos seguidos**. Padrão 3/2, configurável por grupo (etapa 1).
 4. **Só grava em `portal_dude_estado` quando o estado MUDA** — assim `atualizado_em` continua significando "nesse estado desde", e o "ligado muito tempo" segue funcionando sem alteração.
 5. **Heartbeat próprio** — cada rodada grava `monitor_ultima_rodada` (wpp_cfg). O alerta "sem contato" passa a ser "monitor parado há X min" — nunca mais confundido com atualização de estado.
 6. **Sem TCP fallback por padrão** — o `dude_ping_ip()` de hoje tenta 7 portas TCP quando o ping falha (≈ 4,5 s por device fora). Device que bloqueia ICMP ganha um campo opcional `porta_tcp` no cadastro e é testado só nela.
-7. **Carga** — 40 pings/min ≈ nada pra rede e CPU. A rodada roda no `portal-wpp-worker` (já existe, loop de 30 s); o monitor se auto-limita a 1 rodada a cada 60 s.
+7. **Carga** — mesmo com PDVs a cada 30 s: ~50 PDVs + ~20 outros ≈ 120 pings/min ≈ nada pra rede e CPU. A rodada roda no `portal-wpp-worker` (loop de 30 s) e só pinga os equipamentos cujo intervalo do grupo venceu.
 
 ## 4. Roteiro por etapas
 
@@ -54,7 +64,7 @@ O próprio portal pinga todos os equipamentos cadastrados, a cada 1 minuto, **em
 **Objetivo:** saber exatamente o que vai ser monitorado, direto do inventário, e poder ligar/desligar por equipamento e por grupo.
 - [ ] `monitor_lib.php`: `monitor_listar_inventario()` junta as fontes (GLPI computers por categoria, balanças, pfSense, servidores MGV) → lista única `origem, origem_id, nome, ip, loja, grupo`. Regra de IP: preferir `192.168.x`; IP fixado manualmente vence.
 - [ ] Tabela `portal_monitor_dispositivos` (`origem, origem_id` UNIQUE, `monitorar`, `ip_fixo NULL`, `porta_tcp NULL`, `status ENUM('up','down','desconhecido')`, `status_desde`, `falhas_seguidas`, `sucessos_seguidos`, `ultimo_ping`, `latencia_ms`) + manuais (`origem='manual'`, com nome/IP/loja/grupo próprios).
-- [ ] Config por grupo: colunas novas em `portal_dude_categoria_config` — `monitorar_novos`, `falhas_para_cair` (padrão 3), `sucessos_para_voltar` (padrão 2). (WhatsApp/lembrete por grupo ficam na etapa 4, que mexe no motor.)
+- [ ] Config por grupo: colunas novas em `portal_dude_categoria_config` — `monitorar_novos`, `intervalo_seg` (padrão 60), `falhas_para_cair` (padrão 3), `sucessos_para_voltar` (padrão 2), `queda_curta` (`registro` | `resumo_diario` | `na_hora`). Padrões da tabela 1e já semeados. (Envio de WhatsApp/lembrete por grupo e o aviso de queda curta ficam na etapa 4, que mexe no motor.)
 - [ ] Semente: os 40 do Dude entram como `monitorar=sim` (casados por IP com o inventário); grupos PDVs/Balança/Servidor com `monitorar_novos=sim`, demais grupos `não` até o usuário ligar.
 - [ ] Tela `monitor_dispositivos.php`: lista por grupo/loja com a chave Monitorar, IP efetivo, origem; bloco de config por grupo; cadastro manual. Link em Configurar Alertas.
 - [ ] Chave "Monitorar" também na tela de detalhe do equipamento no inventário.
@@ -67,7 +77,7 @@ O próprio portal pinga todos os equipamentos cadastrados, a cada 1 minuto, **em
 - [ ] `monitor_ping_lote(array $ips): array` — pings em paralelo via `proc_open`, devolve `ip => [ok, latencia_ms]`. Seam de teste igual ao `__dude_ping_fake`.
 - [ ] `monitor_aplicar_resultado(array $disp, bool $ok, int $falhasParaCair, int $sucessosParaVoltar): array` — **função pura**: novo estado + se houve transição. Testes cobrindo: 1 e 2 falhas não derrubam, 3 derruba; 1 sucesso não levanta, 2 levantam; pisca-pisca não gera transição. Também devolve **queda curta** (voltou antes da tolerância) com a duração.
 - [ ] Tabela `portal_monitor_quedas_curtas` (dispositivo, inicio, fim, falhas) — registro das piscadas/reinícios, visível na tela do equipamento.
-- [ ] `monitor_rodada(PDO $pdo)` — respeita o intervalo de 60 s, pinga os ativos, grava contadores/status/latência na tabela do monitor, grava `monitor_ultima_rodada` e a duração da rodada.
+- [ ] `monitor_rodada(PDO $pdo)` — a cada ciclo do worker (30 s) pinga só os equipamentos com `ultimo_ping + intervalo_seg do grupo` vencido, grava contadores/status/latência, grava `monitor_ultima_rodada` e a duração da rodada.
 - [ ] Liga no `wpp/worker.php` (ao lado de `dude_gatilho_verificar_ping`).
 - [ ] Na tela: coluna "status do monitor" + "desde" + latência, e destaque quando o monitor discorda do `portal_dude_estado`.
 - **Pronto quando:** 1–2 dias rodando, duração da rodada < 5 s, e as divergências com o Dude explicadas (esperado: o monitor certo onde o Dude travou).
