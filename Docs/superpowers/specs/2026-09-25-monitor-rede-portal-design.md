@@ -69,7 +69,7 @@ O próprio portal pinga todos os equipamentos cadastrados, a cada 1 minuto, **em
 - [ ] Tela `monitor_dispositivos.php`: lista por grupo/loja com a chave Monitorar, IP efetivo, origem; bloco de config por grupo; cadastro manual. Link em Configurar Alertas.
 - [ ] Chave "Monitorar" também na tela de detalhe do equipamento no inventário.
 - [ ] Testes `wpp/tests/test_monitor_lib.php`: regra de escolha de IP, IP fixo vence, `monitorar_novos` aplicado a equipamento novo, ignorados/impressoras fora, manual com IP inválido recusado.
-- **Pronto quando:** a tela mostra os equipamentos do inventário por grupo com loja certa (PDV121 com loja), dá pra ligar/desligar um equipamento e um grupo inteiro. Nada muda nos alertas.
+- **Pronto quando:** a tela mostra os equipamentos do inventário por grupo com loja certa (PDV121 com loja), dá pra ligar/desligar um equipamento e um grupo inteiro, e **todos os parâmetros do grupo (intervalo, tolerância, queda curta, monitorar novos) se alteram pela tela do portal** — nada de mexer em código ou banco (exigência do usuário, 2026-09-25). Nada muda nos alertas.
 - **Estimativa:** ~3h.
 
 ### Etapa 2 — Motor de ping em modo sombra
