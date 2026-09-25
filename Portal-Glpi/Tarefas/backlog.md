@@ -31,11 +31,12 @@ O que o Ponto conta como anormalidade: sync com erro · falha parcial na API da 
 
 Roteiro completo: `Docs/superpowers/specs/2026-09-25-monitor-rede-portal-design.md`
 
-- [ ] Etapa 1 — Cadastro de equipamentos no portal (importa os 40 do Dude)
+- [ ] Etapa 1 — Equipamentos do inventário + chave "Monitorar" + config por grupo
 - [ ] Etapa 2 — Motor de ping em paralelo, modo sombra (sem alertar)
 - [ ] Etapa 3 — Virada: monitor passa a alimentar a Central de Alertas
-- [ ] Etapa 4 — Latência, limiar por categoria, renomear "The Dude" → "Monitor de rede"
-- [ ] Etapa 5 — Aposentar o Dude
+- [ ] Etapa 4 — Notificação por grupo (WhatsApp, lembrete, destino por categoria)
+- [ ] Etapa 5 — Latência, renomear "The Dude" → "Monitor de rede"
+- [ ] Etapa 6 — Aposentar o Dude
 
 ## 🔥 Alta Prioridade
 

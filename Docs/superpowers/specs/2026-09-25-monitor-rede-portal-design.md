@@ -29,9 +29,18 @@ O próprio portal pinga todos os equipamentos cadastrados, a cada 1 minuto, **em
 
 ## 3. Decisões de desenho
 
-1. **Cadastro no portal** — tabela nova `portal_monitor_dispositivos` (nome, IP, loja, categoria, ativo). Semeada com os 40 devices que existem hoje em `portal_dude_estado`.
+1. **Equipamentos vêm do inventário** (revisado 2026-09-25) — não é cadastro paralelo. Fontes: computadores do GLPI (categoria do portal: PDVs, PCs retaguarda, VMs, TVs, rádios…; loja = entidade do GLPI), `portal_balancas`, `portal_pfsense_lojas`, `portal_servidores_mgv`. Ficam de fora os `__ignorado__` (containers Docker que o agente cadastra como PC) e as impressoras (já têm worker SNMP próprio). Cadastro manual só pra exceção (switch/link fora do inventário). 31 dos 40 devices do Dude já batem por IP com o GLPI; os outros 9 estão em balanças/servidores.
+   - **IP:** PC com vários IPs no GLPI → usa o da rede da loja (`192.168.x`); dá pra fixar outro IP manualmente no equipamento.
+1b. **Chave "Monitorar" em cada equipamento** — na tela de detalhe do inventário e na lista do monitor. Tabela `portal_monitor_dispositivos` guarda só o que o inventário não tem: `origem` + `origem_id` (ex.: `glpi_computer:123`, `balanca:7`, `manual:1`), `monitorar` (sim/não), IP fixado, e o estado do ping. Equipamento novo no inventário entra com o padrão do grupo ("monitorar novos automaticamente").
+1c. **Configuração por grupo** (grupo = categoria: PDVs, Balanças, Servidores…) — cada grupo tem a própria forma de alertar. Evolui a `portal_dude_categoria_config` que já existe (horário, ligado muito tempo) com:
+   - monitorar novos automaticamente (sim/não)
+   - tolerância: falhas pra considerar caído / sucessos pra considerar de volta (ex.: PDV 5 falhas, Servidor 2)
+   - WhatsApp ligado/desligado **para aquele grupo**
+   - lembrete (a cada X min enquanto continuar fora)
+   - horário de notificação + exceções por loja/dia + feriados (já existem)
+   - *(a confirmar)* grupo de WhatsApp de destino diferente por categoria — hoje só existe 1 grupo de alertas
 2. **Ping em paralelo sem mudar a imagem Docker** — o worker não tem `fping`, mas tem `ping` (iputils). Dispara 1 processo `ping -c 1 -W 1` por IP ao mesmo tempo (`proc_open`) e coleta todos: rodada inteira ≈ 1–2 s, independente de quantos estão fora. (Se um dia passar de ~200 devices, trocar por `fping` = só adicionar `fping` no `docker/Dockerfile`.)
-3. **Confirmação contra falso alarme** — cai só depois de **3 falhas seguidas** (≈ 3 min); volta depois de **2 sucessos seguidos**. Valores configuráveis (padrão global na etapa 2; por categoria fica como melhoria futura).
+3. **Confirmação contra falso alarme** — cai só depois de **3 falhas seguidas** (≈ 3 min); volta depois de **2 sucessos seguidos**. Padrão 3/2, configurável por grupo (etapa 1).
 4. **Só grava em `portal_dude_estado` quando o estado MUDA** — assim `atualizado_em` continua significando "nesse estado desde", e o "ligado muito tempo" segue funcionando sem alteração.
 5. **Heartbeat próprio** — cada rodada grava `monitor_ultima_rodada` (wpp_cfg). O alerta "sem contato" passa a ser "monitor parado há X min" — nunca mais confundido com atualização de estado.
 6. **Sem TCP fallback por padrão** — o `dude_ping_ip()` de hoje tenta 7 portas TCP quando o ping falha (≈ 4,5 s por device fora). Device que bloqueia ICMP ganha um campo opcional `porta_tcp` no cadastro e é testado só nela.
@@ -39,14 +48,17 @@ O próprio portal pinga todos os equipamentos cadastrados, a cada 1 minuto, **em
 
 ## 4. Roteiro por etapas
 
-### Etapa 1 — Cadastro de equipamentos (sem monitorar ainda)
-**Objetivo:** ter a lista de equipamentos no portal, editável.
-- [ ] `monitor_lib.php`: cria `portal_monitor_dispositivos` (`id, nome, ip UNIQUE, loja, categoria, porta_tcp NULL, ativo, status ENUM('up','down','desconhecido'), status_desde, falhas_seguidas, sucessos_seguidos, ultimo_ping, latencia_ms, criado_em`) + CRUD.
-- [ ] Importação única dos 40 devices de `portal_dude_estado` (nome, IP, loja, categoria). Os 22 PDVs "sem loja" entram sem loja — a tela deixa corrigir.
-- [ ] Tela `monitor_dispositivos.php` (lista com filtro por categoria/loja, novo, editar, ativar/desativar, excluir) + link em Configurar Alertas.
-- [ ] Testes `wpp/tests/test_monitor_lib.php` (CRUD, IP único, validação de IP).
-- **Pronto quando:** os 40 aparecem na tela, dá pra corrigir loja do PDV121 e cadastrar um novo. Nada muda nos alertas.
-- **Estimativa:** ~2h.
+### Etapa 1 — Equipamentos do inventário + chave "Monitorar" + grupos (sem monitorar ainda)
+**Objetivo:** saber exatamente o que vai ser monitorado, direto do inventário, e poder ligar/desligar por equipamento e por grupo.
+- [ ] `monitor_lib.php`: `monitor_listar_inventario()` junta as fontes (GLPI computers por categoria, balanças, pfSense, servidores MGV) → lista única `origem, origem_id, nome, ip, loja, grupo`. Regra de IP: preferir `192.168.x`; IP fixado manualmente vence.
+- [ ] Tabela `portal_monitor_dispositivos` (`origem, origem_id` UNIQUE, `monitorar`, `ip_fixo NULL`, `porta_tcp NULL`, `status ENUM('up','down','desconhecido')`, `status_desde`, `falhas_seguidas`, `sucessos_seguidos`, `ultimo_ping`, `latencia_ms`) + manuais (`origem='manual'`, com nome/IP/loja/grupo próprios).
+- [ ] Config por grupo: colunas novas em `portal_dude_categoria_config` — `monitorar_novos`, `falhas_para_cair` (padrão 3), `sucessos_para_voltar` (padrão 2). (WhatsApp/lembrete por grupo ficam na etapa 4, que mexe no motor.)
+- [ ] Semente: os 40 do Dude entram como `monitorar=sim` (casados por IP com o inventário); grupos PDVs/Balança/Servidor com `monitorar_novos=sim`, demais grupos `não` até o usuário ligar.
+- [ ] Tela `monitor_dispositivos.php`: lista por grupo/loja com a chave Monitorar, IP efetivo, origem; bloco de config por grupo; cadastro manual. Link em Configurar Alertas.
+- [ ] Chave "Monitorar" também na tela de detalhe do equipamento no inventário.
+- [ ] Testes `wpp/tests/test_monitor_lib.php`: regra de escolha de IP, IP fixo vence, `monitorar_novos` aplicado a equipamento novo, ignorados/impressoras fora, manual com IP inválido recusado.
+- **Pronto quando:** a tela mostra os equipamentos do inventário por grupo com loja certa (PDV121 com loja), dá pra ligar/desligar um equipamento e um grupo inteiro. Nada muda nos alertas.
+- **Estimativa:** ~3h.
 
 ### Etapa 2 — Motor de ping em modo sombra
 **Objetivo:** o portal pinga tudo e guarda o resultado, **sem gerar alerta** — pra comparar com a realidade antes de confiar.
@@ -62,21 +74,29 @@ O próprio portal pinga todos os equipamentos cadastrados, a cada 1 minuto, **em
 **Objetivo:** Central de Alertas passa a usar o monitor.
 - [ ] Antes de tudo: conferir `notif_whatsapp` dos tipos `dude_*` e decidir com o usuário se fica ligado na virada (regra: mutar antes de testar).
 - [ ] Sincronização inicial: copia o status atual do monitor para `portal_dude_estado` (1 vez), pra primeira rodada não gerar rajada de 🔔/✅.
-- [ ] `monitor_rodada` passa a escrever **só as transições** em `portal_dude_estado` (`tipo='device'`, `chave=nome`, detalhe "sem resposta a ping (3 tentativas)").
+- [ ] `monitor_rodada` passa a escrever **só as transições** em `portal_dude_estado` (`tipo='device'`, `chave=nome`, detalhe "sem resposta a ping (N tentativas)", N = tolerância do grupo).
 - [ ] `alerta_check_dude_sem_contato` → usa `monitor_ultima_rodada` ("monitor de rede parado há X min", padrão 5 min).
 - [ ] Remove `dude_gatilho_verificar_ping` do worker (o monitor já faz isso melhor) — função fica comentada + nota, conforme regra de remoção.
 - [ ] Webhook do Dude: ignora devices cadastrados no monitor (loga e responde 200) — Dude pode continuar ligado sem interferir.
 - **Pronto quando:** derrubar um device de teste gera 🔔 em ~3 min e ✅ em ~2 min depois de voltar; PDV desligado fora do horário não alerta.
 - **Estimativa:** ~2h.
 
-### Etapa 4 — Latência e acabamento
-- [ ] Alerta de latência alta a partir da `latencia_ms` do monitor (limiar por categoria, N rodadas seguidas) → alimenta `dude_latencia`.
-- [ ] Renomear na interface "The Dude" → "Monitor de rede" (nomes internos `dude_*` ficam, pra não mexer em histórico/config).
-- [ ] Limiar de queda/volta por categoria (PDV pode ser mais tolerante que Servidor).
-- [ ] Remover tipos sem uso (`dude_link`, `dude_service` — hoje zero registros) com spec de remoção.
+### Etapa 4 — Notificação por grupo
+**Objetivo:** PDVs notificam de um jeito, Balanças de outro.
+- [ ] Colunas novas em `portal_dude_categoria_config`: `notif_whatsapp` (sim/não por grupo), `lembrete_min`, e — se confirmado — `destino_jid` (grupo de WhatsApp próprio da categoria; vazio = grupo de alertas padrão).
+- [ ] Motor (`wpp/gatilhos.php` / `gat_alertas_tipo`): hoje WhatsApp e lembrete são por **tipo** de alerta; passa a consultar a config do **grupo** da ocorrência quando ela tiver categoria (tipo continua valendo como chave geral: tipo desligado = nada sai).
+- [ ] Tela: bloco de notificação dentro da config de cada grupo.
+- [ ] Testes: grupo com WhatsApp desligado não envia, lembrete por grupo respeitado, grupo sem config herda o do tipo.
+- **Antes de testar:** mutar WhatsApp (regra do projeto).
 - **Estimativa:** ~3h.
 
-### Etapa 5 — Aposentar o Dude
+### Etapa 5 — Latência e acabamento
+- [ ] Alerta de latência alta a partir da `latencia_ms` do monitor (limiar por grupo, N rodadas seguidas) → alimenta `dude_latencia`.
+- [ ] Renomear na interface "The Dude" → "Monitor de rede" (nomes internos `dude_*` ficam, pra não mexer em histórico/config).
+- [ ] Remover tipos sem uso (`dude_link`, `dude_service` — hoje zero registros) com spec de remoção.
+- **Estimativa:** ~2h.
+
+### Etapa 6 — Aposentar o Dude
 - [ ] Depois de 1 semana estável da etapa 3: desligar as Notifications no cliente do Dude, apagar o token do webhook, parar o container `dude` (decisão do usuário).
 - [ ] Atualizar runbook e memória.
 
