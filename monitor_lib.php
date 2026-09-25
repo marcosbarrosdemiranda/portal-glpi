@@ -57,6 +57,7 @@ const MONITOR_GRUPOS_PADRAO = [
         origem_id         INT NULL,
         nome              VARCHAR(120) NOT NULL,
         ip                VARCHAR(45) NULL,
+        ips               VARCHAR(255) NULL,
         loja              VARCHAR(60) NOT NULL DEFAULT '',
         grupo             VARCHAR(40) NOT NULL,
         duplicado_de      VARCHAR(120) NULL,
@@ -74,6 +75,12 @@ const MONITOR_GRUPOS_PADRAO = [
         UNIQUE KEY uq_origem (origem, origem_id),
         INDEX idx_grupo (grupo)
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
+
+    // migração leve — lista de IPs candidatos (acrescentada depois do 1º deploy)
+    $cols = array_column($pdo->query("SHOW COLUMNS FROM portal_monitor_dispositivos")->fetchAll(PDO::FETCH_ASSOC), 'Field');
+    if (!in_array('ips', $cols, true)) {
+        $pdo->exec("ALTER TABLE portal_monitor_dispositivos ADD COLUMN ips VARCHAR(255) NULL AFTER ip");
+    }
 
     $ins = $pdo->prepare("INSERT IGNORE INTO portal_monitor_grupos
         (grupo, nome, intervalo_seg, falhas_para_cair, sucessos_para_voltar, queda_curta, monitorar_novos)
@@ -105,16 +112,26 @@ function monitor_ip_descartar(string $ip): bool
  */
 function monitor_escolher_ip(array $candidatos): ?string
 {
+    return monitor_escolher_ips($candidatos)[0] ?? null;
+}
+
+/**
+ * Até 4 IPs candidatos, na ordem de preferência, sem repetir. O GLPI guarda
+ * IPs antigos da mesma placa (DHCP mudou) — o monitor pinga todos e considera
+ * ligado se qualquer um responder, igual o inventario_pc.php já faz.
+ * @return string[]
+ */
+function monitor_escolher_ips(array $candidatos): array
+{
     $rank = ['NetworkPortEthernet' => 0, 'NetworkPortWifi' => 1];
     $ok = [];
-    foreach ($candidatos as [$ip, $tipo]) {
+    foreach ($candidatos as $i => [$ip, $tipo]) {
         $ip = trim((string) $ip);
         if (monitor_ip_descartar($ip)) continue;
-        $ok[] = [$ip, $rank[$tipo] ?? 2, str_starts_with($ip, MONITOR_REDE_SERVIDOR) ? 0 : 1];
+        $ok[] = [$ip, $rank[$tipo] ?? 2, str_starts_with($ip, MONITOR_REDE_SERVIDOR) ? 0 : 1, $i];
     }
-    if (!$ok) return null;
-    usort($ok, fn($x, $y) => [$x[1], $x[2]] <=> [$y[1], $y[2]]);
-    return $ok[0][0];
+    usort($ok, fn($x, $y) => [$x[1], $x[2], $x[3]] <=> [$y[1], $y[2], $y[3]]);
+    return array_slice(array_values(array_unique(array_column($ok, 0))), 0, 4);
 }
 
 /** "Loja 001" / "MGV Loja 003" / "loja 10" -> "Lj 001" (formato da Central). Sem número: como veio. */
@@ -217,7 +234,7 @@ function monitor_grupo_set_monitorar_todos(PDO $pdo, string $grupo, bool $ligar)
 
 /**
  * Lista única de equipamentos vindos do inventário.
- * @return array cada item: origem, origem_id, nome, ip, loja, grupo, grupo_nome, ultimo_inv, duplicado_de
+ * @return array cada item: origem, origem_id, nome, ip, ips (candidatos, separados por vírgula), loja, grupo, grupo_nome, ultimo_inv, duplicado_de
  */
 function monitor_fontes_inventario(PDO $pdo): array
 {
@@ -249,11 +266,13 @@ function monitor_fontes_inventario(PDO $pdo): array
     }
 
     foreach ($pcs as $c) {
+        $ips = monitor_escolher_ips($ipsPorPc[(int) $c['id']] ?? []);
         $itens[] = [
             'origem'     => 'glpi',
             'origem_id'  => (int) $c['id'],
             'nome'       => (string) $c['name'],
-            'ip'         => monitor_escolher_ip($ipsPorPc[(int) $c['id']] ?? []),
+            'ip'         => $ips[0] ?? null,
+            'ips'        => $ips ? implode(',', $ips) : null,
             'loja'       => monitor_loja_curta(apelido_entidade((string) $c['entidade'])),
             'grupo'      => (string) $c['categoria'],
             'grupo_nome' => $cats[$c['categoria']] ?? (string) $c['categoria'],
@@ -295,6 +314,10 @@ function monitor_fontes_inventario(PDO $pdo): array
         ];
     }
 
+    // fontes com 1 IP só: a lista de candidatos é o próprio IP
+    foreach ($itens as &$it) $it['ips'] ??= $it['ip'];
+    unset($it);
+
     return monitor_resolver_ip_duplicado($itens);
 }
 
@@ -320,15 +343,15 @@ function monitor_sincronizar(PDO $pdo, ?array $itens = null): array
     }
 
     $ins = $pdo->prepare("INSERT INTO portal_monitor_dispositivos
-            (origem, origem_id, nome, ip, loja, grupo, duplicado_de, monitorar)
-        VALUES (?,?,?,?,?,?,?,?)
-        ON DUPLICATE KEY UPDATE nome = VALUES(nome), ip = VALUES(ip), loja = VALUES(loja),
+            (origem, origem_id, nome, ip, ips, loja, grupo, duplicado_de, monitorar)
+        VALUES (?,?,?,?,?,?,?,?,?)
+        ON DUPLICATE KEY UPDATE nome = VALUES(nome), ip = VALUES(ip), ips = VALUES(ips), loja = VALUES(loja),
             grupo = VALUES(grupo), duplicado_de = VALUES(duplicado_de), removido_em = NULL");
     $novos = 0;
     $vistos = [];
     foreach ($itens as $it) {
         $monitorar = $it['duplicado_de'] === null ? $novosPorGrupo[$it['grupo']] : 0;
-        $ins->execute([$it['origem'], $it['origem_id'], $it['nome'], $it['ip'], $it['loja'],
+        $ins->execute([$it['origem'], $it['origem_id'], $it['nome'], $it['ip'], $it['ips'] ?? $it['ip'], $it['loja'],
                        $it['grupo'], $it['duplicado_de'], $monitorar]);
         if ($ins->rowCount() === 1) $novos++; // 1 = inseriu, 2 = atualizou, 0 = igual
         $vistos[$it['origem'] . ':' . $it['origem_id']] = true;
@@ -390,9 +413,9 @@ function monitor_manual_criar(PDO $pdo, string $nome, string $ip, string $loja, 
     $g = monitor_grupo($pdo, $grupo);
     if ($g === null) throw new \InvalidArgumentException('grupo inexistente');
 
-    $pdo->prepare("INSERT INTO portal_monitor_dispositivos (origem, origem_id, nome, ip, loja, grupo, monitorar)
-                   VALUES ('manual', NULL, ?, ?, ?, ?, ?)")
-        ->execute([$nome, trim($ip), monitor_loja_curta($loja), $grupo, (int) $g['monitorar_novos']]);
+    $pdo->prepare("INSERT INTO portal_monitor_dispositivos (origem, origem_id, nome, ip, ips, loja, grupo, monitorar)
+                   VALUES ('manual', NULL, ?, ?, ?, ?, ?, ?)")
+        ->execute([$nome, trim($ip), trim($ip), monitor_loja_curta($loja), $grupo, (int) $g['monitorar_novos']]);
     return (int) $pdo->lastInsertId();
 }
 
@@ -401,9 +424,9 @@ function monitor_manual_atualizar(PDO $pdo, int $id, string $nome, string $ip, s
     if (trim($nome) === '') throw new \InvalidArgumentException('nome obrigatório');
     if (!monitor_ip_valido($ip)) throw new \InvalidArgumentException('IP inválido');
     if (monitor_grupo($pdo, $grupo) === null) throw new \InvalidArgumentException('grupo inexistente');
-    $pdo->prepare("UPDATE portal_monitor_dispositivos SET nome = ?, ip = ?, loja = ?, grupo = ?
+    $pdo->prepare("UPDATE portal_monitor_dispositivos SET nome = ?, ip = ?, ips = ?, loja = ?, grupo = ?
                    WHERE id = ? AND origem = 'manual'")
-        ->execute([trim($nome), trim($ip), monitor_loja_curta($loja), $grupo, $id]);
+        ->execute([trim($nome), trim($ip), trim($ip), monitor_loja_curta($loja), $grupo, $id]);
 }
 
 /** Só manuais — os do inventário se desligam com a chave Monitorar. */
@@ -431,14 +454,14 @@ function monitor_semear_do_dude(PDO $pdo): array
     $dude = $pdo->query("SELECT nome, endereco, loja, categoria FROM portal_dude_estado
                          WHERE tipo = 'device' AND endereco <> ''")->fetchAll(PDO::FETCH_ASSOC);
     $upd = $pdo->prepare("UPDATE portal_monitor_dispositivos SET monitorar = 1
-                          WHERE COALESCE(ip_fixo, ip) = ? AND duplicado_de IS NULL AND removido_em IS NULL");
+                          WHERE (ip_fixo = ? OR FIND_IN_SET(?, ips)) AND duplicado_de IS NULL AND removido_em IS NULL");
     foreach ($dude as $d) {
-        $upd->execute([$d['endereco']]);
+        $upd->execute([$d['endereco'], $d['endereco']]);
         if ($upd->rowCount() > 0) { $ligados += $upd->rowCount(); continue; }
 
         // já existe (qualquer origem) com esse IP, mesmo que já ligado? não duplica
-        $st = $pdo->prepare("SELECT COUNT(*) FROM portal_monitor_dispositivos WHERE COALESCE(ip_fixo, ip) = ?");
-        $st->execute([$d['endereco']]);
+        $st = $pdo->prepare("SELECT COUNT(*) FROM portal_monitor_dispositivos WHERE ip_fixo = ? OR FIND_IN_SET(?, ips)");
+        $st->execute([$d['endereco'], $d['endereco']]);
         if ((int) $st->fetchColumn() > 0) continue;
 
         $id = monitor_manual_criar($pdo, (string) $d['nome'], (string) $d['endereco'], (string) $d['loja'],

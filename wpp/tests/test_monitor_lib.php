@@ -17,6 +17,14 @@ t_eq(monitor_escolher_ip([['fe80::1', 'NetworkPortEthernet'], ['127.0.0.1', 'Net
 t_eq(monitor_escolher_ip([['192.168.2.22', 'NetworkPortEthernet'], ['192.168.1.40', 'NetworkPortEthernet']]), '192.168.1.40', 'escolher_ip: mesmo tipo -> prefere a rede do servidor (192.168.1.)');
 t_eq(monitor_escolher_ip([]), null, 'escolher_ip: sem IP -> null');
 
+// monitor_escolher_ips() — GLPI guarda IPs antigos da mesma placa (ex.: PDV125
+// com .0.185, .2.209 e .2.26): guarda até 4, sem repetir, na mesma ordem de preferência
+$pdv125 = [['192.168.0.185', 'NetworkPortEthernet'], ['fe80::1', 'NetworkPortEthernet'], ['192.168.2.209', 'NetworkPortEthernet'],
+           ['192.168.2.26', 'NetworkPortEthernet'], ['192.168.2.26', 'NetworkPortEthernet']];
+t_eq(monitor_escolher_ips($pdv125), ['192.168.0.185', '192.168.2.209', '192.168.2.26'], 'escolher_ips: todos os candidatos válidos, sem repetir');
+t_eq(count(monitor_escolher_ips(array_map(fn($i) => ["192.168.2.$i", 'NetworkPortEthernet'], range(1, 9)))), 4, 'escolher_ips: no máximo 4');
+t_eq(monitor_escolher_ips([]), [], 'escolher_ips: sem IP -> []');
+
 // ---------------------------------------------------------------------------
 // monitor_loja_curta() — padroniza pro formato da Central ("Lj 003")
 // ---------------------------------------------------------------------------
