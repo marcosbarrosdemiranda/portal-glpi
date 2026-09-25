@@ -14,6 +14,7 @@ Bem-vindo ao vault de documentação do Portal GLPI.
 
 - [[Módulos/Cofre-TI|🔒 Cofre de TI]] — Senhas, comandos e contatos úteis
 - [[Módulos/Projetos-TI|💼 Projetos de TI]] — Gestão de projetos com exportação
+- [[Módulos/Monitor-de-Rede|📡 Monitor de Rede]] — Ping próprio do portal no lugar do The Dude (em andamento, 7 etapas)
 
 ---
 

@@ -104,8 +104,9 @@ O próprio portal pinga todos os equipamentos cadastrados, a cada 1 minuto, **em
 - [ ] Resumo no topo de cada loja (ex.: "Lj 003 — 14 🟢 · 1 🔴 · 2 🟡") e filtro por loja/grupo/só problemas.
 - [ ] Atualiza sozinho a cada 30 s (mesmo `bg=1` do auth_guard pra não contar como atividade).
 - [ ] Layout em grade (automático). Posicionar à mão como no Dude fica como melhoria futura, se fizer falta.
-- **Pronto quando:** abrindo o card, cada loja aparece com todos os equipamentos monitorados, cores batendo com a Central de Alertas.
-- **Estimativa:** ~3h.
+- [ ] **Status ligado/desligado em cada categoria do Inventário** (PDVs, PCs retaguarda, balanças, VMs, TVs, rádios…). Hoje `inventario_pcs.php`, `inventario_pc.php` e `inventario_balancas.php` pingam IP por IP pelo navegador (`ping.php`) ao abrir a página. Passa a ler o status do monitor (instantâneo, sem disparar ping por linha) mostrando 🟢/🔴/🟡 + "desde"; equipamento com Monitorar desligado continua com o ping sob demanda de hoje (⚪ + botão testar).
+- **Pronto quando:** abrindo o card, cada loja aparece com todos os equipamentos monitorados, cores batendo com a Central de Alertas; e cada categoria do Inventário mostra o mesmo status na lista.
+- **Estimativa:** ~4h.
 
 ### Etapa 5 — Notificação por grupo
 **Objetivo:** PDVs notificam de um jeito, Balanças de outro.
