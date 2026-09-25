@@ -61,6 +61,8 @@ O próprio portal pinga todos os equipamentos cadastrados, a cada 1 minuto, **em
 ## 4. Roteiro por etapas
 
 ### Etapa 1 — Equipamentos do inventário + chave "Monitorar" + grupos (sem monitorar ainda)
+> **Progresso (branch `feat/monitor-rede-etapa1`):** ✅ passo 1 `monitor_lib.php` + testes (7f58027) · ✅ passo 2 sincronização + semente do Dude em produção — 144 do inventário, 9 manuais, 65 monitorados, os 40 do Dude cobertos (fdd62f3) · ✅ passo 3 tela `monitor_dispositivos.php` + link (2343bb7) · ⏳ passo 4 chave Monitorar na tela do inventário · ⏳ passo 5 revisão final + merge.
+> **Desvios do plano original:** config de grupo em tabela nova `portal_monitor_grupos` (não em `portal_dude_categoria_config`, adiantando a etapa 7); até 4 IPs candidatos por equipamento (`ips`), pingar todos na etapa 2 — o GLPI guarda IPs antigos (ex.: PDV125 com .0.185/.2.209/.2.26).
 **Objetivo:** saber exatamente o que vai ser monitorado, direto do inventário, e poder ligar/desligar por equipamento e por grupo.
 - [ ] `monitor_lib.php`: `monitor_listar_inventario()` junta as fontes (GLPI computers por categoria, balanças, pfSense, servidores MGV) → lista única `origem, origem_id, nome, ip, loja, grupo`. Regra de IP: preferir `192.168.x`; IP fixado manualmente vence.
 - [ ] Tabela `portal_monitor_dispositivos` (`origem, origem_id` UNIQUE, `monitorar`, `ip_fixo NULL`, `porta_tcp NULL`, `status ENUM('up','down','desconhecido')`, `status_desde`, `falhas_seguidas`, `sucessos_seguidos`, `ultimo_ping`, `latencia_ms`) + manuais (`origem='manual'`, com nome/IP/loja/grupo próprios).
