@@ -133,6 +133,11 @@ if ($pdo instanceof PDO) {
         t_eq((int) ($sinc[999999001] ?? -1), 1, 'sincronizar: novo entra com monitorar_novos do grupo');
         t_eq((int) ($sinc[999999002] ?? -1), 0, 'sincronizar: IP duplicado entra desligado');
 
+        $po = monitor_dispositivo_por_origem($pdo, 'glpi', 999999001);
+        t_eq($po['nome'] ?? null, '__teste_monitor__inv', 'por_origem: acha pelo id do inventário');
+        t_eq($po['ip_efetivo'] ?? null, '10.255.255.9', 'por_origem: traz o IP efetivo');
+        t_ok(monitor_dispositivo_por_origem($pdo, 'glpi', 999999999) === null, 'por_origem: inexistente -> null');
+
         $pdo->exec("UPDATE portal_monitor_dispositivos SET monitorar = 0 WHERE origem='glpi' AND origem_id = 999999001");
         monitor_sincronizar($pdo, $fake);
         $st->execute();

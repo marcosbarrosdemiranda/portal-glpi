@@ -31,6 +31,16 @@ if ($action !== '') {
             exit;
         }
 
+        // chave "Monitorar" dentro da tela do inventário (inventario_pc.php)
+        if ($action === 'por_origem') {
+            $d = monitor_dispositivo_por_origem($pdo, (string) ($_GET['origem'] ?? ''), (int) ($_GET['origem_id'] ?? 0));
+            $ok(['item' => $d ? [
+                'id' => (int) $d['id'], 'monitorar' => (int) $d['monitorar'], 'ip_efetivo' => $d['ip_efetivo'],
+                'grupo_nome' => $d['grupo_nome'], 'duplicado_de' => $d['duplicado_de'],
+            ] : null]);
+            exit;
+        }
+
         if ($_SERVER['REQUEST_METHOD'] !== 'POST') { $err('método inválido'); exit; }
         $id = (int) ($_POST['id'] ?? 0);
 

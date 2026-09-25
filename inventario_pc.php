@@ -678,6 +678,15 @@ $qsStale = $stale_filtro ? '&stale=1' : '';
       <div class="fld"><label>Nº de série</label><input id="f-serial"/></div>
       <div class="fld"><label>Patrimônio</label><input id="f-otherserial"/></div>
       <div class="fld full"><label>Observação</label><textarea id="f-comment" rows="2"></textarea></div>
+      <!-- Monitor de Rede: liga/desliga na hora (não depende do Salvar). Só aparece
+           editando máquina que já está no monitor e pra quem tem acesso à config. -->
+      <div class="fld full" id="f-mon-wrap" style="display:none">
+        <label style="display:flex;align-items:center;gap:.5rem;cursor:pointer">
+          <input type="checkbox" id="f-mon" onchange="setMonitorarPc(this.checked)" style="width:auto">
+          <span>📡 Monitorar no Monitor de Rede</span>
+        </label>
+        <small id="f-mon-info" style="color:#6b7280"></small>
+      </div>
     </div>
     <footer>
       <button class="btn btn-ghost" onclick="fecharModal()">Cancelar</button>
@@ -754,7 +763,32 @@ function abrirModal(id) {
       $('#f-host').value = it.host_id || 0;
     }
   });
+  carregarMonitorPc(id);
   $('#modalBack').classList.add('show');
+}
+// Chave "Monitorar" do Monitor de Rede — falha (sem permissão, máquina ainda não
+// sincronizada) só esconde a chave, nunca atrapalha o modal.
+let MON_PC_ID = 0;
+function carregarMonitorPc(id) {
+  $('#f-mon-wrap').style.display = 'none'; MON_PC_ID = 0;
+  if (!id) return;
+  fetch(`monitor_dispositivos.php?action=por_origem&origem=glpi&origem_id=${id}`)
+    .then(r => r.json()).then(d => {
+      if (!d.ok || !d.item) return;
+      MON_PC_ID = d.item.id;
+      $('#f-mon').checked = !!d.item.monitorar;
+      $('#f-mon').disabled = !!d.item.duplicado_de;
+      $('#f-mon-info').textContent = d.item.duplicado_de
+        ? `IP duplicado com ${d.item.duplicado_de} — resolva antes de monitorar`
+        : `Grupo ${d.item.grupo_nome || '—'} · IP ${d.item.ip_efetivo || 'sem IP'} · muda na hora`;
+      $('#f-mon-wrap').style.display = '';
+    }).catch(() => {});
+}
+function setMonitorarPc(ligar) {
+  if (!MON_PC_ID) return;
+  fetch('monitor_dispositivos.php?action=set_monitorar', { method: 'POST', body: new URLSearchParams({ id: MON_PC_ID, ligar: ligar ? '1' : '0' }) })
+    .then(r => r.json()).then(d => d.ok ? toast(ligar ? 'Monitoramento ligado' : 'Monitoramento desligado') : toast(d.erro || 'Erro', false))
+    .catch(() => toast('Erro ao salvar o monitoramento', false));
 }
 function fecharModal() { $('#modalBack').classList.remove('show'); }
 function salvar() {

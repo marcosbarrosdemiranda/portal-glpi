@@ -379,6 +379,17 @@ function monitor_dispositivo(PDO $pdo, int $id): ?array
     return $st->fetch(PDO::FETCH_ASSOC) ?: null;
 }
 
+/** Pela origem do inventário (ex.: 'glpi' + id do computador) — usado pela chave na tela do inventário. */
+function monitor_dispositivo_por_origem(PDO $pdo, string $origem, int $origemId): ?array
+{
+    $st = $pdo->prepare("SELECT d.*, COALESCE(d.ip_fixo, d.ip) AS ip_efetivo, g.nome AS grupo_nome
+                         FROM portal_monitor_dispositivos d
+                         LEFT JOIN portal_monitor_grupos g ON g.grupo = d.grupo
+                         WHERE d.origem = ? AND d.origem_id = ?");
+    $st->execute([$origem, $origemId]);
+    return $st->fetch(PDO::FETCH_ASSOC) ?: null;
+}
+
 /** Tudo (menos removidos do inventário), com o IP efetivo (ip_fixo vence). */
 function monitor_listar(PDO $pdo): array
 {
