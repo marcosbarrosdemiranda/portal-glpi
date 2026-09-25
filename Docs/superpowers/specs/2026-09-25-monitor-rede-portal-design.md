@@ -38,7 +38,9 @@ O próprio portal pinga todos os equipamentos cadastrados, a cada 1 minuto, **em
    - WhatsApp ligado/desligado **para aquele grupo**
    - lembrete (a cada X min enquanto continuar fora)
    - horário de notificação + exceções por loja/dia + feriados (já existem)
-   - *(a confirmar)* grupo de WhatsApp de destino diferente por categoria — hoje só existe 1 grupo de alertas
+   - destino: **todos no mesmo grupo de alertas de hoje** (decidido 2026-09-25 — sem grupo por categoria)
+1d. **Quedas curtas / reinício** — com ping a cada 60 s e tolerância 3, um PDV que reinicia (≈ 1–3 min fora) **não gera alerta** (de propósito: é o que evita o falso alarme). Mas a queda curta não some: o monitor registra cada "piscada" (1+ falha seguida de volta antes da tolerância) com horário e duração. Isso aparece na tela do equipamento e pode virar, por grupo, (a) só registro, (b) resumo diário, ou (c) aviso "🔁 PDV reiniciou" na hora.
+1e. **Tempos de detecção** (ping a cada 60 s): caiu → alerta em ≈ tolerância × 1 min (+ até 1 min de espera da rodada) = PDV com 3 falhas ≈ **3–4 min**; voltou → ✅ em ≈ **2–3 min**; lembrete enquanto continuar fora = `lembrete_min` do grupo (0 = sem lembrete). Grupo crítico pode usar tolerância 2 (≈ 2–3 min); intervalo de 30 s fica como opção se precisar.
 2. **Ping em paralelo sem mudar a imagem Docker** — o worker não tem `fping`, mas tem `ping` (iputils). Dispara 1 processo `ping -c 1 -W 1` por IP ao mesmo tempo (`proc_open`) e coleta todos: rodada inteira ≈ 1–2 s, independente de quantos estão fora. (Se um dia passar de ~200 devices, trocar por `fping` = só adicionar `fping` no `docker/Dockerfile`.)
 3. **Confirmação contra falso alarme** — cai só depois de **3 falhas seguidas** (≈ 3 min); volta depois de **2 sucessos seguidos**. Padrão 3/2, configurável por grupo (etapa 1).
 4. **Só grava em `portal_dude_estado` quando o estado MUDA** — assim `atualizado_em` continua significando "nesse estado desde", e o "ligado muito tempo" segue funcionando sem alteração.
@@ -63,7 +65,8 @@ O próprio portal pinga todos os equipamentos cadastrados, a cada 1 minuto, **em
 ### Etapa 2 — Motor de ping em modo sombra
 **Objetivo:** o portal pinga tudo e guarda o resultado, **sem gerar alerta** — pra comparar com a realidade antes de confiar.
 - [ ] `monitor_ping_lote(array $ips): array` — pings em paralelo via `proc_open`, devolve `ip => [ok, latencia_ms]`. Seam de teste igual ao `__dude_ping_fake`.
-- [ ] `monitor_aplicar_resultado(array $disp, bool $ok, int $falhasParaCair, int $sucessosParaVoltar): array` — **função pura**: novo estado + se houve transição. Testes cobrindo: 1 e 2 falhas não derrubam, 3 derruba; 1 sucesso não levanta, 2 levantam; pisca-pisca não gera transição.
+- [ ] `monitor_aplicar_resultado(array $disp, bool $ok, int $falhasParaCair, int $sucessosParaVoltar): array` — **função pura**: novo estado + se houve transição. Testes cobrindo: 1 e 2 falhas não derrubam, 3 derruba; 1 sucesso não levanta, 2 levantam; pisca-pisca não gera transição. Também devolve **queda curta** (voltou antes da tolerância) com a duração.
+- [ ] Tabela `portal_monitor_quedas_curtas` (dispositivo, inicio, fim, falhas) — registro das piscadas/reinícios, visível na tela do equipamento.
 - [ ] `monitor_rodada(PDO $pdo)` — respeita o intervalo de 60 s, pinga os ativos, grava contadores/status/latência na tabela do monitor, grava `monitor_ultima_rodada` e a duração da rodada.
 - [ ] Liga no `wpp/worker.php` (ao lado de `dude_gatilho_verificar_ping`).
 - [ ] Na tela: coluna "status do monitor" + "desde" + latência, e destaque quando o monitor discorda do `portal_dude_estado`.
@@ -83,7 +86,7 @@ O próprio portal pinga todos os equipamentos cadastrados, a cada 1 minuto, **em
 
 ### Etapa 4 — Notificação por grupo
 **Objetivo:** PDVs notificam de um jeito, Balanças de outro.
-- [ ] Colunas novas em `portal_dude_categoria_config`: `notif_whatsapp` (sim/não por grupo), `lembrete_min`, e — se confirmado — `destino_jid` (grupo de WhatsApp próprio da categoria; vazio = grupo de alertas padrão).
+- [ ] Colunas novas em `portal_dude_categoria_config`: `notif_whatsapp` (sim/não por grupo), `lembrete_min`, `aviso_queda_curta` (`registro` | `resumo_diario` | `na_hora`). Destino continua o grupo de alertas único.
 - [ ] Motor (`wpp/gatilhos.php` / `gat_alertas_tipo`): hoje WhatsApp e lembrete são por **tipo** de alerta; passa a consultar a config do **grupo** da ocorrência quando ela tiver categoria (tipo continua valendo como chave geral: tipo desligado = nada sai).
 - [ ] Tela: bloco de notificação dentro da config de cada grupo.
 - [ ] Testes: grupo com WhatsApp desligado não envia, lembrete por grupo respeitado, grupo sem config herda o do tipo.
