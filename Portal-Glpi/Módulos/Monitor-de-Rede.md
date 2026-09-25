@@ -10,7 +10,7 @@ tags:
 
 > O próprio portal pinga os equipamentos do inventário e alimenta a Central de Alertas, o mapa da rede e o status de cada categoria do Inventário. O The Dude sai de cena.
 
-**Status:** 🟡 Roteiro aprovado — implementação por etapas (0/7)
+**Status:** 🟡 Em implementação — etapa 1/7 concluída
 **Decidido em:** 25/09/2026
 **🏠 Módulo:** [[Bem-vindo|Portal GLPI]]
 **Roteiro técnico completo:** `Docs/superpowers/specs/2026-09-25-monitor-rede-portal-design.md`
@@ -48,7 +48,7 @@ Causa comum: o Dude **só avisa quando muda de estado**. Aviso perdido = estado 
 
 ## 🗺️ Roteiro
 
-- [ ] **Etapa 1** — Equipamentos do inventário + chave "Monitorar" + configuração por grupo
+- [x] **Etapa 1** — Equipamentos do inventário + chave "Monitorar" + configuração por grupo ✅ 25/09 — tela: Configurar Alertas → Monitor de Rede
 - [ ] **Etapa 2** — Motor de ping em modo sombra (monitora, não alerta — comparar com a realidade)
 - [ ] **Etapa 3** — Virada: monitor passa a alimentar a Central de Alertas
 - [ ] **Etapa 4** — Mapa da rede no Inventário (loja → grupos → equipamentos com 🟢🔴🟡⚪, nome e IP) + status ligado/desligado em cada categoria do Inventário

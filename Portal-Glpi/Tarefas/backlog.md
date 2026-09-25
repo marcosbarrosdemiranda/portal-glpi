@@ -31,7 +31,7 @@ O que o Ponto conta como anormalidade: sync com erro · falha parcial na API da 
 
 Roteiro completo: `Docs/superpowers/specs/2026-09-25-monitor-rede-portal-design.md`
 
-- [ ] Etapa 1 — Equipamentos do inventário + chave "Monitorar" + config por grupo
+- [x] Etapa 1 — Equipamentos do inventário + chave "Monitorar" + config por grupo (concluída 2026-09-25)
 - [ ] Etapa 2 — Motor de ping em paralelo, modo sombra (sem alertar)
 - [ ] Etapa 3 — Virada: monitor passa a alimentar a Central de Alertas
 - [ ] Etapa 4 — Mapa da rede no Inventário + status ligado/desligado em cada categoria do Inventário
