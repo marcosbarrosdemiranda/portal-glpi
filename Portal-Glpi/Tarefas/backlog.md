@@ -27,6 +27,16 @@ O que o Ponto conta como anormalidade: sync com erro · falha parcial na API da 
     - `dias[]`: ontem e hoje; cada anormalidade tem `titulo`, `inicio`, `fim`, `resolvida` e `texto` pronto (ex. "Sync rápido: erro às 03:00 — resolvido às 03:10 · HTTP 500 em /punch/")
   - Nos primeiros dias: "ontem" vem como "sem histórico registrado" (registro começou 24/09 07:08); a partir de 25/09 vem completo
 
+### Monitor de rede próprio (substitui o The Dude) — em andamento por etapas
+
+Roteiro completo: `Docs/superpowers/specs/2026-09-25-monitor-rede-portal-design.md`
+
+- [ ] Etapa 1 — Cadastro de equipamentos no portal (importa os 40 do Dude)
+- [ ] Etapa 2 — Motor de ping em paralelo, modo sombra (sem alertar)
+- [ ] Etapa 3 — Virada: monitor passa a alimentar a Central de Alertas
+- [ ] Etapa 4 — Latência, limiar por categoria, renomear "The Dude" → "Monitor de rede"
+- [ ] Etapa 5 — Aposentar o Dude
+
 ## 🔥 Alta Prioridade
 
 - [ ] VNC funcional — instalar noVNC + websockify no servidor XAMPP
