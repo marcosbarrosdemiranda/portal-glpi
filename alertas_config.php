@@ -204,6 +204,7 @@ if ($action !== '') {
   <div class="brand"><i class="bi bi-sliders"></i> Configurar Alertas</div>
   <div>
     <a href="backup_maquinas.php"><i class="bi bi-hdd-network me-1"></i>Máquinas de backup</a>
+    <a href="monitor_dispositivos.php"><i class="bi bi-broadcast me-1"></i>Monitor de Rede</a>
     <a href="dude_config.php"><i class="bi bi-diagram-3 me-1"></i>The Dude</a>
     <a href="solides_config.php"><i class="bi bi-fingerprint me-1"></i>Ponto (Sólides)</a>
     <a href="alertas.php"><i class="bi bi-arrow-left me-1"></i>Central de Alertas</a>
