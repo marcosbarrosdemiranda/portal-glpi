@@ -416,13 +416,42 @@ function monitor_dispositivo_por_origem(PDO $pdo, string $origem, int $origemId)
 /** Tudo (menos removidos do inventário), com o IP efetivo (ip_fixo vence). */
 function monitor_listar(PDO $pdo): array
 {
+    // quedas_24h = reinícios/quedas curtas nas últimas 24h;
+    // dude_status = o que o Dude diz desse IP (modo sombra: comparar antes da virada)
     return $pdo->query("
-        SELECT d.*, COALESCE(d.ip_fixo, d.ip) AS ip_efetivo, g.nome AS grupo_nome
+        SELECT d.*, COALESCE(d.ip_fixo, d.ip) AS ip_efetivo, g.nome AS grupo_nome,
+               (SELECT COUNT(*) FROM portal_monitor_quedas_curtas q
+                 WHERE q.dispositivo_id = d.id AND q.inicio >= NOW() - INTERVAL 24 HOUR) AS quedas_24h,
+               (SELECT e.status FROM portal_dude_estado e
+                 WHERE e.tipo = 'device' AND e.endereco <> ''
+                   AND (e.endereco COLLATE utf8mb4_unicode_ci = d.ip_fixo
+                        OR FIND_IN_SET(e.endereco COLLATE utf8mb4_unicode_ci, d.ips))
+                 LIMIT 1) AS dude_status
         FROM portal_monitor_dispositivos d
         LEFT JOIN portal_monitor_grupos g ON g.grupo = d.grupo
         WHERE d.removido_em IS NULL
         ORDER BY g.nome, d.loja, d.nome
     ")->fetchAll(PDO::FETCH_ASSOC);
+}
+
+/** Resumo da última rodada pro topo da tela. */
+function monitor_resumo_rodada(): array
+{
+    return [
+        'ultima' => wpp_cfg_get('monitor_ultima_rodada', ''),
+        'ms'     => (int) wpp_cfg_get('monitor_rodada_ms', '0'),
+        'qtd'    => (int) wpp_cfg_get('monitor_rodada_qtd', '0'),
+    ];
+}
+
+/** Quedas curtas de 1 equipamento (mais recentes primeiro). */
+function monitor_quedas_curtas(PDO $pdo, int $dispositivoId, int $limite = 20): array
+{
+    $st = $pdo->prepare("SELECT inicio, fim, falhas, TIMESTAMPDIFF(SECOND, inicio, fim) AS segundos
+                         FROM portal_monitor_quedas_curtas WHERE dispositivo_id = ?
+                         ORDER BY inicio DESC LIMIT " . max(1, min(200, $limite)));
+    $st->execute([$dispositivoId]);
+    return $st->fetchAll(PDO::FETCH_ASSOC);
 }
 
 function monitor_set_monitorar(PDO $pdo, int $id, bool $ligar): void

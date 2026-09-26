@@ -75,6 +75,8 @@ O próprio portal pinga todos os equipamentos cadastrados, a cada 1 minuto, **em
 - **Estimativa:** ~3h.
 
 ### Etapa 2 — Motor de ping em modo sombra
+> **Progresso (branch `feat/monitor-rede-etapa2`):** ✅ passo 1 motor de ping paralelo + regra de estado + quedas curtas, 75 testes (ab656fe) — 78 IPs em 1,1 s no worker · ✅ passo 2 rodada no worker como passo 0, antes da checagem do WhatsApp (0c029c7) — 65 equipamentos em 1,2 s · ✅ passo 3 tela com status/latência/reinícios 24h/comparação com o Dude + filtros (este commit) · ⏳ passo 4 observação 1–2 dias (divergências com o Dude, IPs que bloqueiam ICMP) · ⏳ passo 5 merge.
+> **Desvios:** equipamento com vários IPs candidatos = no ar se QUALQUER um responder (grava `ip_respondeu`); coluna `falha_desde` pra "caído desde a 1ª falha"; heartbeat `monitor_ultima_rodada`/`monitor_rodada_ms`/`monitor_rodada_qtd` em wpp_cfg; sincronização com o inventário a cada 10 min pelo worker.
 **Objetivo:** o portal pinga tudo e guarda o resultado, **sem gerar alerta** — pra comparar com a realidade antes de confiar.
 - [ ] `monitor_ping_lote(array $ips): array` — pings em paralelo via `proc_open`, devolve `ip => [ok, latencia_ms]`. Seam de teste igual ao `__dude_ping_fake`.
 - [ ] `monitor_aplicar_resultado(array $disp, bool $ok, int $falhasParaCair, int $sucessosParaVoltar): array` — **função pura**: novo estado + se houve transição. Testes cobrindo: 1 e 2 falhas não derrubam, 3 derruba; 1 sucesso não levanta, 2 levantam; pisca-pisca não gera transição. Também devolve **queda curta** (voltou antes da tolerância) com a duração.

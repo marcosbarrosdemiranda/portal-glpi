@@ -27,7 +27,13 @@ if ($action !== '') {
     try {
         if ($action === 'listar') {
             $sinc = monitor_sincronizar($pdo); // inventário é a fonte: toda abertura traz o que mudou
-            $ok(['grupos' => monitor_grupos_listar($pdo), 'dispositivos' => monitor_listar($pdo), 'sinc' => $sinc]);
+            $ok(['grupos' => monitor_grupos_listar($pdo), 'dispositivos' => monitor_listar($pdo), 'sinc' => $sinc,
+                 'rodada' => monitor_resumo_rodada()]);
+            exit;
+        }
+
+        if ($action === 'quedas') {
+            $ok(['quedas' => monitor_quedas_curtas($pdo, (int) ($_GET['id'] ?? 0))]);
             exit;
         }
 
@@ -135,8 +141,10 @@ if ($action !== '') {
 <div class="wrap">
   <div class="alert alert-info py-2 small">
     <i class="bi bi-info-circle me-1"></i>
-    Etapa 1 do Monitor de Rede: aqui você escolhe <b>o que</b> vai ser monitorado e <b>como</b>, por grupo.
-    O ping e os alertas entram nas próximas etapas — por enquanto nada disso gera notificação.
+    <b>Modo sombra (etapa 2):</b> o portal já pinga os equipamentos com Monitorar ligado e mostra o status aqui,
+    mas <b>ainda não gera alerta</b> — os alertas continuam vindo do Dude até a virada (etapa 3).
+    Use a coluna "Dude" pra comparar.
+    <div id="rodada" class="mt-1"></div>
   </div>
 
   <div class="card-box">
@@ -164,6 +172,8 @@ if ($action !== '') {
       <div><label class="form-label small mb-0">Mostrar</label>
         <select id="f-mon" class="form-select form-select-sm" style="width:150px">
           <option value="">Todos</option><option value="1">Só monitorados</option><option value="0">Só não monitorados</option>
+          <option value="down">Só fora do ar</option><option value="quedas">Com reinício/queda curta (24h)</option>
+          <option value="diverge">Diferente do Dude</option>
         </select></div>
       <div><label class="form-label small mb-0">Buscar</label>
         <input id="f-busca" class="form-control form-control-sm" style="width:160px" placeholder="nome ou IP"></div>
@@ -198,11 +208,19 @@ const INTERVALOS = [[30,'30 s'],[60,'1 min'],[120,'2 min'],[300,'5 min'],[600,'1
 const QUEDA = [['registro','Só registro'],['resumo_diario','Resumo diário'],['na_hora','Aviso na hora']];
 const fmtMin = seg => seg < 60 ? seg + ' s' : (seg % 60 ? (seg / 60).toFixed(1).replace('.', ',') : seg / 60) + ' min';
 
-function carregar() {
-  fetch('?action=listar').then(r => r.json()).then(d => {
+function carregar(bg = false) {
+  fetch('?action=listar' + (bg ? '&bg=1' : '')).then(r => r.json()).then(d => {
     if (!d.ok) return fb('fb-lista', d.erro || 'falha ao carregar', false);
     GRUPOS = d.grupos; DISP = d.dispositivos;
     montarFiltros(); renderGrupos(); renderLista();
+    const rd = d.rodada || {};
+    const on = DISP.filter(x => +x.monitorar);
+    const cnt = st => on.filter(x => x.status === st).length;
+    document.getElementById('rodada').innerHTML = rd.ultima
+      ? `Última rodada: <b>${H(rd.ultima.slice(11))}</b> · ${rd.qtd} pingado(s) em ${(rd.ms / 1000).toFixed(1).replace('.', ',')} s ·
+         🟢 ${cnt('up')} no ar · 🔴 ${cnt('down')} fora · ⚪ ${cnt('desconhecido')} sem resposta ainda ·
+         🟡 ${on.filter(x => +x.quedas_24h).length} com reinício nas 24h · ⚠️ ${on.filter(diverge).length} diferente do Dude`
+      : 'Nenhuma rodada ainda — o worker roda a cada ~30 s.';
     if (d.sinc && d.sinc.novos) fb('fb-lista', d.sinc.novos + ' equipamento(s) novo(s) do inventário entraram agora.', true);
   });
 }
@@ -241,7 +259,7 @@ function renderGrupos() {
 function renderLista() {
   const fg = document.getElementById('f-grupo').value, fl = document.getElementById('f-loja').value;
   const fm = document.getElementById('f-mon').value, busca = document.getElementById('f-busca').value.trim().toLowerCase();
-  const itens = DISP.filter(x => (!fg || x.grupo === fg) && (!fl || x.loja === fl) && (fm === '' || String(+x.monitorar) === fm)
+  const itens = DISP.filter(x => (!fg || x.grupo === fg) && (!fl || x.loja === fl) && filtroMostrar(x, fm)
     && (!busca || (x.nome + ' ' + (x.ips || '') + ' ' + (x.ip_fixo || '')).toLowerCase().includes(busca)));
   if (!itens.length) { document.getElementById('lista').innerHTML = '<div class="text-muted">Nenhum equipamento com esse filtro.</div>'; return; }
 
@@ -250,15 +268,19 @@ function renderLista() {
   let html = '';
   for (const [grupo, lista] of Object.entries(porGrupo)) {
     html += `<div class="grupo-titulo">${H(grupo)} <span class="text-muted fw-normal">(${lista.length})</span></div>
-      <table><thead><tr><th style="width:70px">Monitorar</th><th>Nome</th><th>Loja</th><th>IP</th><th>IP fixo</th><th>Origem</th><th></th></tr></thead><tbody>`;
+      <table><thead><tr><th style="width:70px">Monitorar</th><th>Status</th><th>Nome</th><th>Loja</th><th>IP</th><th>Latência</th><th>Reinícios 24h</th><th>Dude</th><th>IP fixo</th><th>Origem</th><th></th></tr></thead><tbody>`;
     for (const x of lista) {
       const outros = (x.ips || '').split(',').filter(ip => ip && ip !== x.ip);
       html += `<tr>
         <td><div class="form-check form-switch mb-0"><input class="form-check-input" type="checkbox" ${+x.monitorar ? 'checked' : ''}
              ${x.duplicado_de ? 'disabled title="IP duplicado — resolva antes de monitorar"' : ''} onchange="setMonitorar(${x.id}, this.checked)"></div></td>
+        <td class="text-nowrap">${statusHtml(x)}</td>
         <td style="font-weight:600">${H(x.nome)}${x.duplicado_de ? `<div class="dup"><i class="bi bi-exclamation-triangle"></i> mesmo IP de ${H(x.duplicado_de)} (registro antigo?)</div>` : ''}</td>
         <td>${H(x.loja) || '<span class="text-muted">—</span>'}</td>
         <td>${H(x.ip_efetivo) || '<span class="text-danger">sem IP</span>'}${outros.length ? `<div class="ips-extra" title="IPs antigos/alternativos do inventário — o monitor testa todos">+ ${H(outros.join(', '))}</div>` : ''}</td>
+        <td>${x.latencia_ms !== null && +x.monitorar ? H(Math.round(x.latencia_ms)) + ' ms' : '<span class="text-muted">—</span>'}</td>
+        <td>${+x.quedas_24h ? `<a href="#" onclick="verQuedas(${x.id});return false">🟡 ${x.quedas_24h}</a>` : '<span class="text-muted">0</span>'}</td>
+        <td>${dudeHtml(x)}</td>
         <td>${x.origem === 'manual' ? '<span class="text-muted">—</span>' :
              `<input class="form-control form-control-sm ip-fixo" value="${H(x.ip_fixo || '')}" placeholder="usar do inventário"
                      onchange="setIpFixo(${x.id}, this)">`}</td>
@@ -271,6 +293,40 @@ function renderLista() {
     html += '</tbody></table>';
   }
   document.getElementById('lista').innerHTML = html;
+}
+
+// ── Etapa 2: status do ping (modo sombra) ──
+const desdeTxt = s => s ? s.slice(8, 10) + '/' + s.slice(5, 7) + ' ' + s.slice(11, 16) : '';
+function statusHtml(x) {
+  if (!+x.monitorar) return '<span class="text-muted">⚪ não monitorado</span>';
+  if (x.status === 'up')   return `🟢 no ar <span class="estimativa">desde ${desdeTxt(x.status_desde)}</span>`;
+  if (x.status === 'down') return `🔴 <b>fora</b> <span class="estimativa">desde ${desdeTxt(x.status_desde)}</span>`;
+  return +x.falhas_seguidas ? `⚪ sem resposta (${x.falhas_seguidas}x)` : '⚪ aguardando 1º ping';
+}
+// "diferente do Dude" só conta quando os dois têm opinião formada
+const diverge = x => +x.monitorar && x.dude_status && (x.status === 'up' || x.status === 'down') && x.status !== x.dude_status;
+function dudeHtml(x) {
+  if (!x.dude_status) return '<span class="text-muted">—</span>';
+  const t = x.dude_status === 'up' ? 'no ar' : 'fora';
+  return diverge(x) ? `<span class="text-warning fw-semibold" title="O Dude diz diferente do ping do portal">⚠️ ${t}</span>` : `<span class="text-muted">${t}</span>`;
+}
+function filtroMostrar(x, fm) {
+  if (fm === '') return true;
+  if (fm === 'down') return +x.monitorar && x.status === 'down';
+  if (fm === 'quedas') return +x.quedas_24h > 0;
+  if (fm === 'diverge') return diverge(x);
+  return String(+x.monitorar) === fm;
+}
+function verQuedas(id) {
+  const x = DISP.find(y => +y.id === id);
+  fetch('?action=quedas&id=' + id).then(r => r.json()).then(d => {
+    if (!d.ok) return fb('fb-lista', d.erro || 'falha', false);
+    const linhas = d.quedas.map(q => `• ${desdeTxt(q.inicio)} → ${q.fim.slice(11, 16)} (fora ~${Math.max(1, Math.round(q.segundos / 60))} min, ${q.falhas} ping(s) sem resposta)`);
+    alert(`Reinícios / quedas curtas — ${x ? x.nome : id}
+
+` + (linhas.join('
+') || 'nenhuma'));
+  });
 }
 
 function salvarGrupo(grupo) {
@@ -351,6 +407,13 @@ function excluirManual(id) {
 ['f-grupo', 'f-loja', 'f-mon'].forEach(i => document.getElementById(i).addEventListener('change', renderLista));
 document.getElementById('f-busca').addEventListener('input', renderLista);
 carregar();
+// status muda a cada rodada; bg=1 = não conta como atividade pro logout por inatividade.
+// Não atualiza com alguém digitando/escolhendo num campo (perderia o que foi digitado).
+setInterval(() => {
+  const foco = document.activeElement;
+  if (document.hidden || (foco && ['INPUT', 'SELECT', 'TEXTAREA'].includes(foco.tagName))) return;
+  carregar(true);
+}, 60000);
 </script>
 </body>
 </html>
