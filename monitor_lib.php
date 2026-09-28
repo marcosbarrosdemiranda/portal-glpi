@@ -2,6 +2,9 @@
 /**
  * monitor_lib.php — Monitor de rede próprio do portal (substitui o The Dude).
  *
+ * Etapa 3: o monitor manda na Central de Alertas (monitor_espelhar_estado a cada
+ * rodada). Ping falhou -> testa as portas 5900/445 antes de contar falha.
+ *
  * Etapa 2: motor de ping em paralelo, MODO SOMBRA — grava status/latência/quedas
  * curtas só nas tabelas do monitor; ainda não mexe em portal_dude_estado nem alerta.
  *
@@ -617,6 +620,55 @@ function monitor_tcp(string $ip, int $porta): ?float
     return round((microtime(true) - $t) * 1000, 2);
 }
 
+/** Portas testadas quando o ping falha — PC/PDV com firewall bloqueando ICMP ainda abre VNC e compartilhamento. */
+const MONITOR_PORTAS_RESERVA = [5900, 445];
+
+/**
+ * Testa várias (ip, porta) TCP AO MESMO TEMPO (connect assíncrono + select) —
+ * só roda pra quem já falhou no ping, então custa ~1 s no pior caso.
+ * Seam de teste: $GLOBALS['__monitor_tcp_fake'] = fn(string $ip, int $porta): ?float.
+ * Com o seam de ping ligado e sem o de TCP, nunca bate na rede (testes).
+ *
+ * @param array $alvos lista de [ip, porta]
+ * @return array "ip:porta" => latência em ms ou null
+ */
+function monitor_tcp_lote(array $alvos, float $timeout = 1.0): array
+{
+    $res = [];
+    foreach ($alvos as [$ip, $porta]) $res["$ip:$porta"] = null;
+    if (!$res) return [];
+
+    if (isset($GLOBALS['__monitor_tcp_fake']) && is_callable($GLOBALS['__monitor_tcp_fake'])) {
+        foreach ($alvos as [$ip, $porta]) $res["$ip:$porta"] = ($GLOBALS['__monitor_tcp_fake'])((string) $ip, (int) $porta);
+        return $res;
+    }
+    if (isset($GLOBALS['__monitor_ping_fake'])) return $res;
+
+    $socks = [];
+    $t0 = microtime(true);
+    foreach ($alvos as [$ip, $porta]) {
+        if (!monitor_ip_valido((string) $ip)) continue;
+        $s = @stream_socket_client("tcp://$ip:$porta", $errno, $errstr, $timeout,
+            STREAM_CLIENT_CONNECT | STREAM_CLIENT_ASYNC_CONNECT);
+        if ($s !== false) { stream_set_blocking($s, false); $socks["$ip:$porta"] = $s; }
+    }
+    $prazo = $t0 + $timeout;
+    while ($socks && microtime(true) < $prazo) {
+        $w = array_values($socks);
+        $r = $x = null;
+        if (@stream_select($r, $w, $x, 0, 50000) === false) break;
+        foreach ($w as $s) {
+            $k = array_search($s, $socks, true);
+            // "gravável" = conectou OU recusou; só o conectado tem ponta remota
+            if (@stream_socket_get_name($s, true) !== false) $res[$k] = round((microtime(true) - $t0) * 1000, 2);
+            fclose($s);
+            unset($socks[$k]);
+        }
+    }
+    foreach ($socks as $s) fclose($s);
+    return $res;
+}
+
 /**
  * Regra de estado — PURA. Recebe o estado atual do equipamento e o resultado
  * do ping desta rodada; devolve o novo estado.
@@ -719,13 +771,32 @@ function monitor_rodada(PDO $pdo, ?array $somenteIds = null): array
     $insQueda = $pdo->prepare("INSERT INTO portal_monitor_quedas_curtas (dispositivo_id, inicio, fim, falhas) VALUES (?,?,?,?)");
     $res = array_merge($vazio, ['pingados' => count($disps)]);
 
+    // 1º IP (na ordem de preferência) que respondeu
+    $achado = [];
     foreach ($disps as $d) {
-        $lat = null;
-        $ipOk = null;
-        foreach ($ipsDe[$d['id']] as $ip) { // 1º IP (na ordem de preferência) que respondeu
+        $achado[$d['id']] = [null, null];
+        foreach ($ipsDe[$d['id']] as $ip) {
             $l = $d['porta_tcp'] ? monitor_tcp($ip, (int) $d['porta_tcp']) : ($lote[$ip] ?? null);
-            if ($l !== null) { $lat = $l; $ipOk = $ip; break; }
+            if ($l !== null) { $achado[$d['id']] = [$l, $ip]; break; }
         }
+    }
+
+    // ping falhou (e não tem porta própria): tenta VNC/compartilhamento antes de contar falha
+    $alvos = [];
+    foreach ($disps as $d) {
+        if ($achado[$d['id']][1] !== null || $d['porta_tcp']) continue;
+        foreach ($ipsDe[$d['id']] as $ip) foreach (MONITOR_PORTAS_RESERVA as $p) $alvos[] = [$ip, $p];
+    }
+    $tcp = monitor_tcp_lote($alvos);
+    foreach ($disps as $d) {
+        if ($achado[$d['id']][1] !== null || $d['porta_tcp']) continue;
+        foreach ($ipsDe[$d['id']] as $ip) foreach (MONITOR_PORTAS_RESERVA as $p) {
+            if (($tcp["$ip:$p"] ?? null) !== null && $achado[$d['id']][1] === null) $achado[$d['id']] = [$tcp["$ip:$p"], $ip];
+        }
+    }
+
+    foreach ($disps as $d) {
+        [$lat, $ipOk] = $achado[$d['id']];
         $n = monitor_aplicar_resultado($d, $ipOk !== null, (int) $d['falhas_para_cair'], (int) $d['sucessos_para_voltar'], $agora);
         $upd->execute([$n['status'], $n['status_desde'], $n['falhas_seguidas'], $n['sucessos_seguidos'],
                        $n['falha_desde'], $agora, $lat, $ipOk, $d['id']]);

@@ -101,12 +101,25 @@ if ($pdo instanceof PDO) {
         t_eq((int) $st->fetchColumn(), 1, 'rodada: queda curta gravada em portal_monitor_quedas_curtas');
         t_eq(monitor_dispositivo($pdo, $a)['status'], 'up', 'rodada: depois da queda curta continua up');
 
+        // ping falhou mas VNC (5900) ou compartilhamento (445) responde -> conta como no ar
+        $c = monitor_manual_criar($pdo, '__teste_ping_c__', '10.255.254.3', 'Lj 003', $G);
+        $GLOBALS['__monitor_ping_fake'] = fn(string $ip) => null;
+        $GLOBALS['__monitor_tcp_fake']  = fn(string $ip, int $porta) => ($ip === '10.255.254.3' && $porta === 5900) ? 4.0 : null;
+        monitor_rodada($pdo, [$c]);
+        $dc = monitor_dispositivo($pdo, $c);
+        t_eq([$dc['status'], (float) $dc['latencia_ms'], (int) $dc['falhas_seguidas']], ['up', 4.0, 0], 'rodada: sem ping mas porta 5900 abre -> no ar (sem falha)');
+        $GLOBALS['__monitor_tcp_fake'] = fn(string $ip, int $porta) => null;
+        $pdo->prepare("UPDATE portal_monitor_dispositivos SET ultimo_ping = NOW() - INTERVAL 60 SECOND WHERE id = ?")->execute([$c]);
+        monitor_rodada($pdo, [$c]);
+        t_eq((int) monitor_dispositivo($pdo, $c)['falhas_seguidas'], 1, 'rodada: sem ping e sem porta -> conta falha');
+        unset($GLOBALS['__monitor_tcp_fake']);
+
         // equipamento desligado (Monitorar = não) não é pingado
         monitor_set_monitorar($pdo, $b, false);
         $pdo->prepare("UPDATE portal_monitor_dispositivos SET ultimo_ping = NOW() - INTERVAL 60 SECOND WHERE id IN (?, ?)")->execute($ids);
         t_eq(monitor_rodada($pdo, $ids)['pingados'], 1, 'rodada: Monitorar desligado não é pingado');
     } finally {
-        unset($GLOBALS['__monitor_ping_fake']);
+        unset($GLOBALS['__monitor_ping_fake'], $GLOBALS['__monitor_tcp_fake']);
         $limpa();
     }
 }

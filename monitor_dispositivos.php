@@ -289,7 +289,7 @@ function renderLista() {
              `<input class="form-control form-control-sm ip-fixo" value="${H(x.ip_fixo || '')}" placeholder="usar do inventário"
                      onchange="setIpFixo(${x.id}, this)">`}</td>
         <td><input class="form-control form-control-sm ip-fixo" style="width:70px" value="${H(x.porta_tcp || '')}" placeholder="ping"
-                   title="Equipamento que bloqueia ping: informe a porta TCP (ex.: 445). Vazio = ping normal"
+                   title="Vazio = ping, e se falhar testa sozinho as portas 5900 (VNC) e 445. Preencha só se o equipamento usar outra porta"
                    onchange="setPortaTcp(${x.id}, this)"></td>
         <td><span class="badge-origem">${H(x.origem)}</span></td>
         <td class="text-nowrap">${x.origem === 'manual' ?
