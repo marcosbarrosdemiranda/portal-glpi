@@ -113,6 +113,12 @@ O próprio portal pinga todos os equipamentos cadastrados, a cada 1 minuto, **em
 - **Futuro (se 30 s ainda for lento):** loop próprio só pros pfSense a cada 5 s, fora do ciclo do worker.
 
 ### Etapa 3c — Qual link está ativo (local x Starlink)
+> **Progresso:** ✅ CONCLUÍDA 2026-09-28 (520e918) — `monitor_links_lib.php` lê Status → Gateways (pfSense 2.7) a cada 1 min pelo worker, reaproveitando o cookie (4,7 s com login, 0,7 s sem); tabela `portal_monitor_links`; tipo novo `rede_link` "Link de internet das lojas" (WhatsApp ligado após teste); quadro na tela do Monitor. Links lidos: Lj 001 `rota_1` ⭐ + `rota2_ivr`; Lj 030 `mikrotik` ⭐ + `starlink`. Teste E2E (mudo): "saindo pelo reserva" em 33 s.
+> **Pendências:**
+> - **Lj 003:** pfSense só enxerga o MikroTik (gateway sem monitor) — os links ficam no MikroTik. Opções: ligar o monitor de gateway no pfSense apontando pra um IP externo, ou ler o MikroTik via API RouterOS (casa com o backlog "MikroTik CPU/memória").
+> - **Lj 010:** cadastrar o pfSense 192.168.4.1 em pfSense Lojas (usuário/senha no cofre); depois remover o manual "pfSense Lj 010" do Monitor.
+> - **Confirmar na 1ª troca real** que o "(default)" do pfSense acompanha o failover (grupo de gateway). Se não acompanhar, trocar a regra de "reserva" por "principal fora".
+> - `rota2_ivr` na Lj 001 é a IVR — confirmar com o usuário qual provedor é o `rota_1`.
 **Pedido do usuário (28/09):** saber por qual provedor cada loja está saindo e avisar quando cai um dos links.
 **Como:** o pfSense já monitora cada gateway (dpinger) e mostra em Status → Gateways: online/offline, perda, latência e qual é o padrão. O portal já tem login dos pfSense (`pfsense_lojas.php`, senha no cofre) e o proxy (`pfsense_proxy.php`) — dá pra ler essa página a cada 1–2 min.
 - [ ] Levantar, com o usuário, nome dos gateways em cada pfSense (ex.: WAN_LOCAL, WAN_STARLINK) e versão do pfSense (define se lê a página ou a API REST do pacote pfrest).
