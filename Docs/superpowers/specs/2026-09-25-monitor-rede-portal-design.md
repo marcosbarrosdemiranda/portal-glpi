@@ -100,6 +100,26 @@ O próprio portal pinga todos os equipamentos cadastrados, a cada 1 minuto, **em
 - **Pronto quando:** derrubar um device de teste gera 🔔 em ~3 min e ✅ em ~2 min depois de voltar; PDV desligado fora do horário não alerta.
 - **Estimativa:** ~2h.
 
+> **Ajuste 28/09 (pedido do usuário: "controle preciso"):** PDVs 30 s / **2 falhas** (≈ 1 min) — aceito que reinício de 1–2 min vira 🔔+✅ (≈ 12/dia pelos dados de 3 dias). Servidores MGV 30 s / 2 falhas, os 2 MGV ligados. VMs: 3 monitoradas (Gunnebo, SAC LJ003, TRUENas), usuário escolhe as outras 14.
+
+### Etapa 3b — Queda de VPN entre lojas (alerta instantâneo)
+**Pedido do usuário (28/09):** queda de comunicação entre lojas tem que avisar na hora.
+**Como medir:** o servidor do portal fica na Lj 001 (192.168.1.198). Ping dele para o pfSense de outra loja passa pela VPN — se não responde, a VPN daquela loja caiu. Alvos: 192.168.2.1 (Lj 003), 192.168.3.1 (Lj 030), 192.168.4.1 (Lj 010 — **falta cadastrar em pfSense Lojas**). O 192.168.1.1 (Lj 001) é local, mede só a rede da matriz.
+- [ ] Tipo novo na Central **"Queda de VPN entre lojas"** (título próprio, WhatsApp/lembrete próprios), alimentado pelo grupo Firewalls.
+- [ ] Rapidez sem falso alarme: grupo Firewalls manda **3 pacotes por rodada** (cai só se os 3 se perderem) com **1 falha pra cair** → aviso em até ~30 s (limite do ciclo do worker).
+- [ ] **Sem rajada:** com a VPN de uma loja fora, os equipamentos daquela loja não geram alerta individual; o aviso da VPN diz "N equipamentos sem comunicação". Quando a VPN volta, quem continuar fora alerta normal.
+- [ ] Testes: VPN fora suprime os devices da loja; VPN de outra loja não suprime; pfSense da própria matriz não suprime nada.
+- **Futuro (se 30 s ainda for lento):** loop próprio só pros pfSense a cada 5 s, fora do ciclo do worker.
+
+### Etapa 3c — Qual link está ativo (local x Starlink)
+**Pedido do usuário (28/09):** saber por qual provedor cada loja está saindo e avisar quando cai um dos links.
+**Como:** o pfSense já monitora cada gateway (dpinger) e mostra em Status → Gateways: online/offline, perda, latência e qual é o padrão. O portal já tem login dos pfSense (`pfsense_lojas.php`, senha no cofre) e o proxy (`pfsense_proxy.php`) — dá pra ler essa página a cada 1–2 min.
+- [ ] Levantar, com o usuário, nome dos gateways em cada pfSense (ex.: WAN_LOCAL, WAN_STARLINK) e versão do pfSense (define se lê a página ou a API REST do pacote pfrest).
+- [ ] Tabela `portal_monitor_links` (loja, gateway, status, perda, latência, ativo_desde).
+- [ ] Alertas: "🔔 Loja 030 — link local fora, rodando no Starlink" / "✅ link local voltou"; ambos os links fora = a VPN cai junto (3b já avisa).
+- [ ] Na tela do Monitor e no mapa (etapa 4): ícone do link em uso por loja.
+- **Bloqueio:** precisa do cadastro do pfSense Lj 010 e confirmar que o usuário do portal enxerga Status → Gateways.
+
 ### Etapa 4 — Mapa da rede no Inventário
 **Objetivo:** substituir o mapa do Dude — ver cada loja com seus equipamentos, agrupados, com status, nome e IP.
 - [ ] Card novo **"Mapa da rede"** na tela do Inventário (`inventario.php`, mesmo visual `.cat-card` dos outros) → página `inventario_mapa_rede.php`.
