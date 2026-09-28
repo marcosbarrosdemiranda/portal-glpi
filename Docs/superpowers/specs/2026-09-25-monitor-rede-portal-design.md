@@ -88,6 +88,8 @@ O próprio portal pinga todos os equipamentos cadastrados, a cada 1 minuto, **em
 - **Estimativa:** ~3h + 1–2 dias de observação.
 
 ### Etapa 3 — Virada: monitor passa a mandar nos alertas
+> **Progresso (branch `feat/monitor-rede-etapa3`, 2026-09-28, antecipada após falso alarme do ping de 1 pacote no PDV002-LJ030):** ✅ espelho por **reconciliação** (não só transição) `monitor_espelhar_estado` a cada rodada, `atualizado_em` = "desde" do monitor; linhas com nomes antigos do Dude removidas (67bf574) · ✅ porta TCP editável na tela (9f22f20) · ✅ virada: worker sem `dude_gatilho_verificar_ping`, botão Atualizar = espelho, webhook ignora `device`, sem_contato = heartbeat (55cc721) · ✅ ping falhou → testa 5900/445 em paralelo (6e4cd62) — rodada 47 equipamentos ≈ 2,2 s. Container do Dude **intocado** (decisão do usuário).
+> **Incidente:** a suíte de testes rodada em produção derrubou os PDVs reais via teste de `dude_verificar_up` (fake de ping "ninguém responde" + função varre a tabela toda) → ~25 🔔 falsos às 10:21. Teste corrigido (só o equipamento de teste deixa de responder). Regra: teste que chama função que varre tabela real precisa de fake que responda "ok" para tudo que não é de teste.
 **Objetivo:** Central de Alertas passa a usar o monitor.
 - [ ] Antes de tudo: conferir `notif_whatsapp` dos tipos `dude_*` e decidir com o usuário se fica ligado na virada (regra: mutar antes de testar).
 - [ ] Sincronização inicial: copia o status atual do monitor para `portal_dude_estado` (1 vez), pra primeira rodada não gerar rajada de 🔔/✅.
