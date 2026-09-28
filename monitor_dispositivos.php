@@ -71,6 +71,7 @@ if ($action !== '') {
                     'intervalo_seg'        => $_POST['intervalo_seg'] ?? null,
                     'falhas_para_cair'     => $_POST['falhas_para_cair'] ?? null,
                     'sucessos_para_voltar' => $_POST['sucessos_para_voltar'] ?? null,
+                    'pacotes'              => $_POST['pacotes'] ?? null,
                     'queda_curta'          => $_POST['queda_curta'] ?? null,
                     'monitorar_novos'      => ($_POST['monitorar_novos'] ?? '') === '1',
                 ]);
@@ -158,7 +159,7 @@ if ($action !== '') {
       <table>
         <thead><tr>
           <th>Grupo</th><th>Monitorados</th><th>Pinga a cada</th><th>Falhas p/ cair</th><th>Sucessos p/ voltar</th>
-          <th>Queda curta</th><th>Monitorar novos</th><th></th>
+          <th title="Pacotes de ping por rodada — conta falha só se TODOS se perderem (VPN: 3)">Pacotes</th><th>Queda curta</th><th>Monitorar novos</th><th></th>
         </tr></thead>
         <tbody id="grupos"><tr><td colspan="8">Carregando…</td></tr></tbody>
       </table>
@@ -250,6 +251,7 @@ function renderGrupos() {
       <td><select class="form-select form-select-sm g-int">${sel(INTERVALOS, g.intervalo_seg)}</select></td>
       <td><input type="number" min="1" max="60" class="form-control form-control-sm num g-falhas" value="${g.falhas_para_cair}"></td>
       <td><input type="number" min="1" max="10" class="form-control form-control-sm num g-suc" value="${g.sucessos_para_voltar}"></td>
+      <td><input type="number" min="1" max="5" class="form-control form-control-sm num g-pac" value="${g.pacotes ?? 1}"></td>
       <td><select class="form-select form-select-sm g-queda">${sel(QUEDA, g.queda_curta)}</select></td>
       <td><div class="form-check form-switch"><input class="form-check-input g-novos" type="checkbox" ${+g.monitorar_novos ? 'checked' : ''}></div></td>
       <td class="text-nowrap">
@@ -343,6 +345,7 @@ function salvarGrupo(grupo) {
     intervalo_seg: tr.querySelector('.g-int').value,
     falhas_para_cair: tr.querySelector('.g-falhas').value,
     sucessos_para_voltar: tr.querySelector('.g-suc').value,
+    pacotes: tr.querySelector('.g-pac').value,
     queda_curta: tr.querySelector('.g-queda').value,
     monitorar_novos: tr.querySelector('.g-novos').checked ? '1' : '0',
   }).then(d => {
