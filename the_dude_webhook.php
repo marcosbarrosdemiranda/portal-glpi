@@ -56,6 +56,14 @@ if (!in_array($tipo, DUDE_TIPOS_VALIDOS, true) || $estado === '') {
     exit;
 }
 
+// Etapa 3 do monitor de rede: device (ping) agora é do monitor do portal — o
+// Dude pode continuar mandando, mas não mexe mais no estado (senão os dois
+// brigariam e a Central piscaria). Responde 200 pro Dude não reclamar.
+if ($tipo === 'device') {
+    echo json_encode(['ok' => true, 'ignorado' => 'device e do monitor de rede do portal']);
+    exit;
+}
+
 $chave     = trim((string) ($_GET['chave'] ?? ''));
 $nome      = trim((string) ($_GET['nome'] ?? ''));
 $endereco  = trim((string) ($_GET['addr'] ?? ''));

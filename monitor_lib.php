@@ -860,4 +860,5 @@ function monitor_gatilho(PDO $pdo): void
         wpp_cfg_set('monitor_ultima_sinc', date('Y-m-d H:i:s'));
     }
     monitor_rodada($pdo);
+    monitor_espelhar_estado($pdo); // etapa 3: o monitor manda na Central de Alertas
 }

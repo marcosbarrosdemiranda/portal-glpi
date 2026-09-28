@@ -81,9 +81,10 @@ function wpp_worker_passada(): void
     }
 
     // 4. Gatilhos — cada um isolado num try/catch que loga e segue.
-    //    dude_gatilho_verificar_ping: cobre o Dude travar o acompanhamento de
-    //    um device sem avisar - portal confere direto via ping (só down 30+min).
-    foreach (['gat_novo', 'gat_atribuido', 'gat_alertas', 'gat_sla', 'dude_gatilho_verificar_ping'] as $g) {
+    //    Etapa 3 do monitor: 'dude_gatilho_verificar_ping' saiu da lista — o
+    //    monitor_gatilho (passo 0) já espelha o estado real a cada rodada, e o
+    //    ping de 1 pacote dele gerava falso "caiu" (PDV002-LJ030, 28/09).
+    foreach (['gat_novo', 'gat_atribuido', 'gat_alertas', 'gat_sla'] as $g) {
         try {
             $g($pdo);
         } catch (\Throwable $e) {

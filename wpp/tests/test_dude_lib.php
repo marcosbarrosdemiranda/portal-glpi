@@ -65,14 +65,18 @@ if (isset($pdo) && $pdo instanceof PDO) {
         $ultima = dude_ultima_notificacao($pdo);
         t_ok($ultima !== null, 'ultima_notificacao: não é null depois de registrar algo');
 
-        // --- sem_contato: contato recente (o que acabamos de registrar) não dispara.
-        // NÃO testamos o caminho "disparou" aqui: dude_ultima_notificacao() é
-        // MAX(atualizado_em) da tabela INTEIRA (é um watchdog global, não por
-        // dispositivo) — forçar isso pro passado exigiria mexer em toda a
-        // tabela compartilhada, o que pode alarmar de verdade se houver dado
-        // real. Cobertura desse ramo fica por inspeção manual/E2E, não aqui.
-        $ocSC = alerta_check_dude_sem_contato($pdo, ['horas' => 6]);
-        t_ok(!$ocSC, 'check_dude_sem_contato: contato recente não dispara');
+        // --- sem_contato (etapa 3): heartbeat do monitor. Salva e restaura o
+        // valor real — o worker grava de novo em até 30 s de qualquer forma.
+        $hbReal = (string) wpp_cfg_get('monitor_ultima_rodada', '');
+        try {
+            wpp_cfg_set('monitor_ultima_rodada', date('Y-m-d H:i:s'));
+            t_ok(!alerta_check_dude_sem_contato($pdo, ['minutos' => 5]), 'check_dude_sem_contato: rodada recente não dispara');
+            wpp_cfg_set('monitor_ultima_rodada', date('Y-m-d H:i:s', time() - 600));
+            $ocSC = alerta_check_dude_sem_contato($pdo, ['minutos' => 5]);
+            t_eq([count($ocSC), $ocSC[0]['titulo'] ?? ''], [1, 'Monitor de rede parado'], 'check_dude_sem_contato: 10 min sem rodada -> dispara');
+        } finally {
+            wpp_cfg_set('monitor_ultima_rodada', $hbReal);
+        }
 
         // --- categoria_no_horario: sem config = sempre true ---
         t_ok(dude_categoria_no_horario($pdo, $CAT_TESTE), 'categoria_no_horario: sem config -> sempre true');
@@ -245,7 +249,10 @@ if (isset($pdo) && $pdo instanceof PDO) {
         // C e D travados há 5h (candidatos); E atualizado agora mesmo (nao e candidato)
         $pdo->prepare("UPDATE portal_dude_estado SET atualizado_em = NOW() - INTERVAL 5 HOUR WHERE chave IN (?, ?)")->execute([$CHAVE_C, $CHAVE_D]);
 
-        $GLOBALS['__dude_ping_fake'] = fn(string $ip) => $ip === '10.0.0.4'; // só D responde
+        // Só C NÃO responde. Todo o resto responde — verificar_up() varre a
+        // tabela inteira, e o fake antigo (só D responde) derrubava os PDVs
+        // reais em produção a cada rodada da suíte (28/09 10:21: ~25 🔔 falsos).
+        $GLOBALS['__dude_ping_fake'] = fn(string $ip) => $ip !== '10.0.0.3';
 
         // limiar 3h: C e D sao candidatos, E nao
         $corrigidos3h = dude_verificar_up($pdo, 3);

@@ -355,19 +355,21 @@ function alerta_check_dude_ligado_muito_tempo(PDO $pdo, array $p): array
 /** @return array ocorrências: 0 ou 1 item (watchdog geral, não por dispositivo) */
 function alerta_check_dude_sem_contato(PDO $pdo, array $p): array
 {
-    $ultima = dude_ultima_notificacao($pdo);
-    if ($ultima === null) return []; // nunca recebeu nada ainda -> não é "silêncio", é "nunca configurado"
+    // Etapa 3 do monitor de rede: "sem contato" = monitor parado (heartbeat
+    // monitor_ultima_rodada), não mais "Dude sem notificar". Padrão 5 min.
+    $ultima = (string) wpp_cfg_get('monitor_ultima_rodada', '');
+    if ($ultima === '') return []; // monitor nunca rodou -> não é "parado", é "não instalado"
 
-    $horas     = (int) ($p['horas'] ?? 6);
+    $min       = (int) ($p['minutos'] ?? 5);
     $decorrido = time() - strtotime($ultima);
-    if ($decorrido < $horas * 3600) return [];
+    if ($decorrido < $min * 60) return [];
 
-    $h = max(0, (int) floor($decorrido / 3600));
+    $m = max(0, (int) floor($decorrido / 60));
     return [[
         'chave'   => 'dude:sem_contato',
-        'titulo'  => 'The Dude não está notificando',
+        'titulo'  => 'Monitor de rede parado',
         'loja'    => '',
-        'detalhe' => "última notificação há {$h}h — verifique o Dude ou a rede até ele",
+        'detalhe' => "última rodada de ping há {$m} min — verifique o container portal-wpp-worker",
     ]];
 }
 

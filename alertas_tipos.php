@@ -280,10 +280,10 @@ function alertas_catalogo(): array
             'cor'    => 'danger',
         ],
         'dude_sem_contato' => [
-            'nome'      => 'The Dude não está notificando',
-            'descricao' => 'Nenhuma notificação recebida do The Dude há X horas — pode ser o Dude ou a rede até ele.',
+            'nome'      => 'Monitor de rede parado',
+            'descricao' => 'O monitor de rede do portal não roda uma rodada de ping há X minutos — verifique o container portal-wpp-worker.',
             'params'    => [
-                'horas' => ['label' => 'Horas sem notificação', 'default' => 6, 'min' => 1, 'max' => 168],
+                'minutos' => ['label' => 'Minutos sem rodada', 'default' => 5, 'min' => 2, 'max' => 1440],
             ],
             'check'  => 'alerta_check_dude_sem_contato',
             'render' => 'alerta_render_dude',
