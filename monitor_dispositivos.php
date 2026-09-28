@@ -59,6 +59,10 @@ if ($action !== '') {
                 monitor_set_ip_fixo($pdo, $id, (string) ($_POST['ip'] ?? ''));
                 $ok();
                 break;
+            case 'set_porta_tcp':
+                monitor_set_porta_tcp($pdo, $id, (int) ($_POST['porta'] ?? 0));
+                $ok();
+                break;
             case 'grupo_salvar':
                 $grupo = (string) ($_POST['grupo'] ?? '');
                 $g = monitor_grupo($pdo, $grupo);
@@ -268,7 +272,7 @@ function renderLista() {
   let html = '';
   for (const [grupo, lista] of Object.entries(porGrupo)) {
     html += `<div class="grupo-titulo">${H(grupo)} <span class="text-muted fw-normal">(${lista.length})</span></div>
-      <table><thead><tr><th style="width:70px">Monitorar</th><th>Status</th><th>Nome</th><th>Loja</th><th>IP</th><th>Latência</th><th>Reinícios 24h</th><th>Dude</th><th>IP fixo</th><th>Origem</th><th></th></tr></thead><tbody>`;
+      <table><thead><tr><th style="width:70px">Monitorar</th><th>Status</th><th>Nome</th><th>Loja</th><th>IP</th><th>Latência</th><th>Reinícios 24h</th><th>Dude</th><th>IP fixo</th><th title="Para equipamento que bloqueia ping: testa só esta porta TCP">Porta TCP</th><th>Origem</th><th></th></tr></thead><tbody>`;
     for (const x of lista) {
       const outros = (x.ips || '').split(',').filter(ip => ip && ip !== x.ip);
       html += `<tr>
@@ -284,6 +288,9 @@ function renderLista() {
         <td>${x.origem === 'manual' ? '<span class="text-muted">—</span>' :
              `<input class="form-control form-control-sm ip-fixo" value="${H(x.ip_fixo || '')}" placeholder="usar do inventário"
                      onchange="setIpFixo(${x.id}, this)">`}</td>
+        <td><input class="form-control form-control-sm ip-fixo" style="width:70px" value="${H(x.porta_tcp || '')}" placeholder="ping"
+                   title="Equipamento que bloqueia ping: informe a porta TCP (ex.: 445). Vazio = ping normal"
+                   onchange="setPortaTcp(${x.id}, this)"></td>
         <td><span class="badge-origem">${H(x.origem)}</span></td>
         <td class="text-nowrap">${x.origem === 'manual' ?
              `<button class="btn btn-link btn-sm p-0 me-2" onclick="editarManual(${x.id})">editar</button>
@@ -364,6 +371,14 @@ function setIpFixo(id, input) {
   post('set_ip_fixo', { id, ip: input.value.trim() }).then(d => {
     if (!d.ok) { fb('fb-lista', d.erro || 'falha', false); return; }
     fb('fb-lista', input.value.trim() ? 'IP fixo salvo.' : 'Voltou a usar o IP do inventário.', true);
+    carregar();
+  });
+}
+
+function setPortaTcp(id, input) {
+  post('set_porta_tcp', { id, porta: input.value.trim() }).then(d => {
+    if (!d.ok) { fb('fb-lista', d.erro || 'falha', false); return; }
+    fb('fb-lista', input.value.trim() ? 'Porta TCP salva — esse equipamento passa a ser testado só nela.' : 'Voltou a usar ping.', true);
     carregar();
   });
 }

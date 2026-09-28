@@ -467,6 +467,13 @@ function monitor_set_ip_fixo(PDO $pdo, int $id, string $ip): void
     $pdo->prepare("UPDATE portal_monitor_dispositivos SET ip_fixo = ? WHERE id = ?")->execute([$ip !== '' ? $ip : null, $id]);
 }
 
+/** Equipamento que bloqueia ping (ICMP): testa só essa porta TCP. 0/'' limpa (volta ao ping). */
+function monitor_set_porta_tcp(PDO $pdo, int $id, int $porta): void
+{
+    if ($porta < 0 || $porta > 65535) throw new \InvalidArgumentException('porta inválida');
+    $pdo->prepare("UPDATE portal_monitor_dispositivos SET porta_tcp = ? WHERE id = ?")->execute([$porta ?: null, $id]);
+}
+
 /** Equipamento fora do inventário (switch, link, NAS...). Entra com o padrão do grupo. */
 function monitor_manual_criar(PDO $pdo, string $nome, string $ip, string $loja, string $grupo): int
 {
