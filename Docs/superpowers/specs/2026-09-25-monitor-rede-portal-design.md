@@ -103,6 +103,7 @@ O próprio portal pinga todos os equipamentos cadastrados, a cada 1 minuto, **em
 > **Ajuste 28/09 (pedido do usuário: "controle preciso"):** PDVs 30 s / **2 falhas** (≈ 1 min) — aceito que reinício de 1–2 min vira 🔔+✅ (≈ 12/dia pelos dados de 3 dias). Servidores MGV 30 s / 2 falhas, os 2 MGV ligados. VMs: 3 monitoradas (Gunnebo, SAC LJ003, TRUENas), usuário escolhe as outras 14.
 
 ### Etapa 3b — Queda de VPN entre lojas (alerta instantâneo)
+> **Progresso:** ✅ CONCLUÍDA 2026-09-28 (2dedc1a) — grupo Firewalls 30 s / 3 pacotes / cai com 1 falha; tipo `dude_link` reaproveitado como "Queda de VPN entre lojas"; supressão dos devices da loja (margem 120 s); pfSense Lj 010 entrou como manual (192.168.4.1) até ser cadastrado em pfSense Lojas. Teste E2E com WhatsApp mudo: 🔔 em 18 s, ✅ em 66 s, sem alerta duplicado do pfSense.
 **Pedido do usuário (28/09):** queda de comunicação entre lojas tem que avisar na hora.
 **Como medir:** o servidor do portal fica na Lj 001 (192.168.1.198). Ping dele para o pfSense de outra loja passa pela VPN — se não responde, a VPN daquela loja caiu. Alvos: 192.168.2.1 (Lj 003), 192.168.3.1 (Lj 030), 192.168.4.1 (Lj 010 — **falta cadastrar em pfSense Lojas**). O 192.168.1.1 (Lj 001) é local, mede só a rede da matriz.
 - [ ] Tipo novo na Central **"Queda de VPN entre lojas"** (título próprio, WhatsApp/lembrete próprios), alimentado pelo grupo Firewalls.
