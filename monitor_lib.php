@@ -2,6 +2,12 @@
 /**
  * monitor_lib.php — Monitor de rede próprio do portal (substitui o The Dude).
  *
+ * Etapa 3: o monitor manda na Central de Alertas (monitor_espelhar_estado a cada
+ * rodada). Ping falhou -> testa as portas 5900/445 antes de contar falha.
+ *
+ * Etapa 2: motor de ping em paralelo, MODO SOMBRA — grava status/latência/quedas
+ * curtas só nas tabelas do monitor; ainda não mexe em portal_dude_estado nem alerta.
+ *
  * Etapa 1: QUAIS equipamentos monitorar — vêm do inventário (computadores do
  * GLPI por categoria do portal, balanças, pfSense, servidores MGV) + cadastro
  * manual pra exceção. Cada equipamento tem a chave "Monitorar"; cada grupo
@@ -17,6 +23,7 @@
 require_once __DIR__ . '/agenda/db.php';
 require_once __DIR__ . '/entidade_alias.php'; // apelido_entidade()
 require_once __DIR__ . '/inventario_lib.php'; // inv_pc_cats()
+require_once __DIR__ . '/wpp/db.php';        // wpp_cfg_get()/wpp_cfg_set() — heartbeat da rodada
 
 const MONITOR_REDE_SERVIDOR = '192.168.1.'; // LAN do servidor do portal — mesma preferência do inventario_pc.php
 
@@ -71,6 +78,8 @@ const MONITOR_GRUPOS_PADRAO = [
         sucessos_seguidos INT NOT NULL DEFAULT 0,
         ultimo_ping       DATETIME NULL,
         latencia_ms       DECIMAL(8,2) NULL,
+        falha_desde       DATETIME NULL,
+        ip_respondeu      VARCHAR(45) NULL,
         criado_em         DATETIME DEFAULT CURRENT_TIMESTAMP,
         UNIQUE KEY uq_origem (origem, origem_id),
         INDEX idx_grupo (grupo)
@@ -81,6 +90,28 @@ const MONITOR_GRUPOS_PADRAO = [
     if (!in_array('ips', $cols, true)) {
         $pdo->exec("ALTER TABLE portal_monitor_dispositivos ADD COLUMN ips VARCHAR(255) NULL AFTER ip");
     }
+    // etapa 2: início da sequência de falhas atual + qual IP respondeu por último
+    if (!in_array('falha_desde', $cols, true)) {
+        $pdo->exec("ALTER TABLE portal_monitor_dispositivos
+            ADD COLUMN falha_desde DATETIME NULL AFTER latencia_ms,
+            ADD COLUMN ip_respondeu VARCHAR(45) NULL AFTER falha_desde");
+    }
+    // etapa 3b: pacotes por rodada (grupo) — VPN manda 3 e só falha se os 3 se perderem
+    $colsG = array_column($pdo->query("SHOW COLUMNS FROM portal_monitor_grupos")->fetchAll(PDO::FETCH_ASSOC), 'Field');
+    if (!in_array('pacotes', $colsG, true)) {
+        $pdo->exec("ALTER TABLE portal_monitor_grupos ADD COLUMN pacotes INT NOT NULL DEFAULT 1 AFTER sucessos_para_voltar");
+    }
+
+    // quedas curtas (ficou fora menos que a tolerância e voltou — ex.: PDV reiniciando)
+    $pdo->exec("CREATE TABLE IF NOT EXISTS portal_monitor_quedas_curtas (
+        id             INT AUTO_INCREMENT PRIMARY KEY,
+        dispositivo_id INT NOT NULL,
+        inicio         DATETIME NOT NULL,
+        fim            DATETIME NOT NULL,
+        falhas         INT NOT NULL,
+        INDEX idx_disp (dispositivo_id, inicio),
+        INDEX idx_inicio (inicio)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
 
     $ins = $pdo->prepare("INSERT IGNORE INTO portal_monitor_grupos
         (grupo, nome, intervalo_seg, falhas_para_cair, sucessos_para_voltar, queda_curta, monitorar_novos)
@@ -182,7 +213,8 @@ function monitor_grupo_normalizar(array $p): array
         'intervalo_seg'        => $int('intervalo_seg', 60, 30, 3600),
         'falhas_para_cair'     => $int('falhas_para_cair', 3, 1, 60),
         'sucessos_para_voltar' => $int('sucessos_para_voltar', 2, 1, 10),
-        'queda_curta'          => in_array($q, ['registro', 'resumo_diario', 'na_hora'], true) ? $q : 'registro',
+        'pacotes'              => $int('pacotes', 1, 1, 5),
+        'queda_curta'        => in_array($q, ['registro', 'resumo_diario', 'na_hora'], true) ? $q : 'registro',
         'monitorar_novos'      => !empty($p['monitorar_novos']) ? 1 : 0,
     ];
 }
@@ -207,13 +239,13 @@ function monitor_grupo_salvar(PDO $pdo, string $grupo, string $nome, array $para
     $atual = monitor_grupo($pdo, $grupo) ?? [];
     $n = monitor_grupo_normalizar(array_merge($atual, $params));
     $pdo->prepare("INSERT INTO portal_monitor_grupos
-            (grupo, nome, monitorar_novos, intervalo_seg, falhas_para_cair, sucessos_para_voltar, queda_curta)
-        VALUES (?,?,?,?,?,?,?)
+            (grupo, nome, monitorar_novos, intervalo_seg, falhas_para_cair, sucessos_para_voltar, pacotes, queda_curta)
+        VALUES (?,?,?,?,?,?,?,?)
         ON DUPLICATE KEY UPDATE nome = VALUES(nome), monitorar_novos = VALUES(monitorar_novos),
             intervalo_seg = VALUES(intervalo_seg), falhas_para_cair = VALUES(falhas_para_cair),
-            sucessos_para_voltar = VALUES(sucessos_para_voltar), queda_curta = VALUES(queda_curta)")
+            sucessos_para_voltar = VALUES(sucessos_para_voltar), pacotes = VALUES(pacotes), queda_curta = VALUES(queda_curta)")
         ->execute([$grupo, $nome !== '' ? $nome : $grupo, $n['monitorar_novos'], $n['intervalo_seg'],
-                   $n['falhas_para_cair'], $n['sucessos_para_voltar'], $n['queda_curta']]);
+                   $n['falhas_para_cair'], $n['sucessos_para_voltar'], $n['pacotes'], $n['queda_curta']]);
 }
 
 /** Grupo que apareceu no inventário (categoria nova criada no admin) e ainda não tem config. */
@@ -393,13 +425,42 @@ function monitor_dispositivo_por_origem(PDO $pdo, string $origem, int $origemId)
 /** Tudo (menos removidos do inventário), com o IP efetivo (ip_fixo vence). */
 function monitor_listar(PDO $pdo): array
 {
+    // quedas_24h = reinícios/quedas curtas nas últimas 24h;
+    // dude_status = o que o Dude diz desse IP (modo sombra: comparar antes da virada)
     return $pdo->query("
-        SELECT d.*, COALESCE(d.ip_fixo, d.ip) AS ip_efetivo, g.nome AS grupo_nome
+        SELECT d.*, COALESCE(d.ip_fixo, d.ip) AS ip_efetivo, g.nome AS grupo_nome,
+               (SELECT COUNT(*) FROM portal_monitor_quedas_curtas q
+                 WHERE q.dispositivo_id = d.id AND q.inicio >= NOW() - INTERVAL 24 HOUR) AS quedas_24h,
+               (SELECT e.status FROM portal_dude_estado e
+                 WHERE e.tipo = 'device' AND e.endereco <> ''
+                   AND (e.endereco COLLATE utf8mb4_unicode_ci = d.ip_fixo
+                        OR FIND_IN_SET(e.endereco COLLATE utf8mb4_unicode_ci, d.ips))
+                 LIMIT 1) AS dude_status
         FROM portal_monitor_dispositivos d
         LEFT JOIN portal_monitor_grupos g ON g.grupo = d.grupo
         WHERE d.removido_em IS NULL
         ORDER BY g.nome, d.loja, d.nome
     ")->fetchAll(PDO::FETCH_ASSOC);
+}
+
+/** Resumo da última rodada pro topo da tela. */
+function monitor_resumo_rodada(): array
+{
+    return [
+        'ultima' => wpp_cfg_get('monitor_ultima_rodada', ''),
+        'ms'     => (int) wpp_cfg_get('monitor_rodada_ms', '0'),
+        'qtd'    => (int) wpp_cfg_get('monitor_rodada_qtd', '0'),
+    ];
+}
+
+/** Quedas curtas de 1 equipamento (mais recentes primeiro). */
+function monitor_quedas_curtas(PDO $pdo, int $dispositivoId, int $limite = 20): array
+{
+    $st = $pdo->prepare("SELECT inicio, fim, falhas, TIMESTAMPDIFF(SECOND, inicio, fim) AS segundos
+                         FROM portal_monitor_quedas_curtas WHERE dispositivo_id = ?
+                         ORDER BY inicio DESC LIMIT " . max(1, min(200, $limite)));
+    $st->execute([$dispositivoId]);
+    return $st->fetchAll(PDO::FETCH_ASSOC);
 }
 
 function monitor_set_monitorar(PDO $pdo, int $id, bool $ligar): void
@@ -413,6 +474,13 @@ function monitor_set_ip_fixo(PDO $pdo, int $id, string $ip): void
     $ip = trim($ip);
     if ($ip !== '' && !monitor_ip_valido($ip)) throw new \InvalidArgumentException('IP inválido');
     $pdo->prepare("UPDATE portal_monitor_dispositivos SET ip_fixo = ? WHERE id = ?")->execute([$ip !== '' ? $ip : null, $id]);
+}
+
+/** Equipamento que bloqueia ping (ICMP): testa só essa porta TCP. 0/'' limpa (volta ao ping). */
+function monitor_set_porta_tcp(PDO $pdo, int $id, int $porta): void
+{
+    if ($porta < 0 || $porta > 65535) throw new \InvalidArgumentException('porta inválida');
+    $pdo->prepare("UPDATE portal_monitor_dispositivos SET porta_tcp = ? WHERE id = ?")->execute([$porta ?: null, $id]);
 }
 
 /** Equipamento fora do inventário (switch, link, NAS...). Entra com o padrão do grupo. */
@@ -482,4 +550,477 @@ function monitor_semear_do_dude(PDO $pdo): array
     }
     wpp_cfg_set('monitor_semente_dude', date('Y-m-d H:i:s'));
     return ['ligados' => $ligados, 'manuais' => $manuais];
+}
+
+/* ───────────────────────────── Etapa 2: motor de ping (modo sombra) ───────────────────────────── */
+
+/** "time=0.482 ms" -> 0.48. Sem resposta -> null. */
+function monitor_parse_latencia(string $saida): ?float
+{
+    return preg_match('/time[=<]([\d.]+)\s*ms/', $saida, $m) ? round((float) $m[1], 2) : null;
+}
+
+/**
+ * Pinga vários IPs AO MESMO TEMPO (1 processo `ping` por IP, via proc_open) —
+ * a rodada inteira leva ~1 s, não importa quantos estão fora. O worker não tem
+ * fping; o ping do iputils já está na imagem.
+ * Seam de teste: $GLOBALS['__monitor_ping_fake'] = fn(string $ip): ?float.
+ *
+ * @return array ip => latência em ms (float) ou null se não respondeu
+ */
+function monitor_ping_lote(array $ips, array $pacotes = []): array
+{
+    // $pacotes: ip => quantos pacotes (1..5) — basta 1 resposta pra contar como no ar
+    $ips = array_values(array_unique(array_filter($ips, 'monitor_ip_valido')));
+    if (!$ips) return [];
+
+    if (isset($GLOBALS['__monitor_ping_fake']) && is_callable($GLOBALS['__monitor_ping_fake'])) {
+        $out = [];
+        foreach ($ips as $ip) $out[$ip] = ($GLOBALS['__monitor_ping_fake'])($ip);
+        return $out;
+    }
+
+    $procs = [];
+    foreach ($ips as $ip) {
+        $c = max(1, min(5, (int) ($pacotes[$ip] ?? 1)));
+        $cmd = $c > 1 ? "ping -n -c $c -i 0.2 -W 1 " : 'ping -n -c 1 -W 1 ';
+        $p = proc_open($cmd . escapeshellarg($ip), [1 => ['pipe', 'w'], 2 => ['pipe', 'w']], $pipes);
+        if (!is_resource($p)) continue;
+        stream_set_blocking($pipes[1], false);
+        $procs[$ip] = ['p' => $p, 'out' => $pipes[1], 'err' => $pipes[2], 'buf' => ''];
+    }
+
+    $prazo = microtime(true) + 3.0; // -W 1 termina em ~1 s; 3 s é margem pra máquina carregada
+    $res = array_fill_keys($ips, null);
+    while ($procs && microtime(true) < $prazo) {
+        foreach ($procs as $ip => &$pr) {
+            $pr['buf'] .= (string) stream_get_contents($pr['out']);
+            if (!proc_get_status($pr['p'])['running']) {
+                $pr['buf'] .= (string) stream_get_contents($pr['out']);
+                $res[$ip] = monitor_parse_latencia($pr['buf']);
+                fclose($pr['out']);
+                fclose($pr['err']);
+                proc_close($pr['p']);
+                unset($procs[$ip]);
+            }
+        }
+        unset($pr);
+        if ($procs) usleep(20000);
+    }
+    foreach ($procs as $pr) { // passou do prazo: conta como sem resposta
+        proc_terminate($pr['p']);
+        fclose($pr['out']);
+        fclose($pr['err']);
+        proc_close($pr['p']);
+    }
+    return $res;
+}
+
+/** Equipamento que bloqueia ICMP: testa a porta TCP cadastrada. Latência = tempo do connect. */
+function monitor_tcp(string $ip, int $porta): ?float
+{
+    if (isset($GLOBALS['__monitor_ping_fake']) && is_callable($GLOBALS['__monitor_ping_fake'])) {
+        return ($GLOBALS['__monitor_ping_fake'])($ip);
+    }
+    $t = microtime(true);
+    $c = @fsockopen($ip, $porta, $errno, $errstr, 1.0);
+    if ($c === false) return null;
+    fclose($c);
+    return round((microtime(true) - $t) * 1000, 2);
+}
+
+/** Portas testadas quando o ping falha — PC/PDV com firewall bloqueando ICMP ainda abre VNC e compartilhamento. */
+const MONITOR_PORTAS_RESERVA = [5900, 445];
+
+/**
+ * Testa várias (ip, porta) TCP AO MESMO TEMPO (connect assíncrono + select) —
+ * só roda pra quem já falhou no ping, então custa ~1 s no pior caso.
+ * Seam de teste: $GLOBALS['__monitor_tcp_fake'] = fn(string $ip, int $porta): ?float.
+ * Com o seam de ping ligado e sem o de TCP, nunca bate na rede (testes).
+ *
+ * @param array $alvos lista de [ip, porta]
+ * @return array "ip:porta" => latência em ms ou null
+ */
+function monitor_tcp_lote(array $alvos, float $timeout = 1.0): array
+{
+    $res = [];
+    foreach ($alvos as [$ip, $porta]) $res["$ip:$porta"] = null;
+    if (!$res) return [];
+
+    if (isset($GLOBALS['__monitor_tcp_fake']) && is_callable($GLOBALS['__monitor_tcp_fake'])) {
+        foreach ($alvos as [$ip, $porta]) $res["$ip:$porta"] = ($GLOBALS['__monitor_tcp_fake'])((string) $ip, (int) $porta);
+        return $res;
+    }
+    if (isset($GLOBALS['__monitor_ping_fake'])) return $res;
+
+    $socks = [];
+    $t0 = microtime(true);
+    foreach ($alvos as [$ip, $porta]) {
+        if (!monitor_ip_valido((string) $ip)) continue;
+        $s = @stream_socket_client("tcp://$ip:$porta", $errno, $errstr, $timeout,
+            STREAM_CLIENT_CONNECT | STREAM_CLIENT_ASYNC_CONNECT);
+        if ($s !== false) { stream_set_blocking($s, false); $socks["$ip:$porta"] = $s; }
+    }
+    $prazo = $t0 + $timeout;
+    while ($socks && microtime(true) < $prazo) {
+        $w = array_values($socks);
+        $r = $x = null;
+        if (@stream_select($r, $w, $x, 0, 50000) === false) break;
+        foreach ($w as $s) {
+            $k = array_search($s, $socks, true);
+            // "gravável" = conectou OU recusou; só o conectado tem ponta remota
+            if (@stream_socket_get_name($s, true) !== false) $res[$k] = round((microtime(true) - $t0) * 1000, 2);
+            fclose($s);
+            unset($socks[$k]);
+        }
+    }
+    foreach ($socks as $s) fclose($s);
+    return $res;
+}
+
+/**
+ * Regra de estado — PURA. Recebe o estado atual do equipamento e o resultado
+ * do ping desta rodada; devolve o novo estado.
+ *   - up: cai só na N-ésima falha seguida ("caiu"); caído desde a 1ª falha.
+ *     Voltar antes disso = queda curta (reinício), registrada, sem transição.
+ *   - down: volta só no M-ésimo sucesso seguido ("voltou").
+ *   - desconhecido (recém-ligado): 1 sucesso = up; N falhas = down, sem
+ *     transição (não dá pra dizer que "caiu" se nunca foi visto no ar).
+ *
+ * @param array $d status, status_desde, falhas_seguidas, sucessos_seguidos, falha_desde
+ * @return array mesmos campos + transicao ('caiu'|'voltou'|null) + queda_curta (array|null)
+ */
+function monitor_aplicar_resultado(array $d, bool $ok, int $falhasParaCair, int $sucessosParaVoltar, string $agora): array
+{
+    $n = [
+        'status'            => (string) $d['status'],
+        'status_desde'      => $d['status_desde'] ?? null,
+        'falhas_seguidas'   => (int) ($d['falhas_seguidas'] ?? 0),
+        'sucessos_seguidos' => (int) ($d['sucessos_seguidos'] ?? 0),
+        'falha_desde'       => $d['falha_desde'] ?? null,
+        'transicao'         => null,
+        'queda_curta'       => null,
+    ];
+
+    if ($ok) {
+        if ($n['status'] === 'down') {
+            $n['sucessos_seguidos']++;
+            if ($n['sucessos_seguidos'] >= $sucessosParaVoltar) {
+                $n = array_merge($n, ['status' => 'up', 'status_desde' => $agora, 'transicao' => 'voltou',
+                                      'falhas_seguidas' => 0, 'sucessos_seguidos' => 0, 'falha_desde' => null]);
+            }
+        } elseif ($n['status'] === 'desconhecido') {
+            $n = array_merge($n, ['status' => 'up', 'status_desde' => $agora,
+                                  'falhas_seguidas' => 0, 'sucessos_seguidos' => 0, 'falha_desde' => null]);
+        } else { // up
+            if ($n['falhas_seguidas'] > 0) {
+                $n['queda_curta'] = ['inicio' => $n['falha_desde'] ?? $agora, 'fim' => $agora, 'falhas' => $n['falhas_seguidas']];
+            }
+            $n['falhas_seguidas'] = 0;
+            $n['falha_desde'] = null;
+        }
+        return $n;
+    }
+
+    // falhou
+    $n['sucessos_seguidos'] = 0;
+    $n['falhas_seguidas']++;
+    $n['falha_desde'] ??= $agora;
+    if ($n['status'] !== 'down' && $n['falhas_seguidas'] >= $falhasParaCair) {
+        $n['transicao']    = $n['status'] === 'up' ? 'caiu' : null;
+        $n['status']       = 'down';
+        $n['status_desde'] = $n['falha_desde'];
+    }
+    return $n;
+}
+
+/**
+ * Uma rodada: pinga (em paralelo) os equipamentos com Monitorar ligado cujo
+ * intervalo do grupo venceu, aplica a regra de estado e grava. MODO SOMBRA:
+ * só escreve nas tabelas do monitor.
+ *
+ * @param int[]|null $somenteIds restringe a esses ids (testes) — aí também não grava o heartbeat
+ * @return array ['pingados'=>int, 'ms'=>int, 'caiu'=>string[], 'voltou'=>string[], 'quedas_curtas'=>int]
+ */
+function monitor_rodada(PDO $pdo, ?array $somenteIds = null): array
+{
+    $t0 = microtime(true);
+    $vazio = ['pingados' => 0, 'ms' => 0, 'caiu' => [], 'voltou' => [], 'quedas_curtas' => 0];
+    $agora = (string) $pdo->query("SELECT NOW()")->fetchColumn();
+
+    $sql = "SELECT d.*, g.falhas_para_cair, g.sucessos_para_voltar, g.pacotes
+            FROM portal_monitor_dispositivos d
+            JOIN portal_monitor_grupos g ON g.grupo = d.grupo
+            WHERE d.monitorar = 1 AND d.removido_em IS NULL AND d.duplicado_de IS NULL
+              AND (d.ip_fixo IS NOT NULL OR d.ips IS NOT NULL)
+              AND (d.ultimo_ping IS NULL OR d.ultimo_ping <= NOW() - INTERVAL (g.intervalo_seg - 5) SECOND)";
+    $args = [];
+    if ($somenteIds !== null) {
+        if (!$somenteIds) return $vazio;
+        $sql .= ' AND d.id IN (' . implode(',', array_fill(0, count($somenteIds), '?')) . ')';
+        $args = array_map('intval', $somenteIds);
+    }
+    $st = $pdo->prepare($sql);
+    $st->execute($args);
+    $disps = $st->fetchAll(PDO::FETCH_ASSOC);
+
+    // IPs de cada equipamento: o fixo, ou todos os candidatos do inventário
+    $ipsDe = [];
+    $paraPing = [];
+    $pacotesDe = [];
+    foreach ($disps as $d) {
+        $lista = $d['ip_fixo'] ? [$d['ip_fixo']] : array_values(array_filter(explode(',', (string) $d['ips'])));
+        $ipsDe[$d['id']] = $lista;
+        if (!$d['porta_tcp']) {
+            array_push($paraPing, ...$lista);
+            foreach ($lista as $ip) $pacotesDe[$ip] = max($pacotesDe[$ip] ?? 1, (int) $d['pacotes']);
+        }
+    }
+    $lote = monitor_ping_lote($paraPing, $pacotesDe);
+
+    $upd = $pdo->prepare("UPDATE portal_monitor_dispositivos SET status = ?, status_desde = ?, falhas_seguidas = ?,
+            sucessos_seguidos = ?, falha_desde = ?, ultimo_ping = ?, latencia_ms = ?,
+            ip_respondeu = COALESCE(?, ip_respondeu) WHERE id = ?");
+    $insQueda = $pdo->prepare("INSERT INTO portal_monitor_quedas_curtas (dispositivo_id, inicio, fim, falhas) VALUES (?,?,?,?)");
+    $res = array_merge($vazio, ['pingados' => count($disps)]);
+
+    // 1º IP (na ordem de preferência) que respondeu
+    $achado = [];
+    foreach ($disps as $d) {
+        $achado[$d['id']] = [null, null];
+        foreach ($ipsDe[$d['id']] as $ip) {
+            $l = $d['porta_tcp'] ? monitor_tcp($ip, (int) $d['porta_tcp']) : ($lote[$ip] ?? null);
+            if ($l !== null) { $achado[$d['id']] = [$l, $ip]; break; }
+        }
+    }
+
+    // ping falhou (e não tem porta própria): tenta VNC/compartilhamento antes de contar falha
+    $alvos = [];
+    foreach ($disps as $d) {
+        if ($achado[$d['id']][1] !== null || $d['porta_tcp']) continue;
+        foreach ($ipsDe[$d['id']] as $ip) foreach (MONITOR_PORTAS_RESERVA as $p) $alvos[] = [$ip, $p];
+    }
+    $tcp = monitor_tcp_lote($alvos);
+    foreach ($disps as $d) {
+        if ($achado[$d['id']][1] !== null || $d['porta_tcp']) continue;
+        foreach ($ipsDe[$d['id']] as $ip) foreach (MONITOR_PORTAS_RESERVA as $p) {
+            if (($tcp["$ip:$p"] ?? null) !== null && $achado[$d['id']][1] === null) $achado[$d['id']] = [$tcp["$ip:$p"], $ip];
+        }
+    }
+
+    foreach ($disps as $d) {
+        [$lat, $ipOk] = $achado[$d['id']];
+        $n = monitor_aplicar_resultado($d, $ipOk !== null, (int) $d['falhas_para_cair'], (int) $d['sucessos_para_voltar'], $agora);
+        $upd->execute([$n['status'], $n['status_desde'], $n['falhas_seguidas'], $n['sucessos_seguidos'],
+                       $n['falha_desde'], $agora, $lat, $ipOk, $d['id']]);
+        if ($n['queda_curta']) {
+            $insQueda->execute([$d['id'], $n['queda_curta']['inicio'], $n['queda_curta']['fim'], $n['queda_curta']['falhas']]);
+            $res['quedas_curtas']++;
+        }
+        if ($n['transicao']) $res[$n['transicao']][] = (string) $d['nome'];
+    }
+
+    $res['ms'] = (int) round((microtime(true) - $t0) * 1000);
+    if ($somenteIds === null) {
+        wpp_cfg_set('monitor_ultima_rodada', $agora); // heartbeat — o "sem contato" da etapa 3 olha isto
+        wpp_cfg_set('monitor_rodada_ms', (string) $res['ms']);
+        wpp_cfg_set('monitor_rodada_qtd', (string) $res['pingados']);
+    }
+    return $res;
+}
+
+/* ───────────────────────────── Virada (etapa 3) ───────────────────────────── */
+
+/**
+ * Regra do espelho — PURA. Compara o estado do monitor com portal_dude_estado
+ * (o que a Central de Alertas lê) e diz o que mudar. Reconciliação, não só
+ * transição: se uma gravação se perder, a próxima rodada corrige sozinha
+ * (o problema que o Dude tinha — aviso perdido = estado errado pra sempre).
+ *   - status diferente -> gravar, com atualizado_em = "desde" do monitor
+ *   - mesmo status -> nunca mexe no atualizado_em ("nesse estado desde" é o
+ *     que o "ligado muito tempo" usa); só corrige nome/endereço/loja/categoria
+ *   - linha de device que não é de equipamento monitorado -> remover
+ *   - desconhecido (ainda não pingado) -> não grava nem remove
+ *
+ * @param array $monitorados nome, status, status_desde, ip_respondeu, ips, ip_fixo, loja, categoria, falhas_para_cair
+ * @param array $estado      linhas tipo='device' de portal_dude_estado
+ * @return array ['gravar'=>linhas, 'metadados'=>linhas, 'remover'=>chaves]
+ */
+function monitor_espelho_diff(array $monitorados, array $estado): array
+{
+    $atual = [];
+    foreach ($estado as $e) $atual[(string) $e['chave']] = $e;
+
+    $out = ['gravar' => [], 'metadados' => [], 'remover' => []];
+    $manter = [];
+    foreach ($monitorados as $m) {
+        $chave = (string) $m['nome'];
+        $manter[$chave] = true;
+        if (!in_array($m['status'], ['up', 'down'], true)) continue;
+
+        $candidatos = array_values(array_filter(explode(',', (string) $m['ips'])));
+        $linha = [
+            'chave'     => $chave,
+            'nome'      => $chave,
+            'endereco'  => (string) ($m['ip_respondeu'] ?: ($m['ip_fixo'] ?: ($candidatos[0] ?? ''))),
+            'loja'      => (string) $m['loja'],
+            'categoria' => (string) $m['categoria'],
+            'status'    => (string) $m['status'],
+            'detalhe'   => $m['status'] === 'down'
+                ? 'sem resposta a ping (' . (int) $m['falhas_para_cair'] . ' tentativas)'
+                : 'respondendo a ping',
+            'atualizado_em' => (string) ($m['status_desde'] ?: date('Y-m-d H:i:s')),
+        ];
+
+        $e = $atual[$chave] ?? null;
+        if ($e === null || $e['status'] !== $linha['status']) {
+            $out['gravar'][] = $linha;
+        } elseif ($e['nome'] !== $linha['nome'] || $e['endereco'] !== $linha['endereco']
+               || $e['loja'] !== $linha['loja'] || $e['categoria'] !== $linha['categoria']) {
+            $out['metadados'][] = $linha;
+        }
+    }
+    foreach ($atual as $chave => $_) {
+        if (!isset($manter[(string) $chave])) $out['remover'][] = (string) $chave;
+    }
+    return $out;
+}
+
+/**
+ * Aplica o espelho no banco. Chamado a cada rodada do worker, logo depois do
+ * ping — a Central de Alertas (gat_alertas) roda na mesma passada, então o
+ * ✅ "voltou" sai na hora. Categoria = nome do grupo (casa com
+ * portal_dude_categoria_config: horário, ligado muito tempo).
+ *
+ * @return array ['gravados'=>chaves, 'metadados'=>int, 'removidos'=>chaves]
+ */
+function monitor_espelhar_estado(PDO $pdo): array
+{
+    $monitorados = $pdo->query(
+        "SELECT d.nome, d.status, d.status_desde, d.ip_respondeu, d.ips, d.ip_fixo, d.loja,
+                g.nome AS categoria, g.falhas_para_cair
+         FROM portal_monitor_dispositivos d
+         JOIN portal_monitor_grupos g ON g.grupo = d.grupo
+         WHERE d.monitorar = 1 AND d.removido_em IS NULL AND d.duplicado_de IS NULL"
+    )->fetchAll(PDO::FETCH_ASSOC);
+    $estado = $pdo->query(
+        "SELECT chave, nome, endereco, loja, categoria, status, atualizado_em
+         FROM portal_dude_estado WHERE tipo = 'device'"
+    )->fetchAll(PDO::FETCH_ASSOC);
+
+    $diff = monitor_espelho_diff($monitorados, $estado);
+
+    $grava = $pdo->prepare(
+        "INSERT INTO portal_dude_estado (tipo, chave, nome, endereco, loja, categoria, status, detalhe, atualizado_em)
+         VALUES ('device',?,?,?,?,?,?,?,?)
+         ON DUPLICATE KEY UPDATE nome=VALUES(nome), endereco=VALUES(endereco), loja=VALUES(loja),
+             categoria=VALUES(categoria), status=VALUES(status), detalhe=VALUES(detalhe), atualizado_em=VALUES(atualizado_em)"
+    );
+    foreach ($diff['gravar'] as $l) {
+        $grava->execute([$l['chave'], $l['nome'], $l['endereco'], $l['loja'], $l['categoria'], $l['status'], $l['detalhe'], $l['atualizado_em']]);
+    }
+    $meta = $pdo->prepare(
+        "UPDATE portal_dude_estado SET nome = ?, endereco = ?, loja = ?, categoria = ? WHERE tipo = 'device' AND chave = ?"
+    );
+    foreach ($diff['metadados'] as $l) {
+        $meta->execute([$l['nome'], $l['endereco'], $l['loja'], $l['categoria'], $l['chave']]);
+    }
+    $del = $pdo->prepare("DELETE FROM portal_dude_estado WHERE tipo = 'device' AND chave = ?");
+    foreach ($diff['remover'] as $c) $del->execute([$c]);
+
+    return ['gravados' => array_column($diff['gravar'], 'chave'), 'metadados' => count($diff['metadados']), 'removidos' => $diff['remover']];
+}
+
+/* ───────────────────────────── VPN entre lojas (etapa 3b) ───────────────────────────── */
+
+/** Margem pra considerar que um equipamento "caiu junto" com a VPN (o ping de PDV é mais lento que o da VPN). */
+const MONITOR_VPN_MARGEM_SEG = 120;
+
+/**
+ * Ocorrências de VPN fora — PURA. 1 por loja, tipo dude_link reaproveitado
+ * ("Enlace offline (VPN/Internet)" — o Dude nunca chegou a usar).
+ *
+ * @param array $fora loja => ['nome','ip','desde']
+ * @param array $qtdPorLoja loja => quantos equipamentos monitorados da loja estão fora
+ */
+function monitor_vpn_ocorrencias(array $fora, array $qtdPorLoja): array
+{
+    $out = [];
+    foreach ($fora as $loja => $f) {
+        $n = (int) ($qtdPorLoja[$loja] ?? 0);
+        $det = $f['ip'] . ' · sem resposta desde ' . date('H:i', strtotime($f['desde']));
+        if ($n > 0) $det .= " · {$n} equipamentos sem comunicação";
+        $out[] = [
+            'chave'     => 'dude:link:' . $loja,
+            'titulo'    => 'VPN ' . $loja,
+            'loja'      => (string) $loja,
+            'categoria' => 'VPN entre lojas',
+            'detalhe'   => $det,
+        ];
+    }
+    return $out;
+}
+
+/**
+ * Tira da lista de devices fora os que caíram junto com a VPN da loja deles
+ * (a VPN já avisa, com a contagem) — PURA. Quem já estava fora antes da VPN
+ * cair (além da margem) continua: se sumisse, o motor mandaria um ✅ falso.
+ *
+ * @param array $ocorr ocorrências de device com 'loja' e 'desde' (DATETIME)
+ * @param array $fora  loja => ['desde', ...]
+ */
+function monitor_vpn_suprimir(array $ocorr, array $fora): array
+{
+    if (!$fora) return $ocorr;
+    return array_values(array_filter($ocorr, function ($o) use ($fora) {
+        $f = $fora[$o['loja'] ?? ''] ?? null;
+        if ($f === null || empty($o['desde'])) return true;
+        return strtotime($o['desde']) < strtotime($f['desde']) - MONITOR_VPN_MARGEM_SEG;
+    }));
+}
+
+/**
+ * Lojas com a VPN fora = pfSense de OUTRA loja (não a rede do servidor do
+ * portal) monitorado e caído. @return loja => ['nome','ip','desde']
+ */
+function monitor_vpn_fora(PDO $pdo): array
+{
+    $st = $pdo->prepare(
+        "SELECT nome, loja, COALESCE(ip_fixo, ip) AS ip, status_desde
+         FROM portal_monitor_dispositivos
+         WHERE grupo = 'firewalls' AND monitorar = 1 AND removido_em IS NULL AND status = 'down'
+           AND COALESCE(ip_fixo, ip) NOT LIKE ?"
+    );
+    $st->execute([MONITOR_REDE_SERVIDOR . '%']);
+    $out = [];
+    foreach ($st->fetchAll(PDO::FETCH_ASSOC) as $r) {
+        $out[(string) $r['loja']] = ['nome' => $r['nome'], 'ip' => (string) $r['ip'], 'desde' => (string) $r['status_desde']];
+    }
+    return $out;
+}
+
+/** Quantos equipamentos monitorados (fora o pfSense) estão fora, por loja. */
+function monitor_qtd_fora_por_loja(PDO $pdo): array
+{
+    return $pdo->query(
+        "SELECT loja, COUNT(*) FROM portal_monitor_dispositivos
+         WHERE monitorar = 1 AND removido_em IS NULL AND status = 'down' AND grupo <> 'firewalls'
+         GROUP BY loja"
+    )->fetchAll(PDO::FETCH_KEY_PAIR);
+}
+
+/**
+ * Chamado pelo worker a cada passada (~30 s), ANTES da checagem do WhatsApp —
+ * WhatsApp fora do ar não pode parar o monitoramento. Sincroniza com o
+ * inventário a cada 10 min e roda a rodada de ping.
+ */
+function monitor_gatilho(PDO $pdo): void
+{
+    $ultSinc = (string) wpp_cfg_get('monitor_ultima_sinc', '');
+    if ($ultSinc === '' || time() - strtotime($ultSinc) >= 600) {
+        monitor_sincronizar($pdo);
+        wpp_cfg_set('monitor_ultima_sinc', date('Y-m-d H:i:s'));
+    }
+    monitor_rodada($pdo);
+    monitor_espelhar_estado($pdo); // etapa 3: o monitor manda na Central de Alertas
 }

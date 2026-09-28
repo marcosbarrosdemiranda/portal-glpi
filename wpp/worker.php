@@ -18,6 +18,7 @@ require_once __DIR__ . '/../alertas_lib.php';
 require_once __DIR__ . '/gatilhos.php';
 require_once __DIR__ . '/chatbot.php';
 require_once __DIR__ . '/../dude_lib.php';
+require_once __DIR__ . '/../monitor_lib.php';
 
 // --- Constantes de operação (lidas de portal_wpp_config, com default) ---
 // Definidas como variáveis locais de propósito (não define()) pra facilitar
@@ -35,6 +36,14 @@ $slaPrevencMin    = (int) wpp_cfg_get('cfg_sla_prevenc_min', '30');
 function wpp_worker_passada(): void
 {
     global $pdo, $offlineResetMin;
+
+    // 0. Monitor de rede (ping próprio do portal) — roda ANTES da checagem do
+    //    WhatsApp: instância desconectada não pode parar o monitoramento.
+    try {
+        monitor_gatilho($pdo);
+    } catch (\Throwable $e) {
+        wpp_log('sys', '', 'monitor_gatilho: ' . $e->getMessage(), 'erro');
+    }
 
     // 1. A instância está conectada?
     $st = evo_status();
@@ -72,9 +81,10 @@ function wpp_worker_passada(): void
     }
 
     // 4. Gatilhos — cada um isolado num try/catch que loga e segue.
-    //    dude_gatilho_verificar_ping: cobre o Dude travar o acompanhamento de
-    //    um device sem avisar - portal confere direto via ping (só down 30+min).
-    foreach (['gat_novo', 'gat_atribuido', 'gat_alertas', 'gat_sla', 'dude_gatilho_verificar_ping'] as $g) {
+    //    Etapa 3 do monitor: 'dude_gatilho_verificar_ping' saiu da lista — o
+    //    monitor_gatilho (passo 0) já espelha o estado real a cada rodada, e o
+    //    ping de 1 pacote dele gerava falso "caiu" (PDV002-LJ030, 28/09).
+    foreach (['gat_novo', 'gat_atribuido', 'gat_alertas', 'gat_sla'] as $g) {
         try {
             $g($pdo);
         } catch (\Throwable $e) {

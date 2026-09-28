@@ -12,6 +12,7 @@
 
 require_once __DIR__ . '/agenda/db.php';
 require_once __DIR__ . '/wpp/db.php'; // wpp_cfg_get()/wpp_cfg_set() — mesmo mecanismo do grupo_alertas_jid
+require_once __DIR__ . '/monitor_lib.php'; // etapa 3b: VPN entre lojas (monitor_vpn_*)
 
 // cria a tabela ao incluir (padrão do portal)
 (function () {
@@ -299,6 +300,7 @@ function dude_check_tipo(PDO $pdo, string $tipo): array
             'loja'      => (string) $r['loja'],
             'categoria' => (string) $r['categoria'],
             'detalhe'   => trim(trim($r['endereco'] . ' · ' . $r['detalhe'], ' ·')) . " (desde {$desde})",
+            'desde'     => (string) $r['atualizado_em'], // etapa 3b: supressão pela VPN
         ];
     }
     return $out;
@@ -311,13 +313,18 @@ function dude_check_tipo(PDO $pdo, string $tipo): array
  */
 function alerta_check_dude_device(PDO $pdo, array $p): array
 {
-    $ocorr = dude_check_tipo($pdo, 'device');
+    // etapa 3b: com a VPN da loja fora, quem caiu junto não alerta um por um (a VPN avisa com a contagem)
+    $ocorr = monitor_vpn_suprimir(dude_check_tipo($pdo, 'device'), monitor_vpn_fora($pdo));
     return array_values(array_filter(
         $ocorr,
         fn($o) => dude_categoria_no_horario($pdo, $o['categoria'], $o['loja']) && !dude_feriado_hoje($pdo, $o['loja'])
     ));
 }
-function alerta_check_dude_link(PDO $pdo, array $p): array     { return dude_check_tipo($pdo, 'link'); }
+/** Etapa 3b: VPN entre lojas, pelo monitor (sempre alerta, sem horário). O Dude nunca usou este tipo. */
+function alerta_check_dude_link(PDO $pdo, array $p): array
+{
+    return monitor_vpn_ocorrencias(monitor_vpn_fora($pdo), monitor_qtd_fora_por_loja($pdo));
+}
 function alerta_check_dude_latencia(PDO $pdo, array $p): array { return dude_check_tipo($pdo, 'latencia'); }
 function alerta_check_dude_service(PDO $pdo, array $p): array  { return dude_check_tipo($pdo, 'service'); }
 
@@ -355,19 +362,21 @@ function alerta_check_dude_ligado_muito_tempo(PDO $pdo, array $p): array
 /** @return array ocorrências: 0 ou 1 item (watchdog geral, não por dispositivo) */
 function alerta_check_dude_sem_contato(PDO $pdo, array $p): array
 {
-    $ultima = dude_ultima_notificacao($pdo);
-    if ($ultima === null) return []; // nunca recebeu nada ainda -> não é "silêncio", é "nunca configurado"
+    // Etapa 3 do monitor de rede: "sem contato" = monitor parado (heartbeat
+    // monitor_ultima_rodada), não mais "Dude sem notificar". Padrão 5 min.
+    $ultima = (string) wpp_cfg_get('monitor_ultima_rodada', '');
+    if ($ultima === '') return []; // monitor nunca rodou -> não é "parado", é "não instalado"
 
-    $horas     = (int) ($p['horas'] ?? 6);
+    $min       = (int) ($p['minutos'] ?? 5);
     $decorrido = time() - strtotime($ultima);
-    if ($decorrido < $horas * 3600) return [];
+    if ($decorrido < $min * 60) return [];
 
-    $h = max(0, (int) floor($decorrido / 3600));
+    $m = max(0, (int) floor($decorrido / 60));
     return [[
         'chave'   => 'dude:sem_contato',
-        'titulo'  => 'The Dude não está notificando',
+        'titulo'  => 'Monitor de rede parado',
         'loja'    => '',
-        'detalhe' => "última notificação há {$h}h — verifique o Dude ou a rede até ele",
+        'detalhe' => "última rodada de ping há {$m} min — verifique o container portal-wpp-worker",
     ]];
 }
 

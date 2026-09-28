@@ -253,8 +253,8 @@ function alertas_catalogo(): array
             'cor'    => 'danger',
         ],
         'dude_link' => [
-            'nome'      => 'Enlace offline (VPN/Internet)',
-            'descricao' => 'Link de VPN ou de internet monitorado pelo The Dude caiu.',
+            'nome'      => 'Queda de VPN entre lojas',
+            'descricao' => 'O servidor do portal (Lj 001) não alcança o pfSense de outra loja — a VPN daquela loja caiu. Os equipamentos da loja que caíram junto não alertam um por um.',
             'params'    => [],
             'check'  => 'alerta_check_dude_link',
             'render' => 'alerta_render_dude',
@@ -280,10 +280,10 @@ function alertas_catalogo(): array
             'cor'    => 'danger',
         ],
         'dude_sem_contato' => [
-            'nome'      => 'The Dude não está notificando',
-            'descricao' => 'Nenhuma notificação recebida do The Dude há X horas — pode ser o Dude ou a rede até ele.',
+            'nome'      => 'Monitor de rede parado',
+            'descricao' => 'O monitor de rede do portal não roda uma rodada de ping há X minutos — verifique o container portal-wpp-worker.',
             'params'    => [
-                'horas' => ['label' => 'Horas sem notificação', 'default' => 6, 'min' => 1, 'max' => 168],
+                'minutos' => ['label' => 'Minutos sem rodada', 'default' => 5, 'min' => 2, 'max' => 1440],
             ],
             'check'  => 'alerta_check_dude_sem_contato',
             'render' => 'alerta_render_dude',

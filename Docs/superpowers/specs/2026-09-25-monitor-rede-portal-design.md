@@ -75,6 +75,8 @@ O próprio portal pinga todos os equipamentos cadastrados, a cada 1 minuto, **em
 - **Estimativa:** ~3h.
 
 ### Etapa 2 — Motor de ping em modo sombra
+> **Progresso (branch `feat/monitor-rede-etapa2`):** ✅ passo 1 motor de ping paralelo + regra de estado + quedas curtas, 75 testes (ab656fe) — 78 IPs em 1,1 s no worker · ✅ passo 2 rodada no worker como passo 0, antes da checagem do WhatsApp (0c029c7) — 65 equipamentos em 1,2 s · ✅ passo 3 tela com status/latência/reinícios 24h/comparação com o Dude + filtros (este commit) · ⏳ passo 4 observação 1–2 dias (divergências com o Dude, IPs que bloqueiam ICMP) · ⏳ passo 5 merge.
+> **Desvios:** equipamento com vários IPs candidatos = no ar se QUALQUER um responder (grava `ip_respondeu`); coluna `falha_desde` pra "caído desde a 1ª falha"; heartbeat `monitor_ultima_rodada`/`monitor_rodada_ms`/`monitor_rodada_qtd` em wpp_cfg; sincronização com o inventário a cada 10 min pelo worker.
 **Objetivo:** o portal pinga tudo e guarda o resultado, **sem gerar alerta** — pra comparar com a realidade antes de confiar.
 - [ ] `monitor_ping_lote(array $ips): array` — pings em paralelo via `proc_open`, devolve `ip => [ok, latencia_ms]`. Seam de teste igual ao `__dude_ping_fake`.
 - [ ] `monitor_aplicar_resultado(array $disp, bool $ok, int $falhasParaCair, int $sucessosParaVoltar): array` — **função pura**: novo estado + se houve transição. Testes cobrindo: 1 e 2 falhas não derrubam, 3 derruba; 1 sucesso não levanta, 2 levantam; pisca-pisca não gera transição. Também devolve **queda curta** (voltou antes da tolerância) com a duração.
@@ -86,6 +88,8 @@ O próprio portal pinga todos os equipamentos cadastrados, a cada 1 minuto, **em
 - **Estimativa:** ~3h + 1–2 dias de observação.
 
 ### Etapa 3 — Virada: monitor passa a mandar nos alertas
+> **Progresso (branch `feat/monitor-rede-etapa3`, 2026-09-28, antecipada após falso alarme do ping de 1 pacote no PDV002-LJ030):** ✅ espelho por **reconciliação** (não só transição) `monitor_espelhar_estado` a cada rodada, `atualizado_em` = "desde" do monitor; linhas com nomes antigos do Dude removidas (67bf574) · ✅ porta TCP editável na tela (9f22f20) · ✅ virada: worker sem `dude_gatilho_verificar_ping`, botão Atualizar = espelho, webhook ignora `device`, sem_contato = heartbeat (55cc721) · ✅ ping falhou → testa 5900/445 em paralelo (6e4cd62) — rodada 47 equipamentos ≈ 2,2 s. Container do Dude **intocado** (decisão do usuário).
+> **Incidente:** a suíte de testes rodada em produção derrubou os PDVs reais via teste de `dude_verificar_up` (fake de ping "ninguém responde" + função varre a tabela toda) → ~25 🔔 falsos às 10:21. Teste corrigido (só o equipamento de teste deixa de responder). Regra: teste que chama função que varre tabela real precisa de fake que responda "ok" para tudo que não é de teste.
 **Objetivo:** Central de Alertas passa a usar o monitor.
 - [ ] Antes de tudo: conferir `notif_whatsapp` dos tipos `dude_*` e decidir com o usuário se fica ligado na virada (regra: mutar antes de testar).
 - [ ] Sincronização inicial: copia o status atual do monitor para `portal_dude_estado` (1 vez), pra primeira rodada não gerar rajada de 🔔/✅.
@@ -95,6 +99,27 @@ O próprio portal pinga todos os equipamentos cadastrados, a cada 1 minuto, **em
 - [ ] Webhook do Dude: ignora devices cadastrados no monitor (loga e responde 200) — Dude pode continuar ligado sem interferir.
 - **Pronto quando:** derrubar um device de teste gera 🔔 em ~3 min e ✅ em ~2 min depois de voltar; PDV desligado fora do horário não alerta.
 - **Estimativa:** ~2h.
+
+> **Ajuste 28/09 (pedido do usuário: "controle preciso"):** PDVs 30 s / **2 falhas** (≈ 1 min) — aceito que reinício de 1–2 min vira 🔔+✅ (≈ 12/dia pelos dados de 3 dias). Servidores MGV 30 s / 2 falhas, os 2 MGV ligados. VMs: 3 monitoradas (Gunnebo, SAC LJ003, TRUENas), usuário escolhe as outras 14.
+
+### Etapa 3b — Queda de VPN entre lojas (alerta instantâneo)
+> **Progresso:** ✅ CONCLUÍDA 2026-09-28 (2dedc1a) — grupo Firewalls 30 s / 3 pacotes / cai com 1 falha; tipo `dude_link` reaproveitado como "Queda de VPN entre lojas"; supressão dos devices da loja (margem 120 s); pfSense Lj 010 entrou como manual (192.168.4.1) até ser cadastrado em pfSense Lojas. Teste E2E com WhatsApp mudo: 🔔 em 18 s, ✅ em 66 s, sem alerta duplicado do pfSense.
+**Pedido do usuário (28/09):** queda de comunicação entre lojas tem que avisar na hora.
+**Como medir:** o servidor do portal fica na Lj 001 (192.168.1.198). Ping dele para o pfSense de outra loja passa pela VPN — se não responde, a VPN daquela loja caiu. Alvos: 192.168.2.1 (Lj 003), 192.168.3.1 (Lj 030), 192.168.4.1 (Lj 010 — **falta cadastrar em pfSense Lojas**). O 192.168.1.1 (Lj 001) é local, mede só a rede da matriz.
+- [ ] Tipo novo na Central **"Queda de VPN entre lojas"** (título próprio, WhatsApp/lembrete próprios), alimentado pelo grupo Firewalls.
+- [ ] Rapidez sem falso alarme: grupo Firewalls manda **3 pacotes por rodada** (cai só se os 3 se perderem) com **1 falha pra cair** → aviso em até ~30 s (limite do ciclo do worker).
+- [ ] **Sem rajada:** com a VPN de uma loja fora, os equipamentos daquela loja não geram alerta individual; o aviso da VPN diz "N equipamentos sem comunicação". Quando a VPN volta, quem continuar fora alerta normal.
+- [ ] Testes: VPN fora suprime os devices da loja; VPN de outra loja não suprime; pfSense da própria matriz não suprime nada.
+- **Futuro (se 30 s ainda for lento):** loop próprio só pros pfSense a cada 5 s, fora do ciclo do worker.
+
+### Etapa 3c — Qual link está ativo (local x Starlink)
+**Pedido do usuário (28/09):** saber por qual provedor cada loja está saindo e avisar quando cai um dos links.
+**Como:** o pfSense já monitora cada gateway (dpinger) e mostra em Status → Gateways: online/offline, perda, latência e qual é o padrão. O portal já tem login dos pfSense (`pfsense_lojas.php`, senha no cofre) e o proxy (`pfsense_proxy.php`) — dá pra ler essa página a cada 1–2 min.
+- [ ] Levantar, com o usuário, nome dos gateways em cada pfSense (ex.: WAN_LOCAL, WAN_STARLINK) e versão do pfSense (define se lê a página ou a API REST do pacote pfrest).
+- [ ] Tabela `portal_monitor_links` (loja, gateway, status, perda, latência, ativo_desde).
+- [ ] Alertas: "🔔 Loja 030 — link local fora, rodando no Starlink" / "✅ link local voltou"; ambos os links fora = a VPN cai junto (3b já avisa).
+- [ ] Na tela do Monitor e no mapa (etapa 4): ícone do link em uso por loja.
+- **Bloqueio:** precisa do cadastro do pfSense Lj 010 e confirmar que o usuário do portal enxerga Status → Gateways.
 
 ### Etapa 4 — Mapa da rede no Inventário
 **Objetivo:** substituir o mapa do Dude — ver cada loja com seus equipamentos, agrupados, com status, nome e IP.
