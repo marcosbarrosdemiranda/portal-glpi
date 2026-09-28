@@ -30,20 +30,29 @@ t_eq([$d['gravar'][0]['chave'], $d['gravar'][0]['status']], ['PDV127-LJ003', 'do
 t_eq($d['gravar'][0]['detalhe'], 'sem resposta a ping (8 tentativas)', 'espelho: detalhe do down cita a tolerância do grupo');
 
 // ---------------------------------------------------------------------------
-// mesmo status -> não mexe no "desde"; só corrige loja/categoria/endereço
+// mesmo status — só corrige loja/categoria/endereço ou atualizado_em fossilizado
 // ---------------------------------------------------------------------------
 $d = monitor_espelho_diff(
     [$mon('PDV010-LJ030', 'up', '2026-09-28 10:00:00')],
-    [$est('PDV010-LJ030', 'up', '2026-09-27 06:00:00')]
+    [$est('PDV010-LJ030', 'up', '2026-09-28 10:00:00')]
 );
-t_eq([$d['gravar'], $d['metadados']], [[], []], 'espelho: mesmo status e mesmos dados -> nada a fazer');
+t_eq([$d['gravar'], $d['metadados']], [[], []], 'espelho: mesmo status e mesmo timestamp -> nada a fazer');
+
+// atualizado_em fossilizado (monitor tem status_desde mais recente que o estado): grava pra corrigir
+$d = monitor_espelho_diff(
+    [$mon('PDV050-LJ001', 'up', '2026-09-28 08:00:00')],
+    [$est('PDV050-LJ001', 'up', '2026-09-25 20:02:21')] // timestamp antigo do Dude
+);
+t_eq(count($d['gravar']), 1, 'espelho: timestamp fossilizado (pre-monitor) -> grava pra corrigir');
+t_eq($d['gravar'][0]['atualizado_em'], '2026-09-28 08:00:00', 'espelho: atualizado_em corrigido para status_desde do monitor');
 
 $d = monitor_espelho_diff(
-    [$mon('PDV010-LJ030', 'up', '2026-09-28 10:00:00')],
-    [$est('PDV010-LJ030', 'up', '2026-09-27 06:00:00', ['loja' => '', 'categoria' => ''])]
+    [$mon('PDV010-LJ030', 'up', '2026-09-27 06:00:00')],
+    [$est('PDV010-LJ030', 'up', '2026-09-28 10:00:00', ['loja' => '', 'categoria' => ''])]
 );
-t_eq($d['gravar'], [], 'espelho: mesmo status -> não regrava (atualizado_em = "nesse estado desde")');
-t_eq([$d['metadados'][0]['loja'], $d['metadados'][0]['categoria']], ['Lj 030', 'PDVs'], 'espelho: loja/categoria vazias são corrigidas (horário por loja passa a valer)');
+t_eq($d['gravar'], [], 'espelho: estado já mais recente e mesmo status -> não regrava');
+t_eq(count($d['metadados']), 1, 'espelho: loja/categoria vazias são corrigidas mesmo sem regravar timestamp');
+t_eq([$d['metadados'][0]['loja'], $d['metadados'][0]['categoria']], ['Lj 030', 'PDVs'], 'espelho: loja/categoria corrigidas (horário por loja passa a valer)');
 
 // ---------------------------------------------------------------------------
 // limpeza: linhas que não são de equipamento monitorado saem

@@ -875,6 +875,10 @@ function monitor_espelho_diff(array $monitorados, array $estado): array
         $e = $atual[$chave] ?? null;
         if ($e === null || $e['status'] !== $linha['status']) {
             $out['gravar'][] = $linha;
+        } elseif ($linha['atualizado_em'] && $e['atualizado_em'] < $linha['atualizado_em']) {
+            // atualizado_em fossilizado (ex.: timestamp do Dude anterior à virada pro monitor):
+            // atualiza só o timestamp, sem alterar o histórico de "desde quando está nesse estado".
+            $out['gravar'][] = $linha;
         } elseif ($e['nome'] !== $linha['nome'] || $e['endereco'] !== $linha['endereco']
                || $e['loja'] !== $linha['loja'] || $e['categoria'] !== $linha['categoria']) {
             $out['metadados'][] = $linha;
