@@ -16,6 +16,7 @@ require_once __DIR__ . '/entidade_alias.php';
 require_once __DIR__ . '/agenda/db.php';
 require_once __DIR__ . '/backup_lib.php';
 require_once __DIR__ . '/dude_lib.php';
+require_once __DIR__ . '/monitor_links_lib.php'; // rede_link — links de internet das lojas (pfSense)
 require_once __DIR__ . '/sefaz_lib.php';
 require_once __DIR__ . '/solides_lib.php';
 require_once __DIR__ . '/impressoras_lib.php';
@@ -289,6 +290,15 @@ function alertas_catalogo(): array
             'render' => 'alerta_render_dude',
             'icone'  => 'bi-plug',
             'cor'    => 'warning',
+        ],
+        'rede_link' => [
+            'nome'      => 'Link de internet das lojas',
+            'descricao' => 'Lido do Status → Gateways do pfSense de cada loja: avisa quando um link (ex.: local, Starlink) cai e quando a loja passa a sair pelo link reserva.',
+            'params'    => [],
+            'check'  => 'alerta_check_rede_link',
+            'render' => 'alerta_render_dude',
+            'icone'  => 'bi-globe2',
+            'cor'    => 'danger',
         ],
         'dude_ligado_muito_tempo' => [
             'nome'      => 'Equipamento ligado há muito tempo',
