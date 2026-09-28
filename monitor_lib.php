@@ -738,6 +738,108 @@ function monitor_rodada(PDO $pdo, ?array $somenteIds = null): array
     return $res;
 }
 
+/* ───────────────────────────── Virada (etapa 3) ───────────────────────────── */
+
+/**
+ * Regra do espelho — PURA. Compara o estado do monitor com portal_dude_estado
+ * (o que a Central de Alertas lê) e diz o que mudar. Reconciliação, não só
+ * transição: se uma gravação se perder, a próxima rodada corrige sozinha
+ * (o problema que o Dude tinha — aviso perdido = estado errado pra sempre).
+ *   - status diferente -> gravar, com atualizado_em = "desde" do monitor
+ *   - mesmo status -> nunca mexe no atualizado_em ("nesse estado desde" é o
+ *     que o "ligado muito tempo" usa); só corrige nome/endereço/loja/categoria
+ *   - linha de device que não é de equipamento monitorado -> remover
+ *   - desconhecido (ainda não pingado) -> não grava nem remove
+ *
+ * @param array $monitorados nome, status, status_desde, ip_respondeu, ips, ip_fixo, loja, categoria, falhas_para_cair
+ * @param array $estado      linhas tipo='device' de portal_dude_estado
+ * @return array ['gravar'=>linhas, 'metadados'=>linhas, 'remover'=>chaves]
+ */
+function monitor_espelho_diff(array $monitorados, array $estado): array
+{
+    $atual = [];
+    foreach ($estado as $e) $atual[(string) $e['chave']] = $e;
+
+    $out = ['gravar' => [], 'metadados' => [], 'remover' => []];
+    $manter = [];
+    foreach ($monitorados as $m) {
+        $chave = (string) $m['nome'];
+        $manter[$chave] = true;
+        if (!in_array($m['status'], ['up', 'down'], true)) continue;
+
+        $candidatos = array_values(array_filter(explode(',', (string) $m['ips'])));
+        $linha = [
+            'chave'     => $chave,
+            'nome'      => $chave,
+            'endereco'  => (string) ($m['ip_respondeu'] ?: ($m['ip_fixo'] ?: ($candidatos[0] ?? ''))),
+            'loja'      => (string) $m['loja'],
+            'categoria' => (string) $m['categoria'],
+            'status'    => (string) $m['status'],
+            'detalhe'   => $m['status'] === 'down'
+                ? 'sem resposta a ping (' . (int) $m['falhas_para_cair'] . ' tentativas)'
+                : 'respondendo a ping',
+            'atualizado_em' => (string) ($m['status_desde'] ?: date('Y-m-d H:i:s')),
+        ];
+
+        $e = $atual[$chave] ?? null;
+        if ($e === null || $e['status'] !== $linha['status']) {
+            $out['gravar'][] = $linha;
+        } elseif ($e['nome'] !== $linha['nome'] || $e['endereco'] !== $linha['endereco']
+               || $e['loja'] !== $linha['loja'] || $e['categoria'] !== $linha['categoria']) {
+            $out['metadados'][] = $linha;
+        }
+    }
+    foreach ($atual as $chave => $_) {
+        if (!isset($manter[(string) $chave])) $out['remover'][] = (string) $chave;
+    }
+    return $out;
+}
+
+/**
+ * Aplica o espelho no banco. Chamado a cada rodada do worker, logo depois do
+ * ping — a Central de Alertas (gat_alertas) roda na mesma passada, então o
+ * ✅ "voltou" sai na hora. Categoria = nome do grupo (casa com
+ * portal_dude_categoria_config: horário, ligado muito tempo).
+ *
+ * @return array ['gravados'=>chaves, 'metadados'=>int, 'removidos'=>chaves]
+ */
+function monitor_espelhar_estado(PDO $pdo): array
+{
+    $monitorados = $pdo->query(
+        "SELECT d.nome, d.status, d.status_desde, d.ip_respondeu, d.ips, d.ip_fixo, d.loja,
+                g.nome AS categoria, g.falhas_para_cair
+         FROM portal_monitor_dispositivos d
+         JOIN portal_monitor_grupos g ON g.grupo = d.grupo
+         WHERE d.monitorar = 1 AND d.removido_em IS NULL AND d.duplicado_de IS NULL"
+    )->fetchAll(PDO::FETCH_ASSOC);
+    $estado = $pdo->query(
+        "SELECT chave, nome, endereco, loja, categoria, status, atualizado_em
+         FROM portal_dude_estado WHERE tipo = 'device'"
+    )->fetchAll(PDO::FETCH_ASSOC);
+
+    $diff = monitor_espelho_diff($monitorados, $estado);
+
+    $grava = $pdo->prepare(
+        "INSERT INTO portal_dude_estado (tipo, chave, nome, endereco, loja, categoria, status, detalhe, atualizado_em)
+         VALUES ('device',?,?,?,?,?,?,?,?)
+         ON DUPLICATE KEY UPDATE nome=VALUES(nome), endereco=VALUES(endereco), loja=VALUES(loja),
+             categoria=VALUES(categoria), status=VALUES(status), detalhe=VALUES(detalhe), atualizado_em=VALUES(atualizado_em)"
+    );
+    foreach ($diff['gravar'] as $l) {
+        $grava->execute([$l['chave'], $l['nome'], $l['endereco'], $l['loja'], $l['categoria'], $l['status'], $l['detalhe'], $l['atualizado_em']]);
+    }
+    $meta = $pdo->prepare(
+        "UPDATE portal_dude_estado SET nome = ?, endereco = ?, loja = ?, categoria = ? WHERE tipo = 'device' AND chave = ?"
+    );
+    foreach ($diff['metadados'] as $l) {
+        $meta->execute([$l['nome'], $l['endereco'], $l['loja'], $l['categoria'], $l['chave']]);
+    }
+    $del = $pdo->prepare("DELETE FROM portal_dude_estado WHERE tipo = 'device' AND chave = ?");
+    foreach ($diff['remover'] as $c) $del->execute([$c]);
+
+    return ['gravados' => array_column($diff['gravar'], 'chave'), 'metadados' => count($diff['metadados']), 'removidos' => $diff['remover']];
+}
+
 /**
  * Chamado pelo worker a cada passada (~30 s), ANTES da checagem do WhatsApp —
  * WhatsApp fora do ar não pode parar o monitoramento. Sincroniza com o
