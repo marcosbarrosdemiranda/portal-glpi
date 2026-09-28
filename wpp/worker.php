@@ -19,6 +19,7 @@ require_once __DIR__ . '/gatilhos.php';
 require_once __DIR__ . '/chatbot.php';
 require_once __DIR__ . '/../dude_lib.php';
 require_once __DIR__ . '/../monitor_lib.php';
+require_once __DIR__ . '/../monitor_links_lib.php';
 
 // --- Constantes de operação (lidas de portal_wpp_config, com default) ---
 // Definidas como variáveis locais de propósito (não define()) pra facilitar
@@ -43,6 +44,12 @@ function wpp_worker_passada(): void
         monitor_gatilho($pdo);
     } catch (\Throwable $e) {
         wpp_log('sys', '', 'monitor_gatilho: ' . $e->getMessage(), 'erro');
+    }
+    // 0b. Links de internet de cada loja (Status → Gateways do pfSense), a cada 1 min
+    try {
+        monitor_links_rodada($pdo);
+    } catch (\Throwable $e) {
+        wpp_log('sys', '', 'monitor_links_rodada: ' . $e->getMessage(), 'erro');
     }
 
     // 1. A instância está conectada?

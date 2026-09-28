@@ -13,6 +13,7 @@ if (($_SESSION['perfil'] ?? '') === 'self-service') { header('Location: dashboar
 
 require_once __DIR__ . '/agenda/db.php';
 require_once __DIR__ . '/monitor_lib.php';
+require_once __DIR__ . '/monitor_links_lib.php'; // quadro "Links de internet"
 
 $cards = $_SESSION['portal_perfil_cards'] ?? null;
 if ($cards !== null && !isset($cards['notificacoes_config'])) { header('Location: dashboard.php'); exit; }
@@ -28,7 +29,7 @@ if ($action !== '') {
         if ($action === 'listar') {
             $sinc = monitor_sincronizar($pdo); // inventário é a fonte: toda abertura traz o que mudou
             $ok(['grupos' => monitor_grupos_listar($pdo), 'dispositivos' => monitor_listar($pdo), 'sinc' => $sinc,
-                 'rodada' => monitor_resumo_rodada()]);
+                 'rodada' => monitor_resumo_rodada(), 'links' => monitor_links_listar($pdo)]);
             exit;
         }
 
@@ -146,10 +147,18 @@ if ($action !== '') {
 <div class="wrap">
   <div class="alert alert-info py-2 small">
     <i class="bi bi-info-circle me-1"></i>
-    <b>Modo sombra (etapa 2):</b> o portal já pinga os equipamentos com Monitorar ligado e mostra o status aqui,
-    mas <b>ainda não gera alerta</b> — os alertas continuam vindo do Dude até a virada (etapa 3).
-    Use a coluna "Dude" pra comparar.
+    <b>Monitor de rede ativo:</b> é ele que gera os alertas de rede da Central (equipamento fora, queda de VPN,
+    link de internet). O The Dude não altera mais nada. A coluna "Central" mostra o que a Central de Alertas está vendo.
     <div id="rodada" class="mt-1"></div>
+  </div>
+
+  <div class="card-box">
+    <h6 class="mb-1">Links de internet das lojas</h6>
+    <div class="text-muted small mb-2">Lido do Status → Gateways de cada pfSense a cada 1 min. ⭐ = link principal · ➜ = por onde a loja está saindo agora.</div>
+    <table>
+      <thead><tr><th>Loja</th><th>Link</th><th>Status</th><th>Latência</th><th>Perda</th><th>Desde</th></tr></thead>
+      <tbody id="links"><tr><td colspan="6">Carregando…</td></tr></tbody>
+    </table>
   </div>
 
   <div class="card-box">
@@ -178,7 +187,7 @@ if ($action !== '') {
         <select id="f-mon" class="form-select form-select-sm" style="width:150px">
           <option value="">Todos</option><option value="1">Só monitorados</option><option value="0">Só não monitorados</option>
           <option value="down">Só fora do ar</option><option value="quedas">Com reinício/queda curta (24h)</option>
-          <option value="diverge">Diferente do Dude</option>
+          <option value="diverge">Diferente da Central</option>
         </select></div>
       <div><label class="form-label small mb-0">Buscar</label>
         <input id="f-busca" class="form-control form-control-sm" style="width:160px" placeholder="nome ou IP"></div>
@@ -217,14 +226,14 @@ function carregar(bg = false) {
   fetch('?action=listar' + (bg ? '&bg=1' : '')).then(r => r.json()).then(d => {
     if (!d.ok) return fb('fb-lista', d.erro || 'falha ao carregar', false);
     GRUPOS = d.grupos; DISP = d.dispositivos;
-    montarFiltros(); renderGrupos(); renderLista();
+    montarFiltros(); renderGrupos(); renderLista(); renderLinks(d.links || []);
     const rd = d.rodada || {};
     const on = DISP.filter(x => +x.monitorar);
     const cnt = st => on.filter(x => x.status === st).length;
     document.getElementById('rodada').innerHTML = rd.ultima
       ? `Última rodada: <b>${H(rd.ultima.slice(11))}</b> · ${rd.qtd} pingado(s) em ${(rd.ms / 1000).toFixed(1).replace('.', ',')} s ·
          🟢 ${cnt('up')} no ar · 🔴 ${cnt('down')} fora · ⚪ ${cnt('desconhecido')} sem resposta ainda ·
-         🟡 ${on.filter(x => +x.quedas_24h).length} com reinício nas 24h · ⚠️ ${on.filter(diverge).length} diferente do Dude`
+         🟡 ${on.filter(x => +x.quedas_24h).length} com reinício nas 24h · ⚠️ ${on.filter(diverge).length} diferente da Central`
       : 'Nenhuma rodada ainda — o worker roda a cada ~30 s.';
     if (d.sinc && d.sinc.novos) fb('fb-lista', d.sinc.novos + ' equipamento(s) novo(s) do inventário entraram agora.', true);
   });
@@ -274,7 +283,7 @@ function renderLista() {
   let html = '';
   for (const [grupo, lista] of Object.entries(porGrupo)) {
     html += `<div class="grupo-titulo">${H(grupo)} <span class="text-muted fw-normal">(${lista.length})</span></div>
-      <table><thead><tr><th style="width:70px">Monitorar</th><th>Status</th><th>Nome</th><th>Loja</th><th>IP</th><th>Latência</th><th>Reinícios 24h</th><th>Dude</th><th>IP fixo</th><th title="Para equipamento que bloqueia ping: testa só esta porta TCP">Porta TCP</th><th>Origem</th><th></th></tr></thead><tbody>`;
+      <table><thead><tr><th style="width:70px">Monitorar</th><th>Status</th><th>Nome</th><th>Loja</th><th>IP</th><th>Latência</th><th>Reinícios 24h</th><th title="O que a Central de Alertas está vendo (atualiza a cada rodada)">Central</th><th>IP fixo</th><th title="Para equipamento que bloqueia ping: testa só esta porta TCP">Porta TCP</th><th>Origem</th><th></th></tr></thead><tbody>`;
     for (const x of lista) {
       const outros = (x.ips || '').split(',').filter(ip => ip && ip !== x.ip);
       html += `<tr>
@@ -312,12 +321,12 @@ function statusHtml(x) {
   if (x.status === 'down') return `🔴 <b>fora</b> <span class="estimativa">desde ${desdeTxt(x.status_desde)}</span>`;
   return +x.falhas_seguidas ? `⚪ sem resposta (${x.falhas_seguidas}x)` : '⚪ aguardando 1º ping';
 }
-// "diferente do Dude" só conta quando os dois têm opinião formada
+// "diferente da Central" só conta quando os dois têm opinião formada
 const diverge = x => +x.monitorar && x.dude_status && (x.status === 'up' || x.status === 'down') && x.status !== x.dude_status;
 function dudeHtml(x) {
   if (!x.dude_status) return '<span class="text-muted">—</span>';
   const t = x.dude_status === 'up' ? 'no ar' : 'fora';
-  return diverge(x) ? `<span class="text-warning fw-semibold" title="O Dude diz diferente do ping do portal">⚠️ ${t}</span>` : `<span class="text-muted">${t}</span>`;
+  return diverge(x) ? `<span class="text-warning fw-semibold" title="A Central ainda mostra diferente do ping — corrige na próxima rodada">⚠️ ${t}</span>` : `<span class="text-muted">${t}</span>`;
 }
 function filtroMostrar(x, fm) {
   if (fm === '') return true;
@@ -331,10 +340,7 @@ function verQuedas(id) {
   fetch('?action=quedas&id=' + id).then(r => r.json()).then(d => {
     if (!d.ok) return fb('fb-lista', d.erro || 'falha', false);
     const linhas = d.quedas.map(q => `• ${desdeTxt(q.inicio)} → ${q.fim.slice(11, 16)} (fora ~${Math.max(1, Math.round(q.segundos / 60))} min, ${q.falhas} ping(s) sem resposta)`);
-    alert(`Reinícios / quedas curtas — ${x ? x.nome : id}
-
-` + (linhas.join('
-') || 'nenhuma'));
+    alert(`Reinícios / quedas curtas — ${x ? x.nome : id}\n\n` + (linhas.join('\n') || 'nenhuma'));
   });
 }
 
@@ -376,6 +382,19 @@ function setIpFixo(id, input) {
     fb('fb-lista', input.value.trim() ? 'IP fixo salvo.' : 'Voltou a usar o IP do inventário.', true);
     carregar();
   });
+}
+
+function renderLinks(links) {
+  const cor = { up: '🟢 no ar', down: '🔴 fora', alerta: '🟡 perda/latência' };
+  document.getElementById('links').innerHTML = links.length ? links.map(l => `<tr>
+      <td>${H(l.loja)}</td>
+      <td style="font-weight:600">${+l.principal ? '⭐ ' : ''}${+l.padrao ? '➜ ' : ''}${H(l.nome)}
+        ${l.descricao && l.descricao.toLowerCase() !== l.nome.toLowerCase() ? `<span class="text-muted fw-normal">(${H(l.descricao)})</span>` : ''}</td>
+      <td>${cor[l.status] || H(l.status)}</td>
+      <td>${l.rtt_ms !== null ? H(Math.round(l.rtt_ms)) + ' ms' : '—'}</td>
+      <td>${l.perda !== null ? H(l.perda) + '%' : '—'}</td>
+      <td>${H(desdeTxt(l.status_desde))}</td></tr>`).join('')
+    : '<tr><td colspan="6" class="text-muted">Nenhum link lido ainda (pfSense sem cadastro em pfSense Lojas, ou links atrás de MikroTik).</td></tr>';
 }
 
 function setPortaTcp(id, input) {
