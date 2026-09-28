@@ -116,7 +116,7 @@ O próprio portal pinga todos os equipamentos cadastrados, a cada 1 minuto, **em
 > **Progresso:** ✅ CONCLUÍDA 2026-09-28 (520e918) — `monitor_links_lib.php` lê Status → Gateways (pfSense 2.7) a cada 1 min pelo worker, reaproveitando o cookie (4,7 s com login, 0,7 s sem); tabela `portal_monitor_links`; tipo novo `rede_link` "Link de internet das lojas" (WhatsApp ligado após teste); quadro na tela do Monitor. Links lidos: Lj 001 `rota_1` ⭐ + `rota2_ivr`; Lj 030 `mikrotik` ⭐ + `starlink`. Teste E2E (mudo): "saindo pelo reserva" em 33 s.
 > **Pendências:**
 > - **Lj 003:** pfSense só enxerga o MikroTik (gateway sem monitor) — os links ficam no MikroTik. Opções: ligar o monitor de gateway no pfSense apontando pra um IP externo, ou ler o MikroTik via API RouterOS (casa com o backlog "MikroTik CPU/memória").
-> - **Lj 010:** cadastrar o pfSense 192.168.4.1 em pfSense Lojas (usuário/senha no cofre); depois remover o manual "pfSense Lj 010" do Monitor.
+> - **Lj 010:** cadastrado em pfSense Lojas (id 4, mesma senha dos outros, copiada criptografada) mas **inativo**: 192.168.4.1 responde ping e não abre web em 443/80/8443/4443 a partir do servidor. Descobrir a porta da web / liberar pela VPN / confirmar se é pfSense; aí ativar e remover o manual "pfSense Lj 010" do Monitor.
 > - **Confirmar na 1ª troca real** que o "(default)" do pfSense acompanha o failover (grupo de gateway). Se não acompanhar, trocar a regra de "reserva" por "principal fora".
 > - `rota2_ivr` na Lj 001 é a IVR — confirmar com o usuário qual provedor é o `rota_1`.
 **Pedido do usuário (28/09):** saber por qual provedor cada loja está saindo e avisar quando cai um dos links.
