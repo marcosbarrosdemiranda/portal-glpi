@@ -165,6 +165,12 @@ $cards_glpi = inv_cards($pdo);
     <p>Access points UniFi — status, clientes e uptime</p>
   </a>
 
+  <a href="inventario_mapa_rede.php" class="cat-card" style="border-top-color:#0097a7">
+    <div class="cat-icon" style="background:#e0f7fa;color:#0097a7"><i class="bi bi-diagram-3-fill"></i></div>
+    <h3>Mapa de Rede</h3>
+    <p>Status em tempo real de todos os equipamentos monitorados por loja</p>
+  </a>
+
   <?php foreach ($cards_glpi as $c): $destino = $c['fonte'] === 'computer' ? 'inventario_pc.php' : 'inventario_glpi.php'; ?>
   <a href="<?= $destino ?>?cat=<?= htmlspecialchars($c['slug']) ?>" class="cat-card" style="border-top-color:<?= htmlspecialchars($c['cor']) ?>">
     <div class="cat-icon" style="background:<?= htmlspecialchars($c['cor']) ?>22;color:<?= htmlspecialchars($c['cor']) ?>"><i class="bi <?= htmlspecialchars($c['icone']) ?>"></i></div>

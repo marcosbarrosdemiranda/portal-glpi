@@ -463,6 +463,64 @@ function monitor_quedas_curtas(PDO $pdo, int $dispositivoId, int $limite = 20): 
     return $st->fetchAll(PDO::FETCH_ASSOC);
 }
 
+/**
+ * Retorna status do monitor para uma lista de IPs.
+ * Usado pelas telas de inventário (PDVs, Balanças…) para substituir o ping
+ * sob demanda por estado já calculado pelo worker.
+ *
+ * @param  array $ips  Lista de IPs (string)
+ * @return array  ip => ['monitorar'=>bool, 'status'=>'up'|'down'|'desconhecido',
+ *                       'status_desde'=>string|null, 'quedas_24h'=>int, 'latencia_ms'=>float|null]
+ *                      IPs não encontrados no banco ficam ausentes do retorno.
+ */
+function monitor_status_por_ips(PDO $pdo, array $ips): array
+{
+    if (empty($ips)) return [];
+
+    $placeholders = implode(',', array_fill(0, count($ips), '?'));
+    $st = $pdo->prepare("
+        SELECT COALESCE(ip_fixo, ip) AS ip_efetivo,
+               monitorar, status, status_desde, latencia_ms,
+               (SELECT COUNT(*) FROM portal_monitor_quedas_curtas q
+                 WHERE q.dispositivo_id = d.id AND q.inicio >= NOW() - INTERVAL 24 HOUR) AS quedas_24h
+        FROM portal_monitor_dispositivos d
+        WHERE removido_em IS NULL
+          AND (COALESCE(ip_fixo, ip) IN ($placeholders)
+               OR FIND_IN_SET('placeholder_never', ips))
+    ");
+    // A query acima usa COALESCE(ip_fixo,ip); refazemos com FIND_IN_SET para ips secundários também
+    // Abordagem mais simples: buscar tudo e filtrar pelo conjunto de IPs em PHP
+    $st = $pdo->query("
+        SELECT COALESCE(ip_fixo, ip) AS ip_efetivo, ips,
+               monitorar, status, status_desde, latencia_ms,
+               (SELECT COUNT(*) FROM portal_monitor_quedas_curtas q
+                 WHERE q.dispositivo_id = d.id AND q.inicio >= NOW() - INTERVAL 24 HOUR) AS quedas_24h
+        FROM portal_monitor_dispositivos d
+        WHERE removido_em IS NULL
+    ");
+    $rows = $st->fetchAll(PDO::FETCH_ASSOC);
+
+    $ipSet = array_flip($ips); // busca O(1)
+    $resultado = [];
+    foreach ($rows as $row) {
+        $candidatos = array_filter(
+            array_map('trim', array_merge([$row['ip_efetivo']], explode(',', $row['ips'] ?? '')))
+        );
+        foreach ($candidatos as $c) {
+            if (isset($ipSet[$c]) && !isset($resultado[$c])) {
+                $resultado[$c] = [
+                    'monitorar'    => (bool) $row['monitorar'],
+                    'status'       => $row['status'],
+                    'status_desde' => $row['status_desde'],
+                    'quedas_24h'   => (int) $row['quedas_24h'],
+                    'latencia_ms'  => $row['latencia_ms'] !== null ? (float) $row['latencia_ms'] : null,
+                ];
+            }
+        }
+    }
+    return $resultado;
+}
+
 function monitor_set_monitorar(PDO $pdo, int $id, bool $ligar): void
 {
     $pdo->prepare("UPDATE portal_monitor_dispositivos SET monitorar = ? WHERE id = ?")->execute([$ligar ? 1 : 0, $id]);

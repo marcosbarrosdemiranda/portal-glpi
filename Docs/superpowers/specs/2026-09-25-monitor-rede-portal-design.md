@@ -128,7 +128,8 @@ O próprio portal pinga todos os equipamentos cadastrados, a cada 1 minuto, **em
 - **Bloqueio:** precisa do cadastro do pfSense Lj 010 e confirmar que o usuário do portal enxerga Status → Gateways.
 
 ### Etapa 4 — Mapa da rede no Inventário
-**Objetivo:** substituir o mapa do Dude — ver cada loja com seus equipamentos, agrupados, com status, nome e IP.
+> **Progresso (branch `feat/monitor-rede-etapa4`):** Iniciada em 2026-09-28.
+> **Objetivo:** substituir o mapa do Dude — ver cada loja com seus equipamentos, agrupados, com status, nome e IP.
 - [ ] Card novo **"Mapa da rede"** na tela do Inventário (`inventario.php`, mesmo visual `.cat-card` dos outros) → página `inventario_mapa_rede.php`.
 - [ ] Uma seção (ou aba) por **loja**; dentro, blocos por **grupo** (PDVs, Balanças, Servidores, pfSense…); cada equipamento é um quadradinho com:
   - cor do status: 🟢 no ar · 🔴 caído · 🟡 queda curta/reinício recente (últimas 24h) · ⚪ não monitorado/desconhecido
