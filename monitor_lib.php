@@ -773,6 +773,13 @@ function monitor_aplicar_resultado(array $d, bool $ok, int $falhasParaCair, int 
         } else { // up
             if ($n['falhas_seguidas'] > 0) {
                 $n['queda_curta'] = ['inicio' => $n['falha_desde'] ?? $agora, 'fim' => $agora, 'falhas' => $n['falhas_seguidas']];
+
+                // SE A QUEDA FOR LONGA (> 15min), FORÇA O RESET DO CONTADOR
+                $inicioQueda = strtotime($n['queda_curta']['inicio']);
+                $fimQueda    = strtotime($agora);
+                if (($fimQueda - $inicioQueda) > 900) {
+                    $n['status_desde'] = $agora;
+                }
             }
             $n['falhas_seguidas'] = 0;
             $n['falha_desde'] = null;
