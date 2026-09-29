@@ -5,6 +5,8 @@ if (($_SESSION['perfil'] ?? '') === 'self-service') { header('Location: dashboar
 
 require_once __DIR__ . '/agenda/config.php';
 require_once __DIR__ . '/entidade_alias.php';
+require_once __DIR__ . '/agenda/db.php';      // $pdo para status do monitor
+require_once __DIR__ . '/monitor_lib.php';    // monitor_status_por_ips()
 
 function glpi_req(string $endpoint, string $token): array {
     $ch = curl_init(GLPI_URL . '/apirest.php/' . $endpoint);
@@ -83,14 +85,17 @@ foreach ($entidades_raw as $e) {
 
 // Organiza computadores por entidade
 $por_entidade = [];
+$todos_ips   = [];
 foreach ($computadores_raw as $c) {
     if (!isset($c['id'])) continue;
     $ent_nome = apelido_entidade($c['entities_id'] ?? 'Entidade raiz');
+    $ip       = $ips_por_pc[$c['id']] ?? ($c['ip'] ?? '');
+    if ($ip) $todos_ips[] = $ip;
     if (!isset($por_entidade[$ent_nome])) $por_entidade[$ent_nome] = [];
     $por_entidade[$ent_nome][] = [
         'id'          => $c['id'],
         'nome'        => $c['name'] ?? 'PC '.$c['id'],
-        'ip'          => $ips_por_pc[$c['id']] ?? ($c['ip'] ?? ''),
+        'ip'          => $ip,
         'so'          => $c['operatingsystems_id'] ?? '',
         'fabricante'  => $c['manufacturers_id'] ?? '',
         'modelo'      => $c['computermodels_id'] ?? '',
@@ -100,6 +105,13 @@ foreach ($computadores_raw as $c) {
         'atualizado'  => substr($c['date_mod'] ?? '', 0, 16),
         'ultimo_inv'  => substr($c['last_inventory_date'] ?? $c['date_mod'] ?? '', 0, 16),
     ];
+}
+$status_monitor = monitor_status_por_ips($pdo, array_unique($todos_ips));
+foreach ($por_entidade as $ent => &$pcs) {
+    foreach ($pcs as &$pc) {
+        $pc['monitorado'] = ($pc['ip'] && isset($status_monitor[$pc['ip']])) ? $status_monitor[$pc['ip']]['monitorar'] : false;
+        $pc['status_monitor'] = ($pc['ip'] && isset($status_monitor[$pc['ip']])) ? $status_monitor[$pc['ip']]['status'] : 'desconhecido';
+    }
 }
 ksort($por_entidade);
 
@@ -315,9 +327,10 @@ $f_entidade = $_GET['entidade'] ?? '';
              data-entidade="<?= htmlspecialchars($pc['entidade']) ?>"
              data-atualizado="<?= htmlspecialchars($pc['atualizado']) ?>"
              data-ultimo-inv="<?= htmlspecialchars($pc['ultimo_inv']) ?>"
-             data-status="checking"
+             data-monitorado="<?= $pc['monitorado'] ? '1' : '0' ?>"
+             data-status="<?= $pc['monitorado'] ? htmlspecialchars($pc['status_monitor']) : 'checking' ?>"
              onclick="abrirDetalhes(this)">
-          <div class="pc-status checking" id="status-<?= $pc['id'] ?>"></div>
+          <div class="pc-status <?= $pc['monitorado'] ? htmlspecialchars($pc['status_monitor']) : 'checking' ?>" id="status-<?= $pc['id'] ?>"></div>
           <div class="pc-icon"><i class="bi bi-pc-display"></i></div>
           <div class="pc-nome" title="<?= htmlspecialchars($pc['nome']) ?>"><?= htmlspecialchars($pc['nome']) ?></div>
           <div class="pc-info">
@@ -326,8 +339,8 @@ $f_entidade = $_GET['entidade'] ?? '';
             <?php if ($pc['usuario']): ?><span><i class="bi bi-person me-1"></i><?= htmlspecialchars($pc['usuario']) ?></span><?php endif; ?>
           </div>
           <div class="mt-2 d-flex align-items-center gap-2" style="min-width:0">
-            <span class="badge badge-check flex-shrink-0" id="badge-<?= $pc['id'] ?>">
-              <i class="bi bi-hourglass-split me-1"></i>Verificando...
+            <span class="badge badge-<?= $pc['monitorado'] ? ($pc['status_monitor'] === 'up' ? 'online' : 'offline') : 'check' ?> flex-shrink-0" id="badge-<?= $pc['id'] ?>">
+              <?= $pc['monitorado'] ? ($pc['status_monitor'] === 'up' ? '<i class="bi bi-circle-fill me-1"></i>Online' : '<i class="bi bi-circle-fill me-1"></i>Offline') : '<i class="bi bi-hourglass-split me-1"></i>Verificando...' ?>
             </span>
             <?php if ($pc['ultimo_inv']): ?>
             <span style="font-size:.65rem;color:#9ca3af;white-space:nowrap;overflow:hidden;text-overflow:ellipsis" title="Última comunicação: <?= htmlspecialchars($pc['ultimo_inv']) ?>">
@@ -491,6 +504,7 @@ function setStatus(pcId, status) {
 function verificarTodos() {
   const cards = document.querySelectorAll('.pc-card');
   cards.forEach(c => {
+    if (c.dataset.monitorado === '1') return; // PULA: já tem status do monitor
     const ip   = c.dataset.ip;
     const id   = c.dataset.id;
     const dot  = document.getElementById('status-' + id);
