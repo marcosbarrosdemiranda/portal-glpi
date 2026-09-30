@@ -1,9 +1,34 @@
 <?php
 require_once __DIR__ . '/auth_guard.php';
+require_once __DIR__ . '/agenda/orcamento_db.php'; // Inclui a definição da tabela
+
 if (empty($_SESSION['autenticado'])) { header('Location: auth.php'); exit; }
 if (($_SESSION['perfil'] ?? '') === 'self-service') { header('Location: dashboard.php'); exit; }
+
 $_cards_orc  = $_SESSION['portal_perfil_cards'] ?? null;
 $orc_ouvinte = ($_cards_orc !== null) && (($_cards_orc['orcamento'] ?? 'ouvinte') === 'ouvinte');
+
+// ── CRUD básico via POST (se houver ação) ──────────────────────
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && !$orc_ouvinte) {
+    if (isset($_POST['action'])) {
+        if ($_POST['action'] === 'save') {
+            $id = !empty($_POST['id']) ? (int)$_POST['id'] : null;
+            $sql = $id
+                ? "UPDATE glpi_portal_orcamento SET categoria=?, descricao=?, mes_ano=?, qty_prevista=?, unit_previsto=?, qty_realizada=?, unit_realizado=?, observacao=? WHERE id=?"
+                : "INSERT INTO glpi_portal_orcamento (categoria, descricao, mes_ano, qty_prevista, unit_previsto, qty_realizada, unit_realizado, observacao) VALUES (?,?,?,?,?,?,?,?)";
+            $params = [$_POST['categoria'], $_POST['descricao'], $_POST['mes_ano'], (int)$_POST['qty_prevista'], (float)$_POST['unit_previsto'], (int)$_POST['qty_realizada'], (float)$_POST['unit_realizado'], $_POST['observacao']];
+            if ($id) $params[] = $id;
+            $pdo->prepare($sql)->execute($params);
+        } elseif ($_POST['action'] === 'delete') {
+            $pdo->prepare("DELETE FROM glpi_portal_orcamento WHERE id=?")->execute([(int)$_POST['id']]);
+        }
+        header("Location: orcamento.php"); exit;
+    }
+}
+
+// ── Fetch dos dados ───────────────────────────────────────────
+$stmt = $pdo->query("SELECT *, (qty_prevista * unit_previsto) as total_previsto, (qty_realizada * unit_realizado) as total_realizado FROM glpi_portal_orcamento ORDER BY mes_ano DESC, id DESC");
+$itens = $stmt->fetchAll(PDO::FETCH_ASSOC);
 ?>
 <!DOCTYPE html>
 <html lang="pt-BR">
@@ -170,9 +195,12 @@ $orc_ouvinte = ($_cards_orc !== null) && (($_cards_orc['orcamento'] ?? 'ouvinte'
       <option value="Outros">Outros</option>
     </select>
     <input type="month" id="f-mes" class="form-control form-control-sm" style="width:155px" onchange="filtrar()"/>
+    <input type="number" id="f-ano" class="form-control form-control-sm" style="width:100px" placeholder="Ano" onchange="filtrar()"/>
     <input type="text" id="f-busca" class="form-control form-control-sm" style="width:200px"
            placeholder="🔍 Buscar descrição..." oninput="filtrar()"/>
     <div style="flex:1"></div>
+    <button class="btn btn-sm btn-outline-danger" onclick="exportarPDF('mes')"><i class="bi bi-file-earmark-pdf"></i> PDF Mês</button>
+    <button class="btn btn-sm btn-outline-danger" onclick="exportarPDF('ano')"><i class="bi bi-file-earmark-pdf"></i> PDF Ano</button>
     <?php if (!$orc_ouvinte): ?>
     <button class="btn-novo" onclick="abrirModal()">
       <i class="bi bi-plus-lg me-1"></i>Novo Item
@@ -193,10 +221,11 @@ $orc_ouvinte = ($_cards_orc !== null) && (($_cards_orc['orcamento'] ?? 'ouvinte'
             <th>Categoria</th>
             <th>Descrição</th>
             <th>Mês/Ano</th>
-            <th>Planejado</th>
-            <th>Realizado</th>
+            <th style="text-align:center">Qtd x Unit (Prev)</th>
+            <th>Total Prev</th>
+            <th style="text-align:center">Qtd x Unit (Real)</th>
+            <th>Total Real</th>
             <th>Saldo</th>
-            <th>Observação</th>
             <th style="text-align:center">Ações</th>
           </tr>
         </thead>
@@ -220,40 +249,59 @@ $orc_ouvinte = ($_cards_orc !== null) && (($_cards_orc['orcamento'] ?? 'ouvinte'
         <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
       </div>
       <div class="modal-body">
-        <input type="hidden" id="item-id"/>
-        <div class="row g-3">
-          <div class="col-md-6">
-            <label class="form-label fw-semibold">Categoria <span class="text-danger">*</span></label>
-            <select class="form-select" id="item-cat">
-              <option value="Hardware">Hardware</option>
-              <option value="Software">Software</option>
-              <option value="Serviços">Serviços</option>
-              <option value="Infraestrutura">Infraestrutura</option>
-              <option value="Treinamento">Treinamento</option>
-              <option value="Outros">Outros</option>
-            </select>
+        <form id="form-item" method="POST">
+          <input type="hidden" name="action" value="save"/>
+          <input type="hidden" name="id" id="item-id"/>
+          <div class="row g-3">
+            <div class="col-md-6">
+              <label class="form-label fw-semibold">Categoria <span class="text-danger">*</span></label>
+              <select class="form-select" name="categoria" id="item-cat">
+                <option value="Hardware">Hardware</option>
+                <option value="Software">Software</option>
+                <option value="Serviços">Serviços</option>
+                <option value="Infraestrutura">Infraestrutura</option>
+                <option value="Treinamento">Treinamento</option>
+                <option value="Outros">Outros</option>
+              </select>
+            </div>
+            <div class="col-md-6">
+              <label class="form-label fw-semibold">Mês/Ano <span class="text-danger">*</span></label>
+              <input type="month" class="form-control" name="mes_ano" id="item-mes"/>
+            </div>
+            <div class="col-12">
+              <label class="form-label fw-semibold">Descrição <span class="text-danger">*</span></label>
+              <input type="text" class="form-control" name="descricao" id="item-desc" placeholder="Ex: Compra de nobreaks para loja Centro"/>
+            </div>
+            <div class="col-md-4">
+              <label class="form-label fw-semibold">Qtd Prevista</label>
+              <input type="number" class="form-control" name="qty_prevista" id="qty_prevista" min="0" value="1" oninput="calcTotal('prev')"/>
+            </div>
+            <div class="col-md-4">
+              <label class="form-label fw-semibold">Vl Unit Prev (R$)</label>
+              <input type="number" class="form-control" name="unit_previsto" id="unit_previsto" min="0" step="0.01" value="0.00" oninput="calcTotal('prev')"/>
+            </div>
+            <div class="col-md-4">
+              <label class="form-label fw-semibold">Total Previsto (R$)</label>
+              <input type="number" class="form-control" id="total_previsto" disabled/>
+            </div>
+            <div class="col-md-4">
+              <label class="form-label fw-semibold">Qtd Realizada</label>
+              <input type="number" class="form-control" name="qty_realizada" id="qty_realizada" min="0" value="0" oninput="calcTotal('real')"/>
+            </div>
+            <div class="col-md-4">
+              <label class="form-label fw-semibold">Vl Unit Real (R$)</label>
+              <input type="number" class="form-control" name="unit_realizado" id="unit_realizado" min="0" step="0.01" value="0.00" oninput="calcTotal('real')"/>
+            </div>
+            <div class="col-md-4">
+              <label class="form-label fw-semibold">Total Realizado (R$)</label>
+              <input type="number" class="form-control" id="total_realizado" disabled/>
+            </div>
+            <div class="col-12">
+              <label class="form-label fw-semibold">Observação</label>
+              <textarea class="form-control" name="observacao" id="item-obs" rows="2" placeholder="Notas adicionais..."></textarea>
+            </div>
           </div>
-          <div class="col-md-6">
-            <label class="form-label fw-semibold">Mês/Ano <span class="text-danger">*</span></label>
-            <input type="month" class="form-control" id="item-mes"/>
-          </div>
-          <div class="col-12">
-            <label class="form-label fw-semibold">Descrição <span class="text-danger">*</span></label>
-            <input type="text" class="form-control" id="item-desc" placeholder="Ex: Compra de nobreaks para loja Centro"/>
-          </div>
-          <div class="col-md-6">
-            <label class="form-label fw-semibold">Valor Planejado (R$)</label>
-            <input type="number" class="form-control" id="item-plan" min="0" step="0.01" placeholder="0,00"/>
-          </div>
-          <div class="col-md-6">
-            <label class="form-label fw-semibold">Valor Realizado (R$)</label>
-            <input type="number" class="form-control" id="item-real" min="0" step="0.01" placeholder="0,00"/>
-          </div>
-          <div class="col-12">
-            <label class="form-label fw-semibold">Observação</label>
-            <textarea class="form-control" id="item-obs" rows="2" placeholder="Notas adicionais..."></textarea>
-          </div>
-        </div>
+        </form>
       </div>
       <div class="modal-footer">
         <button class="btn btn-danger me-auto" id="btn-excluir" style="display:none" onclick="excluirItem()">
@@ -270,17 +318,20 @@ $orc_ouvinte = ($_cards_orc !== null) && (($_cards_orc['orcamento'] ?? 'ouvinte'
 </div>
 
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.8.2/jspdf.plugin.autotable.min.js"></script>
+
 <script>
 const MODO_OUVINTE_ORC = <?= $orc_ouvinte ? 'true' : 'false' ?>;
-const STORE_KEY = 'ti_orcamento';
 let modal;
-let itens = JSON.parse(localStorage.getItem(STORE_KEY) || '[]');
+let itens = <?= json_encode($itens) ?>;
 
 document.addEventListener('DOMContentLoaded', () => {
   modal = new bootstrap.Modal(document.getElementById('modalItem'));
   // Setar mês atual como padrão do filtro
   const hoje = new Date();
   document.getElementById('f-mes').value = hoje.toISOString().slice(0, 7);
+  document.getElementById('f-ano').value = hoje.getFullYear();
   atualizarStats();
   filtrar();
 });
@@ -294,15 +345,13 @@ const CAT_CLASS = {
   'Outros':         'cat-outros',
 };
 
-function salvarLS() { localStorage.setItem(STORE_KEY, JSON.stringify(itens)); }
-
 function fmt(v) {
   return 'R$ ' + Number(v || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 }
 
 function atualizarStats() {
-  const plan  = itens.reduce((s, i) => s + Number(i.valor_planejado || 0), 0);
-  const real  = itens.reduce((s, i) => s + Number(i.valor_realizado || 0), 0);
+  const plan  = itens.reduce((s, i) => s + Number(i.total_previsto || 0), 0);
+  const real  = itens.reduce((s, i) => s + Number(i.total_realizado || 0), 0);
   const saldo = plan - real;
   const pct   = plan > 0 ? Math.min(Math.round(real / plan * 100), 100) : 0;
   const corPct = pct >= 90 ? '#e53935' : pct >= 70 ? '#fb8c00' : '#43a047';
@@ -310,7 +359,7 @@ function atualizarStats() {
   document.getElementById('s-planejado').textContent     = fmt(plan);
   document.getElementById('s-planejado-sub').textContent = itens.length + ' ite' + (itens.length === 1 ? 'm' : 'ns');
   document.getElementById('s-realizado').textContent     = fmt(real);
-  document.getElementById('s-realizado-sub').textContent = itens.filter(i => Number(i.valor_realizado) > 0).length + ' com valor';
+  document.getElementById('s-realizado-sub').textContent = itens.filter(i => Number(i.total_realizado) > 0).length + ' com valor';
   document.getElementById('s-saldo').textContent         = fmt(Math.abs(saldo));
   document.getElementById('s-saldo').className           = 's-value ' + (saldo >= 0 ? 'saldo-pos' : 'saldo-neg');
   document.getElementById('s-saldo-sub').textContent     = saldo >= 0 ? 'Dentro do orçamento' : 'Acima do orçamento';
@@ -336,22 +385,23 @@ function renderTabela(lista) {
   const tbody = document.getElementById('tbl-body');
   document.getElementById('tbl-count').textContent = lista.length + ' ite' + (lista.length === 1 ? 'm' : 'ns');
   if (!lista.length) {
-    tbody.innerHTML = '<tr class="empty-row"><td colspan="8"><i class="bi bi-inbox fs-4 d-block mb-2"></i>Nenhum item encontrado.</td></tr>';
+    tbody.innerHTML = '<tr class="empty-row"><td colspan="9"><i class="bi bi-inbox fs-4 d-block mb-2"></i>Nenhum item encontrado.</td></tr>';
     return;
   }
   tbody.innerHTML = lista.map(i => {
-    const plan  = Number(i.valor_planejado || 0);
-    const real  = Number(i.valor_realizado || 0);
+    const plan  = Number(i.total_previsto || 0);
+    const real  = Number(i.total_realizado || 0);
     const saldo = plan - real;
     const cls   = CAT_CLASS[i.categoria] || 'cat-outros';
     return `<tr>
       <td><span class="badge-cat ${cls}">${esc(i.categoria)}</span></td>
       <td style="max-width:220px">${esc(i.descricao)}</td>
       <td>${i.mes_ano || '—'}</td>
+      <td style="font-size:.8rem;color:#6b7280;text-align:center">${i.qty_prevista || 0} x ${fmt(i.unit_previsto || 0)}</td>
       <td style="font-weight:600;color:#1a73e8">${fmt(plan)}</td>
+      <td style="font-size:.8rem;color:#6b7280;text-align:center">${i.qty_realizada || 0} x ${fmt(i.unit_realizado || 0)}</td>
       <td style="font-weight:600;color:#e53935">${fmt(real)}</td>
       <td class="${saldo >= 0 ? 'saldo-pos' : 'saldo-neg'}">${saldo >= 0 ? '' : '-'}${fmt(Math.abs(saldo))}</td>
-      <td style="max-width:160px;font-size:.78rem;color:#6b7280">${esc(i.observacao || '—')}</td>
       <td style="text-align:center;white-space:nowrap">
         ${MODO_OUVINTE_ORC ? '' : `
         <button class="btn-acao text-primary" title="Editar" onclick="editarItem('${i.id}')"><i class="bi bi-pencil-fill"></i></button>
@@ -393,46 +443,59 @@ function editarItem(id) {
 function salvarItem() {
   const desc = document.getElementById('item-desc').value.trim();
   if (!desc) { alert('Informe a descrição do item.'); return; }
-  const id  = document.getElementById('item-id').value || ('orc_' + Date.now());
-  const obj = {
-    id,
-    categoria:       document.getElementById('item-cat').value,
-    descricao:       desc,
-    valor_planejado: parseFloat(document.getElementById('item-plan').value) || 0,
-    valor_realizado: parseFloat(document.getElementById('item-real').value) || 0,
-    mes_ano:         document.getElementById('item-mes').value,
-    observacao:      document.getElementById('item-obs').value.trim(),
-  };
-  const idx = itens.findIndex(x => x.id === id);
-  if (idx >= 0) itens[idx] = obj; else itens.unshift(obj);
-  salvarLS();
-  modal.hide();
-  atualizarStats();
-  filtrar();
+  document.getElementById('form-item').submit();
 }
 
 function excluirItem() {
-  const id = document.getElementById('item-id').value;
   if (!confirm('Excluir este item de orçamento?')) return;
-  itens = itens.filter(x => x.id !== id);
-  salvarLS();
-  modal.hide();
-  atualizarStats();
-  filtrar();
+  const id = document.getElementById('item-id').value;
+  document.getElementById('del-id').value = id;
+  document.getElementById('form-delete').submit();
 }
 
 function excluirDireto(id) {
   if (!confirm('Excluir este item de orçamento?')) return;
-  itens = itens.filter(x => x.id !== id);
-  salvarLS();
-  atualizarStats();
-  filtrar();
+  document.getElementById('del-id').value = id;
+  document.getElementById('form-delete').submit();
+}
+
+function calcTotal(tipo) {
+    if (tipo === 'prev') {
+        const qty = parseFloat(document.getElementById('qty_prevista').value) || 0;
+        const unit = parseFloat(document.getElementById('unit_previsto').value) || 0;
+        document.getElementById('total_previsto').value = (qty * unit).toFixed(2);
+    } else {
+        const qty = parseFloat(document.getElementById('qty_realizada').value) || 0;
+        const unit = parseFloat(document.getElementById('unit_realizado').value) || 0;
+        document.getElementById('total_realizado').value = (qty * unit).toFixed(2);
+    }
+}
+
+function exportarPDF(tipo) {
+    const { jsPDF } = window.jspdf;
+    const doc = new jsPDF();
+    const titulo = 'Relatório de Orçamento - ' + (tipo === 'mes' ? document.getElementById('f-mes').value : document.getElementById('f-ano').value);
+
+    doc.text(titulo, 14, 15);
+
+    const columns = ['Categoria', 'Descricao', 'Mês', 'Qtd Prev','Vl Unit Prev','Total Prev','Qtd Real','Vl Unit Real','Total Real'];
+    const rows = itens
+      .filter(i => (tipo === 'mes' ? (i.mes_ano === document.getElementById('f-mes').value) : (i.mes_ano.startsWith(document.getElementById('f-ano').value))))
+      .map(i => [i.categoria, i.descricao, i.mes_ano, i.qty_prevista || 0, i.unit_previsto || 0, i.total_previsto || 0, i.qty_realizada || 0, i.unit_realizado || 0, i.total_realizado || 0]);
+
+    doc.autoTable({ head: [columns], body: rows, startY: 20 });
+    doc.save('orcamento_' + tipo + '.pdf');
 }
 
 function esc(s) {
   return String(s || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
 }
 </script>
+
+<form id="form-delete" method="POST" style="display:none">
+  <input type="hidden" name="action" value="delete"/>
+  <input type="hidden" name="id" id="del-id"/>
+</form>
 <footer><i class="bi bi-shield-lock me-1"></i>Central de TI — Orçamento</footer>
 </body>
 </html>
