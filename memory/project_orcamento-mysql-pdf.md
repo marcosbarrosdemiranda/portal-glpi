@@ -8,10 +8,10 @@ metadata:
 **Why:** O módulo atual dependia de `localStorage`, limitando o acesso e a persistência. Necessário centralizar no banco de dados e integrar aos novos requisitos de campos (Qtd, VlUnit, Total).
 
 **How to apply:**
-1. Criar a nova tabela MySQL `portal_orcamento` com colunas calculadas.
-2. Criar API PHP transacional (`api/orcamento.php`).
-3. Refatorar `orcamento.php` para utilizar a API.
-4. Implementar rotina JS (`jspdf`) para exportação de relatórios por Mês/Ano.
+1. Criar a nova tabela `glpi_portal_orcamento` no banco `glpi2` (reusando `$pdo` do GLPI).
+2. Refatorar `orcamento.php` para realizar CRUD diretamente via PHP/SQL, eliminando `localStorage`.
+3. Adicionar campos: Qtd (Prev/Real), VlUnit (Prev/Real), Total (Prev/Real - calculado no banco).
+4. Implementar rotina JS (`jsPDF`) para exportação dos relatórios por Mês/Ano.
 
 [[branch_integracao-infra-docker]]
 [[feedback-commit-push-cada-passo]]
