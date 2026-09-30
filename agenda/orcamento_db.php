@@ -1,0 +1,23 @@
+<?php
+// agenda/orcamento_db.php
+require_once __DIR__ . '/db.php';
+
+// Cria/Garante a tabela no banco glpi2 (usando o $pdo do sistema)
+$pdo->exec("CREATE TABLE IF NOT EXISTS glpi_portal_orcamento (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    categoria VARCHAR(50) NOT NULL,
+    descricao VARCHAR(255) NOT NULL,
+    mes_ano VARCHAR(7) NOT NULL,
+
+    qty_prevista INT DEFAULT 1,
+    unit_previsto DECIMAL(15,2) DEFAULT 0.00,
+    total_previsto DECIMAL(15,2) AS (qty_prevista * unit_previsto) STORED,
+
+    qty_realizada INT DEFAULT 0,
+    unit_realizado DECIMAL(15,2) DEFAULT 0.00,
+    total_realizado DECIMAL(15,2) AS (qty_realizada * unit_realizado) STORED,
+
+    observacao TEXT,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
+?>
