@@ -206,7 +206,13 @@ $itens = $stmt->fetchAll(PDO::FETCH_ASSOC);
           <option value="<?= $num ?>"><?= $nome ?></option>
       <?php endforeach; ?>
     </select>
-    <input type="number" id="f-ano" class="form-control form-control-sm" style="width:100px" placeholder="Ano" min="2000" max="2100" />
+    <select id="f-ano" class="form-select form-select-sm" style="width:100px">
+      <?php
+      $anoAtual = date('Y');
+      for($y = $anoAtual - 2; $y <= $anoAtual + 2; $y++): ?>
+          <option value="<?= $y ?>" <?= $y == $anoAtual ? 'selected' : '' ?>><?= $y ?></option>
+      <?php endfor; ?>
+    </select>
     <input type="text" id="f-busca" class="form-control form-control-sm" style="width:200px"
            placeholder="🔍 Buscar descrição..." />
     <button class="btn btn-sm btn-primary" onclick="filtrar()"><i class="bi bi-search"></i> Filtrar</button>
@@ -344,7 +350,7 @@ document.addEventListener('DOMContentLoaded', () => {
   modalConcretizar = new bootstrap.Modal(document.getElementById('modalConcretizar'));
   const anoAtual = new Date().getFullYear();
   document.getElementById('f-mes').value = '';
-  document.getElementById('f-ano').value = anoAtual;
+  // O valor já vem setado pelo PHP como selected no HTML
   filtrar();
 });
 
