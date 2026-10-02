@@ -493,8 +493,18 @@ function exportarPDF(tipo) {
 
     const columns = ['Categoria', 'Descricao', 'Mês', 'Qtd Prev','Vl Unit Prev','Total Prev','Qtd Real','Vl Unit Real','Total Real'];
     const rows = itens
-      .filter(i => (tipo === 'mes' ? (i.mes_ano === document.getElementById('f-mes').value) : (i.mes_ano.startsWith(document.getElementById('f-ano').value))))
-      .map(i => [i.categoria, i.descricao, i.mes_ano, i.qty_prevista || 0, i.unit_previsto || 0, i.total_previsto || 0, i.qty_realizada || 0, i.unit_realizado || 0, i.total_realizado || 0]);
+        .filter(i => (tipo === 'mes' ? (i.mes_ano === document.getElementById('f-mes').value) : (i.mes_ano.startsWith(document.getElementById('f-ano').value))))
+        .map(i => [
+            i.categoria,
+            i.descricao,
+            i.mes_ano,
+            i.qty_prevista || 0,
+            fmt(i.unit_previsto || 0),
+            fmt(i.total_previsto || 0),
+            i.qty_realizada || 0,
+            fmt(i.unit_realizado || 0),
+            fmt(i.total_realizado || 0)
+        ]);
 
     doc.autoTable({ head: [columns], body: rows, startY: 20 });
     doc.save('orcamento_' + tipo + '.pdf');
