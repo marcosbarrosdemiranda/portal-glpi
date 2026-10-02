@@ -325,10 +325,12 @@ $itens = $stmt->fetchAll(PDO::FETCH_ASSOC);
 <script>
 const MODO_OUVINTE_ORC = <?= $orc_ouvinte ? 'true' : 'false' ?>;
 let modal;
+let modalConcretizar;
 let itens = <?= json_encode($itens) ?>;
 
 document.addEventListener('DOMContentLoaded', () => {
   modal = new bootstrap.Modal(document.getElementById('modalItem'));
+  modalConcretizar = new bootstrap.Modal(document.getElementById('modalConcretizar'));
   // Limpar filtros por padrão
   document.getElementById('f-mes').value = '';
   document.getElementById('f-ano').value = '';
@@ -472,6 +474,15 @@ function excluirDireto(id) {
   document.getElementById('form-delete').submit();
 }
 
+function abrirModalConcretizar(id) {
+  const i = itens.find(x => x.id === id);
+  if (!i) return;
+  document.getElementById('conc-orc-id').value = i.id;
+  document.getElementById('conc-desc').value   = i.descricao;
+  document.getElementById('conc-valor').value  = i.total_realizado || 0;
+  modalConcretizar.show();
+}
+
 function calcTotal(tipo) {
     if (tipo === 'prev') {
         const qty = parseFloat(document.getElementById('qty_prevista').value) || 0;
@@ -514,6 +525,59 @@ function esc(s) {
   return String(s || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
 }
 </script>
+
+
+<!-- Modal Concretizar -->
+<div class="modal fade" id="modalConcretizar" tabindex="-1">
+  <div class="modal-dialog modal-dialog-centered">
+    <div class="modal-content">
+      <div class="modal-header bg-success text-white">
+        <h5 class="modal-title fw-bold"><i class="bi bi-check-circle-fill me-2"></i>Concretizar Despesa</h5>
+        <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <form id="form-concretizar" method="POST" action="despesas.php">
+          <input type="hidden" name="action" value="save"/>
+          <input type="hidden" name="orcamento_id" id="conc-orc-id"/>
+          <input type="hidden" name="descricao" id="conc-desc"/>
+          <input type="hidden" name="valor_pago" id="conc-valor"/>
+
+          <div class="mb-3">
+              <label class="form-label">Fornecedor <span class="text-danger">*</span></label>
+              <input type="text" class="form-control" name="fornecedor" required>
+          </div>
+          <div class="mb-3">
+              <label class="form-label">Data Pagamento <span class="text-danger">*</span></label>
+              <input type="date" class="form-control" name="data_pagamento" value="<?= date('Y-m-d') ?>" required>
+          </div>
+          <div class="mb-3">
+              <label class="form-label">Nota Fiscal</label>
+              <input type="text" class="form-control" name="numero_nf">
+          </div>
+          <div class="mb-3">
+              <label class="form-label">Método Pagamento</label>
+              <select class="form-select" name="metodo">
+                  <option value="Boleto">Boleto</option>
+                  <option value="Pix">Pix</option>
+                  <option value="Cartão">Cartão</option>
+                  <option value="Transferência">Transferência</option>
+              </select>
+          </div>
+          <div class="mb-3">
+              <label class="form-label">Observação</label>
+              <textarea class="form-control" name="observacao" rows="2"></textarea>
+          </div>
+        </form>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
+        <button class="btn btn-success fw-bold" onclick="document.getElementById('form-concretizar').submit()">
+            <i class="bi bi-check-lg me-1"></i>Confirmar Despesa
+        </button>
+      </div>
+    </div>
+  </div>
+</div>
 
 <form id="form-delete" method="POST" style="display:none">
   <input type="hidden" name="action" value="delete"/>
