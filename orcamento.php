@@ -408,33 +408,50 @@ function filtrar() {
 
 function renderTabela(lista) {
   const tbody = document.getElementById('tbl-body');
+  const cat  = document.getElementById('f-cat').value;
+  const mes  = document.getElementById('f-mes').value;
+
   document.getElementById('tbl-count').textContent = lista.length + ' ite' + (lista.length === 1 ? 'm' : 'ns');
   if (!lista.length) {
     tbody.innerHTML = '<tr class="empty-row"><td colspan="9"><i class="bi bi-inbox fs-4 d-block mb-2"></i>Nenhum item encontrado.</td></tr>';
     return;
   }
-  tbody.innerHTML = lista.map(i => {
-    const plan  = Number(i.total_previsto || 0);
-    const real  = Number(i.total_realizado || 0);
-    const saldo = plan - real;
-    const cls   = CAT_CLASS[i.categoria] || 'cat-outros';
-    return `<tr>
-      <td><span class="badge-cat ${cls}">${esc(i.categoria)}</span></td>
-      <td style="max-width:220px">${esc(i.descricao)}</td>
-      <td>${i.mes_ano || '—'}</td>
-      <td style="font-size:.8rem;color:#6b7280;text-align:center">${i.qty_prevista || 0} x ${fmt(i.unit_previsto || 0)}</td>
-      <td style="font-weight:600;color:#1a73e8">${fmt(plan)}</td>
-      <td style="font-size:.8rem;color:#6b7280;text-align:center">${i.qty_realizada || 0} x ${fmt(i.unit_realizado || 0)}</td>
-      <td style="font-weight:600;color:#e53935">${fmt(real)}</td>
-      <td class="${saldo >= 0 ? 'saldo-pos' : 'saldo-neg'}">${saldo >= 0 ? '' : '-'}${fmt(Math.abs(saldo))}</td>
-      <td style="text-align:center;white-space:nowrap">
-        ${MODO_OUVINTE_ORC ? '' : `
-        <button class="btn-acao text-primary" title="Editar" onclick="editarItem('${i.id}')"><i class="bi bi-pencil-fill"></i></button>
-        <button class="btn-acao text-danger"  title="Excluir" onclick="excluirDireto('${i.id}')"><i class="bi bi-trash-fill"></i></button>
-        <button class="btn-acao text-success" title="Concretizar Despesa" onclick="abrirModalConcretizar('${i.id}')"><i class="bi bi-check-circle-fill"></i></button>
-        `}
-      </td>
-    </tr>`;
+
+  // Agrupa por mês se "Todos os Meses" estiver selecionado
+  const agrupado = (!mes) ? lista.reduce((acc, i) => {
+    (acc[i.mes_ano] = acc[i.mes_ano] || []).push(i);
+    return acc;
+  }, {}) : { 'Filtrado': lista };
+
+  tbody.innerHTML = Object.entries(agrupado).map(([mesAno, items]) => {
+    let rows = '';
+    if (!mes && Object.keys(agrupado).length > 1) {
+      rows += `<tr style="background:#eef2f6; font-weight:bold"><td colspan="9">${mesAno}</td></tr>`;
+    }
+    rows += items.map(i => {
+      const plan  = Number(i.total_previsto || 0);
+      const real  = Number(i.total_realizado || 0);
+      const saldo = plan - real;
+      const cls   = CAT_CLASS[i.categoria] || 'cat-outros';
+      return `<tr>
+        <td><span class="badge-cat ${cls}">${esc(i.categoria)}</span></td>
+        <td style="max-width:220px">${esc(i.descricao)}</td>
+        <td>${i.mes_ano || '—'}</td>
+        <td style="font-size:.8rem;color:#6b7280;text-align:center">${i.qty_prevista || 0} x ${fmt(i.unit_previsto || 0)}</td>
+        <td style="font-weight:600;color:#1a73e8">${fmt(plan)}</td>
+        <td style="font-size:.8rem;color:#6b7280;text-align:center">${i.qty_realizada || 0} x ${fmt(i.unit_realizado || 0)}</td>
+        <td style="font-weight:600;color:#e53935">${fmt(real)}</td>
+        <td class="${saldo >= 0 ? 'saldo-pos' : 'saldo-neg'}">${saldo >= 0 ? '' : '-'}${fmt(Math.abs(saldo))}</td>
+        <td style="text-align:center;white-space:nowrap">
+          ${MODO_OUVINTE_ORC ? '' : `
+          <button class="btn-acao text-primary" title="Editar" onclick="editarItem('${i.id}')"><i class="bi bi-pencil-fill"></i></button>
+          <button class="btn-acao text-danger"  title="Excluir" onclick="excluirDireto('${i.id}')"><i class="bi bi-trash-fill"></i></button>
+          <button class="btn-acao text-success" title="Concretizar Despesa" onclick="abrirModalConcretizar('${i.id}')"><i class="bi bi-check-circle-fill"></i></button>
+          `}
+        </td>
+      </tr>`;
+    }).join('');
+    return rows;
   }).join('');
 }
 
