@@ -313,12 +313,12 @@ function monitor_check_tipo(PDO $pdo, string $tipo): array
 
 /* ───────────────────────────── Adaptadores para Central de Alertas (TODO: renomear p/ monitor_*) ───────────────────────────── */
 
-function alerta_check_dude_device(PDO $pdo, array $p): array { return monitor_check_tipo($pdo, 'device'); }
-function alerta_check_dude_link(PDO $pdo, array $p): array { return monitor_check_tipo($pdo, 'link'); }
-function alerta_check_dude_latencia(PDO $pdo, array $p): array { return monitor_check_tipo($pdo, 'latencia'); }
-function alerta_check_dude_service(PDO $pdo, array $p): array { return monitor_check_tipo($pdo, 'service'); }
-function alerta_check_dude_sem_contato(PDO $pdo, array $p): array { return monitor_check_tipo($pdo, 'sem_contato'); }
-function alerta_check_dude_ligado_muito_tempo(PDO $pdo, array $p): array { return monitor_check_tipo($pdo, 'ligado_muito_tempo'); }
+function alerta_check_monitor_device(PDO $pdo, array $p): array { return monitor_check_tipo($pdo, 'device'); }
+function alerta_check_monitor_link(PDO $pdo, array $p): array { return monitor_check_tipo($pdo, 'link'); }
+function alerta_check_monitor_latencia(PDO $pdo, array $p): array { return monitor_check_tipo($pdo, 'latencia'); }
+function alerta_check_monitor_service(PDO $pdo, array $p): array { return monitor_check_tipo($pdo, 'service'); }
+function alerta_check_monitor_sem_contato(PDO $pdo, array $p): array { return monitor_check_tipo($pdo, 'sem_contato'); }
+function alerta_check_monitor_ligado_muito_tempo(PDO $pdo, array $p): array { return monitor_check_tipo($pdo, 'ligado_muito_tempo'); }
 
 
 /**
