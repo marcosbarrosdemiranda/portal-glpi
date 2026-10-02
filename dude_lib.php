@@ -279,32 +279,40 @@ function dude_feriado_excluir(PDO $pdo, string $data, string $loja): void
 /** @return array ocorrências: cada uma ['chave','titulo','loja','categoria','detalhe', 'latencia'] */
 function monitor_check_tipo(PDO $pdo, string $tipo): array
 {
+    // Mapeamento do tipo de alerta do monitor para o grupo de dispositivos
+    $grupoMap = [
+        'device' => 'firewalls', // Exemplo: pfSense, servidores
+        'link'   => 'firewalls', // Pode precisar de refinamento
+        'latencia' => 'firewalls',
+        'service' => 'servidores-mgv',
+        'sem_contato' => 'pdvs',
+        'ligado_muito_tempo' => 'pdvs',
+    ];
+
+    $grupo = $grupoMap[$tipo] ?? 'pdvs';
+
     $st = $pdo->prepare(
-        "SELECT chave, nome, endereco, loja, categoria, detalhe, atualizado_em
-         FROM portal_dude_estado WHERE tipo = ? AND status = 'down'
-         ORDER BY loja, atualizado_em"
+        "SELECT id, nome, ip AS endereco, loja, grupo AS categoria, 'confirmado via ping direto do portal' AS detalhe, status_desde
+         FROM portal_monitor_dispositivos
+         WHERE grupo = ? AND status = 'down' AND monitorar = 1 AND removido_em IS NULL
+         ORDER BY loja, status_desde"
     );
-    $st->execute([$tipo]);
+    $st->execute([$grupo]);
 
     $out = [];
-    $seen = [];
     foreach ($st->fetchAll(PDO::FETCH_ASSOC) as $r) {
-        $key = ($r['loja'] ?? '') . ':' . ($r['nome'] !== '' ? $r['nome'] : $r['chave']);
-        if (isset($seen[$key])) continue;
-        $seen[$key] = true;
-
         // --- BUSCA LATÊNCIA AO VIVO ---
         $status_monitor = monitor_status_por_ips($pdo, [$r['endereco']]);
         $latencia = $status_monitor[$r['endereco']]['latencia_ms'] ?? null;
 
-        $desde = date('H:i', strtotime($r['atualizado_em']));
+        $desde = date('H:i', strtotime($r['status_desde']));
         $out[] = [
-            'chave'     => 'monitor:' . $tipo . ':' . $r['chave'],
-            'titulo'    => $r['nome'] !== '' ? $r['nome'] : $r['chave'],
+            'chave'     => 'monitor:' . $tipo . ':' . $r['id'],
+            'titulo'    => $r['nome'],
             'loja'      => (string) $r['loja'],
             'categoria' => (string) $r['categoria'],
             'detalhe'   => trim(trim($r['endereco'] . ' · ' . $r['detalhe'], ' ·')) . " (desde {$desde})",
-            'desde'     => (string) $r['atualizado_em'],
+            'desde'     => (string) $r['status_desde'],
             'latencia'  => $latencia,
         ];
     }

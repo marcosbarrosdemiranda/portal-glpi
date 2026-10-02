@@ -244,49 +244,49 @@ function alertas_catalogo(): array
             'icone'  => 'bi-wifi-off',
             'cor'    => 'warning',
         ],
-        'dude_device' => [
+        'monitor_device' => [
             'nome'      => 'Sem comunicação (IPs/dispositivos)',
             'descricao' => 'Dispositivo monitorado pelo The Dude está offline (sem resposta de ping).',
             'params'    => [],
-            'check'  => 'alerta_check_dude_device',
+            'check'  => 'alerta_check_monitor_device',
             'render' => 'alerta_render_monitor',
             'icone'  => 'bi-hdd-network',
             'cor'    => 'danger',
         ],
-        'dude_link' => [
+        'monitor_link' => [
             'nome'      => 'Queda de VPN entre lojas',
             'descricao' => 'O servidor do portal (Lj 001) não alcança o pfSense de outra loja — a VPN daquela loja caiu. Os equipamentos da loja que caíram junto não alertam um por um.',
             'params'    => [],
-            'check'  => 'alerta_check_dude_link',
+            'check'  => 'alerta_check_monitor_link',
             'render' => 'alerta_render_monitor',
             'icone'  => 'bi-diagram-3',
             'cor'    => 'danger',
         ],
-        'dude_latencia' => [
+        'monitor_latencia' => [
             'nome'      => 'Latência alta entre links',
             'descricao' => 'Latência acima do limiar configurado no The Dude.',
             'params'    => [],
-            'check'  => 'alerta_check_dude_latencia',
+            'check'  => 'alerta_check_monitor_latencia',
             'render' => 'alerta_render_monitor',
             'icone'  => 'bi-speedometer2',
             'cor'    => 'warning',
         ],
-        'dude_service' => [
+        'monitor_service' => [
             'nome'      => 'Serviço offline (The Dude)',
             'descricao' => 'Serviço monitorado pelo The Dude está fora do ar.',
             'params'    => [],
-            'check'  => 'alerta_check_dude_service',
+            'check'  => 'alerta_check_monitor_service',
             'render' => 'alerta_render_monitor',
             'icone'  => 'bi-hdd-stack',
             'cor'    => 'danger',
         ],
-        'dude_sem_contato' => [
+        'monitor_sem_contato' => [
             'nome'      => 'Monitor de rede parado',
             'descricao' => 'O monitor de rede do portal não roda uma rodada de ping há X minutos — verifique o container portal-wpp-worker.',
             'params'    => [
                 'minutos' => ['label' => 'Minutos sem rodada', 'default' => 5, 'min' => 2, 'max' => 1440],
             ],
-            'check'  => 'alerta_check_dude_sem_contato',
+            'check'  => 'alerta_check_monitor_sem_contato',
             'render' => 'alerta_render_monitor',
             'icone'  => 'bi-plug',
             'cor'    => 'warning',
@@ -300,11 +300,11 @@ function alertas_catalogo(): array
             'icone'  => 'bi-globe2',
             'cor'    => 'danger',
         ],
-        'dude_ligado_muito_tempo' => [
+        'monitor_ligado_muito_tempo' => [
             'nome'      => 'Equipamento ligado há muito tempo',
             'descricao' => 'Dispositivo de uma categoria com limite configurado (Configurar Alertas → The Dude) ligado continuamente além do esperado.',
             'params'    => [],
-            'check'  => 'alerta_check_dude_ligado_muito_tempo',
+            'check'  => 'alerta_check_monitor_ligado_muito_tempo',
             'render' => 'alerta_render_monitor',
             'icone'  => 'bi-clock-history',
             'cor'    => 'warning',
