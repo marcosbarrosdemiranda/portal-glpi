@@ -1,6 +1,8 @@
 <?php
 require_once __DIR__ . '/auth_guard.php';
 require_once __DIR__ . '/agenda/despesas_db.php';
+require_once __DIR__ . '/agenda/tipos_db.php';
+$tipos = listarTipos($pdo);
 
 if (empty($_SESSION['autenticado'])) { header('Location: auth.php'); exit; }
 
@@ -18,7 +20,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             }
         }
 
-        $sql = "INSERT INTO glpi_portal_despesas (orcamento_id, descricao, valor_pago, data_pagamento, numero_nf, fornecedor, metodo_pagamento, observacao, arquivo_nf) VALUES (?,?,?,?,?,?,?,?,?)";
+        $sql = "INSERT INTO glpi_portal_despesas (orcamento_id, descricao, valor_pago, data_pagamento, numero_nf, fornecedor, metodo_pagamento, observacao, arquivo_nf, qty, unit_price, tipo_despesa_id) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)";
         $pdo->prepare($sql)->execute([
             !empty($_POST['orcamento_id']) ? (int)$_POST['orcamento_id'] : null,
             $_POST['descricao'],
@@ -28,7 +30,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $_POST['fornecedor'],
             $_POST['metodo'],
             $_POST['observacao'],
-            $arquivo_nf
+            $arquivo_nf,
+            (int)$_POST['qty'],
+            (float)$_POST['unit_price'],
+            (int)$_POST['tipo_despesa_id']
         ]);
 
         if (!empty($_POST['orcamento_id'])) {
@@ -56,7 +61,7 @@ if ($f_ano) { $where[] = "YEAR(data_pagamento) = ?"; $params[] = (int)$f_ano; }
 $where_sql = $where ? "WHERE " . implode(" AND ", $where) : "";
 
 // Fetch com filtros
-$sql = "SELECT * FROM glpi_portal_despesas $where_sql ORDER BY data_pagamento DESC";
+$sql = "SELECT d.*, t.nome as tipo_nome FROM glpi_portal_despesas d LEFT JOIN glpi_portal_despesas_tipos t ON d.tipo_despesa_id=t.id $where_sql ORDER BY d.data_pagamento DESC";
 $st = $pdo->prepare($sql);
 $st->execute($params);
 $despesas = $st->fetchAll(PDO::FETCH_ASSOC);
@@ -88,6 +93,25 @@ $total_pago = $st_total->fetch(PDO::FETCH_ASSOC)['total'] ?? 0;
         </div>
     </div>
 
+    <!-- Modal Novo Tipo -->
+    <div class="modal fade" id="modalTipo" tabindex="-1">
+        <div class="modal-dialog">
+            <form method="POST" class="modal-content">
+                <input type="hidden" name="action_tipo" value="add">
+                <div class="modal-header">
+                    <h5 class="modal-title">Novo Tipo</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body">
+                    <input type="text" name="nome" class="form-control" placeholder="Nome do Tipo" required>
+                </div>
+                <div class="modal-footer">
+                    <button type="submit" class="btn btn-primary">Salvar Tipo</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
     <!-- Modal Nova Despesa -->
     <div class="modal fade" id="modalDespesa" tabindex="-1">
         <div class="modal-dialog">
@@ -103,9 +127,37 @@ $total_pago = $st_total->fetch(PDO::FETCH_ASSOC)['total'] ?? 0;
                         <input type="text" name="descricao" class="form-control" required>
                     </div>
                     <div class="mb-2">
-                        <label>Valor Pago</label>
-                        <input type="number" step="0.01" name="valor_pago" class="form-control" required>
+                        <label>Tipo de Despesa</label>
+                        <div class="input-group">
+                            <select name="tipo_despesa_id" class="form-select" required>
+                                <option value="">Selecione...</option>
+                                <?php foreach ($tipos as $t): ?>
+                                    <option value="<?= $t['id'] ?>"><?= htmlspecialchars($t['nome']) ?></option>
+                                <?php endforeach; ?>
+                            </select>
+                            <button type="button" class="btn btn-outline-secondary" data-bs-toggle="modal" data-bs-target="#modalTipo">+</button>
+                        </div>
                     </div>
+                    <div class="mb-2">
+                        <label>Quantidade</label>
+                        <input type="number" name="qty" id="qty" class="form-control" value="1" required oninput="calcularTotal()">
+                    </div>
+                    <div class="mb-2">
+                        <label>Valor Unitário</label>
+                        <input type="number" step="0.01" name="unit_price" id="unit_price" class="form-control" required oninput="calcularTotal()">
+                    </div>
+                    <div class="mb-2">
+                        <label>Valor Total</label>
+                        <input type="number" step="0.01" name="valor_pago" id="valor_total" class="form-control" readonly>
+                    </div>
+
+                    <script>
+                    function calcularTotal() {
+                        const qty = parseFloat(document.getElementById('qty').value) || 0;
+                        const price = parseFloat(document.getElementById('unit_price').value) || 0;
+                        document.getElementById('valor_total').value = (qty * price).toFixed(2);
+                    }
+                    </script>
                     <div class="mb-2">
                         <label>Data Pagamento</label>
                         <input type="date" name="data_pagamento" class="form-control" required value="<?= date('Y-m-d') ?>">
@@ -185,8 +237,13 @@ $total_pago = $st_total->fetch(PDO::FETCH_ASSOC)['total'] ?? 0;
                 <tr>
                     <th>Data</th>
                     <th>Descrição</th>
+                    <th>Data</th>
+                    <th>Tipo</th>
+                    <th>Descrição</th>
+                    <th>Qtd</th>
+                    <th>Preço Unit</th>
+                    <th>Total</th>
                     <th>Fornecedor</th>
-                    <th>Valor</th>
                     <th>NF</th>
                     <th>Arquivo</th>
                     <th>Ações</th>
@@ -196,9 +253,12 @@ $total_pago = $st_total->fetch(PDO::FETCH_ASSOC)['total'] ?? 0;
                 <?php foreach ($despesas as $d): ?>
                 <tr>
                     <td><?= htmlspecialchars($d['data_pagamento']) ?></td>
+                    <td><?= htmlspecialchars($d['tipo_nome'] ?? '-') ?></td>
                     <td><?= htmlspecialchars($d['descricao']) ?></td>
-                    <td><?= htmlspecialchars($d['fornecedor']) ?></td>
+                    <td><?= htmlspecialchars($d['qty']) ?></td>
+                    <td>R$ <?= number_format($d['unit_price'], 2, ',', '.') ?></td>
                     <td>R$ <?= number_format($d['valor_pago'], 2, ',', '.') ?></td>
+                    <td><?= htmlspecialchars($d['fornecedor']) ?></td>
                     <td><?= htmlspecialchars($d['numero_nf']) ?></td>
                     <td>
                         <?php if ($d['arquivo_nf']): ?>
