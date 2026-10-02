@@ -362,17 +362,17 @@ function fmt(v) {
   return 'R$ ' + Number(v || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 }
 
-function atualizarStats() {
-  const plan  = itens.reduce((s, i) => s + Number(i.total_previsto || 0), 0);
-  const real  = itens.reduce((s, i) => s + Number(i.total_realizado || 0), 0);
+function atualizarStats(listaItems = itens) {
+  const plan  = listaItems.reduce((s, i) => s + Number(i.total_previsto || 0), 0);
+  const real  = listaItems.reduce((s, i) => s + Number(i.total_realizado || 0), 0);
   const saldo = plan - real;
   const pct   = plan > 0 ? Math.min(Math.round(real / plan * 100), 100) : 0;
   const corPct = pct >= 90 ? '#e53935' : pct >= 70 ? '#fb8c00' : '#43a047';
 
   document.getElementById('s-planejado').textContent     = fmt(plan);
-  document.getElementById('s-planejado-sub').textContent = itens.length + ' ite' + (itens.length === 1 ? 'm' : 'ns');
+  document.getElementById('s-planejado-sub').textContent = listaItems.length + ' ite' + (listaItems.length === 1 ? 'm' : 'ns');
   document.getElementById('s-realizado').textContent     = fmt(real);
-  document.getElementById('s-realizado-sub').textContent = itens.filter(i => Number(i.total_realizado) > 0).length + ' com valor';
+  document.getElementById('s-realizado-sub').textContent = listaItems.filter(i => Number(i.total_realizado) > 0).length + ' com valor';
   document.getElementById('s-saldo').textContent         = fmt(Math.abs(saldo));
   document.getElementById('s-saldo').className           = 's-value ' + (saldo >= 0 ? 'saldo-pos' : 'saldo-neg');
   document.getElementById('s-saldo-sub').textContent     = saldo >= 0 ? 'Dentro do orçamento' : 'Acima do orçamento';
@@ -390,11 +390,12 @@ function filtrar() {
 
   const lista = itens.filter(i => {
     if (cat && i.categoria !== cat) return false;
-    if (mes && i.mes_ano.substring(5, 7) !== mes) return false;
-    if (ano && i.mes_ano.substring(0, 4) !== ano) return false;
+    if (mes && i.mes_ano && i.mes_ano.substring(5, 7) !== mes) return false;
+    if (ano && i.mes_ano && i.mes_ano.substring(0, 4) !== ano) return false;
     if (q && !(i.descricao || '').toLowerCase().includes(q)) return false;
     return true;
   });
+  atualizarStats(lista);
   renderTabela(lista);
 }
 
