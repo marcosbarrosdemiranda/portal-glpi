@@ -619,7 +619,143 @@ function monitor_semear_do_dude(PDO $pdo): array
     return ['ligados' => $ligados, 'manuais' => $manuais];
 }
 
-/* ───────────────────────────── Etapa 2: motor de ping (modo sombra) ───────────────────────────── */
+/* ───────────────────────────── Adaptadores para Central de Alertas ───────────────────────────── */
+
+/** @return array ocorrências: cada uma ['chave','titulo','loja','categoria','detalhe', 'latencia'] */
+function monitor_check_tipo(PDO $pdo, string $tipo): array
+{
+    // Mapeamento do tipo de alerta do monitor para o grupo de dispositivos
+    $grupoMap = [
+        'device' => null, // 'device' deve checar TODOS os grupos
+        'link'   => 'firewalls',
+        'latencia' => 'firewalls',
+        'service' => 'servidores-mgv',
+        'sem_contato' => 'pdvs',
+        'ligado_muito_tempo' => 'pdvs',
+    ];
+
+    $grupo = $grupoMap[$tipo] ?? null;
+
+    $sql = "SELECT d.id, d.nome, d.ip AS endereco, d.loja, d.grupo AS categoria, 'confirmado via ping direto do portal' AS detalhe, d.status_desde
+         FROM portal_monitor_dispositivos d
+         JOIN portal_monitor_grupos g ON g.grupo = d.grupo
+         WHERE d.status = 'down' AND d.monitorar = 1 AND d.removido_em IS NULL";
+
+    // Regra específica para o alerta de equipamento ligado há muito tempo
+    if ($tipo === 'ligado_muito_tempo') {
+        $sql = "SELECT d.id, d.nome, d.ip AS endereco, d.loja, d.grupo AS categoria,
+                       CONCAT('ligado continuamente há ', TIMESTAMPDIFF(HOUR, d.status_desde, NOW()), 'h (limite: ', g.max_horas, 'h)') AS detalhe,
+                       d.status_desde
+                FROM portal_monitor_dispositivos d
+                JOIN portal_monitor_grupos g ON g.grupo = d.grupo
+                WHERE d.status = 'up' AND d.monitorar = 1 AND d.removido_em IS NULL
+                  AND g.max_horas > 0
+                  AND d.status_desde <= NOW() - INTERVAL g.max_horas HOUR";
+    }
+
+    if ($grupo && $tipo !== 'ligado_muito_tempo') {
+        $sql .= " AND d.grupo = ?";
+        $st = $pdo->prepare($sql);
+        $st->execute([$grupo]);
+    } else {
+        $st = $pdo->prepare($sql);
+        $st->execute();
+    }
+
+    $out = [];
+    foreach ($st->fetchAll(PDO::FETCH_ASSOC) as $r) {
+        // --- BUSCA LATÊNCIA AO VIVO ---
+        $status_monitor = monitor_status_por_ips($pdo, [$r['endereco']]);
+        $latencia = $status_monitor[$r['endereco']]['latencia_ms'] ?? null;
+
+        $desde = date('H:i', strtotime($r['status_desde']));
+        $out[] = [
+            'chave'     => 'monitor:' . $tipo . ':' . $r['id'],
+            'titulo'    => $r['nome'],
+            'loja'      => (string) $r['loja'],
+            'categoria' => (string) $r['categoria'],
+            'detalhe'   => trim(trim($r['endereco'] . ' · ' . $r['detalhe'], ' ·')) . " (desde {$desde})",
+            'desde'     => (string) $r['status_desde'],
+            'latencia'  => $latencia,
+        ];
+    }
+    return $out;
+}
+
+function alerta_check_monitor_device(PDO $pdo, array $p): array { return monitor_check_tipo($pdo, 'device'); }
+function alerta_check_monitor_link(PDO $pdo, array $p): array { return monitor_check_tipo($pdo, 'link'); }
+function alerta_check_monitor_latencia(PDO $pdo, array $p): array { return monitor_check_tipo($pdo, 'latencia'); }
+function alerta_check_monitor_service(PDO $pdo, array $p): array { return monitor_check_tipo($pdo, 'service'); }
+function alerta_check_monitor_sem_contato(PDO $pdo, array $p): array { return monitor_check_tipo($pdo, 'sem_contato'); }
+function alerta_check_monitor_ligado_muito_tempo(PDO $pdo, array $p): array { return monitor_check_tipo($pdo, 'ligado_muito_tempo'); }
+
+/**
+ * innerHTML do corpo da seção — reusada pelos 5 tipos do monitor.
+ */
+function alerta_render_monitor(array $ocorr, string $tipo = ''): string
+{
+    if (!$ocorr) {
+        return '<div class="vazio"><i class="bi bi-check-circle-fill me-1"></i>Nada fora do ar.</div>';
+    }
+    $H = fn($s) => htmlspecialchars((string) $s, ENT_QUOTES, 'UTF-8');
+
+    // --- LÓGICA DE COR DA LATÊNCIA ---
+    $corLatencia = function($ms) {
+        if ($ms === null) return '#9ca3af'; // cinza (sem latência)
+        if ($ms < 10) return '#10b981'; // verde
+        if ($ms <= 30) return '#f59e0b'; // amarelo
+        return '#ef4444'; // vermelho
+    };
+
+    $temAgrupamento = (bool) array_filter(
+        $ocorr,
+        fn($o) => trim((string) ($o['categoria'] ?? '')) !== '' || trim((string) ($o['loja'] ?? '')) !== ''
+    );
+
+    if (!$temAgrupamento) {
+        $out = '<table><thead><tr><th>Dispositivo/Enlace</th><th>Detalhe</th><th>Latência</th><th></th></tr></thead><tbody>';
+        foreach ($ocorr as $o) {
+            $lat = $o['latencia'] !== null ? $o['latencia'] . ' ms' : 'N/A';
+            $cor = $corLatencia($o['latencia']);
+            $out .= '<tr><td style="font-weight:600">' . $H($o['titulo']) . '</td>'
+                  . '<td style="color:#6b7280">' . $H($o['detalhe']) . '</td>'
+                  . '<td style="color:' . $cor . '; font-weight:600">' . $lat . '</td>'
+                  . '<td>' . alerta_botao_dispensar_html($tipo, (string) $o['chave']) . '</td></tr>';
+        }
+        return $out . '</tbody></table>';
+    }
+
+    $porCategoria = [];
+    foreach ($ocorr as $o) {
+        $cat  = trim((string) ($o['categoria'] ?? '')) ?: 'Sem categoria';
+        $loja = trim((string) ($o['loja'] ?? '')) ?: 'Sem loja';
+        $porCategoria[$cat][$loja][] = $o;
+    }
+    ksort($porCategoria, SORT_NATURAL | SORT_FLAG_CASE);
+
+    $out = '';
+    foreach ($porCategoria as $cat => $porLoja) {
+        ksort($porLoja, SORT_NATURAL | SORT_FLAG_CASE);
+        $totalCat = array_sum(array_map('count', $porLoja));
+        $out .= '<div class="loja-h" style="font-size:.9rem"><i class="bi bi-tag-fill"></i> ' . $H($cat)
+              . ' <span style="color:#9ca3af;font-weight:400">(' . $totalCat . ')</span></div>';
+        foreach ($porLoja as $loja => $itens) {
+            $out .= '<div class="loja-h" style="margin-left:1rem;font-size:.82rem"><i class="bi bi-shop"></i> ' . $H($loja)
+                  . ' <span style="color:#9ca3af;font-weight:400">(' . count($itens) . ')</span></div><table><tbody>';
+            foreach ($itens as $o) {
+                $lat = $o['latencia'] !== null ? $o['latencia'] . ' ms' : 'N/A';
+                $cor = $corLatencia($o['latencia']);
+                $out .= '<tr><td style="font-weight:600">' . $H($o['titulo']) . '</td>'
+                      . '<td style="color:#6b7280">' . $H($o['detalhe']) . '</td>'
+                      . '<td style="color:' . $cor . '; font-weight:600">' . $lat . '</td>'
+                      . '<td>' . alerta_botao_dispensar_html($tipo, (string) $o['chave']) . '</td></tr>';
+            }
+            $out .= '</tbody></table>';
+        }
+    }
+    return $out;
+}
+
 
 /** "time=0.482 ms" -> 0.48. Sem resposta -> null. */
 function monitor_parse_latencia(string $saida): ?float
