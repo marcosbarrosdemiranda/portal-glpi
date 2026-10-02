@@ -3207,7 +3207,7 @@ async function enviarResposta() {
   const blocos = [];
 
   const checkWrap = document.getElementById('resp-checklist');
-  if (checkWrap.style.display !== 'none') {
+  if (checkWrap && checkWrap.style.display !== 'none') {
     const linhas = [];
     checkWrap.querySelectorAll('input[type=checkbox]').forEach(cb => {
       const isPai = cb.classList.contains('rotina-ck-pai');
@@ -3226,19 +3226,19 @@ async function enviarResposta() {
   }
 
   const boxBackup = document.getElementById('resp-backup');
-  if (boxBackup.style.display !== 'none') {
+  if (boxBackup && boxBackup.style.display !== 'none') {
     const textoBackup = document.getElementById('resp-backup-texto').textContent.trim();
     if (textoBackup) blocos.push(textoBackup);
   }
 
   const boxFirewall = document.getElementById('resp-firewall');
-  if (boxFirewall.style.display !== 'none') {
+  if (boxFirewall && boxFirewall.style.display !== 'none') {
     const textoFirewall = document.getElementById('resp-firewall-texto').textContent.trim();
     if (textoFirewall) blocos.push(textoFirewall);
   }
 
   const boxSolides = document.getElementById('resp-solides');
-  if (boxSolides.style.display !== 'none') {
+  if (boxSolides && boxSolides.style.display !== 'none') {
     const textoSolides = document.getElementById('resp-solides-texto').textContent.trim();
     if (textoSolides) blocos.push(textoSolides);
   }
