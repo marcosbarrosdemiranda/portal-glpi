@@ -92,14 +92,25 @@ $total_pago = $st_total->fetch(PDO::FETCH_ASSOC)['total'] ?? 0;
   <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.5.28/jspdf.plugin.autotable.min.js"></script>
 </head>
+</head>
 <body class="bg-light">
-<div class="container py-4">
+
+<!-- Navbar -->
+<div class="d-flex align-items-center justify-content-between p-3 mb-4" style="background: linear-gradient(135deg, #c8001a, #a50015); color:white; box-shadow: 0 2px 10px rgba(0,0,0,0.1);">
+  <div class="fw-bold h5 mb-0 d-flex align-items-center gap-2">
+    <i class="bi bi-wallet2"></i> Gestão de Despesas
+  </div>
+  <a href="dashboard.php" class="btn btn-sm btn-outline-light">
+    <i class="bi bi-house-door-fill me-1"></i> Início
+  </a>
+</div>
+
+<div class="container pb-4">
     <div class="d-flex justify-content-between mb-4">
-        <h2>Gestão de Despesas</h2>
-        <div>
-            <button class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#modalDespesa">Nova Despesa</button>
-            <a href="dashboard.php" class="btn btn-secondary">Voltar</a>
-        </div>
+        <h2>Despesas Registradas</h2>
+        <button class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#modalDespesa">
+            <i class="bi bi-plus-lg me-1"></i> Nova Despesa
+        </button>
     </div>
 
     <!-- Modal Nova Despesa -->
