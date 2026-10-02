@@ -22,10 +22,6 @@ function alertas_carregar(PDO $pdo): array
     // verdade — mesma classificação que o Inventário de PCs já usa pra escondê-los
     // da view "Em uso"). Computer sem linha ainda em portal_inv_pc_cat continua
     // contando normalmente (mesmo comportamento de antes pra quem não foi classificado).
-    // DEBUG
-    $dbg = $pdo->query("SELECT COUNT(*) FROM portal_monitor_dispositivos WHERE removido_em IS NULL")->fetchColumn();
-    error_log("DEBUG ALERTAS: portal_monitor_dispositivos count = " . $dbg);
-
     $total = (int) $pdo->query("
         SELECT COUNT(*) FROM glpi_computers c
         LEFT JOIN portal_inv_pc_cat cat ON cat.computer_id = c.id
@@ -53,12 +49,8 @@ function alertas_carregar(PDO $pdo): array
         foreach ($repl as $k => $v) $sub = str_replace('{' . $k . '}', (string) $v, $sub);
 
         $html = '';
-        if ($slug === 'monitor_device') {
-            $dbg = $pdo->query("SELECT COUNT(*) FROM portal_monitor_dispositivos WHERE removido_em IS NULL")->fetchColumn();
-            $html .= '<div style="background:yellow">DEBUG: count=' . $dbg . '</div>';
-        }
         try {
-            $html .= call_user_func($def['render'], $ocorr, $slug);
+            $html = call_user_func($def['render'], $ocorr, $slug);
         } catch (\Throwable $e) {
             error_log("Error in render $slug: " . $e->getMessage());
             $html = '<div class="alert alert-danger">Erro ao renderizar: ' . h($e->getMessage()) . '</div>';

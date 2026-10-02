@@ -25,7 +25,7 @@ $stmt = $pdo->prepare("
     FROM portal_monitor_dispositivos
     WHERE grupo = 'firewalls'
       AND monitorar = 1
-      AND removido_em IS NULL
+      AND (removido_em IS NULL OR removido_em = '')
       AND (loja LIKE '%001' OR loja LIKE '%003' OR loja LIKE '%010' OR loja LIKE '%030')
     ORDER BY loja
 ");
