@@ -448,7 +448,7 @@ function abrirModal() {
 }
 
 function editarItem(id) {
-  const i = itens.find(x => x.id === id);
+  const i = itens.find(x => String(x.id) === String(id));
   if (!i) return;
   document.getElementById('item-id').value   = i.id;
   document.getElementById('item-cat').value  = i.categoria;
@@ -486,7 +486,7 @@ function excluirDireto(id) {
 }
 
 function abrirModalConcretizar(id) {
-  const i = itens.find(x => x.id === id);
+  const i = itens.find(x => String(x.id) === String(id));
   if (!i) return;
   document.getElementById('conc-orc-id').value = i.id;
   document.getElementById('conc-desc').value   = i.descricao;
