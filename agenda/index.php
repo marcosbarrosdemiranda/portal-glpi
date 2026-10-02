@@ -2962,9 +2962,9 @@ function abrirModalResposta() {
   const mostrarBackup = titulo.includes('Backup, Relatórios e Banco de Dados');
   const boxBackup = document.getElementById('resp-backup');
   const textoBackup = document.getElementById('resp-backup-texto');
-  boxBackup.style.display = 'none';
-  textoBackup.textContent = '';
-  if (mostrarBackup) {
+  if (boxBackup) boxBackup.style.display = 'none';
+  if (textoBackup) textoBackup.textContent = '';
+  if (mostrarBackup && boxBackup && textoBackup) {
     boxBackup.style.display = '';
     textoBackup.textContent = 'Carregando resumo de backups de ontem…';
     fetch('../backup_resumo_ajax.php')
@@ -2976,9 +2976,9 @@ function abrirModalResposta() {
   // Mesma rotina: anormalidades do Ponto (API Sólides) de ontem + hoje.
   const boxSolides = document.getElementById('resp-solides');
   const textoSolides = document.getElementById('resp-solides-texto');
-  boxSolides.style.display = 'none';
-  textoSolides.textContent = '';
-  if (mostrarBackup) {
+  if (boxSolides) boxSolides.style.display = 'none';
+  if (textoSolides) textoSolides.textContent = '';
+  if (mostrarBackup && boxSolides && textoSolides) {
     boxSolides.style.display = '';
     textoSolides.textContent = 'Carregando relatório do Ponto…';
     fetch('../solides_resumo_ajax.php')
@@ -2991,9 +2991,9 @@ function abrirModalResposta() {
   const mostrarFirewall = titulo.includes('Firewal, Unifi e Comunicação Lojas');
   const boxFirewall = document.getElementById('resp-firewall');
   const textoFirewall = document.getElementById('resp-firewall-texto');
-  boxFirewall.style.display = 'none';
-  textoFirewall.textContent = '';
-  if (mostrarFirewall) {
+  if (boxFirewall) boxFirewall.style.display = 'none';
+  if (textoFirewall) textoFirewall.textContent = '';
+  if (mostrarFirewall && boxFirewall && textoFirewall) {
     boxFirewall.style.display = '';
     textoFirewall.textContent = 'Carregando latência dos pfSense…';
     fetch('../monitor_resumo_ajax.php')
@@ -3008,14 +3008,14 @@ function abrirModalResposta() {
   const checkWrap = document.getElementById('resp-checklist');
   const checkItens = document.getElementById('resp-checklist-itens');
 
-  // Lado a lado só quando os dois aparecem juntos — senão cada um fica
+  // Lado a lado só quando os dois aparecem juntos — senão cada in fica
   // sozinho ocupando a largura toda.
-  const ladoALado = checklist && (mostrarBackup || mostrarFirewall);
+  const ladoALado = checklist && ((boxBackup && mostrarBackup) || (boxFirewall && mostrarFirewall));
   const colEsq = document.getElementById('resp-col-esq');
-  colEsq.style.display = (checklist || mostrarBackup || mostrarFirewall) ? '' : 'none';
+  colEsq.style.display = (checklist || (boxBackup && mostrarBackup) || (boxFirewall && mostrarFirewall)) ? '' : 'none';
   colEsq.className    = ladoALado ? 'col-md-4' : 'col-12';
-  boxBackup.className  = ladoALado ? 'col-md-8 mb-3' : 'col-12 mb-3';
-  boxFirewall.className  = ladoALado ? 'col-md-8 mb-3' : 'col-12 mb-3';
+  if (boxBackup) boxBackup.className = ladoALado ? 'col-md-8 mb-3' : 'col-12 mb-3';
+  if (boxFirewall) boxFirewall.className = ladoALado ? 'col-md-8 mb-3' : 'col-12 mb-3';
 
   if (checklist) {
     const itens = checklist[1];
