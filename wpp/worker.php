@@ -17,7 +17,6 @@ require_once __DIR__ . '/evo_api.php';
 require_once __DIR__ . '/../alertas_lib.php';
 require_once __DIR__ . '/gatilhos.php';
 require_once __DIR__ . '/chatbot.php';
-require_once __DIR__ . '/../dude_lib.php';
 require_once __DIR__ . '/../monitor_lib.php';
 require_once __DIR__ . '/../monitor_links_lib.php';
 

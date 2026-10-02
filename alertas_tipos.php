@@ -15,7 +15,7 @@ require_once __DIR__ . '/alertas_lib.php';
 require_once __DIR__ . '/entidade_alias.php';
 require_once __DIR__ . '/agenda/db.php';
 require_once __DIR__ . '/backup_lib.php';
-require_once __DIR__ . '/dude_lib.php';
+require_once __DIR__ . '/monitor_lib.php';
 require_once __DIR__ . '/monitor_links_lib.php'; // rede_link — links de internet das lojas (pfSense)
 require_once __DIR__ . '/sefaz_lib.php';
 require_once __DIR__ . '/solides_lib.php';

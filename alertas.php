@@ -6,7 +6,6 @@ if (($_SESSION['perfil'] ?? '') === 'self-service') { header('Location: dashboar
 require_once __DIR__ . '/agenda/db.php';
 require_once __DIR__ . '/alertas_tipos.php';   // já puxa alertas_lib.php + entidade_alias.php
 require_once __DIR__ . '/inventario_lib.php';  // cria portal_inv_pc_cat (classificação __ignorado__ usada no total)
-require_once __DIR__ . '/dude_lib.php';
 require_once __DIR__ . '/monitor_lib.php';     // monitor_espelhar_estado() - botão Atualizar
 
 function h($s) { return htmlspecialchars((string)$s, ENT_QUOTES, 'UTF-8'); }
