@@ -2991,6 +2991,7 @@ function abrirModalResposta() {
   const mostrarFirewall = titulo.includes('Firewal, Unifi e Comunicação Lojas');
   const boxFirewall = document.getElementById('resp-firewall');
   const textoFirewall = document.getElementById('resp-firewall-texto');
+  console.log('DEBUG abertura modal:', { titulo, mostrarFirewall, boxFirewall: !!boxFirewall, textoFirewall: !!textoFirewall });
   if (boxFirewall) boxFirewall.style.display = 'none';
   if (textoFirewall) textoFirewall.textContent = '';
   if (mostrarFirewall && boxFirewall && textoFirewall) {
@@ -2999,7 +3000,10 @@ function abrirModalResposta() {
     fetch('../monitor_resumo_ajax.php')
       .then(r => r.json())
       .then(d => { textoFirewall.textContent = d.ok ? d.texto : 'Falha ao carregar latência — preencha manualmente.'; })
-      .catch(() => { textoFirewall.textContent = 'Falha ao carregar latência — preencha manualmente.'; });
+      .catch((e) => {
+          console.error('Falha fetch firewall:', e);
+          textoFirewall.textContent = 'Falha ao carregar latência — preencha manualmente.';
+      });
   }
 
   // Checklist para chamados recorrentes
