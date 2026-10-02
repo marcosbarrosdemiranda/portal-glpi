@@ -62,6 +62,7 @@ $total_pago = $st_total->fetch(PDO::FETCH_ASSOC)['total'] ?? 0;
   <title>Gestão de Despesas</title>
   <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet"/>
   <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.css" rel="stylesheet"/>
+  <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.5.28/jspdf.plugin.autotable.min.js"></script>
 </head>
@@ -70,13 +71,61 @@ $total_pago = $st_total->fetch(PDO::FETCH_ASSOC)['total'] ?? 0;
     <div class="d-flex justify-content-between mb-4">
         <h2>Gestão de Despesas</h2>
         <div>
+            <button class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#modalDespesa">Nova Despesa</button>
             <a href="dashboard.php" class="btn btn-secondary">Voltar</a>
+        </div>
+    </div>
+
+    <!-- Modal Nova Despesa -->
+    <div class="modal fade" id="modalDespesa" tabindex="-1">
+        <div class="modal-dialog">
+            <form method="POST" class="modal-content">
+                <input type="hidden" name="action" value="save">
+                <div class="modal-header">
+                    <h5 class="modal-title">Nova Despesa</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body">
+                    <div class="mb-2">
+                        <label>Descrição</label>
+                        <input type="text" name="descricao" class="form-control" required>
+                    </div>
+                    <div class="mb-2">
+                        <label>Valor Pago</label>
+                        <input type="number" step="0.01" name="valor_pago" class="form-control" required>
+                    </div>
+                    <div class="mb-2">
+                        <label>Data Pagamento</label>
+                        <input type="date" name="data_pagamento" class="form-control" required value="<?= date('Y-m-d') ?>">
+                    </div>
+                    <div class="mb-2">
+                        <label>Fornecedor</label>
+                        <input type="text" name="fornecedor" class="form-control">
+                    </div>
+                    <div class="mb-2">
+                        <label>NF (Opcional)</label>
+                        <input type="text" name="numero_nf" class="form-control">
+                    </div>
+                    <div class="mb-2">
+                        <label>Método Pagamento</label>
+                        <input type="text" name="metodo" class="form-control">
+                    </div>
+                     <div class="mb-2">
+                        <label>Observação</label>
+                        <textarea name="observacao" class="form-control"></textarea>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Fechar</button>
+                    <button type="submit" class="btn btn-success">Salvar</button>
+                </div>
+            </form>
         </div>
     </div>
 
     <!-- Cards de Resumo -->
     <div class="row mb-4">
-        <div class="col-md-3">
+        <div class="col-md-3 ms-auto">
             <div class="card p-3 shadow-sm text-center">
                 <h6 class="text-muted">Total Pago</h6>
                 <h4 class="text-primary">R$ <?= number_format($total_pago, 2, ',', '.') ?></h4>
