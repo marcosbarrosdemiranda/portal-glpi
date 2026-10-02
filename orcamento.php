@@ -418,6 +418,11 @@ function renderTabela(lista) {
   }
 
   // Agrupa por mês se "Todos os Meses" estiver selecionado
+  const mesesNomes = {
+    '01': 'Janeiro', '02': 'Fevereiro', '03': 'Março', '04': 'Abril', '05': 'Maio', '06': 'Junho',
+    '07': 'Julho', '08': 'Agosto', '09': 'Setembro', '10': 'Outubro', '11': 'Novembro', '12': 'Dezembro'
+  };
+
   const agrupado = (!mes) ? lista.reduce((acc, i) => {
     (acc[i.mes_ano] = acc[i.mes_ano] || []).push(i);
     return acc;
@@ -426,7 +431,10 @@ function renderTabela(lista) {
   tbody.innerHTML = Object.entries(agrupado).map(([mesAno, items]) => {
     let rows = '';
     if (!mes && Object.keys(agrupado).length > 1) {
-      rows += `<tr style="background:#eef2f6; font-weight:bold"><td colspan="9">${mesAno}</td></tr>`;
+      const split = mesAno.split('-');
+      const nomeMes = mesesNomes[split[1]] || split[1];
+      const tituloMes = `${nomeMes} ${split[0]}`;
+      rows += `<tr style="background:#eef2f6; font-weight:bold"><td colspan="9">${tituloMes}</td></tr>`;
     }
     rows += items.map(i => {
       const plan  = Number(i.total_previsto || 0);
