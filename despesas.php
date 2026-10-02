@@ -7,7 +7,18 @@ if (empty($_SESSION['autenticado'])) { header('Location: auth.php'); exit; }
 // CRUD despesas via POST
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     if (isset($_POST['action']) && $_POST['action'] === 'save') {
-        $sql = "INSERT INTO glpi_portal_despesas (orcamento_id, descricao, valor_pago, data_pagamento, numero_nf, fornecedor, metodo_pagamento, observacao) VALUES (?,?,?,?,?,?,?,?)";
+        $arquivo_nf = null;
+        if (!empty($_FILES['arquivo_nf']['name'])) {
+            $uploadDir = 'uploads/despesas/';
+            if (!is_dir($uploadDir)) mkdir($uploadDir, 0777, true);
+            $ext = pathinfo($_FILES['arquivo_nf']['name'], PATHINFO_EXTENSION);
+            $fileName = uniqid() . '.' . $ext;
+            if (move_uploaded_file($_FILES['arquivo_nf']['tmp_name'], $uploadDir . $fileName)) {
+                $arquivo_nf = $uploadDir . $fileName;
+            }
+        }
+
+        $sql = "INSERT INTO glpi_portal_despesas (orcamento_id, descricao, valor_pago, data_pagamento, numero_nf, fornecedor, metodo_pagamento, observacao, arquivo_nf) VALUES (?,?,?,?,?,?,?,?,?)";
         $pdo->prepare($sql)->execute([
             !empty($_POST['orcamento_id']) ? (int)$_POST['orcamento_id'] : null,
             $_POST['descricao'],
@@ -16,7 +27,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $_POST['numero_nf'],
             $_POST['fornecedor'],
             $_POST['metodo'],
-            $_POST['observacao']
+            $_POST['observacao'],
+            $arquivo_nf
         ]);
 
         if (!empty($_POST['orcamento_id'])) {
@@ -79,7 +91,7 @@ $total_pago = $st_total->fetch(PDO::FETCH_ASSOC)['total'] ?? 0;
     <!-- Modal Nova Despesa -->
     <div class="modal fade" id="modalDespesa" tabindex="-1">
         <div class="modal-dialog">
-            <form method="POST" class="modal-content">
+            <form method="POST" enctype="multipart/form-data" class="modal-content">
                 <input type="hidden" name="action" value="save">
                 <div class="modal-header">
                     <h5 class="modal-title">Nova Despesa</h5>
@@ -109,6 +121,10 @@ $total_pago = $st_total->fetch(PDO::FETCH_ASSOC)['total'] ?? 0;
                     <div class="mb-2">
                         <label>Método Pagamento</label>
                         <input type="text" name="metodo" class="form-control">
+                    </div>
+                    <div class="mb-2">
+                        <label>Arquivo NF (PDF/JPG/PNG)</label>
+                        <input type="file" name="arquivo_nf" class="form-control" accept=".pdf,.jpg,.jpeg,.png">
                     </div>
                      <div class="mb-2">
                         <label>Observação</label>
@@ -172,6 +188,7 @@ $total_pago = $st_total->fetch(PDO::FETCH_ASSOC)['total'] ?? 0;
                     <th>Fornecedor</th>
                     <th>Valor</th>
                     <th>NF</th>
+                    <th>Arquivo</th>
                     <th>Ações</th>
                 </tr>
             </thead>
@@ -183,6 +200,11 @@ $total_pago = $st_total->fetch(PDO::FETCH_ASSOC)['total'] ?? 0;
                     <td><?= htmlspecialchars($d['fornecedor']) ?></td>
                     <td>R$ <?= number_format($d['valor_pago'], 2, ',', '.') ?></td>
                     <td><?= htmlspecialchars($d['numero_nf']) ?></td>
+                    <td>
+                        <?php if ($d['arquivo_nf']): ?>
+                            <a href="<?= htmlspecialchars($d['arquivo_nf']) ?>" target="_blank" class="btn btn-sm btn-info"><i class="bi bi-file-earmark"></i></a>
+                        <?php endif; ?>
+                    </td>
                     <td>
                         <form method="POST" onsubmit="return confirm('Excluir esta despesa?')">
                             <input type="hidden" name="action" value="delete">
