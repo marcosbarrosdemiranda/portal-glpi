@@ -342,10 +342,9 @@ let itens = <?= json_encode($itens) ?>;
 document.addEventListener('DOMContentLoaded', () => {
   modal = new bootstrap.Modal(document.getElementById('modalItem'));
   modalConcretizar = new bootstrap.Modal(document.getElementById('modalConcretizar'));
-  // Limpar filtros por padrão
+  const anoAtual = new Date().getFullYear();
   document.getElementById('f-mes').value = '';
-  document.getElementById('f-ano').value = '';
-  atualizarStats();
+  document.getElementById('f-ano').value = anoAtual;
   filtrar();
 });
 
