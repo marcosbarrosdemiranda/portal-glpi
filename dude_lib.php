@@ -276,8 +276,8 @@ function dude_feriado_excluir(PDO $pdo, string $data, string $loja): void
 
 /* ───────────────────────────── Catálogo da Central de Alertas ───────────────────────────── */
 
-/** @return array ocorrências: cada uma ['chave','titulo','loja','categoria','detalhe'] */
-function dude_check_tipo(PDO $pdo, string $tipo): array
+/** @return array ocorrências: cada uma ['chave','titulo','loja','categoria','detalhe', 'latencia'] */
+function monitor_check_tipo(PDO $pdo, string $tipo): array
 {
     $st = $pdo->prepare(
         "SELECT chave, nome, endereco, loja, categoria, detalhe, atualizado_em
@@ -293,116 +293,65 @@ function dude_check_tipo(PDO $pdo, string $tipo): array
         if (isset($seen[$key])) continue;
         $seen[$key] = true;
 
+        // --- BUSCA LATÊNCIA AO VIVO ---
+        $status_monitor = monitor_status_por_ips($pdo, [$r['endereco']]);
+        $latencia = $status_monitor[$r['endereco']]['latencia_ms'] ?? null;
+
         $desde = date('H:i', strtotime($r['atualizado_em']));
         $out[] = [
-            'chave'     => 'dude:' . $tipo . ':' . $r['chave'],
+            'chave'     => 'monitor:' . $tipo . ':' . $r['chave'],
             'titulo'    => $r['nome'] !== '' ? $r['nome'] : $r['chave'],
             'loja'      => (string) $r['loja'],
             'categoria' => (string) $r['categoria'],
             'detalhe'   => trim(trim($r['endereco'] . ' · ' . $r['detalhe'], ' ·')) . " (desde {$desde})",
-            'desde'     => (string) $r['atualizado_em'], // etapa 3b: supressão pela VPN
+            'desde'     => (string) $r['atualizado_em'],
+            'latencia'  => $latencia,
         ];
     }
     return $out;
 }
 
-/**
- * Único dos 4 tipos "down atual" que respeita o horário por categoria
- * (ex.: PDV só alerta 06:00-22:00) — decisão do usuário: Link/Latência/
- * Serviço sempre alertam, independente de horário.
- */
-function alerta_check_dude_device(PDO $pdo, array $p): array
-{
-    // etapa 3b: com a VPN da loja fora, quem caiu junto não alerta um por um (a VPN avisa com a contagem)
-    $ocorr = monitor_vpn_suprimir(dude_check_tipo($pdo, 'device'), monitor_vpn_fora($pdo));
-    return array_values(array_filter(
-        $ocorr,
-        fn($o) => dude_categoria_no_horario($pdo, $o['categoria'], $o['loja']) && !dude_feriado_hoje($pdo, $o['loja'])
-    ));
-}
-/** Etapa 3b: VPN entre lojas, pelo monitor (sempre alerta, sem horário). O Dude nunca usou este tipo. */
-function alerta_check_dude_link(PDO $pdo, array $p): array
-{
-    return monitor_vpn_ocorrencias(monitor_vpn_fora($pdo), monitor_qtd_fora_por_loja($pdo));
-}
-function alerta_check_dude_latencia(PDO $pdo, array $p): array { return dude_check_tipo($pdo, 'latencia'); }
-function alerta_check_dude_service(PDO $pdo, array $p): array  { return dude_check_tipo($pdo, 'service'); }
+/* ───────────────────────────── Adaptadores para Central de Alertas (TODO: renomear p/ monitor_*) ───────────────────────────── */
+
+function alerta_check_dude_device(PDO $pdo, array $p): array { return monitor_check_tipo($pdo, 'device'); }
+function alerta_check_dude_link(PDO $pdo, array $p): array { return monitor_check_tipo($pdo, 'link'); }
+function alerta_check_dude_latencia(PDO $pdo, array $p): array { return monitor_check_tipo($pdo, 'latencia'); }
+function alerta_check_dude_service(PDO $pdo, array $p): array { return monitor_check_tipo($pdo, 'service'); }
+function alerta_check_dude_sem_contato(PDO $pdo, array $p): array { return monitor_check_tipo($pdo, 'sem_contato'); }
+function alerta_check_dude_ligado_muito_tempo(PDO $pdo, array $p): array { return monitor_check_tipo($pdo, 'ligado_muito_tempo'); }
+
 
 /**
- * @return array ocorrências de dispositivos "up" continuamente além do
- * limite (`ligado_horas_max`) configurado pra categoria deles. Genérico —
- * qualquer categoria com esse campo preenchido entra na checagem (não é
- * hardcoded pra "PCs Retaguarda"; o usuário configura qual categoria quer).
+ * innerHTML do corpo da seção — reusada pelos 5 tipos do monitor.
  */
-function alerta_check_dude_ligado_muito_tempo(PDO $pdo, array $p): array
-{
-    $st = $pdo->query("
-        SELECT e.chave, e.nome, e.loja, e.categoria, e.atualizado_em, c.ligado_horas_max
-        FROM portal_dude_estado e
-        JOIN portal_dude_categoria_config c ON c.categoria = e.categoria
-        WHERE e.tipo = 'device' AND e.status = 'up'
-          AND c.ligado_horas_max IS NOT NULL
-          AND e.atualizado_em <= NOW() - INTERVAL c.ligado_horas_max HOUR
-        ORDER BY e.loja, e.categoria
-    ");
-    $out = [];
-    foreach ($st->fetchAll(PDO::FETCH_ASSOC) as $r) {
-        $h = max(0, (int) floor((time() - strtotime($r['atualizado_em'])) / 3600));
-        $out[] = [
-            'chave'     => 'dude:ligado:' . $r['chave'],
-            'titulo'    => $r['nome'] !== '' ? $r['nome'] : $r['chave'],
-            'loja'      => (string) $r['loja'],
-            'categoria' => (string) $r['categoria'],
-            'detalhe'   => "ligado continuamente há {$h}h (limite: {$r['ligado_horas_max']}h)",
-        ];
-    }
-    return $out;
-}
-
-/** @return array ocorrências: 0 ou 1 item (watchdog geral, não por dispositivo) */
-function alerta_check_dude_sem_contato(PDO $pdo, array $p): array
-{
-    // Etapa 3 do monitor de rede: "sem contato" = monitor parado (heartbeat
-    // monitor_ultima_rodada), não mais "Dude sem notificar". Padrão 5 min.
-    $ultima = (string) wpp_cfg_get('monitor_ultima_rodada', '');
-    if ($ultima === '') return []; // monitor nunca rodou -> não é "parado", é "não instalado"
-
-    $min       = (int) ($p['minutos'] ?? 5);
-    $decorrido = time() - strtotime($ultima);
-    if ($decorrido < $min * 60) return [];
-
-    $m = max(0, (int) floor($decorrido / 60));
-    return [[
-        'chave'   => 'dude:sem_contato',
-        'titulo'  => 'Monitor de rede parado',
-        'loja'    => '',
-        'detalhe' => "última rodada de ping há {$m} min — verifique o container portal-wpp-worker",
-    ]];
-}
-
-/**
- * innerHTML do corpo da seção — reusada pelos 5 tipos do Dude. Agrupa por
- * categoria (ex.: PDV, Servidor) e, dentro de cada categoria, por loja —
- * cada notification do Dude manda os dois valores fixos (mapa = loja,
- * grupo de equipamento = categoria). Tipos que nunca preenchem nenhum dos
- * dois (ex.: dude_sem_contato) caem na tabela simples.
- */
-function alerta_render_dude(array $ocorr, string $tipo = ''): string
+function alerta_render_monitor(array $ocorr, string $tipo = ''): string
 {
     if (!$ocorr) {
         return '<div class="vazio"><i class="bi bi-check-circle-fill me-1"></i>Nada fora do ar.</div>';
     }
     $H = fn($s) => htmlspecialchars((string) $s, ENT_QUOTES, 'UTF-8');
+
+    // --- LÓGICA DE COR DA LATÊNCIA ---
+    $corLatencia = function($ms) {
+        if ($ms === null) return '#9ca3af'; // cinza (sem latência)
+        if ($ms < 10) return '#10b981'; // verde
+        if ($ms <= 30) return '#f59e0b'; // amarelo
+        return '#ef4444'; // vermelho
+    };
+
     $temAgrupamento = (bool) array_filter(
         $ocorr,
         fn($o) => trim((string) ($o['categoria'] ?? '')) !== '' || trim((string) ($o['loja'] ?? '')) !== ''
     );
 
     if (!$temAgrupamento) {
-        $out = '<table><thead><tr><th>Dispositivo/Enlace</th><th>Detalhe</th><th></th></tr></thead><tbody>';
+        $out = '<table><thead><tr><th>Dispositivo/Enlace</th><th>Detalhe</th><th>Latência</th><th></th></tr></thead><tbody>';
         foreach ($ocorr as $o) {
+            $lat = $o['latencia'] !== null ? $o['latencia'] . ' ms' : 'N/A';
+            $cor = $corLatencia($o['latencia']);
             $out .= '<tr><td style="font-weight:600">' . $H($o['titulo']) . '</td>'
                   . '<td style="color:#6b7280">' . $H($o['detalhe']) . '</td>'
+                  . '<td style="color:' . $cor . '; font-weight:600">' . $lat . '</td>'
                   . '<td>' . alerta_botao_dispensar_html($tipo, (string) $o['chave']) . '</td></tr>';
         }
         return $out . '</tbody></table>';
@@ -426,8 +375,11 @@ function alerta_render_dude(array $ocorr, string $tipo = ''): string
             $out .= '<div class="loja-h" style="margin-left:1rem;font-size:.82rem"><i class="bi bi-shop"></i> ' . $H($loja)
                   . ' <span style="color:#9ca3af;font-weight:400">(' . count($itens) . ')</span></div><table><tbody>';
             foreach ($itens as $o) {
+                $lat = $o['latencia'] !== null ? $o['latencia'] . ' ms' : 'N/A';
+                $cor = $corLatencia($o['latencia']);
                 $out .= '<tr><td style="font-weight:600">' . $H($o['titulo']) . '</td>'
                       . '<td style="color:#6b7280">' . $H($o['detalhe']) . '</td>'
+                      . '<td style="color:' . $cor . '; font-weight:600">' . $lat . '</td>'
                       . '<td>' . alerta_botao_dispensar_html($tipo, (string) $o['chave']) . '</td></tr>';
             }
             $out .= '</tbody></table>';
