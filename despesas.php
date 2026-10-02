@@ -93,25 +93,6 @@ $total_pago = $st_total->fetch(PDO::FETCH_ASSOC)['total'] ?? 0;
         </div>
     </div>
 
-    <!-- Modal Novo Tipo -->
-    <div class="modal fade" id="modalTipo" tabindex="-1">
-        <div class="modal-dialog">
-            <form method="POST" class="modal-content">
-                <input type="hidden" name="action_tipo" value="add">
-                <div class="modal-header">
-                    <h5 class="modal-title">Novo Tipo</h5>
-                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
-                </div>
-                <div class="modal-body">
-                    <input type="text" name="nome" class="form-control" placeholder="Nome do Tipo" required>
-                </div>
-                <div class="modal-footer">
-                    <button type="submit" class="btn btn-primary">Salvar Tipo</button>
-                </div>
-            </form>
-        </div>
-    </div>
-
     <!-- Modal Nova Despesa -->
     <div class="modal fade" id="modalDespesa" tabindex="-1">
         <div class="modal-dialog">
@@ -127,16 +108,13 @@ $total_pago = $st_total->fetch(PDO::FETCH_ASSOC)['total'] ?? 0;
                         <input type="text" name="descricao" class="form-control" required>
                     </div>
                     <div class="mb-2">
-                        <label>Tipo de Despesa</label>
-                        <div class="input-group">
-                            <select name="tipo_despesa_id" class="form-select" required>
-                                <option value="">Selecione...</option>
-                                <?php foreach ($tipos as $t): ?>
-                                    <option value="<?= $t['id'] ?>"><?= htmlspecialchars($t['nome']) ?></option>
-                                <?php endforeach; ?>
-                            </select>
-                            <button type="button" class="btn btn-outline-secondary" data-bs-toggle="modal" data-bs-target="#modalTipo">+</button>
-                        </div>
+                        <label>Categoria</label>
+                        <select name="tipo_despesa_id" class="form-select" required>
+                            <option value="">Selecione...</option>
+                            <?php foreach ($tipos as $tipo): ?>
+                                <option value="<?= $tipo['id'] ?>"><?= htmlspecialchars($tipo['nome']) ?></option>
+                            <?php endforeach; ?>
+                        </select>
                     </div>
                     <div class="mb-2">
                         <label>Quantidade</label>
@@ -236,9 +214,7 @@ $total_pago = $st_total->fetch(PDO::FETCH_ASSOC)['total'] ?? 0;
             <thead>
                 <tr>
                     <th>Data</th>
-                    <th>Descrição</th>
-                    <th>Data</th>
-                    <th>Tipo</th>
+                    <th>Categoria</th>
                     <th>Descrição</th>
                     <th>Qtd</th>
                     <th>Preço Unit</th>

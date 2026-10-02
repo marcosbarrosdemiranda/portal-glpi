@@ -194,8 +194,19 @@ $itens = $stmt->fetchAll(PDO::FETCH_ASSOC);
       <option value="Treinamento">Treinamento</option>
       <option value="Outros">Outros</option>
     </select>
-    <input type="month" id="f-mes" class="form-control form-control-sm" style="width:155px" />
-    <input type="number" id="f-ano" class="form-control form-control-sm" style="width:100px" placeholder="Ano" />
+    <!-- Filtros de Mês/Ano -->
+    <select id="f-mes" class="form-select form-select-sm" style="width:155px">
+      <option value="">Todos os Meses</option>
+      <?php
+      $meses = [
+          '01' => 'Janeiro', '02' => 'Fevereiro', '03' => 'Março', '04' => 'Abril', '05' => 'Maio', '06' => 'Junho',
+          '07' => 'Julho', '08' => 'Agosto', '09' => 'Setembro', '10' => 'Outubro', '11' => 'Novembro', '12' => 'Dezembro'
+      ];
+      foreach($meses as $num => $nome): ?>
+          <option value="<?= $num ?>"><?= $nome ?></option>
+      <?php endforeach; ?>
+    </select>
+    <input type="number" id="f-ano" class="form-control form-control-sm" style="width:100px" placeholder="2026" />
     <input type="text" id="f-busca" class="form-control form-control-sm" style="width:200px"
            placeholder="🔍 Buscar descrição..." />
     <button class="btn btn-sm btn-primary" onclick="filtrar()"><i class="bi bi-search"></i> Filtrar</button>
@@ -379,7 +390,7 @@ function filtrar() {
 
   const lista = itens.filter(i => {
     if (cat && i.categoria !== cat) return false;
-    if (mes && i.mes_ano !== mes) return false;
+    if (mes && i.mes_ano.substring(5, 7) !== mes) return false;
     if (ano && i.mes_ano.substring(0, 4) !== ano) return false;
     if (q && !(i.descricao || '').toLowerCase().includes(q)) return false;
     return true;
