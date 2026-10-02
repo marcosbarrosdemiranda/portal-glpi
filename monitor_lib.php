@@ -572,7 +572,16 @@ function monitor_manual_excluir(PDO $pdo, int $id): void
     $pdo->prepare("DELETE FROM portal_monitor_dispositivos WHERE id = ? AND origem = 'manual'")->execute([$id]);
 }
 
-/* ───────────────────────────── Semente a partir do Dude (1 vez) ───────────────────────────── */
+/** Gera texto de resumo de latência para rotina diária. */
+function monitor_resumo_latencia_texto(array $status): string
+{
+    $linhas = [];
+    foreach ($status as $ip => $s) {
+        $lat = $s['latencia_ms'] !== null ? $s['latencia_ms'] . 'ms' : 'down';
+        $linhas[] = "$ip: $lat";
+    }
+    return "Latência: " . implode(' | ', $linhas);
+}
 
 /**
  * Liga "Monitorar" em tudo que o Dude monitora hoje (casando por IP com o

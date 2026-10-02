@@ -912,11 +912,11 @@ $libera_data_passada = ($cards_portal === null) || (($cards_portal['agenda_data_
           </div>
           </div>
 
-          <!-- Resumo automático de backup (só na rotina diária de backup) — informativo,
+          <!-- Latência dos pfSense (rotina diária de Firewall e Comunicação Lojas) — informativo,
                não editável; entra junto na resposta final do chamado na hora de enviar. -->
-          <div id="resp-backup" style="display:none" class="col-12 mb-3">
-            <label class="form-label fw-semibold">💾 Backup verificados</label>
-            <div id="resp-backup-texto" class="p-3 border rounded" style="background:#f8fafc;white-space:pre-wrap;font-family:monospace;font-size:.72rem"></div>
+          <div id="resp-firewall" style="display:none" class="col-12 mb-3">
+            <label class="form-label fw-semibold">🌐 Latência Comunicação Lojas (pfSense)</label>
+            <div id="resp-firewall-texto" class="p-3 border rounded" style="background:#f8fafc;white-space:pre-wrap;font-family:monospace;font-size:.72rem"></div>
           </div>
         </div>
 
@@ -2987,6 +2987,21 @@ function abrirModalResposta() {
       .catch(() => { textoSolides.textContent = 'Ponto (API Sólides): falha ao carregar o relatório — preencha manualmente.'; });
   }
 
+  // PF Sense / Comunicação Lojas
+  const mostrarFirewall = titulo.includes('Firewal, Unifi e Comunicação Lojas');
+  const boxFirewall = document.getElementById('resp-firewall');
+  const textoFirewall = document.getElementById('resp-firewall-texto');
+  boxFirewall.style.display = 'none';
+  textoFirewall.textContent = '';
+  if (mostrarFirewall) {
+    boxFirewall.style.display = '';
+    textoFirewall.textContent = 'Carregando latência dos pfSense…';
+    fetch('../monitor_resumo_ajax.php')
+      .then(r => r.json())
+      .then(d => { textoFirewall.textContent = d.ok ? d.texto : 'Falha ao carregar latência — preencha manualmente.'; })
+      .catch(() => { textoFirewall.textContent = 'Falha ao carregar latência — preencha manualmente.'; });
+  }
+
   // Checklist para chamados recorrentes
   const tituloLimpo = titulo.replace(/^#\d+\s*[-–]\s*/, '').trim();
   const checklist = Object.entries(ROTINA_CHECKLISTS).find(([k]) => tituloLimpo.includes(k));
@@ -2995,11 +3010,12 @@ function abrirModalResposta() {
 
   // Lado a lado só quando os dois aparecem juntos — senão cada um fica
   // sozinho ocupando a largura toda.
-  const ladoALado = checklist && mostrarBackup;
+  const ladoALado = checklist && (mostrarBackup || mostrarFirewall);
   const colEsq = document.getElementById('resp-col-esq');
-  colEsq.style.display = (checklist || mostrarBackup) ? '' : 'none';
+  colEsq.style.display = (checklist || mostrarBackup || mostrarFirewall) ? '' : 'none';
   colEsq.className    = ladoALado ? 'col-md-4' : 'col-12';
   boxBackup.className  = ladoALado ? 'col-md-8 mb-3' : 'col-12 mb-3';
+  boxFirewall.className  = ladoALado ? 'col-md-8 mb-3' : 'col-12 mb-3';
 
   if (checklist) {
     const itens = checklist[1];
@@ -3209,6 +3225,12 @@ async function enviarResposta() {
   if (boxBackup.style.display !== 'none') {
     const textoBackup = document.getElementById('resp-backup-texto').textContent.trim();
     if (textoBackup) blocos.push(textoBackup);
+  }
+
+  const boxFirewall = document.getElementById('resp-firewall');
+  if (boxFirewall.style.display !== 'none') {
+    const textoFirewall = document.getElementById('resp-firewall-texto').textContent.trim();
+    if (textoFirewall) blocos.push(textoFirewall);
   }
 
   const boxSolides = document.getElementById('resp-solides');

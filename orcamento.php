@@ -185,7 +185,7 @@ $itens = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
   <!-- Filtros -->
   <div class="filtros-bar">
-    <select id="f-cat" class="form-select form-select-sm" style="width:175px" onchange="filtrar()">
+    <select id="f-cat" class="form-select form-select-sm" style="width:175px">
       <option value="">Todas as categorias</option>
       <option value="Hardware">Hardware</option>
       <option value="Software">Software</option>
@@ -194,10 +194,11 @@ $itens = $stmt->fetchAll(PDO::FETCH_ASSOC);
       <option value="Treinamento">Treinamento</option>
       <option value="Outros">Outros</option>
     </select>
-    <input type="month" id="f-mes" class="form-control form-control-sm" style="width:155px" onchange="filtrar()"/>
-    <input type="number" id="f-ano" class="form-control form-control-sm" style="width:100px" placeholder="Ano" onchange="filtrar()"/>
+    <input type="month" id="f-mes" class="form-control form-control-sm" style="width:155px" />
+    <input type="number" id="f-ano" class="form-control form-control-sm" style="width:100px" placeholder="Ano" />
     <input type="text" id="f-busca" class="form-control form-control-sm" style="width:200px"
-           placeholder="🔍 Buscar descrição..." oninput="filtrar()"/>
+           placeholder="🔍 Buscar descrição..." />
+    <button class="btn btn-sm btn-primary" onclick="filtrar()"><i class="bi bi-search"></i> Filtrar</button>
     <div style="flex:1"></div>
     <button class="btn btn-sm btn-outline-danger" onclick="exportarPDF('mes')"><i class="bi bi-file-earmark-pdf"></i> PDF Mês</button>
     <button class="btn btn-sm btn-outline-danger" onclick="exportarPDF('ano')"><i class="bi bi-file-earmark-pdf"></i> PDF Ano</button>
@@ -372,12 +373,16 @@ function atualizarStats() {
 function filtrar() {
   const cat  = document.getElementById('f-cat').value;
   const mes  = document.getElementById('f-mes').value;
+  const ano  = document.getElementById('f-ano').value;
   const q    = document.getElementById('f-busca').value.toLowerCase();
-  const lista = itens.filter(i =>
-    (!cat || i.categoria === cat) &&
-    (!mes || i.mes_ano === mes) &&
-    (!q   || (i.descricao || '').toLowerCase().includes(q))
-  );
+
+  const lista = itens.filter(i => {
+    if (cat && i.categoria !== cat) return false;
+    if (mes && i.mes_ano !== mes) return false;
+    if (ano && i.mes_ano.substring(0, 4) !== ano) return false;
+    if (q && !(i.descricao || '').toLowerCase().includes(q)) return false;
+    return true;
+  });
   renderTabela(lista);
 }
 
@@ -416,10 +421,14 @@ function abrirModal() {
   document.getElementById('item-id').value   = '';
   document.getElementById('item-cat').value  = 'Hardware';
   document.getElementById('item-desc').value = '';
-  document.getElementById('item-plan').value = '';
-  document.getElementById('item-real').value = '';
+  document.getElementById('qty_prevista').value = '1';
+  document.getElementById('unit_previsto').value = '0.00';
+  document.getElementById('qty_realizada').value = '0';
+  document.getElementById('unit_realizado').value = '0.00';
   document.getElementById('item-obs').value  = '';
   document.getElementById('item-mes').value  = new Date().toISOString().slice(0, 7);
+  calcTotal('prev');
+  calcTotal('real');
   document.getElementById('btn-excluir').style.display = 'none';
   document.getElementById('modal-titulo').innerHTML = '<i class="bi bi-cash-coin me-2"></i>Novo Item de Orçamento';
   modal.show();
@@ -431,10 +440,14 @@ function editarItem(id) {
   document.getElementById('item-id').value   = i.id;
   document.getElementById('item-cat').value  = i.categoria;
   document.getElementById('item-desc').value = i.descricao;
-  document.getElementById('item-plan').value = i.valor_planejado || '';
-  document.getElementById('item-real').value = i.valor_realizado || '';
+  document.getElementById('qty_prevista').value = i.qty_prevista || '1';
+  document.getElementById('unit_previsto').value = i.unit_previsto || '0.00';
+  document.getElementById('qty_realizada').value = i.qty_realizada || '0';
+  document.getElementById('unit_realizado').value = i.unit_realizado || '0.00';
   document.getElementById('item-obs').value  = i.observacao || '';
   document.getElementById('item-mes').value  = i.mes_ano || '';
+  calcTotal('prev');
+  calcTotal('real');
   document.getElementById('btn-excluir').style.display = '';
   document.getElementById('modal-titulo').innerHTML = '<i class="bi bi-pencil-fill me-2"></i>Editar Item';
   modal.show();
