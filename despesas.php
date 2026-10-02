@@ -19,11 +19,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $_POST['observacao']
         ]);
 
-        // Se veio do orçamento, precisa marcar como concluído?
-        // Por ora, apenas registra a despesa. Se o modelo exigir, adicionaremos aqui:
-        // if (!empty($_POST['orcamento_id'])) {
-        //    $pdo->prepare("UPDATE glpi_portal_orcamento SET concluido=1 WHERE id=?")->execute([(int)$_POST['orcamento_id']]);
-        // }
+        if (!empty($_POST['orcamento_id'])) {
+            $pdo->prepare("UPDATE glpi_portal_orcamento SET concluido=1 WHERE id=?")->execute([(int)$_POST['orcamento_id']]);
+        }
 
         header("Location: despesas.php"); exit;
     }

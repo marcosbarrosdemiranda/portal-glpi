@@ -190,6 +190,9 @@ function pode_ver(string $key, ?array $cards): bool {
     .card-reunioes-rp { border-top-color: #6a1b9a; }
     .card-reunioes-rp .card-icon { background: #f3e5f5; color: #6a1b9a; }
 
+    .card-despesas    { border-top-color: #1565c0; }
+    .card-despesas    .card-icon { background: #e3f2fd; color: #1565c0; }
+
     .card-sla         { border-top-color: #e53935; }
     .card-sla         .card-icon { background: #ffebee; color: #e53935; }
 
@@ -420,7 +423,7 @@ function pode_ver(string $key, ?array $cards): bool {
   <?php endif; ?>
 
   <!-- ── GESTÃO DE TI ── -->
-  <?php if (pode_ver('projetos',$perfil_cards)||pode_ver('equipe',$perfil_cards)||pode_ver('orcamento',$perfil_cards)||pode_ver('contratos',$perfil_cards)||pode_ver('licencas',$perfil_cards)||pode_ver('reunioes_rp',$perfil_cards)): ?>
+  <?php if (pode_ver('projetos',$perfil_cards)||pode_ver('equipe',$perfil_cards)||pode_ver('orcamento',$perfil_cards)||pode_ver('contratos',$perfil_cards)||pode_ver('licencas',$perfil_cards)||pode_ver('reunioes_rp',$perfil_cards)||pode_ver('despesas',$perfil_cards)): ?>
   <div class="section-label"><i class="bi bi-briefcase me-2"></i>Gestão de TI</div>
   <?php endif; ?>
 
@@ -469,6 +472,14 @@ function pode_ver(string $key, ?array $cards): bool {
     <div class="card-icon"><i class="bi bi-people-fill"></i></div>
     <h5>Reuniões RP</h5>
     <p>Registro de reuniões com a RP Info: participantes, pauta e decisões/pendências.</p>
+  </a>
+  <?php endif; ?>
+
+  <?php if (pode_ver('despesas', $perfil_cards)): ?>
+  <a href="despesas.php" class="dash-card card-despesas">
+    <div class="card-icon"><i class="bi bi-wallet2"></i></div>
+    <h5>Gestão de Despesas</h5>
+    <p>Acompanhe e registre as despesas de TI relacionadas aos orçamentos.</p>
   </a>
   <?php endif; ?>
 

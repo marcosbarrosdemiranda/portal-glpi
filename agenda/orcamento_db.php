@@ -18,6 +18,13 @@ $pdo->exec("CREATE TABLE IF NOT EXISTS glpi_portal_orcamento (
     total_realizado DECIMAL(15,2) AS (qty_realizada * unit_realizado) STORED,
 
     observacao TEXT,
+    concluido TINYINT(1) DEFAULT 0,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
+
+// Adiciona a coluna concluido se não existir (para quem já tem a tabela)
+$db = $pdo->query("SHOW COLUMNS FROM glpi_portal_orcamento LIKE 'concluido'")->fetch();
+if (!$db) {
+    $pdo->exec("ALTER TABLE glpi_portal_orcamento ADD COLUMN concluido TINYINT(1) DEFAULT 0");
+}
 ?>
