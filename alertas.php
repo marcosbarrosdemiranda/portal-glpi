@@ -22,6 +22,10 @@ function alertas_carregar(PDO $pdo): array
     // verdade — mesma classificação que o Inventário de PCs já usa pra escondê-los
     // da view "Em uso"). Computer sem linha ainda em portal_inv_pc_cat continua
     // contando normalmente (mesmo comportamento de antes pra quem não foi classificado).
+    // DEBUG
+    $dbg = $pdo->query("SELECT COUNT(*) FROM portal_monitor_dispositivos WHERE removido_em IS NULL")->fetchColumn();
+    error_log("DEBUG ALERTAS: portal_monitor_dispositivos count = " . $dbg);
+
     $total = (int) $pdo->query("
         SELECT COUNT(*) FROM glpi_computers c
         LEFT JOIN portal_inv_pc_cat cat ON cat.computer_id = c.id
@@ -37,6 +41,7 @@ function alertas_carregar(PDO $pdo): array
             $ocorr = call_user_func($def['check'], $pdo, $cfg['params']);
             $ocorr = alertas_filtrar_dispensados($pdo, $slug, $ocorr);
         } catch (\Throwable $e) {
+            error_log("Error in check $slug: " . $e->getMessage());
             $ocorr = [];
         }
         $n = count($ocorr);
@@ -47,6 +52,18 @@ function alertas_carregar(PDO $pdo): array
         $repl['pct_parque'] = $total > 0 ? (int) round($n / $total * 100) : 0;
         foreach ($repl as $k => $v) $sub = str_replace('{' . $k . '}', (string) $v, $sub);
 
+        $html = '';
+        if ($slug === 'monitor_device') {
+            $dbg = $pdo->query("SELECT COUNT(*) FROM portal_monitor_dispositivos WHERE removido_em IS NULL")->fetchColumn();
+            $html .= '<div style="background:yellow">DEBUG: count=' . $dbg . '</div>';
+        }
+        try {
+            $html .= call_user_func($def['render'], $ocorr, $slug);
+        } catch (\Throwable $e) {
+            error_log("Error in render $slug: " . $e->getMessage());
+            $html = '<div class="alert alert-danger">Erro ao renderizar: ' . h($e->getMessage()) . '</div>';
+        }
+
         $secoes[] = [
             'slug'  => $slug,
             'nome'  => $def['nome'],
@@ -54,7 +71,7 @@ function alertas_carregar(PDO $pdo): array
             'cor'   => $def['cor'],
             'n'     => $n,
             'sub'   => $sub,
-            'html'  => call_user_func($def['render'], $ocorr, $slug),
+            'html'  => $html,
         ];
     }
     return ['secoes' => $secoes, 'total' => $total];
@@ -87,7 +104,15 @@ if (($_GET['action'] ?? '') === 'dados') {
         }
     }
 
-    $dados = alertas_carregar($pdo);
+    $dados = [];
+    try {
+        $dados = alertas_carregar($pdo);
+    } catch (\Throwable $e) {
+        error_log("Error in alertas_carregar (AJAX): " . $e->getMessage());
+        header('Content-Type: application/json', true, 500);
+        echo json_encode(['ok' => false, 'erro' => 'Erro interno: ' . $e->getMessage()]);
+        exit;
+    }
     header('Content-Type: application/json');
     echo json_encode([
         'ok'     => true,

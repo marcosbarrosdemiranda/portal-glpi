@@ -496,7 +496,7 @@ function monitor_status_por_ips(PDO $pdo, array $ips): array
                (SELECT COUNT(*) FROM portal_monitor_quedas_curtas q
                  WHERE q.dispositivo_id = d.id AND q.inicio >= NOW() - INTERVAL 24 HOUR) AS quedas_24h
         FROM portal_monitor_dispositivos d
-        WHERE removido_em IS NULL
+        WHERE (removido_em IS NULL OR removido_em = '')
     ");
     $rows = $st->fetchAll(PDO::FETCH_ASSOC);
 
@@ -639,7 +639,7 @@ function monitor_check_tipo(PDO $pdo, string $tipo): array
     $sql = "SELECT d.id, d.nome, d.ip AS endereco, d.loja, d.grupo AS categoria, 'confirmado via ping direto do portal' AS detalhe, d.status_desde
          FROM portal_monitor_dispositivos d
          JOIN portal_monitor_grupos g ON g.grupo = d.grupo
-         WHERE d.status = 'down' AND d.monitorar = 1 AND d.removido_em IS NULL";
+         WHERE d.status = 'down' AND d.monitorar = 1 AND (d.removido_em IS NULL OR d.removido_em = '')";
 
     // Regra específica para o alerta de equipamento ligado há muito tempo
     if ($tipo === 'ligado_muito_tempo') {
@@ -648,7 +648,7 @@ function monitor_check_tipo(PDO $pdo, string $tipo): array
                        d.status_desde
                 FROM portal_monitor_dispositivos d
                 JOIN portal_monitor_grupos g ON g.grupo = d.grupo
-                WHERE d.status = 'up' AND d.monitorar = 1 AND d.removido_em IS NULL
+                WHERE d.status = 'up' AND d.monitorar = 1 AND (d.removido_em IS NULL OR d.removido_em = '')
                   AND g.max_horas > 0
                   AND d.status_desde <= NOW() - INTERVAL g.max_horas HOUR";
     }
