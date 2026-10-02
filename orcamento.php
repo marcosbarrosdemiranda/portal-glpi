@@ -206,7 +206,7 @@ $itens = $stmt->fetchAll(PDO::FETCH_ASSOC);
           <option value="<?= $num ?>"><?= $nome ?></option>
       <?php endforeach; ?>
     </select>
-    <input type="number" id="f-ano" class="form-control form-control-sm" style="width:100px" placeholder="2026" />
+    <input type="number" id="f-ano" class="form-control form-control-sm" style="width:100px" placeholder="Ano" min="2000" max="2100" />
     <input type="text" id="f-busca" class="form-control form-control-sm" style="width:200px"
            placeholder="🔍 Buscar descrição..." />
     <button class="btn btn-sm btn-primary" onclick="filtrar()"><i class="bi bi-search"></i> Filtrar</button>
@@ -387,11 +387,13 @@ function filtrar() {
   const mes  = document.getElementById('f-mes').value;
   const ano  = document.getElementById('f-ano').value;
   const q    = document.getElementById('f-busca').value.toLowerCase();
+  console.log('Filtrando:', {cat, mes, ano, q});
 
   const lista = itens.filter(i => {
     if (cat && i.categoria !== cat) return false;
     if (mes && i.mes_ano && i.mes_ano.substring(5, 7) !== mes) return false;
-    if (ano && i.mes_ano && i.mes_ano.substring(0, 4) !== ano) return false;
+    // Forçar comparação estrita para o ano
+    if (ano && i.mes_ano && i.mes_ano.substring(0, 4) !== String(ano)) return false;
     if (q && !(i.descricao || '').toLowerCase().includes(q)) return false;
     return true;
   });
