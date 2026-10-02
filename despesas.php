@@ -22,13 +22,38 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         if (!empty($_POST['orcamento_id'])) {
             $pdo->prepare("UPDATE glpi_portal_orcamento SET concluido=1 WHERE id=?")->execute([(int)$_POST['orcamento_id']]);
         }
+        header("Location: despesas.php"); exit;
+    }
 
+    // DELETE
+    if (isset($_POST['action']) && $_POST['action'] === 'delete' && isset($_POST['id'])) {
+        $pdo->prepare("DELETE FROM glpi_portal_despesas WHERE id=?")->execute([(int)$_POST['id']]);
         header("Location: despesas.php"); exit;
     }
 }
 
-// Fetch
-$despesas = $pdo->query("SELECT * FROM glpi_portal_despesas ORDER BY data_pagamento DESC")->fetchAll(PDO::FETCH_ASSOC);
+// Filtros
+$where = [];
+$params = [];
+$f_mes = $_GET['f_mes'] ?? '';
+$f_ano = $_GET['f_ano'] ?? '';
+
+if ($f_mes) { $where[] = "MONTH(data_pagamento) = ?"; $params[] = (int)$f_mes; }
+if ($f_ano) { $where[] = "YEAR(data_pagamento) = ?"; $params[] = (int)$f_ano; }
+
+$where_sql = $where ? "WHERE " . implode(" AND ", $where) : "";
+
+// Fetch com filtros
+$sql = "SELECT * FROM glpi_portal_despesas $where_sql ORDER BY data_pagamento DESC";
+$st = $pdo->prepare($sql);
+$st->execute($params);
+$despesas = $st->fetchAll(PDO::FETCH_ASSOC);
+
+// Somatória
+$sql_total = "SELECT SUM(valor_pago) as total FROM glpi_portal_despesas $where_sql";
+$st_total = $pdo->prepare($sql_total);
+$st_total->execute($params);
+$total_pago = $st_total->fetch(PDO::FETCH_ASSOC)['total'] ?? 0;
 ?>
 <!DOCTYPE html>
 <html lang="pt-BR">
@@ -36,17 +61,56 @@ $despesas = $pdo->query("SELECT * FROM glpi_portal_despesas ORDER BY data_pagame
   <meta charset="UTF-8"/>
   <title>Gestão de Despesas</title>
   <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet"/>
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.css" rel="stylesheet"/>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.5.28/jspdf.plugin.autotable.min.js"></script>
 </head>
 <body class="bg-light">
 <div class="container py-4">
     <div class="d-flex justify-content-between mb-4">
         <h2>Gestão de Despesas</h2>
-        <a href="dashboard.php" class="btn btn-secondary">Voltar</a>
+        <div>
+            <a href="dashboard.php" class="btn btn-secondary">Voltar</a>
+        </div>
+    </div>
+
+    <!-- Cards de Resumo -->
+    <div class="row mb-4">
+        <div class="col-md-3">
+            <div class="card p-3 shadow-sm text-center">
+                <h6 class="text-muted">Total Pago</h6>
+                <h4 class="text-primary">R$ <?= number_format($total_pago, 2, ',', '.') ?></h4>
+            </div>
+        </div>
+    </div>
+
+    <!-- Filtros -->
+    <div class="card shadow-sm p-3 mb-4">
+        <form method="GET" class="row g-2 align-items-end">
+            <div class="col-auto">
+                <label>Mês</label>
+                <select name="f_mes" class="form-select">
+                    <option value="">Todos</option>
+                    <?php for($i=1;$i<=12;$i++): ?>
+                        <option value="<?= $i ?>" <?= $f_mes == $i ? 'selected' : '' ?>><?= $i ?></option>
+                    <?php endfor; ?>
+                </select>
+            </div>
+            <div class="col-auto">
+                <label>Ano</label>
+                <input type="number" name="f_ano" class="form-control" value="<?= htmlspecialchars($f_ano) ?>" placeholder="2026">
+            </div>
+            <div class="col-auto">
+                <button type="submit" class="btn btn-primary">Filtrar</button>
+                <a href="despesas.php" class="btn btn-secondary">Limpar</a>
+                <button type="button" class="btn btn-success" onclick="exportarPDF()">Gerar PDF</button>
+            </div>
+        </form>
     </div>
 
     <!-- Lista -->
     <div class="card shadow-sm p-3">
-        <table class="table">
+        <table class="table" id="tabelaDespesas">
             <thead>
                 <tr>
                     <th>Data</th>
@@ -54,6 +118,7 @@ $despesas = $pdo->query("SELECT * FROM glpi_portal_despesas ORDER BY data_pagame
                     <th>Fornecedor</th>
                     <th>Valor</th>
                     <th>NF</th>
+                    <th>Ações</th>
                 </tr>
             </thead>
             <tbody>
@@ -64,11 +129,28 @@ $despesas = $pdo->query("SELECT * FROM glpi_portal_despesas ORDER BY data_pagame
                     <td><?= htmlspecialchars($d['fornecedor']) ?></td>
                     <td>R$ <?= number_format($d['valor_pago'], 2, ',', '.') ?></td>
                     <td><?= htmlspecialchars($d['numero_nf']) ?></td>
+                    <td>
+                        <form method="POST" onsubmit="return confirm('Excluir esta despesa?')">
+                            <input type="hidden" name="action" value="delete">
+                            <input type="hidden" name="id" value="<?= $d['id'] ?>">
+                            <button type="submit" class="btn btn-sm btn-danger"><i class="bi bi-trash"></i></button>
+                        </form>
+                    </td>
                 </tr>
                 <?php endforeach; ?>
             </tbody>
         </table>
     </div>
 </div>
+
+<script>
+    function exportarPDF() {
+        const { jsPDF } = window.jspdf;
+        const doc = new jsPDF();
+        doc.text("Relatório de Despesas", 14, 15);
+        doc.autoTable({ html: '#tabelaDespesas', startY: 20 });
+        doc.save('despesas.pdf');
+    }
+</script>
 </body>
 </html>
