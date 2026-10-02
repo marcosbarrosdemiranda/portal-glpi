@@ -91,9 +91,14 @@ $total_pago = $st_total->fetch(PDO::FETCH_ASSOC)['total'] ?? 0;
                 <label>Mês</label>
                 <select name="f_mes" class="form-select">
                     <option value="">Todos</option>
-                    <?php for($i=1;$i<=12;$i++): ?>
-                        <option value="<?= $i ?>" <?= $f_mes == $i ? 'selected' : '' ?>><?= $i ?></option>
-                    <?php endfor; ?>
+                    <?php
+                    $meses = [
+                        1 => 'Janeiro', 2 => 'Fevereiro', 3 => 'Março', 4 => 'Abril', 5 => 'Maio', 6 => 'Junho',
+                        7 => 'Julho', 8 => 'Agosto', 9 => 'Setembro', 10 => 'Outubro', 11 => 'Novembro', 12 => 'Dezembro'
+                    ];
+                    foreach($meses as $num => $nome): ?>
+                        <option value="<?= $num ?>" <?= $f_mes == $num ? 'selected' : '' ?>><?= $nome ?></option>
+                    <?php endforeach; ?>
                 </select>
             </div>
             <div class="col-auto">
