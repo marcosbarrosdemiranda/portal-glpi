@@ -329,10 +329,9 @@ let itens = <?= json_encode($itens) ?>;
 
 document.addEventListener('DOMContentLoaded', () => {
   modal = new bootstrap.Modal(document.getElementById('modalItem'));
-  // Setar mês atual como padrão do filtro
-  const hoje = new Date();
-  document.getElementById('f-mes').value = hoje.toISOString().slice(0, 7);
-  document.getElementById('f-ano').value = hoje.getFullYear();
+  // Limpar filtros por padrão
+  document.getElementById('f-mes').value = '';
+  document.getElementById('f-ano').value = '';
   atualizarStats();
   filtrar();
 });
