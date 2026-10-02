@@ -410,6 +410,7 @@ function renderTabela(lista) {
         ${MODO_OUVINTE_ORC ? '' : `
         <button class="btn-acao text-primary" title="Editar" onclick="editarItem('${i.id}')"><i class="bi bi-pencil-fill"></i></button>
         <button class="btn-acao text-danger"  title="Excluir" onclick="excluirDireto('${i.id}')"><i class="bi bi-trash-fill"></i></button>
+        <button class="btn-acao text-success" title="Concretizar Despesa" onclick="abrirModalConcretizar('${i.id}')"><i class="bi bi-check-circle-fill"></i></button>
         `}
       </td>
     </tr>`;
