@@ -81,34 +81,33 @@ $total_pago = $st_total->fetch(PDO::FETCH_ASSOC)['total'] ?? 0;
   <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet"/>
   <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.css" rel="stylesheet"/>
   <style>
-    :root { --primary: #c8001a; --primary-light: #fff0f1; }
+    :root { --primary: #1a237e; --primary-light: #e8f0fe; }
     body { font-family: 'Segoe UI', sans-serif; background: #f0f4f9; }
     .card { border-radius: 14px; border: none; box-shadow: 0 4px 12px rgba(0,0,0,.05); }
     .btn-primary { background-color: var(--primary); border-color: var(--primary); }
-    .btn-primary:hover { background-color: #a50015; border-color: #a50015; }
+    .btn-primary:hover { background-color: #1565c0; border-color: #1565c0; }
     h2 { color: var(--primary); font-weight: 700; }
   </style>
   <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.5.28/jspdf.plugin.autotable.min.js"></script>
 </head>
-</head>
 <body class="bg-light">
 
 <!-- Navbar -->
-<div class="d-flex align-items-center justify-content-between p-3 mb-4" style="background: linear-gradient(135deg, #c8001a, #a50015); color:white; box-shadow: 0 2px 10px rgba(0,0,0,0.1);">
-  <div class="fw-bold h5 mb-0 d-flex align-items-center gap-2">
+<div class="topbar" style="background: linear-gradient(135deg, #1a237e, #1565c0); color: white; padding: .9rem 2rem; display: flex; align-items: center; justify-content: space-between; box-shadow: 0 2px 12px rgba(0,0,0,.25); border-top: 4px solid #1a73e8;">
+  <div class="brand" style="font-size: 1.2rem; font-weight: 700; display:flex; align-items:center; gap:.6rem;">
     <i class="bi bi-wallet2"></i> Gestão de Despesas
   </div>
-  <a href="dashboard.php" class="btn btn-sm btn-outline-light">
+  <a href="dashboard.php" class="btn btn-logout" style="background: rgba(255,255,255,.15); border: 1px solid rgba(255,255,255,.3); color: white; border-radius: 8px; padding: .3rem .8rem; font-size: .82rem; cursor: pointer; text-decoration: none;">
     <i class="bi bi-house-door-fill me-1"></i> Início
   </a>
 </div>
 
-<div class="container pb-4">
+<div class="container pb-4 pt-4">
     <div class="d-flex justify-content-between mb-4">
-        <h2>Despesas Registradas</h2>
-        <button class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#modalDespesa">
+        <h2 style="color: #1a237e;">Despesas Registradas</h2>
+        <button class="btn btn-primary" style="background-color: #1a237e; border-color: #1a237e;" data-bs-toggle="modal" data-bs-target="#modalDespesa">
             <i class="bi bi-plus-lg me-1"></i> Nova Despesa
         </button>
     </div>
