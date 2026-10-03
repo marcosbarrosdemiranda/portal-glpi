@@ -14,9 +14,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !$orc_ouvinte) {
         if ($_POST['action'] === 'save') {
             $id = !empty($_POST['id']) ? (int)$_POST['id'] : null;
             $sql = $id
-                ? "UPDATE glpi_portal_orcamento SET categoria=?, descricao=?, mes_ano=?, qty_prevista=?, unit_previsto=?, qty_realizada=?, unit_realizado=?, observacao=? WHERE id=?"
-                : "INSERT INTO glpi_portal_orcamento (categoria, descricao, mes_ano, qty_prevista, unit_previsto, qty_realizada, unit_realizado, observacao) VALUES (?,?,?,?,?,?,?,?)";
-            $params = [$_POST['categoria'], $_POST['descricao'], $_POST['mes_ano'], (int)$_POST['qty_prevista'], (float)$_POST['unit_previsto'], (int)$_POST['qty_realizada'], (float)$_POST['unit_realizado'], $_POST['observacao']];
+                ? "UPDATE glpi_portal_orcamento SET categoria=?, descricao=?, mes_ano=?, qty_prevista=?, unit_previsto=?, qty_realizada=?, unit_realizado=?, observacao=?, loja=? WHERE id=?"
+                : "INSERT INTO glpi_portal_orcamento (categoria, descricao, mes_ano, qty_prevista, unit_previsto, qty_realizada, unit_realizado, observacao, loja) VALUES (?,?,?,?,?,?,?,?,?)";
+            $params = [$_POST['categoria'], $_POST['descricao'], $_POST['mes_ano'], (int)$_POST['qty_prevista'], (float)$_POST['unit_previsto'], (int)$_POST['qty_realizada'], (float)$_POST['unit_realizado'], $_POST['observacao'], $_POST['loja']];
             if ($id) $params[] = $id;
             $pdo->prepare($sql)->execute($params);
         } elseif ($_POST['action'] === 'delete') {
@@ -27,7 +27,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !$orc_ouvinte) {
 }
 
 // ── Fetch dos dados ───────────────────────────────────────────
-$stmt = $pdo->query("SELECT *, (qty_prevista * unit_previsto) as total_previsto, (qty_realizada * unit_realizado) as total_realizado FROM glpi_portal_orcamento ORDER BY mes_ano DESC, id DESC");
+$stmt = $pdo->query("SELECT *, (qty_prevista * unit_previsto) as total_previsto, (qty_realizada * unit_realizado) as total_realizado FROM glpi_portal_orcamento ORDER BY mes_ano ASC, id ASC");
 $itens = $stmt->fetchAll(PDO::FETCH_ASSOC);
 ?>
 <!DOCTYPE html>
@@ -185,45 +185,61 @@ $itens = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
   <!-- Filtros -->
   <div class="filtros-bar">
-    <select id="f-cat" class="form-select form-select-sm" style="width:175px">
-      <option value="">Todas as categorias</option>
-      <option value="Hardware">Hardware</option>
-      <option value="Software">Software</option>
-      <option value="Serviços">Serviços</option>
-      <option value="Infraestrutura">Infraestrutura</option>
-      <option value="Treinamento">Treinamento</option>
-      <option value="Outros">Outros</option>
-    </select>
-    <!-- Filtros de Mês/Ano -->
-    <select id="f-mes" class="form-select form-select-sm" style="width:155px">
-      <option value="">Todos os Meses</option>
-      <?php
-      $meses = [
-          '01' => 'Janeiro', '02' => 'Fevereiro', '03' => 'Março', '04' => 'Abril', '05' => 'Maio', '06' => 'Junho',
-          '07' => 'Julho', '08' => 'Agosto', '09' => 'Setembro', '10' => 'Outubro', '11' => 'Novembro', '12' => 'Dezembro'
-      ];
-      foreach($meses as $num => $nome): ?>
-          <option value="<?= $num ?>"><?= $nome ?></option>
-      <?php endforeach; ?>
-    </select>
-    <select id="f-ano" class="form-select form-select-sm" style="width:100px">
-      <?php
-      $anoAtual = date('Y');
-      for($y = $anoAtual - 2; $y <= $anoAtual + 2; $y++): ?>
-          <option value="<?= $y ?>" <?= $y == $anoAtual ? 'selected' : '' ?>><?= $y ?></option>
-      <?php endfor; ?>
-    </select>
-    <input type="text" id="f-busca" class="form-control form-control-sm" style="width:200px"
-           placeholder="🔍 Buscar descrição..." />
-    <button class="btn btn-sm btn-primary" onclick="filtrar()"><i class="bi bi-search"></i> Filtrar</button>
-    <div style="flex:1"></div>
-    <button class="btn btn-sm btn-outline-danger" onclick="exportarPDF('mes')"><i class="bi bi-file-earmark-pdf"></i> PDF Mês</button>
-    <button class="btn btn-sm btn-outline-danger" onclick="exportarPDF('ano')"><i class="bi bi-file-earmark-pdf"></i> PDF Ano</button>
-    <?php if (!$orc_ouvinte): ?>
-    <button class="btn-novo" onclick="abrirModal()">
-      <i class="bi bi-plus-lg me-1"></i>Novo Item
-    </button>
-    <?php endif; ?>
+    <div class="d-flex flex-wrap gap-2 align-items-center w-100">
+      <select id="f-cat" class="form-select form-select-sm" style="width:175px" onchange="filtrar()">
+        <option value="">Todas as categorias</option>
+        <option value="Hardware">Hardware</option>
+        <option value="Software">Software</option>
+        <option value="Serviços">Serviços</option>
+        <option value="Infraestrutura">Infraestrutura</option>
+        <option value="Treinamento">Treinamento</option>
+        <option value="Outros">Outros</option>
+      </select>
+      <!-- Filtros de Mês/Ano -->
+      <select id="f-mes" class="form-select form-select-sm" style="width:155px" onchange="filtrar()">
+        <option value="">Todos os Meses</option>
+        <?php
+        $meses = [
+            '01' => 'Janeiro', '02' => 'Fevereiro', '03' => 'Março', '04' => 'Abril', '05' => 'Maio', '06' => 'Junho',
+            '07' => 'Julho', '08' => 'Agosto', '09' => 'Setembro', '10' => 'Outubro', '11' => 'Novembro', '12' => 'Dezembro'
+        ];
+        foreach($meses as $num => $nome): ?>
+            <option value="<?= $num ?>"><?= $nome ?></option>
+        <?php endforeach; ?>
+      </select>
+      <select id="f-ano" class="form-select form-select-sm" style="width:100px" onchange="filtrar()">
+        <?php
+        $anoAtual = date('Y');
+        for($y = $anoAtual - 2; $y <= $anoAtual + 2; $y++): ?>
+            <option value="<?= $y ?>" <?= $y == $anoAtual ? 'selected' : '' ?>><?= $y ?></option>
+        <?php endfor; ?>
+      </select>
+      <input type="text" id="f-busca" class="form-control form-control-sm" style="width:180px"
+             placeholder="🔍 Buscar descrição..." oninput="filtrar()" />
+      <input type="text" id="f-loja" class="form-control form-control-sm" style="width:140px"
+             placeholder="🔍 Loja..." oninput="filtrar()" />
+      <button class="btn btn-sm btn-primary" onclick="filtrar()"><i class="bi bi-search"></i> Filtrar</button>
+      <div class="ms-auto">
+        <?php if (!$orc_ouvinte): ?>
+        <button class="btn-novo" onclick="abrirModal()">
+          <i class="bi bi-plus-lg me-1"></i>Novo Item
+        </button>
+        <?php endif; ?>
+      </div>
+    </div>
+
+    <div class="d-flex flex-wrap gap-2 align-items-center w-100 pt-2 border-top">
+      <div class="btn-group btn-group-sm" role="group">
+        <button type="button" id="btn-grp-loja" class="btn btn-outline-secondary" onclick="toggleAgrupamento('loja')">
+          <i class="bi bi-shop me-1"></i>Lojas
+        </button>
+        <button type="button" id="btn-grp-cat" class="btn btn-outline-secondary" onclick="toggleAgrupamento('categoria')">
+          <i class="bi bi-tags me-1"></i>Categorias
+        </button>
+      </div>
+      <button class="btn btn-sm btn-outline-danger" onclick="exportarPDF('mes')"><i class="bi bi-file-earmark-pdf"></i> PDF Mês</button>
+      <button class="btn btn-sm btn-outline-danger" onclick="exportarPDF('ano')"><i class="bi bi-file-earmark-pdf"></i> PDF Ano</button>
+    </div>
   </div>
 
   <!-- Tabela -->
@@ -237,6 +253,7 @@ $itens = $stmt->fetchAll(PDO::FETCH_ASSOC);
         <thead>
           <tr>
             <th>Categoria</th>
+            <th>Loja</th>
             <th>Descrição</th>
             <th>Mês/Ano</th>
             <th style="text-align:center">Qtd x Unit (Prev)</th>
@@ -248,7 +265,7 @@ $itens = $stmt->fetchAll(PDO::FETCH_ASSOC);
           </tr>
         </thead>
         <tbody id="tbl-body">
-          <tr class="empty-row"><td colspan="8"><i class="bi bi-inbox fs-4 d-block mb-2"></i>Nenhum item cadastrado. Clique em "Novo Item" para começar.</td></tr>
+          <tr class="empty-row"><td colspan="10"><i class="bi bi-inbox fs-4 d-block mb-2"></i>Nenhum item cadastrado. Clique em "Novo Item" para começar.</td></tr>
         </tbody>
       </table>
     </div>
@@ -281,6 +298,10 @@ $itens = $stmt->fetchAll(PDO::FETCH_ASSOC);
                 <option value="Treinamento">Treinamento</option>
                 <option value="Outros">Outros</option>
               </select>
+            </div>
+            <div class="col-md-6">
+              <label class="form-label fw-semibold">Loja</label>
+              <input type="text" class="form-control" name="loja" id="item-loja" placeholder="Ex: Loja Centro"/>
             </div>
             <div class="col-md-6">
               <label class="form-label fw-semibold">Mês/Ano <span class="text-danger">*</span></label>
@@ -392,7 +413,8 @@ function filtrar() {
   const mes  = document.getElementById('f-mes').value;
   const ano  = document.getElementById('f-ano').value;
   const q    = document.getElementById('f-busca').value.toLowerCase();
-  console.log('Filtrando:', {cat, mes, ano, q});
+  const loja = document.getElementById('f-loja').value.toLowerCase();
+  console.log('Filtrando:', {cat, mes, ano, q, loja});
 
   const lista = itens.filter(i => {
     if (cat && i.categoria !== cat) return false;
@@ -400,10 +422,36 @@ function filtrar() {
     // Forçar comparação estrita para o ano
     if (ano && i.mes_ano && i.mes_ano.substring(0, 4) !== String(ano)) return false;
     if (q && !(i.descricao || '').toLowerCase().includes(q)) return false;
+    if (loja && !(i.loja || '').toLowerCase().includes(loja)) return false;
     return true;
   });
   atualizarStats(lista);
   renderTabela(lista);
+}
+
+let modosAgrupamento = {
+  loja: false,
+  categoria: false
+};
+
+function toggleAgrupamento(tipo) {
+  modosAgrupamento[tipo] = !modosAgrupamento[tipo];
+
+  const btnLoja = document.getElementById('btn-grp-loja');
+  const btnCat  = document.getElementById('btn-grp-cat');
+
+  if (btnLoja) {
+    btnLoja.className = modosAgrupamento.loja
+      ? 'btn btn-primary active text-white'
+      : 'btn btn-outline-secondary';
+  }
+  if (btnCat) {
+    btnCat.className = modosAgrupamento.categoria
+      ? 'btn btn-primary active text-white'
+      : 'btn btn-outline-secondary';
+  }
+
+  filtrar();
 }
 
 function renderTabela(lista) {
@@ -413,29 +461,83 @@ function renderTabela(lista) {
 
   document.getElementById('tbl-count').textContent = lista.length + ' ite' + (lista.length === 1 ? 'm' : 'ns');
   if (!lista.length) {
-    tbody.innerHTML = '<tr class="empty-row"><td colspan="9"><i class="bi bi-inbox fs-4 d-block mb-2"></i>Nenhum item encontrado.</td></tr>';
+    tbody.innerHTML = '<tr class="empty-row"><td colspan="10"><i class="bi bi-inbox fs-4 d-block mb-2"></i>Nenhum item encontrado.</td></tr>';
     return;
   }
 
-  // Agrupa por mês se "Todos os Meses" estiver selecionado
   const mesesNomes = {
     '01': 'Janeiro', '02': 'Fevereiro', '03': 'Março', '04': 'Abril', '05': 'Maio', '06': 'Junho',
     '07': 'Julho', '08': 'Agosto', '09': 'Setembro', '10': 'Outubro', '11': 'Novembro', '12': 'Dezembro'
   };
 
-  const agrupado = (!mes) ? lista.reduce((acc, i) => {
-    (acc[i.mes_ano] = acc[i.mes_ano] || []).push(i);
-    return acc;
-  }, {}) : { 'Filtrado': lista };
+  let agrupado = {};
 
-  tbody.innerHTML = Object.entries(agrupado).map(([mesAno, items]) => {
+  if (modosAgrupamento.loja && modosAgrupamento.categoria) {
+    agrupado = lista.reduce((acc, i) => {
+      const lojaNome = i.loja && i.loja.trim() !== '' ? i.loja : 'Sem Loja Definida';
+      const catNome = i.categoria && i.categoria.trim() !== '' ? i.categoria : 'Outros';
+      const chave = `Loja: ${lojaNome} | Cat: ${catNome}`;
+      (acc[chave] = acc[chave] || []).push(i);
+      return acc;
+    }, {});
+  } else if (modosAgrupamento.loja) {
+    agrupado = lista.reduce((acc, i) => {
+      const chave = i.loja && i.loja.trim() !== '' ? i.loja : 'Sem Loja Definida';
+      (acc[chave] = acc[chave] || []).push(i);
+      return acc;
+    }, {});
+  } else if (modosAgrupamento.categoria) {
+    agrupado = lista.reduce((acc, i) => {
+      const chave = i.categoria && i.categoria.trim() !== '' ? i.categoria : 'Outros';
+      (acc[chave] = acc[chave] || []).push(i);
+      return acc;
+    }, {});
+  } else {
+    agrupado = (!mes) ? lista.reduce((acc, i) => {
+      (acc[i.mes_ano] = acc[i.mes_ano] || []).push(i);
+      return acc;
+    }, {}) : { 'Filtrado': lista };
+  }
+
+  tbody.innerHTML = Object.entries(agrupado).map(([grupo, items]) => {
     let rows = '';
-    if (!mes && Object.keys(agrupado).length > 1) {
-      const split = mesAno.split('-');
+    if (modosAgrupamento.loja && modosAgrupamento.categoria) {
+      const totalPrevGrupo = items.reduce((s, i) => s + Number(i.total_previsto || 0), 0);
+      const totalRealGrupo = items.reduce((s, i) => s + Number(i.total_realizado || 0), 0);
+      rows += `<tr style="background:#eef2f6; font-weight:bold">
+        <td colspan="10">
+          <i class="bi bi-diagram-3-fill me-1 text-primary"></i> ${esc(grupo)}
+          <span class="badge bg-secondary ms-2">${items.length} ${items.length === 1 ? 'item' : 'itens'}</span>
+          <span class="ms-3 text-muted fw-normal" style="font-size:.8rem">Previsto: <b class="text-primary">${fmt(totalPrevGrupo)}</b> | Realizado: <b class="text-danger">${fmt(totalRealGrupo)}</b></span>
+        </td>
+      </tr>`;
+    } else if (modosAgrupamento.loja) {
+      const totalPrevGrupo = items.reduce((s, i) => s + Number(i.total_previsto || 0), 0);
+      const totalRealGrupo = items.reduce((s, i) => s + Number(i.total_realizado || 0), 0);
+      rows += `<tr style="background:#eef2f6; font-weight:bold">
+        <td colspan="10">
+          <i class="bi bi-shop me-1 text-primary"></i> Loja: ${esc(grupo)}
+          <span class="badge bg-secondary ms-2">${items.length} ${items.length === 1 ? 'item' : 'itens'}</span>
+          <span class="ms-3 text-muted fw-normal" style="font-size:.8rem">Previsto: <b class="text-primary">${fmt(totalPrevGrupo)}</b> | Realizado: <b class="text-danger">${fmt(totalRealGrupo)}</b></span>
+        </td>
+      </tr>`;
+    } else if (modosAgrupamento.categoria) {
+      const totalPrevGrupo = items.reduce((s, i) => s + Number(i.total_previsto || 0), 0);
+      const totalRealGrupo = items.reduce((s, i) => s + Number(i.total_realizado || 0), 0);
+      rows += `<tr style="background:#eef2f6; font-weight:bold">
+        <td colspan="10">
+          <i class="bi bi-tags me-1 text-primary"></i> Categoria: ${esc(grupo)}
+          <span class="badge bg-secondary ms-2">${items.length} ${items.length === 1 ? 'item' : 'itens'}</span>
+          <span class="ms-3 text-muted fw-normal" style="font-size:.8rem">Previsto: <b class="text-primary">${fmt(totalPrevGrupo)}</b> | Realizado: <b class="text-danger">${fmt(totalRealGrupo)}</b></span>
+        </td>
+      </tr>`;
+    } else if (!mes && Object.keys(agrupado).length > 1) {
+      const split = grupo.split('-');
       const nomeMes = mesesNomes[split[1]] || split[1];
       const tituloMes = `${nomeMes} ${split[0]}`;
-      rows += `<tr style="background:#eef2f6; font-weight:bold"><td colspan="9">${tituloMes}</td></tr>`;
+      rows += `<tr style="background:#eef2f6; font-weight:bold"><td colspan="10">${tituloMes}</td></tr>`;
     }
+
     rows += items.map(i => {
       const plan  = Number(i.total_previsto || 0);
       const real  = Number(i.total_realizado || 0);
@@ -443,6 +545,7 @@ function renderTabela(lista) {
       const cls   = CAT_CLASS[i.categoria] || 'cat-outros';
       return `<tr>
         <td><span class="badge-cat ${cls}">${esc(i.categoria)}</span></td>
+        <td>${esc(i.loja || '-')}</td>
         <td style="max-width:220px">${esc(i.descricao)}</td>
         <td>${i.mes_ano || '—'}</td>
         <td style="font-size:.8rem;color:#6b7280;text-align:center">${i.qty_prevista || 0} x ${fmt(i.unit_previsto || 0)}</td>
@@ -467,6 +570,7 @@ function abrirModal() {
   document.getElementById('item-id').value   = '';
   document.getElementById('item-cat').value  = 'Hardware';
   document.getElementById('item-desc').value = '';
+  document.getElementById('item-loja').value = '';
   document.getElementById('qty_prevista').value = '1';
   document.getElementById('unit_previsto').value = '0.00';
   document.getElementById('qty_realizada').value = '0';
@@ -486,6 +590,7 @@ function editarItem(id) {
   document.getElementById('item-id').value   = i.id;
   document.getElementById('item-cat').value  = i.categoria;
   document.getElementById('item-desc').value = i.descricao;
+  document.getElementById('item-loja').value = i.loja || '';
   document.getElementById('qty_prevista').value = i.qty_prevista || '1';
   document.getElementById('unit_previsto').value = i.unit_previsto || '0.00';
   document.getElementById('qty_realizada').value = i.qty_realizada || '0';
@@ -546,11 +651,12 @@ function exportarPDF(tipo) {
 
     doc.text(titulo, 14, 15);
 
-    const columns = ['Categoria', 'Descricao', 'Mês', 'Qtd Prev','Vl Unit Prev','Total Prev','Qtd Real','Vl Unit Real','Total Real'];
+    const columns = ['Categoria', 'Loja', 'Descrição', 'Mês', 'Qtd Prev','Vl Unit Prev','Total Prev','Qtd Real','Vl Unit Real','Total Real'];
     const rows = itens
         .filter(i => (tipo === 'mes' ? (i.mes_ano === document.getElementById('f-mes').value) : (i.mes_ano.startsWith(document.getElementById('f-ano').value))))
         .map(i => [
             i.categoria,
+            i.loja || '-',
             i.descricao,
             i.mes_ano,
             i.qty_prevista || 0,
