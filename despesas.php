@@ -131,6 +131,7 @@ $lojas = $stmt_lojas->fetchAll(PDO::FETCH_COLUMN);
 
 <div class="hero">
   <h1><i class="bi bi-wallet2 me-2"></i>Gestão de Despesas</h1>
+  <p>Acompanhe e registre as despesas de TI</p>
 </div>
 
 <div class="wrap">
