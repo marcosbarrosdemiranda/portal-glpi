@@ -27,7 +27,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !$orc_ouvinte) {
 }
 
 // ── Fetch dos dados ───────────────────────────────────────────
-$stmt = $pdo->query("SELECT *, (qty_prevista * unit_previsto) as total_previsto, (qty_realizada * unit_realizado) as total_realizado FROM glpi_portal_orcamento ORDER BY mes_ano ASC, id ASC");
+$stmt = $pdo->query("SELECT * FROM glpi_portal_orcamento ORDER BY mes_ano ASC, id ASC");
 $itens = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
 // Fetch Lojas (Entidades GLPI)
