@@ -135,7 +135,7 @@ $lojas = $stmt_lojas->fetchAll(PDO::FETCH_COLUMN);
 </div>
 
 <div class="wrap">
-    <div class="d-flex justify-content-between mb-4 align-items-center">
+    <div class="d-flex justify-content-between my-4 align-items-center">
         <div></div>
         <button class="btn btn-primary" style="background-color: var(--primary); border-color: var(--primary);" data-bs-toggle="modal" data-bs-target="#modalDespesa">
             <i class="bi bi-plus-lg me-1"></i> Nova Despesa
