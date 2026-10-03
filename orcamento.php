@@ -379,9 +379,15 @@ let itens = <?= json_encode($itens) ?>;
 document.addEventListener('DOMContentLoaded', () => {
   modal = new bootstrap.Modal(document.getElementById('modalItem'));
   modalConcretizar = new bootstrap.Modal(document.getElementById('modalConcretizar'));
-  const anoAtual = new Date().getFullYear();
-  document.getElementById('f-mes').value = '';
-  // O valor já vem setado pelo PHP como selected no HTML
+
+  // Carregar filtros salvos
+  const filtrosSaved = JSON.parse(localStorage.getItem('orc_filtros') || '{}');
+  if (filtrosSaved.cat)  document.getElementById('f-cat').value   = filtrosSaved.cat;
+  if (filtrosSaved.mes)  document.getElementById('f-mes').value   = filtrosSaved.mes;
+  if (filtrosSaved.ano)  document.getElementById('f-ano').value   = filtrosSaved.ano;
+  if (filtrosSaved.q)    document.getElementById('f-busca').value = filtrosSaved.q;
+  if (filtrosSaved.loja) document.getElementById('f-loja').value  = filtrosSaved.loja;
+
   filtrar();
 });
 
@@ -424,7 +430,9 @@ function filtrar() {
   const ano  = document.getElementById('f-ano').value;
   const q    = document.getElementById('f-busca').value.toLowerCase();
   const loja = document.getElementById('f-loja').value.toLowerCase();
-  console.log('Filtrando:', {cat, mes, ano, q, loja});
+
+  // Salvar estado dos filtros
+  localStorage.setItem('orc_filtros', JSON.stringify({cat, mes, ano, q, loja}));
 
   const lista = itens.filter(i => {
     if (cat && i.categoria !== cat) return false;
