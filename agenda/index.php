@@ -904,6 +904,13 @@ $libera_data_passada = ($cards_portal === null) || (($cards_portal['agenda_data_
             <div id="resp-checklist-itens" class="d-flex flex-column gap-2 p-3 border rounded" style="background:#f8fafc"></div>
           </div>
 
+          <!-- Resumo de backups (rotina diária "Backup, Relatórios e Banco de Dados") —
+               informativo, pré-preenchido automaticamente com dados de ontem. -->
+          <div id="resp-backup" style="display:none" class="mb-3">
+            <label class="form-label fw-semibold">💾 Resumo de Backups (ontem)</label>
+            <div id="resp-backup-texto" class="p-3 border rounded" style="background:#f8fafc;white-space:pre-wrap;font-family:monospace;font-size:.72rem"></div>
+          </div>
+
           <!-- Relatório do Ponto (API Sólides) — mesma rotina diária, mesmo padrão
                da caixa de backup: informativo e entra junto na resposta final. -->
           <div id="resp-solides" style="display:none" class="mb-3">
