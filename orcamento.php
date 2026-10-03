@@ -226,9 +226,9 @@ $lojas = $stmt_lojas->fetchAll(PDO::FETCH_COLUMN);
             <option value="<?= htmlspecialchars($loja) ?>"><?= htmlspecialchars($loja) ?></option>
         <?php endforeach; ?>
       </select>
-      <button class="btn btn-sm btn-primary" onclick="filtrar()"><i class="bi bi-search"></i> Filtrar</button>
+      <button class="btn btn-novo" onclick="filtrar()"><i class="bi bi-search"></i> Filtrar</button>
       <?php if (!$orc_ouvinte): ?>
-        <button class="btn btn-sm btn-novo" onclick="abrirModal()">
+        <button class="btn btn-novo" onclick="abrirModal()">
           <i class="bi bi-plus-lg me-1"></i>Novo Item
         </button>
       <?php endif; ?>
