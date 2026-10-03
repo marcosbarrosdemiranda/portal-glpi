@@ -893,30 +893,29 @@ $libera_data_passada = ($cards_portal === null) || (($cards_portal['agenda_data_
         </div>
 
         <!-- Checklist rotina + Backup verificados — lado a lado quando os dois
-             aparecem (usa o espaço vazio à direita da lista de itens). -->
-        <div class="row g-3">
-          <!-- Coluna da esquerda: checklist + relatório do Ponto logo abaixo dele,
-               ocupando o espaço que sobra ao lado do Backup verificados. -->
-          <div id="resp-col-esq" style="display:none" class="col-12">
-          <!-- Checklist rotina (visível apenas para chamados recorrentes com checklist) -->
-          <div id="resp-checklist" style="display:none" class="mb-3">
-            <label class="form-label fw-semibold">✅ Itens verificados</label>
-            <div id="resp-checklist-itens" class="d-flex flex-column gap-2 p-3 border rounded" style="background:#f8fafc"></div>
+             aparecem. -->
+        <div class="row g-3 align-items-start">
+          <!-- Coluna da esquerda: checklist + relatório do Ponto logo abaixo. -->
+          <div id="resp-col-esq" style="display:none" class="col-md-4">
+            <!-- Checklist rotina (visível apenas para chamados recorrentes com checklist) -->
+            <div id="resp-checklist" style="display:none" class="mb-3">
+              <label class="form-label fw-semibold">✅ Itens verificados</label>
+              <div id="resp-checklist-itens" class="d-flex flex-column gap-2 p-3 border rounded" style="background:#f8fafc"></div>
+            </div>
+
+            <!-- Relatório do Ponto (API Sólides) — mesma rotina diária, mesmo padrão
+                 da caixa de backup: informativo e entra junto na resposta final. -->
+            <div id="resp-solides" style="display:none" class="mb-3">
+              <label class="form-label fw-semibold">🕒 Ponto (API Sólides)</label>
+              <div id="resp-solides-texto" class="p-3 border rounded" style="background:#f8fafc;white-space:pre-wrap;font-family:monospace;font-size:.72rem"></div>
+            </div>
           </div>
 
           <!-- Resumo de backups (rotina diária "Backup, Relatórios e Banco de Dados") —
-               informativo, pré-preenchido automaticamente com dados de ontem. -->
-          <div id="resp-backup" style="display:none" class="mb-3">
+               irmão direto na row para que col-md-8 do Bootstrap funcione ao lado do checklist. -->
+          <div id="resp-backup" style="display:none" class="col-md-8 mb-3">
             <label class="form-label fw-semibold">💾 Resumo de Backups (ontem)</label>
             <div id="resp-backup-texto" class="p-3 border rounded" style="background:#f8fafc;white-space:pre-wrap;font-family:monospace;font-size:.72rem"></div>
-          </div>
-
-          <!-- Relatório do Ponto (API Sólides) — mesma rotina diária, mesmo padrão
-               da caixa de backup: informativo e entra junto na resposta final. -->
-          <div id="resp-solides" style="display:none" class="mb-3">
-            <label class="form-label fw-semibold">🕒 Ponto (API Sólides)</label>
-            <div id="resp-solides-texto" class="p-3 border rounded" style="background:#f8fafc;white-space:pre-wrap;font-family:monospace;font-size:.72rem"></div>
-          </div>
           </div>
 
           <!-- Latência dos pfSense (rotina diária de Firewall e Comunicação Lojas) — informativo,
@@ -3019,14 +3018,21 @@ function abrirModalResposta() {
   const checkWrap = document.getElementById('resp-checklist');
   const checkItens = document.getElementById('resp-checklist-itens');
 
-  // Lado a lado só quando os dois aparecem juntos — senão cada in fica
-  // sozinho ocupando a largura toda.
-  const ladoALado = checklist && ((boxBackup && mostrarBackup) || (boxFirewall && mostrarFirewall));
+  // Força layout lado a lado sempre que checklist e backup/firewall estiverem visíveis juntos
   const colEsq = document.getElementById('resp-col-esq');
-  colEsq.style.display = (checklist || (boxBackup && mostrarBackup) || (boxFirewall && mostrarFirewall)) ? '' : 'none';
-  colEsq.className    = ladoALado ? 'col-md-4' : 'col-12';
-  if (boxBackup) boxBackup.className = ladoALado ? 'col-md-8 mb-3' : 'col-12 mb-3';
-  if (boxFirewall) boxFirewall.className = ladoALado ? 'col-md-8 mb-3' : 'col-12 mb-3';
+  const temConteudoDireita = (boxBackup && mostrarBackup) || (boxFirewall && mostrarFirewall);
+
+  colEsq.style.display = (checklist || temConteudoDireita) ? '' : 'none';
+
+  if (checklist && temConteudoDireita) {
+    colEsq.className = 'col-md-4';
+    if (boxBackup) boxBackup.className = 'col-md-8 mb-3';
+    if (boxFirewall) boxFirewall.className = 'col-md-8 mb-3';
+  } else {
+    colEsq.className = 'col-12';
+    if (boxBackup) boxBackup.className = 'col-12 mb-3';
+    if (boxFirewall) boxFirewall.className = 'col-12 mb-3';
+  }
 
   if (checklist) {
     const itens = checklist[1];
