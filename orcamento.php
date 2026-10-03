@@ -29,7 +29,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !$orc_ouvinte) {
 // ── Fetch dos dados ───────────────────────────────────────────
 $stmt = $pdo->query("SELECT *, (qty_prevista * unit_previsto) as total_previsto, (qty_realizada * unit_realizado) as total_realizado FROM glpi_portal_orcamento ORDER BY mes_ano ASC, id ASC");
 $itens = $stmt->fetchAll(PDO::FETCH_ASSOC);
-?>
+
+// Fetch Lojas (Entidades GLPI)
+$stmt_lojas = $pdo->query("SELECT name FROM glpi_entities ORDER BY name ASC");
+$lojas = $stmt_lojas->fetchAll(PDO::FETCH_COLUMN);
+?
 <!DOCTYPE html>
 <html lang="pt-BR">
 <head>
@@ -216,8 +220,12 @@ $itens = $stmt->fetchAll(PDO::FETCH_ASSOC);
       </select>
       <input type="text" id="f-busca" class="form-control form-control-sm" style="width:180px"
              placeholder="🔍 Buscar descrição..." oninput="filtrar()" />
-      <input type="text" id="f-loja" class="form-control form-control-sm" style="width:140px"
-             placeholder="🔍 Loja..." oninput="filtrar()" />
+      <select id="f-loja" class="form-select form-select-sm" style="width:175px" onchange="filtrar()">
+        <option value="">Todas as lojas</option>
+        <?php foreach ($lojas as $loja): ?>
+            <option value="<?= htmlspecialchars($loja) ?>"><?= htmlspecialchars($loja) ?></option>
+        <?php endforeach; ?>
+      </select>
       <button class="btn btn-sm btn-primary" onclick="filtrar()"><i class="bi bi-search"></i> Filtrar</button>
       <div class="ms-auto">
         <?php if (!$orc_ouvinte): ?>
@@ -301,7 +309,12 @@ $itens = $stmt->fetchAll(PDO::FETCH_ASSOC);
             </div>
             <div class="col-md-6">
               <label class="form-label fw-semibold">Loja</label>
-              <input type="text" class="form-control" name="loja" id="item-loja" placeholder="Ex: Loja Centro"/>
+              <select class="form-select" name="loja" id="item-loja">
+                <option value="">Selecione a loja...</option>
+                <?php foreach ($lojas as $loja): ?>
+                    <option value="<?= htmlspecialchars($loja) ?>"><?= htmlspecialchars($loja) ?></option>
+                <?php endforeach; ?>
+              </select>
             </div>
             <div class="col-md-6">
               <label class="form-label fw-semibold">Mês/Ano <span class="text-danger">*</span></label>

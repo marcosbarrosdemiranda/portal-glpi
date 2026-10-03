@@ -20,7 +20,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             }
         }
 
-        $sql = "INSERT INTO glpi_portal_despesas (orcamento_id, descricao, valor_pago, data_pagamento, numero_nf, fornecedor, metodo_pagamento, observacao, arquivo_nf, qty, unit_price, tipo_despesa_id) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)";
+        $sql = "INSERT INTO glpi_portal_despesas (orcamento_id, descricao, valor_pago, data_pagamento, numero_nf, fornecedor, metodo_pagamento, observacao, arquivo_nf, qty, unit_price, tipo_despesa_id, loja) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)";
         $pdo->prepare($sql)->execute([
             !empty($_POST['orcamento_id']) ? (int)$_POST['orcamento_id'] : null,
             $_POST['descricao'],
@@ -33,7 +33,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $arquivo_nf,
             (int)$_POST['qty'],
             (float)$_POST['unit_price'],
-            (int)$_POST['tipo_despesa_id']
+            (int)$_POST['tipo_despesa_id'],
+            $_POST['loja']
         ]);
 
         if (!empty($_POST['orcamento_id'])) {
@@ -54,14 +55,16 @@ $where = [];
 $params = [];
 $f_mes = $_GET['f_mes'] ?? '';
 $f_ano = $_GET['f_ano'] ?? '';
+$f_loja = $_GET['f_loja'] ?? '';
 
 if ($f_mes) { $where[] = "MONTH(data_pagamento) = ?"; $params[] = (int)$f_mes; }
 if ($f_ano) { $where[] = "YEAR(data_pagamento) = ?"; $params[] = (int)$f_ano; }
+if ($f_loja) { $where[] = "loja LIKE ?"; $params[] = "%$f_loja%"; }
 
 $where_sql = $where ? "WHERE " . implode(" AND ", $where) : "";
 
 // Fetch com filtros
-$sql = "SELECT d.*, t.nome as tipo_nome FROM glpi_portal_despesas d LEFT JOIN glpi_portal_despesas_tipos t ON d.tipo_despesa_id=t.id $where_sql ORDER BY d.data_pagamento DESC";
+$sql = "SELECT d.*, t.nome as tipo_nome FROM glpi_portal_despesas d LEFT JOIN glpi_portal_despesas_tipos t ON d.tipo_despesa_id=t.id $where_sql ORDER BY d.data_pagamento ASC";
 $st = $pdo->prepare($sql);
 $st->execute($params);
 $despesas = $st->fetchAll(PDO::FETCH_ASSOC);
@@ -71,6 +74,10 @@ $sql_total = "SELECT SUM(valor_pago) as total FROM glpi_portal_despesas $where_s
 $st_total = $pdo->prepare($sql_total);
 $st_total->execute($params);
 $total_pago = $st_total->fetch(PDO::FETCH_ASSOC)['total'] ?? 0;
+
+// Fetch Lojas (Entidades GLPI)
+$stmt_lojas = $pdo->query("SELECT name FROM glpi_entities ORDER BY name ASC");
+$lojas = $stmt_lojas->fetchAll(PDO::FETCH_COLUMN);
 ?>
 <!DOCTYPE html>
 <html lang="pt-BR">
@@ -81,12 +88,34 @@ $total_pago = $st_total->fetch(PDO::FETCH_ASSOC)['total'] ?? 0;
   <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet"/>
   <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.css" rel="stylesheet"/>
   <style>
-    :root { --primary: #1a237e; --primary-light: #e8f0fe; }
-    body { font-family: 'Segoe UI', sans-serif; background: #f0f4f9; }
-    .card { border-radius: 14px; border: none; box-shadow: 0 4px 12px rgba(0,0,0,.05); }
-    .btn-primary { background-color: var(--primary); border-color: var(--primary); }
-    .btn-primary:hover { background-color: #1565c0; border-color: #1565c0; }
-    h2 { color: var(--primary); font-weight: 700; }
+    :root { --primary: #1a237e; --mod: #1565c0; }
+    body  { background: #f0f4f9; font-family: 'Segoe UI', sans-serif; margin: 0; }
+
+    .topbar {
+      background: linear-gradient(135deg, var(--primary), #1565c0);
+      color: white; padding: .75rem 1.5rem;
+      display: flex; align-items: center; justify-content: space-between;
+      box-shadow: 0 2px 8px rgba(0,0,0,.25);
+    }
+    .topbar .brand { font-weight: 700; font-size: 1rem; display: flex; align-items: center; gap: .5rem; }
+    .topbar a {
+      color: white; text-decoration: none; font-size: .82rem;
+      background: rgba(255,255,255,.15); border-radius: 6px; padding: .3rem .75rem;
+    }
+    .topbar a:hover { background: rgba(255,255,255,.25); }
+
+    .hero {
+      background: linear-gradient(135deg, var(--primary), #1565c0);
+      color: white; padding: 2rem 1rem 4.5rem; text-align: center;
+    }
+    .hero h1 { font-size: 1.5rem; font-weight: 700; margin: 0; }
+    .hero p  { opacity: .8; margin-top: .5rem; font-size: .95rem; }
+
+    .wrap { max-width: 1100px; margin: -3rem auto 3rem; padding: 0 1rem; }
+
+    /* Cards e Tabelas */
+    .card { border-radius: 12px; border: 1px solid #e5e7eb; box-shadow: 0 2px 8px rgba(0,0,0,.06); }
+    .table thead th { font-weight: 700; color: #374151; font-size: .78rem; text-transform: uppercase; letter-spacing: .04em; }
   </style>
   <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
@@ -95,19 +124,20 @@ $total_pago = $st_total->fetch(PDO::FETCH_ASSOC)['total'] ?? 0;
 <body class="bg-light">
 
 <!-- Navbar -->
-<div class="topbar" style="background: linear-gradient(135deg, #1a237e, #1565c0); color: white; padding: .9rem 2rem; display: flex; align-items: center; justify-content: space-between; box-shadow: 0 2px 12px rgba(0,0,0,.25); border-top: 4px solid #1a73e8;">
-  <div class="brand" style="font-size: 1.2rem; font-weight: 700; display:flex; align-items:center; gap:.6rem;">
-    <i class="bi bi-wallet2"></i> Gestão de Despesas
-  </div>
-  <a href="dashboard.php" class="btn btn-logout" style="background: rgba(255,255,255,.15); border: 1px solid rgba(255,255,255,.3); color: white; border-radius: 8px; padding: .3rem .8rem; font-size: .82rem; cursor: pointer; text-decoration: none;">
-    <i class="bi bi-house-door-fill me-1"></i> Início
-  </a>
+<div class="topbar">
+  <div class="brand"><i class="bi bi-wallet2"></i> Gestão de Despesas</div>
+  <a href="dashboard.php" class="btn btn-sm text-white" style="background: rgba(255,255,255,.15);"><i class="bi bi-house-door-fill me-1"></i> Início</a>
 </div>
 
-<div class="container pb-4 pt-4">
-    <div class="d-flex justify-content-between mb-4">
-        <h2 style="color: #1a237e;">Despesas Registradas</h2>
-        <button class="btn btn-primary" style="background-color: #1a237e; border-color: #1a237e;" data-bs-toggle="modal" data-bs-target="#modalDespesa">
+<div class="hero">
+  <h1><i class="bi bi-wallet2 me-2"></i>Gestão de Despesas</h1>
+  <p>Acompanhe e registre as despesas de TI</p>
+</div>
+
+<div class="wrap">
+    <div class="d-flex justify-content-between mb-4 align-items-center">
+        <h3 style="color: var(--primary); font-weight: 700;">Despesas Registradas</h3>
+        <button class="btn btn-primary" style="background-color: var(--primary); border-color: var(--primary);" data-bs-toggle="modal" data-bs-target="#modalDespesa">
             <i class="bi bi-plus-lg me-1"></i> Nova Despesa
         </button>
     </div>
@@ -160,6 +190,15 @@ $total_pago = $st_total->fetch(PDO::FETCH_ASSOC)['total'] ?? 0;
                         <input type="date" name="data_pagamento" class="form-control" required value="<?= date('Y-m-d') ?>">
                     </div>
                     <div class="mb-2">
+                        <label>Loja</label>
+                        <select name="loja" class="form-select">
+                            <option value="">Selecione a loja...</option>
+                            <?php foreach ($lojas as $loja): ?>
+                                <option value="<?= htmlspecialchars($loja) ?>"><?= htmlspecialchars($loja) ?></option>
+                            <?php endforeach; ?>
+                        </select>
+                    </div>
+                    <div class="mb-2">
                         <label>Fornecedor</label>
                         <input type="text" name="fornecedor" class="form-control">
                     </div>
@@ -191,9 +230,9 @@ $total_pago = $st_total->fetch(PDO::FETCH_ASSOC)['total'] ?? 0;
     <!-- Cards de Resumo -->
     <div class="row mb-4">
         <div class="col-md-3 ms-auto">
-            <div class="card p-3 shadow-sm text-center">
-                <h6 class="text-muted">Total Pago</h6>
-                <h4 class="text-primary">R$ <?= number_format($total_pago, 2, ',', '.') ?></h4>
+            <div class="card p-3 shadow-sm text-center" style="border-left: 4px solid var(--mod);">
+                <h6 class="text-muted" style="font-size: .72rem; text-transform: uppercase;">Total Pago</h6>
+                <h4 class="text-primary" style="font-weight: 700;">R$ <?= number_format($total_pago, 2, ',', '.') ?></h4>
             </div>
         </div>
     </div>
@@ -216,6 +255,15 @@ $total_pago = $st_total->fetch(PDO::FETCH_ASSOC)['total'] ?? 0;
                 </select>
             </div>
             <div class="col-auto">
+                <label>Loja</label>
+                <select name="f_loja" class="form-select">
+                    <option value="">Todas as lojas</option>
+                    <?php foreach ($lojas as $loja): ?>
+                        <option value="<?= htmlspecialchars($loja) ?>" <?= (($_GET['f_loja'] ?? '') == $loja) ? 'selected' : '' ?>><?= htmlspecialchars($loja) ?></option>
+                    <?php endforeach; ?>
+                </select>
+            </div>
+            <div class="col-auto">
                 <label>Ano</label>
                 <input type="number" name="f_ano" class="form-control" value="<?= htmlspecialchars($f_ano) ?>" placeholder="2026">
             </div>
@@ -234,6 +282,7 @@ $total_pago = $st_total->fetch(PDO::FETCH_ASSOC)['total'] ?? 0;
                 <tr>
                     <th>Data</th>
                     <th>Categoria</th>
+                    <th>Loja</th>
                     <th>Descrição</th>
                     <th>Qtd</th>
                     <th>Preço Unit</th>
@@ -249,6 +298,7 @@ $total_pago = $st_total->fetch(PDO::FETCH_ASSOC)['total'] ?? 0;
                 <tr>
                     <td><?= htmlspecialchars($d['data_pagamento']) ?></td>
                     <td><?= htmlspecialchars($d['tipo_nome'] ?? '-') ?></td>
+                    <td><?= htmlspecialchars($d['loja'] ?? '-') ?></td>
                     <td><?= htmlspecialchars($d['descricao']) ?></td>
                     <td><?= htmlspecialchars($d['qty']) ?></td>
                     <td>R$ <?= number_format($d['unit_price'], 2, ',', '.') ?></td>
