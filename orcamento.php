@@ -33,7 +33,7 @@ $itens = $stmt->fetchAll(PDO::FETCH_ASSOC);
 // Fetch Lojas (Entidades GLPI)
 $stmt_lojas = $pdo->query("SELECT name FROM glpi_entities ORDER BY name ASC");
 $lojas = $stmt_lojas->fetchAll(PDO::FETCH_COLUMN);
-?
+?>
 <!DOCTYPE html>
 <html lang="pt-BR">
 <head>
