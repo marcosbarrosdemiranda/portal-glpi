@@ -90,7 +90,7 @@ $lojas = $stmt_lojas->fetchAll(PDO::FETCH_COLUMN);
     }
     .btn-novo {
       background: var(--mod); border: none; color: white; border-radius: 8px;
-      padding: .45rem 1.25rem; font-size: .85rem; font-weight: 600; cursor: pointer;
+      padding: .25rem .75rem; font-size: .8rem; font-weight: 600; cursor: pointer;
     }
     .btn-novo:hover { background: #388e3c; }
 
@@ -227,26 +227,23 @@ $lojas = $stmt_lojas->fetchAll(PDO::FETCH_COLUMN);
         <?php endforeach; ?>
       </select>
       <button class="btn btn-sm btn-primary" onclick="filtrar()"><i class="bi bi-search"></i> Filtrar</button>
-      <div class="ms-auto">
-        <?php if (!$orc_ouvinte): ?>
-        <button class="btn-novo" onclick="abrirModal()">
+      <?php if (!$orc_ouvinte): ?>
+        <button class="btn btn-sm btn-novo" onclick="abrirModal()">
           <i class="bi bi-plus-lg me-1"></i>Novo Item
         </button>
-        <?php endif; ?>
+      <?php endif; ?>
+      <div class="ms-auto pt-2 border-top w-100 d-flex flex-wrap gap-2 align-items-center">
+        <div class="btn-group btn-group-sm" role="group">
+          <button type="button" id="btn-grp-loja" class="btn btn-outline-secondary" onclick="toggleAgrupamento('loja')">
+            <i class="bi bi-shop me-1"></i>Lojas
+          </button>
+          <button type="button" id="btn-grp-cat" class="btn btn-outline-secondary" onclick="toggleAgrupamento('categoria')">
+            <i class="bi bi-tags me-1"></i>Categorias
+          </button>
+        </div>
+        <button class="btn btn-sm btn-outline-danger" onclick="exportarPDF('mes')"><i class="bi bi-file-earmark-pdf"></i> PDF Mês</button>
+        <button class="btn btn-sm btn-outline-danger" onclick="exportarPDF('ano')"><i class="bi bi-file-earmark-pdf"></i> PDF Ano</button>
       </div>
-    </div>
-
-    <div class="d-flex flex-wrap gap-2 align-items-center w-100 pt-2 border-top">
-      <div class="btn-group btn-group-sm" role="group">
-        <button type="button" id="btn-grp-loja" class="btn btn-outline-secondary" onclick="toggleAgrupamento('loja')">
-          <i class="bi bi-shop me-1"></i>Lojas
-        </button>
-        <button type="button" id="btn-grp-cat" class="btn btn-outline-secondary" onclick="toggleAgrupamento('categoria')">
-          <i class="bi bi-tags me-1"></i>Categorias
-        </button>
-      </div>
-      <button class="btn btn-sm btn-outline-danger" onclick="exportarPDF('mes')"><i class="bi bi-file-earmark-pdf"></i> PDF Mês</button>
-      <button class="btn btn-sm btn-outline-danger" onclick="exportarPDF('ano')"><i class="bi bi-file-earmark-pdf"></i> PDF Ano</button>
     </div>
   </div>
 
