@@ -1009,11 +1009,15 @@ foreach ($servidores as $sv) $total_balancas += (int)$sv['total_balancas'];
           </div>
         </div>
       </div>
-      <div class="modal-footer">
-        <button class="btn btn-sm btn-outline-secondary" data-bs-dismiss="modal">Fechar</button>
-        <button class="btn btn-sm btn-primary" id="btn-ping-balanca" onclick="pingBalancaModal()">
-          <i class="bi bi-wifi me-1"></i>Verificar Status
-        </button>
+      <div class="modal-footer justify-content-between">
+        <button class="btn btn-sm btn-outline-danger" onclick="excluirBalanca(balancaAtual.dataset.id); modalDetalhes.hide();"><i class="bi bi-trash"></i> Excluir</button>
+        <div>
+            <button class="btn btn-sm btn-outline-primary" onclick="modalBalanca(balancaAtual.dataset.servidorId, balancaAtual.dataset.id); modalDetalhes.hide();"><i class="bi bi-pencil"></i> Editar</button>
+            <button class="btn btn-sm btn-outline-secondary" data-bs-dismiss="modal">Fechar</button>
+            <button class="btn btn-sm btn-primary" id="btn-ping-balanca" onclick="pingBalancaModal()">
+              <i class="bi bi-wifi me-1"></i>Verificar Status
+            </button>
+        </div>
       </div>
     </div>
   </div>
@@ -1183,6 +1187,10 @@ function carregarBalancas(servidorId) {
                 <i class="bi bi-hourglass-split me-1"></i>Verificando...
               </span>
               ${b.carga_atual > 0 ? '<span style="font-size:.65rem;color:#9ca3af;white-space:nowrap"><i class="bi bi-database"></i> ' + b.carga_atual + '</span>' : ''}
+            </div>
+            <div class="mt-2 text-end">
+                <button class="btn btn-sm btn-outline-primary" onclick="event.stopPropagation(); modalBalanca(${b.servidor_id}, ${b.id})"><i class="bi bi-pencil"></i></button>
+                <button class="btn btn-sm btn-outline-danger" onclick="event.stopPropagation(); excluirBalanca(${b.id})"><i class="bi bi-trash"></i></button>
             </div>
           </div>
         </div>
