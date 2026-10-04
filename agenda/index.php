@@ -918,6 +918,12 @@ $libera_data_passada = ($cards_portal === null) || (($cards_portal['agenda_data_
             <div id="resp-backup-texto" class="p-3 border rounded" style="background:#f8fafc;white-space:pre-wrap;font-family:monospace;font-size:.72rem"></div>
           </div>
 
+          <!-- Status Banco de Dados (monitoramento 192.168.1.10) -->
+          <div id="resp-db-status" style="display:none" class="col-12 mb-3">
+            <label class="form-label fw-semibold">📊 Status Banco de Dados (192.168.1.10)</label>
+            <div id="resp-db-texto" class="p-3 border rounded" style="background:#f8fafc;white-space:pre-wrap;font-family:monospace;font-size:.72rem"></div>
+          </div>
+
           <!-- Latência dos pfSense (rotina diária de Firewall e Comunicação Lojas) — informativo,
                não editável; entra junto na resposta final do chamado na hora de enviar. -->
           <div id="resp-firewall" style="display:none" class="col-12 mb-3">
