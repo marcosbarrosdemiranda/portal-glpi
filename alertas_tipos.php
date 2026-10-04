@@ -20,7 +20,6 @@ require_once __DIR__ . '/monitor_links_lib.php'; // rede_link — links de inter
 require_once __DIR__ . '/sefaz_lib.php';
 require_once __DIR__ . '/solides_lib.php';
 require_once __DIR__ . '/impressoras_lib.php';
-require_once __DIR__ . '/db_central_lib.php';
 require_once __DIR__ . '/wpp/evo_api.php'; // evo_send_text() — usado por alerta_dispensar()
 
 // cria a tabela ao incluir (padrão do portal)
@@ -592,17 +591,28 @@ function alerta_check_db_central(PDO $pdo, array $p): array
     $max_conexoes = (int) ($p['max_conexoes'] ?? 1200);
     $max_cpu      = (int) ($p['max_cpu'] ?? 90);
 
-    // Lógica de SSH centralizada em db_central_lib.php (mesma usada por
-    // agenda/postgres_status.php) — evita duplicar a checagem em dois lugares.
-    $status = db_central_status($max_conexoes, $max_cpu);
+    // Este check roda dentro do portal-wpp-worker, que não tem ssh/sshpass
+    // instalado — busca o status via HTTP interno no glpi-web (único
+    // container com a credencial DB_CENTRAL_* e as ferramentas de SSH),
+    // em vez de chamar db_central_status() direto. Mesmo padrão de
+    // agenda/monitor_db_worker.php.
+    $json = @file_get_contents('http://glpi-web/glpi2/portal-glpi/agenda/postgres_status.php');
+    $status = $json ? json_decode($json, true) : null;
 
-    if (isset($status['error']) || !$status['alerta']) return [];
+    if (!$status || isset($status['error'])) return [];
+
+    // O endpoint calcula 'alerta' com os limiares default (1200/90) — refaz
+    // a comparação aqui com os limiares configurados para este tipo ($p).
+    $conexoes  = (int) ($status['conexoes'] ?? 0);
+    $cpu_usage = (float) ($status['cpu_usage'] ?? 0);
+
+    if ($conexoes <= $max_conexoes && $cpu_usage <= $max_cpu) return [];
 
     return [[
         'chave'   => 'db_central:status',
         'titulo'  => 'DB Central com alta carga',
         'loja'    => 'Matriz',
-        'detalhe' => "Conexões: {$status['conexoes']}/{$max_conexoes} · CPU: {$status['cpu_usage']}%/{$max_cpu}%"
+        'detalhe' => "Conexões: {$conexoes}/{$max_conexoes} · CPU: {$cpu_usage}%/{$max_cpu}%"
     ]];
 }
 

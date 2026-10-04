@@ -1,7 +1,7 @@
 <?php
 // agenda/monitor_db_worker.php
 require_once __DIR__ . '/../wpp/evo_api.php';
-$status_url = 'http://glpi-web/portal-glpi/agenda/postgres_status.php';
+$status_url = 'http://glpi-web/glpi2/portal-glpi/agenda/postgres_status.php';
 $webhook_central_url = getenv('DB_MONITOR_WEBHOOK_CENTRAL');
 $nome_grupo_alerta = 'Alertas TI';
 $data_json = file_get_contents($status_url);

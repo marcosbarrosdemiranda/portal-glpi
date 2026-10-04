@@ -8,6 +8,7 @@ agenda/config.php
 config_db_prod.php
 docker/.env
 wpp/config.php
+.env
 
 # Certificado Let's Encrypt (chave privada) — gerado localmente via certbot
 docker/certbot-etc/

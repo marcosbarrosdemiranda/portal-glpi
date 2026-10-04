@@ -3,8 +3,12 @@
  * db_central_lib.php — monitoramento de leitura do Banco de Dados Central (192.168.1.10).
  *
  * Única fonte de verdade da checagem via SSH (somente leitura: ps/top).
- * Consumida por agenda/postgres_status.php (endpoint JSON) e por
- * alerta_check_db_central() em alertas_tipos.php (Central de Alertas).
+ * Só o container glpi-web tem sshpass/ssh instalado e a credencial
+ * DB_CENTRAL_*, então só agenda/postgres_status.php chama esta lib
+ * diretamente. alerta_check_db_central() em alertas_tipos.php (que roda
+ * dentro do portal-wpp-worker, sem SSH) consome o endpoint HTTP interno
+ * em vez de chamar db_central_status() direto — mesmo padrão já usado
+ * por agenda/monitor_db_worker.php.
  */
 
 /**
@@ -16,16 +20,14 @@
  */
 function db_central_status(int $max_conexoes = 1200, int $max_cpu = 90): array
 {
-    $user = getenv('DB_USER') ?: 'buzaneli';
+    // Nomes de variável dedicados (DB_CENTRAL_*) — evita colidir com DB_PASSWORD
+    // de outros serviços no mesmo docker/.env compartilhado do host.
+    $user = getenv('DB_CENTRAL_USER') ?: 'buzaneli';
     $host = "$user@192.168.1.10";
+    $db_password = getenv('DB_CENTRAL_PASSWORD');
 
-    $db_password = getenv('DB_PASSWORD');
-    $env_file = '/var/www/html/glpi2/.env';
-    if (!$db_password && file_exists($env_file)) {
-        $env_content = file_get_contents($env_file);
-        if (preg_match('/DB_PASSWORD=(.*)/', $env_content, $matches)) {
-            $db_password = trim($matches[1]);
-        }
+    if (!$db_password) {
+        return ['error' => 'DB_CENTRAL_PASSWORD não configurada'];
     }
 
     $cmd_conexoes = 'ps aux | grep "postgres:" | grep -v grep | wc -l';
