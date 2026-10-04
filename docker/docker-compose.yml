@@ -11,7 +11,10 @@ services:
     image: mariadb:10.4
     container_name: glpi-db
     restart: unless-stopped
-    command: --default-time-zone=-04:00
+    # innodb_buffer_pool_size subido de 256M (default da imagem) pra 2G em 2026-10-04:
+    # banco tem 9,6GB e vinha crashando (Fatal signal 11) ~1x/mês sob I/O pesado;
+    # host tem 11,65GB livres na VM do Docker, sobra espaço de monte.
+    command: --default-time-zone=-04:00 --innodb-buffer-pool-size=2G
     environment:
       MYSQL_ROOT_PASSWORD: root_password
       MYSQL_DATABASE: glpi2
