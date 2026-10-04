@@ -15,6 +15,14 @@ $nome = $_SESSION['nome'] ?? '';
 
 require_once __DIR__ . '/agenda/config.php';
 require_once __DIR__ . '/agenda/db.php';
+require_once __DIR__ . '/backup_lib.php';
+
+// Nome da "máquina" de backup local cadastrada em backup_maquinas.php (ver
+// Docs/superpowers/specs/2026-10-04-backup-codigo-banco-glpi.md) — mesmo
+// mecanismo que já monitora os servidores back-gmais, só que pro host do
+// próprio GLPI. Card funciona mesmo antes do cadastro existir (mostra
+// "ainda não cadastrado").
+const BACKUP_LOCAL_NOME = 'GLPI Produção (local)';
 
 // ── Handlers ──
 $action = $_GET['action'] ?? '';
@@ -506,6 +514,37 @@ if ($action === 'limpar_cache') {
     exit;
 }
 
+if ($action === 'backup_local_status') {
+    header('Content-Type: application/json');
+    try {
+        $maquina = backup_maquina_por_nome($pdo, BACKUP_LOCAL_NOME);
+        if ($maquina === null) {
+            echo json_encode(['ok' => true, 'cadastrado' => false]);
+            exit;
+        }
+        $execucoes = backup_ultimas_execucoes_por_maquina($pdo, (int) $maquina['id']);
+        $politicas = array_map(function ($e) {
+            $extra = backup_parse_mensagem((string) $e['mensagem']);
+            return [
+                'politica'    => $e['politica'],
+                'status'      => $e['status'],
+                'dados'       => $extra['dados'],
+                'recebido_em' => $e['recebido_em'],
+            ];
+        }, $execucoes);
+        echo json_encode([
+            'ok'             => true,
+            'cadastrado'     => true,
+            'ativo'          => (bool) $maquina['ativo'],
+            'ultimo_contato' => $maquina['ultimo_contato'],
+            'politicas'      => $politicas,
+        ]);
+    } catch (Exception $e) {
+        echo json_encode(['ok' => false, 'msg' => $e->getMessage()]);
+    }
+    exit;
+}
+
 // ── Informações do sistema (renderizadas no HTML) ──
 $php_version = phpversion();
 $glpi_url = GLPI_URL;
@@ -687,6 +726,23 @@ foreach ($dirs as $k => $d) {
     </div>
     <div class="card-footer">
       <div id="resultDb" class="result-box"></div>
+    </div>
+  </div>
+
+  <!-- Card 3.52: Backup Local (GLPI) -->
+  <div class="card-ferramenta">
+    <div class="card-header"><i class="bi bi-hdd-network text-success"></i> Backup Local (GLPI)</div>
+    <div class="card-body">
+      <p class="small text-muted mb-2">
+        Status (somente leitura) do backup diário do código + banco do GLPI que já roda no host via Tarefa
+        Agendada do Windows (<code>\Backup\Glpi-Docker-DB</code> 05:00 e <code>\Backup\Glpi-Docker-Files</code>
+        05:30) — a frequência e a retenção local (5 dias) são configuradas lá, não aqui. Este card só mostra
+        o que a própria rotina reportou pra Central de Alertas na última vez que rodou.
+      </p>
+      <div id="backupLocalWrap">Carregando...</div>
+    </div>
+    <div class="card-footer">
+      <span class="small text-muted">Falhas e silêncio prolongado também disparam na <a href="alertas.php">Central de Alertas</a>.</span>
     </div>
   </div>
 
@@ -993,6 +1049,44 @@ foreach ($dirs as $k => $d) {
         resultBox.textContent = 'Erro de conexão: ' + (err.message || err);
       });
   };
+
+  // ── Backup Local (GLPI): status read-only ──
+  function carregarBackupLocal() {
+    var wrap = document.getElementById('backupLocalWrap');
+    fetch('manutencao.php?action=backup_local_status')
+      .then(function(r) { return r.json(); })
+      .then(function(data) {
+        if (!data.ok) {
+          wrap.innerHTML = '<span class="text-danger small">Erro: ' + (data.msg || 'falha ao consultar status') + '</span>';
+          return;
+        }
+        if (!data.cadastrado) {
+          wrap.innerHTML = '<span class="text-muted small">Máquina ainda não cadastrada em ' +
+            '<a href="backup_maquinas.php">Máquinas de Backup</a> — cadastre como "GLPI Produção (local)" ' +
+            'pra habilitar este card e os alertas automáticos.</span>';
+          return;
+        }
+        if (!data.politicas.length) {
+          wrap.innerHTML = '<span class="text-muted small">Cadastrada, mas ainda sem nenhuma execução reportada.</span>';
+          return;
+        }
+        var icone = { success: 'bi-check-circle-fill text-success', error: 'bi-x-circle-fill text-danger',
+          warning: 'bi-exclamation-triangle-fill text-warning', cancelled: 'bi-slash-circle text-secondary',
+          running: 'bi-hourglass-split text-info' };
+        wrap.innerHTML = data.politicas.map(function(p) {
+          var ic = icone[p.status] || 'bi-question-circle text-secondary';
+          return '<div class="d-flex justify-content-between align-items-center border-bottom py-1">' +
+            '<span><i class="bi ' + ic + ' me-1"></i><strong>' + p.politica + '</strong>' +
+            (p.dados ? ' <span class="text-muted small">(' + p.dados + ')</span>' : '') + '</span>' +
+            '<span class="small text-muted">' + (p.recebido_em || '—') + '</span>' +
+          '</div>';
+        }).join('');
+      })
+      .catch(function(err) {
+        wrap.innerHTML = '<span class="text-danger small">Erro de conexão: ' + (err.message || err) + '</span>';
+      });
+  }
+  carregarBackupLocal();
 
   // ── Retenção de histórico (glpi_logs / PurgeLogs) ──
   function carregarPurgeLogsStatus() {

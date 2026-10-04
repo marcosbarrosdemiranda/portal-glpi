@@ -80,6 +80,20 @@ function backup_maquina_por_token(PDO $pdo, string $token): ?array
     return $row ?: null;
 }
 
+/**
+ * null se não houver máquina com esse nome (cadastro pendente em
+ * backup_maquinas.php) — usado pelo card de status em manutencao.php, que
+ * precisa funcionar (mostrando "ainda não cadastrado") mesmo antes do
+ * cadastro existir.
+ */
+function backup_maquina_por_nome(PDO $pdo, string $nome): ?array
+{
+    $st = $pdo->prepare("SELECT * FROM portal_backup_maquinas WHERE nome = ?");
+    $st->execute([$nome]);
+    $row = $st->fetch(PDO::FETCH_ASSOC);
+    return $row ?: null;
+}
+
 /** Grava 1 execução recebida + atualiza o "último contato" da máquina. */
 function backup_registrar_execucao(PDO $pdo, int $maquinaId, ?string $politica, string $status, string $mensagemCrua): void
 {
@@ -232,6 +246,32 @@ function alerta_render_backup_silencio(array $ocorr, string $tipo = ''): string
               . '<td>' . alerta_botao_dispensar_html($tipo, (string) $o['chave']) . '</td></tr>';
     }
     return $out . '</tbody></table>';
+}
+
+/* ───────────────────────────── Card de status (manutencao.php) ───────────────────────────── */
+
+/**
+ * Última execução registrada de cada política de uma máquina específica —
+ * base do card read-only "Backup Local (GLPI)" em manutencao.php. Mesma
+ * fonte de dados da Central de Alertas (portal_backup_execucoes), só que
+ * filtrada por máquina em vez de catálogo de alertas.
+ *
+ * @return array cada item: ['politica','status','mensagem','recebido_em']
+ */
+function backup_ultimas_execucoes_por_maquina(PDO $pdo, int $maquinaId): array
+{
+    $st = $pdo->prepare("
+        SELECT e.politica, e.status, e.mensagem, e.recebido_em
+        FROM portal_backup_execucoes e
+        WHERE e.maquina_id = ?
+          AND e.id = (
+              SELECT MAX(e2.id) FROM portal_backup_execucoes e2
+              WHERE e2.maquina_id = e.maquina_id AND e2.politica = e.politica
+          )
+        ORDER BY e.politica
+    ");
+    $st->execute([$maquinaId]);
+    return $st->fetchAll(PDO::FETCH_ASSOC);
 }
 
 /* ───────────────────────────── Resumo diário (rotina "Responder") ───────────────────────────── */

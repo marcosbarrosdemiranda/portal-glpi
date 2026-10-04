@@ -76,21 +76,31 @@ Antes de qualquer teste com payload de erro: desativar `notif_whatsapp` pra
 esses 2 tipos em `alertas_config.php` (ou testar só com `status: success`) e
 reativar depois.
 
+## Etapas
+
+| # | Etapa | Depende de | Status |
+|---|---|---|---|
+| 1 | `backup_lib.php`: funções novas `backup_maquina_por_nome` + `backup_ultimas_execucoes_por_maquina` (leitura, aditivo puro) | — | ✅ feito + deployado |
+| 2 | `manutencao.php`: card novo "Backup Local (GLPI)" — read-only, mostra "ainda não cadastrado" até a Etapa 4 acontecer | Etapa 1 | ✅ feito + deployado |
+| 3 | `docker/scripts/backup-db.ps1` e `backup-files.ps1`: função `Notificar-Portal` (POST pro webhook, 2 políticas separadas — Banco de Dados / Arquivos), com `$webhookUrl = ""` por padrão (reporte desativado até preencher) | — | ✅ feito + deployado |
+| 4 | Cadastrar a máquina `GLPI Produção (local)` em `backup_maquinas.php` e pegar a URL/token | — | ⏳ **usuário vai fazer** ("vou configurar o webhook") |
+| 5 | Preencher `$webhookUrl` nos 2 scripts com a URL da Etapa 4, re-deploy | Etapa 4 | ⏳ pendente |
+| 6 | ⚠️ Antes de testar: desativar `notif_whatsapp` de `backup_erro`/`backup_silencio` em `alertas_config.php` (ou só testar com sucesso) — já estão ativos em produção pro back-gmais, teste de erro dispara WhatsApp real | — | ⏳ pendente |
+| 7 | Validar fim a fim: rodar os scripts (manual ou esperar 05:00/05:30), conferir `ultimo_contato` em `backup_maquinas.php`, o card novo em `manutencao.php`, a Central de Alertas e o resumo da Rotina Diária (automático, sem código) | Etapas 5+6 | ⏳ pendente |
+| 8 | Reativar `notif_whatsapp` (se tiver sido desligado na Etapa 6) | Etapa 7 | ⏳ pendente |
+
+**Deploy já feito** (2026-10-04): `backup_lib.php`, `manutencao.php` (via scp
+direto + `php -l` confirmado no container, pulei o passo `.new`/`Move-Item`
+do fluxo padrão por falha de atenção — sem problema porque o lint rodou
+limpo e o smoke-test (`manutencao.php`, `backup_maquinas.php`,
+`webhook_backup.php` → 200) confirmou nada quebrado) e os 2 `.ps1` (scp pra
+`C:\docker\glpi-portal\scripts\` no host, fora do container — sintaxe
+validada com o parser do PowerShell antes e depois do deploy).
+
 ## Próximo passo imediato
 
-Aguardando o usuário cadastrar a máquina `GLPI Produção (local)` em
-`backup_maquinas.php` e passar a URL do webhook (com token). Com isso em
-mãos, os 2 arquivos a editar são:
-- `docker/scripts/backup-db.ps1` — ao final (sucesso ou erro), `Invoke-RestMethod`
-  POST pro webhook com `{"message": "Política: Banco de Dados\nStatus:
-  success|error\n..."}`. Falha de rede no POST não pode derrubar o backup em
-  si (try/catch isolado, só loga).
-- `docker/scripts/backup-files.ps1` — mesma ideia, política "Arquivos",
-  status pelo exit code do `robocopy` (`< 8` = success).
-
-Depois: rodar manualmente (ou esperar a próxima janela 05:00/05:30), conferir
-`ultimo_contato` em `backup_maquinas.php` e montar o card novo em
-`manutencao.php`.
+Travado na Etapa 4 — aguardando o usuário cadastrar a máquina e passar a
+URL do webhook.
 
 ## Contexto original (histórico — não reflete mais a realidade, ver correção acima)
 

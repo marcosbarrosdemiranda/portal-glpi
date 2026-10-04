@@ -13,9 +13,32 @@ if (-not (Test-Path $backupDir)) { New-Item -ItemType Directory -Path $backupDir
 $gzFile = "$backupDir\glpi2_$date.sql.gz"
 $logFile = "$backupDir\backup.log"
 
+# URL do webhook gerada em backup_maquinas.php ao cadastrar a máquina
+# "GLPI Produção (local)" (ver Docs/superpowers/specs/2026-10-04-backup-codigo-banco-glpi.md).
+# Vazia = reporte desativado (script continua funcionando normalmente, só não notifica o portal).
+$webhookUrl = ""
+
 function Log($msg) {
     "$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss') - $msg" | Out-File -FilePath $logFile -Append -Encoding utf8
 }
+
+# Reporta o resultado do job pro mesmo mecanismo que já monitora os servidores
+# do back-gmais (webhook_backup.php -> Central de Alertas). Nunca lança: falha
+# de rede aqui não pode derrubar o backup em si, só fica registrada no log.
+function Notificar-Portal($status, $erro, $dados, $inicio, $fim) {
+    if ($webhookUrl -eq "") { return }
+    try {
+        $msg = "Política: Banco de Dados`nStatus: $status`nInício: $inicio`nFim: $fim"
+        if ($erro) { $msg += "`nErro: $erro" }
+        if ($dados) { $msg += "`nDados: $dados" }
+        $body = @{ message = $msg } | ConvertTo-Json
+        Invoke-RestMethod -Uri $webhookUrl -Method Post -Body $body -ContentType "application/json" -TimeoutSec 10 | Out-Null
+    } catch {
+        Log "AVISO: falha ao notificar o portal: $($_.Exception.Message)"
+    }
+}
+
+$inicio = (Get-Date).ToString("o")
 
 try {
     Log "Iniciando dump comprimido de glpi2..."
@@ -39,14 +62,17 @@ try {
 
     if ($proc.ExitCode -ne 0) {
         Log "ERRO: mysqldump saiu com codigo $($proc.ExitCode): $stderr"
+        Notificar-Portal "error" "mysqldump saiu com codigo $($proc.ExitCode): $stderr" $null $inicio (Get-Date).ToString("o")
         exit 1
     }
     if (-not (Test-Path $gzFile) -or (Get-Item $gzFile).Length -eq 0) {
         Log "ERRO: arquivo de backup vazio ou nao criado."
+        Notificar-Portal "error" "arquivo de backup vazio ou nao criado" $null $inicio (Get-Date).ToString("o")
         exit 1
     }
 
-    Log "Dump concluido: $gzFile ($([math]::Round((Get-Item $gzFile).Length/1MB,1)) MB comprimido)"
+    $tamanhoMb = [math]::Round((Get-Item $gzFile).Length/1MB,1)
+    Log "Dump concluido: $gzFile ($tamanhoMb MB comprimido)"
 
     $antigos = Get-ChildItem $backupDir -Filter "glpi2_*.sql.gz" | Where-Object { $_.LastWriteTime -lt (Get-Date).AddDays(-$retencaoDias) }
     foreach ($f in $antigos) {
@@ -55,7 +81,9 @@ try {
     }
 
     Log "Backup do banco concluido com sucesso."
+    Notificar-Portal "success" $null "$tamanhoMb MB" $inicio (Get-Date).ToString("o")
 } catch {
     Log "ERRO: $($_.Exception.Message)"
+    Notificar-Portal "error" "$($_.Exception.Message)" $null $inicio (Get-Date).ToString("o")
     exit 1
 }
