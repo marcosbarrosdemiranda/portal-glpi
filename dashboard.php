@@ -297,16 +297,6 @@ function pode_ver(string $key, ?array $cards): bool {
 
 <?php if (!$is_self): /* perfil portal ou técnico — mostra cards do perfil */ ?>
 
-  <!-- ── INFRAESTRUTURA CRÍTICA ── -->
-  <?php if (pode_ver('infra_critica',$perfil_cards)): ?>
-  <div class="section-label"><i class="bi bi-cpu-fill me-2"></i>Infraestrutura Crítica</div>
-    <a href="#" class="dash-card card-alertas" id="card-db-central">
-      <div class="card-icon" id="db-central-icon"><i class="bi bi-database"></i></div>
-      <h5 id="db-central-title">DB Central</h5>
-      <p id="db-central-status">Carregando...</p>
-    </a>
-  <?php endif; ?>
-
   <!-- ── ATENDIMENTO ── -->
   <?php if (pode_ver('agenda',$perfil_cards) || (pode_ver('abrir_chamado',$perfil_cards) && !$is_self_glpi) || pode_ver('historico',$perfil_cards) || pode_ver('pendencias',$perfil_cards) || pode_ver('alertas',$perfil_cards)): ?>
   <div class="section-label"><i class="bi bi-headset me-2"></i>Atendimento</div>
@@ -566,40 +556,6 @@ function pode_ver(string $key, ?array $cards): bool {
 
 </div>
 
-<script>
-  function updateDbStatus() {
-    fetch('agenda/postgres_status.php')
-      .then(r => r.json())
-      .then(data => {
-        const card = document.getElementById('card-db-central');
-        const icon = document.getElementById('db-central-icon');
-        const status = document.getElementById('db-central-status');
-
-        if (data.error) {
-          status.textContent = 'Erro ao conectar';
-          return;
-        }
-
-        status.textContent = `Conexões: ${data.conexoes} | CPU: ${data.cpu_usage}%`;
-
-        if (data.alerta) {
-          card.classList.add('card-alertas');
-          icon.style.background = '#ffebee';
-          icon.style.color = '#e53935';
-        } else {
-          card.classList.remove('card-alertas');
-          card.style.borderTopColor = '#1a73e8';
-          icon.style.background = '#e8f0fe';
-          icon.style.color = '#1a73e8';
-        }
-      })
-      .catch(e => console.error('Erro ao buscar status do DB', e));
-  }
-
-  // Atualiza ao carregar e a cada 60s
-  updateDbStatus();
-  setInterval(updateDbStatus, 60000);
-</script>
 <script src="assets/notificacoes.js"></script>
 <footer>
   <i class="bi bi-shield-lock me-1"></i>Central de TI — Integrado com GLPI

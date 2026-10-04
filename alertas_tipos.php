@@ -20,6 +20,7 @@ require_once __DIR__ . '/monitor_links_lib.php'; // rede_link — links de inter
 require_once __DIR__ . '/sefaz_lib.php';
 require_once __DIR__ . '/solides_lib.php';
 require_once __DIR__ . '/impressoras_lib.php';
+require_once __DIR__ . '/db_central_lib.php';
 require_once __DIR__ . '/wpp/evo_api.php'; // evo_send_text() — usado por alerta_dispensar()
 
 // cria a tabela ao incluir (padrão do portal)
@@ -369,6 +370,19 @@ function alertas_catalogo(): array
             'icone'  => 'bi-exclamation-triangle',
             'cor'    => 'danger',
         ],
+        'db_central' => [
+            'nome'      => 'Banco de Dados Central — Alta Carga',
+            'descricao' => 'Monitora conexões e uso de CPU do banco de dados central (SSH).',
+            'params'    => [
+                'max_conexoes' => ['label' => 'Conexões máximas', 'default' => 1200, 'min' => 100, 'max' => 5000],
+                'max_cpu'      => ['label' => 'CPU máxima (%)', 'default' => 90, 'min' => 10, 'max' => 99],
+            ],
+            'sub_tpl' => 'conexões > {max_conexoes} ou CPU > {max_cpu}%',
+            'check'  => 'alerta_check_db_central',
+            'render' => 'alerta_render_db_central',
+            'icone'  => 'bi-database-fill-exclamation',
+            'cor'    => 'danger',
+        ],
     ];
 }
 
@@ -567,6 +581,45 @@ function alerta_render_sem_inventario(array $ocorr, string $tipo = ''): string
         $out .= '</tbody></table>';
     }
     return $out;
+}
+
+/**
+ * Checagem do Banco de Dados Central (via SSH)
+ * @return array ocorrências: ['chave', 'titulo', 'loja', 'detalhe']
+ */
+function alerta_check_db_central(PDO $pdo, array $p): array
+{
+    $max_conexoes = (int) ($p['max_conexoes'] ?? 1200);
+    $max_cpu      = (int) ($p['max_cpu'] ?? 90);
+
+    // Lógica de SSH centralizada em db_central_lib.php (mesma usada por
+    // agenda/postgres_status.php) — evita duplicar a checagem em dois lugares.
+    $status = db_central_status($max_conexoes, $max_cpu);
+
+    if (isset($status['error']) || !$status['alerta']) return [];
+
+    return [[
+        'chave'   => 'db_central:status',
+        'titulo'  => 'DB Central com alta carga',
+        'loja'    => 'Matriz',
+        'detalhe' => "Conexões: {$status['conexoes']}/{$max_conexoes} · CPU: {$status['cpu_usage']}%/{$max_cpu}%"
+    ]];
+}
+
+/** Render específico para o DB Central */
+function alerta_render_db_central(array $ocorr, string $tipo = ''): string
+{
+    if (!$ocorr) {
+        return '<div class="vazio"><i class="bi bi-check-circle-fill me-1"></i>DB Central normal.</div>';
+    }
+    $H = fn($s) => htmlspecialchars((string) $s, ENT_QUOTES, 'UTF-8');
+    $out = '<table><thead><tr><th>Incidente</th><th>Detalhe</th><th></th></tr></thead><tbody>';
+    foreach ($ocorr as $o) {
+        $out .= '<tr><td style="font-weight:600">' . $H($o['titulo']) . '</td>'
+              . '<td style="color:#d97706">' . $H($o['detalhe']) . '</td>'
+              . '<td>' . alerta_botao_dispensar_html($tipo, (string) $o['chave']) . '</td></tr>';
+    }
+    return $out . '</tbody></table>';
 }
 
 /** innerHTML do corpo da seção — tabela com barra de uso. */

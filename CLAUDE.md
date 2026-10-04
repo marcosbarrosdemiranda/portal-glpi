@@ -246,12 +246,29 @@ Não use subagents para: tarefas que precisam do estado de sessão atual, decis�
 ## CONTEXTO DO PROJETO
 
 ```
-PROJETO:
-STACK:
-ESTRUTURA:
-TESTES:
-BUILD:
+PROJETO: Portal GLPI (portal-glpi) — portal interno de TI integrado ao GLPI
+STACK: PHP (sem framework) + MySQL, JS vanilla no front
+ESTRUTURA: raiz = páginas/libs do portal; agenda/ = rotina diária, alertas, DB
+  central; wpp/ = integração WhatsApp (Evolution API)
+TESTES: suíte em run.php RODA CONTRA O BANCO DE PRODUÇÃO — rodar só o
+  arquivo mexido, nunca a suíte inteira sem necessidade (pode disparar
+  alertas/WhatsApp reais)
+BUILD: não há build step — PHP interpretado direto pelo container
 REGRAS ESPECIAIS:
+  - Servidor de produção (192.168.1.198, alias `glpi-server` no
+    ~/.ssh/config) é WINDOWS (hostname Backup-Arquifunc) com Docker Desktop
+    por dentro — NÃO é um host Linux. `ssh glpi-server "<cmd>"` abre um
+    shell cmd.exe do Windows; comandos POSIX (pwd, uname, cat, mkdir -p)
+    falham lá. Para rodar PHP/lint, use
+    `ssh glpi-server "docker exec glpi-web php ..."` — só dentro do
+    container glpi-web é que o shell é Linux.
+  - Deploy: NUNCA `git pull` dentro do container glpi-web (branch antiga,
+    sujo). Sempre `scp` do código local pro host (pasta mapeada
+    C:\docker\glpi-portal\glpi2\portal-glpi\). Fluxo seguro: subir como
+    `<arquivo>.new` → `docker exec glpi-web php -l <arquivo>.new` →
+    `Move-Item -Force` por cima do original.
+  - Branch de trabalho atual é `infra/migracao-docker-glpi` (main está
+    ~177 commits atrás) — commitar ali, não direto em main.
 ```
 
 ---
