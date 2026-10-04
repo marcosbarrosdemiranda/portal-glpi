@@ -1,9 +1,98 @@
 # Backup automático de Código + Banco de Dados do GLPI
 
-**Data:** 2026-10-04
-**Status:** 🔶 BACKLOG — URGENTE (pendência levantada, detalhamento e implementação ainda não iniciados)
+**Data:** 2026-10-04 · **Correção:** 2026-10-04 (mesma sessão seguinte)
+**Status:** 🔶 BACKLOG — escopo reduzido (ver correção abaixo); integração com
+Central de Alertas ainda não feita
 
-## Contexto
+## ⚠️ Correção importante (2026-10-04)
+
+A premissa deste documento estava **errada**. O backup **já existe e já roda
+em produção** desde a migração pro Docker (18/07/2026) — ver
+`Portal-Glpi/Arquitetura/PLANO_MIGRACAO_DOCKER.md` linhas 129-130 e
+`Portal-Glpi/Logs/2026-07-18-sessao-docker-migracao.md`. Confirmado via SSH
+nesta correção: as 2 Tarefas Agendadas rodaram hoje com sucesso, log limpo,
+6 dumps de ~220MB no disco.
+
+- `docker/scripts/backup-db.ps1` — dump do `glpi2` (mysqldump via `docker
+  exec`), comprimido em stream (GZipStream), retenção 5 dias, salvo em
+  `E:\Backup Sistemas\Backup-glpi-portal\Docker-DB\`. Tarefa Agendada
+  `\Backup\Glpi-Docker-DB`, diária 05:00.
+- `docker/scripts/backup-files.ps1` — espelho incremental (`robocopy /MIR`)
+  de `files/` (anexos) pra `Docker-Files\`. Tarefa Agendada
+  `\Backup\Glpi-Docker-Files`, diária 05:30.
+
+**O que de fato falta** (escopo real deste backlog a partir de agora): essas
+duas tarefas rodam "no escuro" — nada reporta pro portal. Se uma falhar
+silenciosamente (disco cheio, container fora do ar no horário, etc.),
+ninguém fica sabendo até precisar restaurar. O portal já tem o mecanismo
+genérico pronto pra isso (usado hoje só pelos 2 servidores do back-gmais):
+`backup_lib.php` / `webhook_backup.php` / `backup_maquinas.php` — ver
+[[2026-09-12-central-alertas-backup-gmais]]. Falta só: cadastrar esta
+máquina (host GLPI local) em `backup_maquinas.php` e os dois scripts
+chamarem o webhook ao final do job, igual o back-gmais já faz.
+
+Config de frequência/horário/retenção **não entra mais em escopo** — já é
+gerenciada pela Tarefa Agendada do Windows, não precisa de tela nova em
+`manutencao.php` pra isso.
+
+## Decisões confirmadas na sessão de correção (2026-10-04)
+
+1. **2 políticas separadas**, não 1 combinada: "Banco de Dados" (de
+   `backup-db.ps1`) e "Arquivos" (de `backup-files.ps1`) reportam
+   independente — se só um falhar, não mascara o outro. Mesmo padrão dos
+   servidores back-gmais.
+2. **Nome da máquina a cadastrar:** `GLPI Produção (local)`.
+3. **Quem cadastra a máquina:** o usuário mesmo, manualmente, via
+   `backup_maquinas.php` (tela já existente) — não eu. Ele vai gerar o
+   token/URL do webhook e me passar pra eu usar nos scripts.
+4. **Card novo em `manutencao.php`:** status read-only (sem botão de ação —
+   a Tarefa Agendada já cobre a cadência), lendo `portal_backup_execucoes`
+   filtrado pela máquina `GLPI Produção (local)`, mostrando por política
+   (Banco de Dados / Arquivos): status, horário do último recebido, tamanho
+   se disponível. Mesma fonte de dados que alimenta a Central de Alertas —
+   zero tabela nova.
+5. **Também aparece automaticamente na "Rotina Diária"**: o usuário apontou
+   que isso "vai colocar no chamado também" — já é automático, sem código
+   novo: `backup_resumo_dia()` / `backup_resumo_texto()` (em `backup_lib.php`,
+   usados por `backup_resumo_ajax.php` no chamado recorrente "Backup,
+   Relatórios e Banco de Dados - Rotina Diária" da Agenda) já leem TODA a
+   tabela `portal_backup_execucoes` sem filtrar por máquina — assim que
+   "GLPI Produção (local)" começar a reportar, as 2 políticas novas entram
+   nesse resumo diário junto com Arquifunc/Zukkin, sem precisar tocar nesse
+   código.
+6. **`alertas_tipos.php` não muda** — `backup_erro` e `backup_silencio` já
+   são genéricos por máquina/política, a máquina nova já vai cair no
+   catálogo que já existe.
+
+## ⚠️ Risco a controlar ANTES de testar o webhook
+
+Confirmado no banco (2026-10-04): `backup_erro` e `backup_silencio` já estão
+**`ativo=1` E `notif_whatsapp=1`** (usados em produção pelos servidores
+back-gmais). Isso significa que **qualquer teste que mande `status: error`**
+pro webhook depois que a máquina nova for cadastrada **dispara WhatsApp real**
+pro grupo de Alertas — mesma armadilha de
+[[feedback_mutar-whatsapp-antes-de-testar]] ("já vazou 2x" em outra sessão).
+Antes de qualquer teste com payload de erro: desativar `notif_whatsapp` pra
+esses 2 tipos em `alertas_config.php` (ou testar só com `status: success`) e
+reativar depois.
+
+## Próximo passo imediato
+
+Aguardando o usuário cadastrar a máquina `GLPI Produção (local)` em
+`backup_maquinas.php` e passar a URL do webhook (com token). Com isso em
+mãos, os 2 arquivos a editar são:
+- `docker/scripts/backup-db.ps1` — ao final (sucesso ou erro), `Invoke-RestMethod`
+  POST pro webhook com `{"message": "Política: Banco de Dados\nStatus:
+  success|error\n..."}`. Falha de rede no POST não pode derrubar o backup em
+  si (try/catch isolado, só loga).
+- `docker/scripts/backup-files.ps1` — mesma ideia, política "Arquivos",
+  status pelo exit code do `robocopy` (`< 8` = success).
+
+Depois: rodar manualmente (ou esperar a próxima janela 05:00/05:30), conferir
+`ultimo_contato` em `backup_maquinas.php` e montar o card novo em
+`manutencao.php`.
+
+## Contexto original (histórico — não reflete mais a realidade, ver correção acima)
 
 Hoje o stack GLPI (código em `C:\docker\glpi-portal\glpi2` + banco `glpi2` no
 container `glpi-db`) **não tem nenhuma rotina de backup**. Isso ficou exposto
