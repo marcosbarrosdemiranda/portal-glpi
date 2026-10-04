@@ -309,6 +309,17 @@ REGRAS ESPECIAIS:
    `status:error` — não é preciso criar o tipo, só a origem já é
    suficiente. Checar `notif_whatsapp` em `alertas_config.php` antes de
    testar erro de uma integração nova com tipo de alerta já existente.
+
+4. [Produção pode ficar vários commits atrás do git HEAD sem ninguém notar
+   — 2026-10-04] Contexto: `alertas.php` deu HTTP 500 porque
+   `monitor_lib.php` em produção era ~8 commits mais antigo que o HEAD
+   local (faltava `alerta_render_monitor()` inteira), enquanto
+   `alertas_tipos.php` — que já chamava essa função — tinha sido deployado.
+   `php -l` não pega isso (sintaxe válida, função só falta em runtime).
+   Antes de caçar bug de lógica num 500/comportamento estranho em
+   produção, baixar a cópia de produção do(s) arquivo(s) envolvidos
+   (`scp glpi-server:<path> /tmp/...`) e `diff` contra o git HEAD local —
+   inclusive arquivos que o suspeito `require`/chama, não só ele mesmo.
 ```
 
 ---
