@@ -269,6 +269,15 @@ REGRAS ESPECIAIS:
     `Move-Item -Force` por cima do original.
   - Branch de trabalho atual é `infra/migracao-docker-glpi` (main está
     ~177 commits atrás) — commitar ali, não direto em main.
+  - Backup do host (`docker/scripts/backup-db.ps1` e `backup-files.ps1`)
+    vive FORA do container, em `C:\docker\glpi-portal\scripts\` no host —
+    não é deployado pelo fluxo `.new`/`docker exec php -l`/`Move-Item`
+    acima (isso é só pra PHP em `glpi2\portal-glpi\`). Deploy é `scp` direto
+    pra `C:\docker\glpi-portal\scripts\`; validar sintaxe ANTES de subir com
+    `[System.Management.Automation.Language.Parser]::ParseFile($f, [ref]$null, [ref]$errors)`
+    local (não precisa do servidor). Rodam via Tarefa Agendada do Windows
+    (`\Backup\Glpi-Docker-DB` 05:00, `\Backup\Glpi-Docker-Files` 05:30),
+    não por cron nem container.
 ```
 
 ---
@@ -278,7 +287,28 @@ REGRAS ESPECIAIS:
 > Máx 10 itens. Quando virar padrão em `.knowledge/patterns.md`, remover daqui.
 
 ```
-1. [lição — data] Contexto: [quando aplica]
+1. [Antes de abrir backlog "não existe X", conferir infra existente —
+   2026-10-04] Contexto: backup do GLPI (código+banco) foi reaberto como
+   "pendência urgente, zero backup hoje" sem checar
+   Portal-Glpi/Arquitetura/PLANO_MIGRACAO_DOCKER.md nem
+   Portal-Glpi/Logs/2026-07-18-sessao-docker-migracao.md — o backup já
+   rodava em produção desde 18/07. Antes de declarar ausência de algo
+   (backup, config, integração), grep a documentação de infra/Logs
+   primeiro.
+
+2. [PowerShell 5.1 não tem -SkipCertificateCheck — 2026-10-04] Contexto:
+   smoke-test de endpoint HTTPS com cert mismatch via PowerShell no
+   servidor Windows (`glpi-server`, PS 5.1, não PS Core). Usar classe
+   `ICertificatePolicy` custom (`Add-Type` + `[ServicePointManager]::CertificatePolicy`)
+   + `[SecurityProtocolType]::Tls12` explícito, não o parâmetro do PS 6+.
+
+3. [Tipo de alerta já ativo dispara WhatsApp real assim que a origem nova
+   reportar erro — 2026-10-04] Contexto: `backup_erro`/`backup_silencio`
+   (e qualquer tipo já `ativo=1`+`notif_whatsapp=1` em produção) disparam
+   pro grupo assim que uma máquina/origem NOVA cadastrada manda o primeiro
+   `status:error` — não é preciso criar o tipo, só a origem já é
+   suficiente. Checar `notif_whatsapp` em `alertas_config.php` antes de
+   testar erro de uma integração nova com tipo de alerta já existente.
 ```
 
 ---
