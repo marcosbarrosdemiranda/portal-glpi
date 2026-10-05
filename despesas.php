@@ -310,8 +310,9 @@ $lojas = $stmt_lojas->fetchAll(PDO::FETCH_COLUMN);
                             <a href="<?= htmlspecialchars($d['arquivo_nf']) ?>" target="_blank" class="btn btn-sm btn-info"><i class="bi bi-file-earmark"></i></a>
                         <?php endif; ?>
                     </td>
-                    <td>
-                        <form method="POST" onsubmit="return confirm('Excluir esta despesa?')">
+                    <td style="white-space:nowrap">
+                        <button type="button" class="btn btn-sm btn-outline-secondary me-1" title="Ver detalhes" onclick="verDetalhesDespesa('<?= $d['id'] ?>')"><i class="bi bi-eye-fill"></i></button>
+                        <form method="POST" class="d-inline" onsubmit="return confirm('Excluir esta despesa?')">
                             <input type="hidden" name="action" value="delete">
                             <input type="hidden" name="id" value="<?= $d['id'] ?>">
                             <button type="submit" class="btn btn-sm btn-danger"><i class="bi bi-trash"></i></button>
@@ -324,7 +325,63 @@ $lojas = $stmt_lojas->fetchAll(PDO::FETCH_COLUMN);
     </div>
 </div>
 
+<!-- Modal Ver Detalhes -->
+<div class="modal fade" id="modalDetalhesDespesa" tabindex="-1">
+  <div class="modal-dialog modal-dialog-centered">
+    <div class="modal-content">
+      <div class="modal-header" style="background:#374151;color:white">
+        <h5 class="modal-title fw-bold"><i class="bi bi-eye-fill me-2"></i>Detalhes da Despesa</h5>
+        <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body" id="detalhes-despesa-corpo"></div>
+      <div class="modal-footer">
+        <button class="btn btn-secondary" data-bs-dismiss="modal">Fechar</button>
+      </div>
+    </div>
+  </div>
+</div>
+
 <script>
+    const DESPESAS = <?= json_encode($despesas) ?>;
+    let modalDetalhesDespesa;
+
+    document.addEventListener('DOMContentLoaded', () => {
+        modalDetalhesDespesa = new bootstrap.Modal(document.getElementById('modalDetalhesDespesa'));
+    });
+
+    function esc(s) {
+        return String(s || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+    }
+
+    function fmtMoeda(v) {
+        return 'R$ ' + Number(v || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    }
+
+    function verDetalhesDespesa(id) {
+        const d = DESPESAS.find(x => String(x.id) === String(id));
+        if (!d) return;
+        const arquivo = d.arquivo_nf
+            ? `<a href="${esc(d.arquivo_nf)}" target="_blank">Abrir arquivo</a>`
+            : '-';
+        const corpo = document.getElementById('detalhes-despesa-corpo');
+        corpo.innerHTML = `
+          <dl class="row mb-0">
+            <dt class="col-sm-4">Data Pagamento</dt><dd class="col-sm-8">${esc(d.data_pagamento)}</dd>
+            <dt class="col-sm-4">Categoria</dt><dd class="col-sm-8">${esc(d.tipo_nome || '-')}</dd>
+            <dt class="col-sm-4">Loja</dt><dd class="col-sm-8">${esc(d.loja || '-')}</dd>
+            <dt class="col-sm-4">Descrição</dt><dd class="col-sm-8">${esc(d.descricao)}</dd>
+            <dt class="col-sm-4">Qtd x Unit</dt><dd class="col-sm-8">${d.qty || 0} x ${fmtMoeda(d.unit_price || 0)}</dd>
+            <dt class="col-sm-4">Total Pago</dt><dd class="col-sm-8"><b>${fmtMoeda(d.valor_pago || 0)}</b></dd>
+            <dt class="col-sm-4">Fornecedor</dt><dd class="col-sm-8">${esc(d.fornecedor || '-')}</dd>
+            <dt class="col-sm-4">Nota Fiscal</dt><dd class="col-sm-8">${esc(d.numero_nf || '-')}</dd>
+            <dt class="col-sm-4">Método Pagamento</dt><dd class="col-sm-8">${esc(d.metodo_pagamento || '-')}</dd>
+            <dt class="col-sm-4">Arquivo NF</dt><dd class="col-sm-8">${arquivo}</dd>
+            <dt class="col-sm-4">Item de Orçamento</dt><dd class="col-sm-8">${d.orcamento_id ? '#' + esc(d.orcamento_id) : 'Despesa avulsa (sem vínculo)'}</dd>
+            <dt class="col-sm-4">Observação</dt><dd class="col-sm-8">${esc(d.observacao || '-')}</dd>
+          </dl>`;
+        modalDetalhesDespesa.show();
+    }
+
     function exportarPDF() {
         const { jsPDF } = window.jspdf;
         const doc = new jsPDF();
