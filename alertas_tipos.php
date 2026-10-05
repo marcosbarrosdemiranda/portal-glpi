@@ -373,7 +373,7 @@ function alertas_catalogo(): array
             'nome'      => 'Banco de Dados Central — Alta Carga',
             'descricao' => 'Monitora conexões, CPU e memória do banco de dados central (SSH).',
             'params'    => [
-                'max_conexoes' => ['label' => 'Conexões máximas', 'default' => 1200, 'min' => 100, 'max' => 5000],
+                'max_conexoes' => ['label' => 'Conexões máximas', 'default' => 1000, 'min' => 100, 'max' => 5000],
                 'max_cpu'      => ['label' => 'CPU máxima (%)', 'default' => 90, 'min' => 10, 'max' => 99],
                 'max_mem'      => ['label' => 'Memória máxima (%)', 'default' => 90, 'min' => 10, 'max' => 99],
             ],
@@ -615,7 +615,7 @@ function alerta_check_db_central(PDO $pdo, array $p): array
         'chave'   => 'db_central:status',
         'titulo'  => 'DB Central com alta carga',
         'loja'    => 'Matriz',
-        'detalhe' => "Conexões: {$conexoes}/{$max_conexoes} · CPU: {$cpu_usage}%/{$max_cpu}% · Memória: {$mem_usada_pct}%/{$max_mem}%"
+        'detalhe' => "Conexões: {$conexoes}/{$max_conexoes} · CPU: {$cpu_usage}% (limite {$max_cpu}%) · Memória: {$mem_usada_pct}% (limite {$max_mem}%)"
     ]];
 }
 

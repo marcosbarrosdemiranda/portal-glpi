@@ -101,10 +101,12 @@ function db_central_status_texto(array $status, int $max_conexoes = 1200, int $m
     $cpu       = (float) ($status['cpu_usage'] ?? 0);
     $mem       = (float) ($status['mem_usada_pct'] ?? 0);
 
+    // CPU/memória já são % de 0-100 — "X%/Y%" parecia fração (X de Y) quando
+    // na verdade Y é só o limiar de alerta. Formato sem ambiguidade abaixo.
     $linhas = [
         $icone($conexoes, $max_conexoes) . " Conexões: {$conexoes}/{$max_conexoes}",
-        $icone($cpu, $max_cpu) . " CPU: {$cpu}%/{$max_cpu}%",
-        $icone($mem, $max_mem) . " Memória: {$mem}%/{$max_mem}%",
+        $icone($cpu, $max_cpu) . " CPU: {$cpu}% (limite {$max_cpu}%)",
+        $icone($mem, $max_mem) . " Memória: {$mem}% (limite {$max_mem}%)",
     ];
 
     return "Banco de Dados Central (192.168.1.10):\n" . implode("\n", $linhas);
