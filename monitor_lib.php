@@ -679,6 +679,17 @@ function monitor_check_tipo(PDO $pdo, string $tipo): array
             'latencia'  => $latencia,
         ];
     }
+
+    // Único dos tipos "down atual" que respeita o horário por categoria/loja
+    // e feriado — decisão antiga do usuário (era assim no The Dude também):
+    // Link/Latência/Serviço sempre alertam, independente de horário.
+    if ($tipo === 'device') {
+        $out = array_values(array_filter(
+            $out,
+            fn($o) => monitor_categoria_no_horario($pdo, $o['categoria'], $o['loja']) && !monitor_feriado_hoje($pdo, $o['loja'])
+        ));
+    }
+
     return $out;
 }
 
@@ -688,6 +699,147 @@ function alerta_check_monitor_latencia(PDO $pdo, array $p): array { return monit
 function alerta_check_monitor_service(PDO $pdo, array $p): array { return monitor_check_tipo($pdo, 'service'); }
 function alerta_check_monitor_sem_contato(PDO $pdo, array $p): array { return monitor_check_tipo($pdo, 'sem_contato'); }
 function alerta_check_monitor_ligado_muito_tempo(PDO $pdo, array $p): array { return monitor_check_tipo($pdo, 'ligado_muito_tempo'); }
+
+/* ───────────────────── Silêncio por horário / feriado (equipamento fora do ar) ─────────────────────
+ * Portado do antigo dude_lib.php (The Dude, removido do git em 637804c/c1051c3) — a lógica e as
+ * tabelas (portal_dude_categoria_config/portal_dude_horario_excecao/portal_dude_feriado) continuam
+ * as mesmas, só o nome das funções mudou pra refletir a nova casa. 2026-10-04: o scp de deploy nunca
+ * chegou a apagar dude_config.php/dude_lib.php de produção, então essa configuração ficava sendo
+ * salva só que sem efeito nenhum — monitor_check_tipo() nunca lia essas tabelas até este fix.
+ */
+
+/**
+ * true = agora está dentro do horário em que o alerta de "fora do ar" dessa categoria/loja deve
+ * disparar normalmente.
+ *
+ * $loja opcional: se houver uma exceção cadastrada pra (categoria, loja, dia da semana de hoje) em
+ * portal_dude_horario_excecao, ela manda — senão cai no horário padrão da categoria.
+ */
+function monitor_categoria_no_horario(PDO $pdo, string $categoria, string $loja = ''): bool
+{
+    if ($categoria === '') return true;
+
+    $ini = null;
+    $fim = null;
+
+    if ($loja !== '') {
+        $st = $pdo->prepare(
+            "SELECT horario_inicio, horario_fim FROM portal_dude_horario_excecao
+             WHERE categoria = ? AND loja = ? AND dia_semana = ?"
+        );
+        $st->execute([$categoria, $loja, (int) date('w')]);
+        $exc = $st->fetch(PDO::FETCH_ASSOC);
+        if ($exc) {
+            $ini = (string) $exc['horario_inicio'];
+            $fim = (string) $exc['horario_fim'];
+        }
+    }
+
+    if ($ini === null) {
+        $st = $pdo->prepare("SELECT horario_inicio, horario_fim FROM portal_dude_categoria_config WHERE categoria = ?");
+        $st->execute([$categoria]);
+        $row = $st->fetch(PDO::FETCH_ASSOC);
+        if (!$row || $row['horario_inicio'] === null || $row['horario_fim'] === null) return true;
+        $ini = (string) $row['horario_inicio'];
+        $fim = (string) $row['horario_fim'];
+    }
+
+    $agora = date('H:i:s');
+    if ($ini <= $fim) return $agora >= $ini && $agora <= $fim;
+    return $agora >= $ini || $agora <= $fim; // janela cruza meia-noite
+}
+
+/** true = hoje está marcado como feriado (sem notificação) pra essa loja — via linha específica ou '' (todas as lojas). */
+function monitor_feriado_hoje(PDO $pdo, string $loja): bool
+{
+    $st = $pdo->prepare(
+        "SELECT 1 FROM portal_dude_feriado WHERE data = CURDATE() AND (loja = '' OR loja = ?) LIMIT 1"
+    );
+    $st->execute([$loja]);
+    return (bool) $st->fetchColumn();
+}
+
+/**
+ * Horário padrão por grupo — 1 linha por grupo cadastrado em portal_monitor_grupos (não só os que
+ * já têm config salva), pra tela de edição mostrar todos.
+ */
+function monitor_categoria_config_listar(PDO $pdo): array
+{
+    return $pdo->query(
+        "SELECT v.grupo AS categoria, c.horario_inicio, c.horario_fim, c.ligado_horas_max
+         FROM portal_monitor_grupos v
+         LEFT JOIN portal_dude_categoria_config c ON c.categoria = v.grupo
+         ORDER BY v.nome"
+    )->fetchAll(PDO::FETCH_ASSOC);
+}
+
+/** Upsert do horário padrão + limiar de "ligado há muito tempo" de uma categoria (grupo). */
+function monitor_categoria_config_salvar(PDO $pdo, string $categoria, ?string $horarioInicio, ?string $horarioFim, ?int $ligadoHorasMax): void
+{
+    $pdo->prepare(
+        "INSERT INTO portal_dude_categoria_config (categoria, horario_inicio, horario_fim, ligado_horas_max)
+         VALUES (?,?,?,?)
+         ON DUPLICATE KEY UPDATE horario_inicio=VALUES(horario_inicio), horario_fim=VALUES(horario_fim),
+             ligado_horas_max=VALUES(ligado_horas_max)"
+    )->execute([$categoria, $horarioInicio, $horarioFim, $ligadoHorasMax]);
+}
+
+/** Todas as exceções por loja/dia da semana, ordenadas pra exibição na tela. */
+function monitor_horario_excecao_listar(PDO $pdo): array
+{
+    return $pdo->query(
+        "SELECT categoria, loja, dia_semana, horario_inicio, horario_fim
+         FROM portal_dude_horario_excecao
+         ORDER BY categoria, loja, dia_semana"
+    )->fetchAll(PDO::FETCH_ASSOC);
+}
+
+/**
+ * Upsert de 1 exceção (categoria, loja, dia_semana). Passar horarioInicio OU horarioFim como null
+ * remove a exceção (volta a usar o horário padrão da categoria pra essa loja/dia).
+ */
+function monitor_horario_excecao_salvar(PDO $pdo, string $categoria, string $loja, int $diaSemana, ?string $horarioInicio, ?string $horarioFim): void
+{
+    if ($horarioInicio === null || $horarioFim === null) {
+        monitor_horario_excecao_excluir($pdo, $categoria, $loja, $diaSemana);
+        return;
+    }
+    $pdo->prepare(
+        "INSERT INTO portal_dude_horario_excecao (categoria, loja, dia_semana, horario_inicio, horario_fim)
+         VALUES (?,?,?,?,?)
+         ON DUPLICATE KEY UPDATE horario_inicio=VALUES(horario_inicio), horario_fim=VALUES(horario_fim)"
+    )->execute([$categoria, $loja, $diaSemana, $horarioInicio, $horarioFim]);
+}
+
+/** Remove a exceção de (categoria, loja, dia_semana) — volta ao horário padrão da categoria. */
+function monitor_horario_excecao_excluir(PDO $pdo, string $categoria, string $loja, int $diaSemana): void
+{
+    $pdo->prepare(
+        "DELETE FROM portal_dude_horario_excecao WHERE categoria = ? AND loja = ? AND dia_semana = ?"
+    )->execute([$categoria, $loja, $diaSemana]);
+}
+
+/** Lista de feriados cadastrados (passados e futuros — a tela decide o que mostrar). */
+function monitor_feriado_listar(PDO $pdo): array
+{
+    return $pdo->query(
+        "SELECT data, loja FROM portal_dude_feriado ORDER BY data DESC, loja"
+    )->fetchAll(PDO::FETCH_ASSOC);
+}
+
+/** Cadastra 1 feriado. $loja = '' silencia TODAS as lojas nessa data. */
+function monitor_feriado_salvar(PDO $pdo, string $data, string $loja): void
+{
+    $pdo->prepare(
+        "INSERT IGNORE INTO portal_dude_feriado (data, loja) VALUES (?, ?)"
+    )->execute([$data, $loja]);
+}
+
+/** Remove 1 feriado cadastrado. */
+function monitor_feriado_excluir(PDO $pdo, string $data, string $loja): void
+{
+    $pdo->prepare("DELETE FROM portal_dude_feriado WHERE data = ? AND loja = ?")->execute([$data, $loja]);
+}
 
 /**
  * innerHTML do corpo da seção — reusada pelos 5 tipos do monitor.

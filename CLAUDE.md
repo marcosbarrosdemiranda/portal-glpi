@@ -320,6 +320,20 @@ REGRAS ESPECIAIS:
    produção, baixar a cópia de produção do(s) arquivo(s) envolvidos
    (`scp glpi-server:<path> /tmp/...`) e `diff` contra o git HEAD local —
    inclusive arquivos que o suspeito `require`/chama, não só ele mesmo.
+
+5. [Deploy via scp nunca apaga arquivo removido do git — 2026-10-04]
+   Contexto: `dude_config.php`/`dude_lib.php` foram apagados do git (The
+   Dude decomissionado), mas como o fluxo de deploy é scp arquivo-a-arquivo
+   (nunca `git pull` no container), os dois ficaram **vivos e funcionais**
+   em produção por semanas, completamente desconectados do motor atual
+   (`monitor_lib.php`) — o usuário continuou configurando horário de
+   silêncio por loja em `dude_config.php` sem efeito nenhum, porque nada
+   lia mais aquelas tabelas. Um link morto em `alertas_config.php`
+   apontando pra `dude_config.php` também sobreviveu à remoção do git,
+   sem dar nenhum erro (link só quebra se alguém clicar). Sempre que um
+   arquivo for removido do git, apagar manualmente no host (`ssh
+   glpi-server "powershell ... Remove-Item ..."`) e grep por referências
+   a ele (`<a href`, `require`) nos arquivos que ficaram.
 ```
 
 ---

@@ -48,6 +48,21 @@ if ($action !== '') {
             exit;
         }
 
+        if ($action === 'categorias_horario_listar') {
+            $ok(['categorias' => monitor_categoria_config_listar($pdo)]);
+            exit;
+        }
+
+        if ($action === 'excecoes_listar') {
+            $ok(['excecoes' => monitor_horario_excecao_listar($pdo)]);
+            exit;
+        }
+
+        if ($action === 'feriados_listar') {
+            $ok(['feriados' => monitor_feriado_listar($pdo)]);
+            exit;
+        }
+
         if ($_SERVER['REQUEST_METHOD'] !== 'POST') { $err('método inválido'); exit; }
         $id = (int) ($_POST['id'] ?? 0);
 
@@ -80,6 +95,56 @@ if ($action !== '') {
                 break;
             case 'grupo_todos':
                 monitor_grupo_set_monitorar_todos($pdo, (string) ($_POST['grupo'] ?? ''), ($_POST['ligar'] ?? '') === '1');
+                $ok();
+                break;
+            case 'categoria_horario_salvar':
+                $categoria = (string) ($_POST['categoria'] ?? '');
+                if ($categoria === '') { $err('categoria inválida'); break; }
+                $horaInicio = trim((string) ($_POST['horario_inicio'] ?? ''));
+                $horaFim    = trim((string) ($_POST['horario_fim'] ?? ''));
+                if (($horaInicio === '') !== ($horaFim === '')) { $err('preencha os dois horários, ou deixe os dois em branco (sempre notifica)'); break; }
+                if ($horaInicio !== '' && (!preg_match('/^\d{2}:\d{2}$/', $horaInicio) || !preg_match('/^\d{2}:\d{2}$/', $horaFim))) { $err('horário inválido (use HH:MM)'); break; }
+                $ligadoStr = trim((string) ($_POST['ligado_horas_max'] ?? ''));
+                $ligado = null;
+                if ($ligadoStr !== '') {
+                    $ligado = (int) $ligadoStr;
+                    if ($ligado < 1 || $ligado > 720) { $err('horas ligado: informe de 1 a 720, ou deixe em branco'); break; }
+                }
+                monitor_categoria_config_salvar($pdo, $categoria, $horaInicio !== '' ? $horaInicio . ':00' : null, $horaFim !== '' ? $horaFim . ':00' : null, $ligado);
+                $ok();
+                break;
+            case 'excecoes_salvar':
+                $categoria = trim((string) ($_POST['categoria'] ?? ''));
+                $loja      = trim((string) ($_POST['loja'] ?? ''));
+                $diaSemana = (int) ($_POST['dia_semana'] ?? -1);
+                if ($categoria === '' || $loja === '' || $diaSemana < 0 || $diaSemana > 6) { $err('categoria, loja e dia da semana são obrigatórios'); break; }
+                $horaInicio = trim((string) ($_POST['horario_inicio'] ?? ''));
+                $horaFim    = trim((string) ($_POST['horario_fim'] ?? ''));
+                if ($horaInicio === '' || $horaFim === '') { $err('preencha os dois horários (pra remover a exceção, use o botão excluir)'); break; }
+                if (!preg_match('/^\d{2}:\d{2}$/', $horaInicio) || !preg_match('/^\d{2}:\d{2}$/', $horaFim)) { $err('horário inválido (use HH:MM)'); break; }
+                monitor_horario_excecao_salvar($pdo, $categoria, $loja, $diaSemana, $horaInicio . ':00', $horaFim . ':00');
+                $ok();
+                break;
+            case 'excecoes_excluir':
+                $categoria = trim((string) ($_POST['categoria'] ?? ''));
+                $loja      = trim((string) ($_POST['loja'] ?? ''));
+                $diaSemana = (int) ($_POST['dia_semana'] ?? -1);
+                if ($categoria === '' || $loja === '' || $diaSemana < 0 || $diaSemana > 6) { $err('parâmetros inválidos'); break; }
+                monitor_horario_excecao_excluir($pdo, $categoria, $loja, $diaSemana);
+                $ok();
+                break;
+            case 'feriados_salvar':
+                $data = trim((string) ($_POST['data'] ?? ''));
+                $loja = trim((string) ($_POST['loja'] ?? ''));
+                if (!preg_match('/^\d{4}-\d{2}-\d{2}$/', $data)) { $err('data inválida'); break; }
+                monitor_feriado_salvar($pdo, $data, $loja);
+                $ok();
+                break;
+            case 'feriados_excluir':
+                $data = trim((string) ($_POST['data'] ?? ''));
+                $loja = trim((string) ($_POST['loja'] ?? ''));
+                if (!preg_match('/^\d{4}-\d{2}-\d{2}$/', $data)) { $err('data inválida'); break; }
+                monitor_feriado_excluir($pdo, $data, $loja);
                 $ok();
                 break;
             case 'manual_salvar':
@@ -177,6 +242,56 @@ if ($action !== '') {
   </div>
 
   <div class="card-box">
+    <h6 class="mb-1">Silêncio por horário (equipamento fora do ar)</h6>
+    <p class="small text-muted mb-2">Só vale pro alerta "Sem comunicação (IPs/dispositivos)" — Link/Latência/Serviço sempre alertam, qualquer hora.</p>
+
+    <div class="grupo-titulo" style="margin-top:0">Horário padrão por grupo</div>
+    <div class="table-responsive">
+      <table>
+        <thead><tr><th>Grupo</th><th>Início</th><th>Fim</th><th title="Deixe em branco pra não usar essa regra">Ligado há muito tempo (h)</th><th></th></tr></thead>
+        <tbody id="cat-horario"><tr><td colspan="5">Carregando…</td></tr></tbody>
+      </table>
+    </div>
+    <div id="fb-cat-horario" class="small mt-2"></div>
+
+    <div class="grupo-titulo">Exceções por loja/dia da semana</div>
+    <p class="small text-muted mb-2">Quando existir, manda sobre o horário padrão do grupo pra essa loja, nesse dia.</p>
+    <div class="table-responsive">
+      <table>
+        <thead><tr><th>Grupo</th><th>Loja</th><th>Dia</th><th>Início</th><th>Fim</th><th></th></tr></thead>
+        <tbody id="excecoes"><tr><td colspan="6">Carregando…</td></tr></tbody>
+      </table>
+    </div>
+    <div class="d-flex gap-2 flex-wrap align-items-end mt-2">
+      <div><label class="form-label small mb-0">Grupo</label><select id="exc-categoria" class="form-select form-select-sm" style="width:150px"></select></div>
+      <div><label class="form-label small mb-0">Loja</label><select id="exc-loja" class="form-select form-select-sm" style="width:110px"></select></div>
+      <div><label class="form-label small mb-0">Dia</label>
+        <select id="exc-dia" class="form-select form-select-sm" style="width:120px">
+          <option value="0">Domingo</option><option value="1">Segunda</option><option value="2">Terça</option>
+          <option value="3">Quarta</option><option value="4">Quinta</option><option value="5">Sexta</option><option value="6">Sábado</option>
+        </select></div>
+      <div><label class="form-label small mb-0">Início</label><input id="exc-inicio" type="time" class="form-control form-control-sm" style="width:100px"></div>
+      <div><label class="form-label small mb-0">Fim</label><input id="exc-fim" type="time" class="form-control form-control-sm" style="width:100px"></div>
+      <button type="button" class="btn btn-primary btn-sm" onclick="salvarExcecao()"><i class="bi bi-plus-lg me-1"></i>Adicionar</button>
+    </div>
+    <div id="fb-excecoes" class="small mt-2"></div>
+
+    <div class="grupo-titulo">Feriados (sem alerta na data)</div>
+    <div class="table-responsive">
+      <table>
+        <thead><tr><th>Data</th><th>Loja</th><th></th></tr></thead>
+        <tbody id="feriados"><tr><td colspan="3">Carregando…</td></tr></tbody>
+      </table>
+    </div>
+    <div class="d-flex gap-2 flex-wrap align-items-end mt-2">
+      <div><label class="form-label small mb-0">Data</label><input id="fer-data" type="date" class="form-control form-control-sm" style="width:150px"></div>
+      <div><label class="form-label small mb-0">Loja</label><select id="fer-loja" class="form-select form-select-sm" style="width:130px"><option value="">Todas as lojas</option></select></div>
+      <button type="button" class="btn btn-primary btn-sm" onclick="salvarFeriado()"><i class="bi bi-plus-lg me-1"></i>Adicionar</button>
+    </div>
+    <div id="fb-feriados" class="small mt-2"></div>
+  </div>
+
+  <div class="card-box">
     <div class="d-flex flex-wrap gap-2 align-items-end mb-2">
       <h6 class="mb-0 me-auto">Equipamentos</h6>
       <div><label class="form-label small mb-0">Grupo</label>
@@ -247,6 +362,117 @@ function montarFiltros() {
   const lojas = [...new Set(DISP.map(x => x.loja).filter(Boolean))].sort();
   fl.innerHTML = '<option value="">Todas</option>' + lojas.map(l => `<option>${H(l)}</option>`).join('');
   fg.value = selG; fl.value = selL;
+
+  // mesmos GRUPOS/lojas, pros selects de exceção/feriado
+  const ec = document.getElementById('exc-categoria'), el = document.getElementById('exc-loja'), ferl = document.getElementById('fer-loja');
+  const selEc = ec.value, selEl = el.value, selFerl = ferl.value;
+  ec.innerHTML = GRUPOS.map(g => `<option value="${H(g.grupo)}">${H(g.nome)}</option>`).join('');
+  el.innerHTML = lojas.map(l => `<option>${H(l)}</option>`).join('');
+  ferl.innerHTML = '<option value="">Todas as lojas</option>' + lojas.map(l => `<option>${H(l)}</option>`).join('');
+  ec.value = selEc; el.value = selEl; ferl.value = selFerl;
+}
+
+/* ───────────────────── Silêncio por horário / feriado ───────────────────── */
+let CAT_HORARIO = [], EXCECOES = [], FERIADOS = [];
+const DIAS = ['Domingo', 'Segunda', 'Terça', 'Quarta', 'Quinta', 'Sexta', 'Sábado'];
+
+function carregarCatHorario() {
+  fetch('?action=categorias_horario_listar').then(r => r.json()).then(d => {
+    if (!d.ok) return fb('fb-cat-horario', d.erro || 'falha ao carregar', false);
+    CAT_HORARIO = d.categorias; renderCatHorario();
+  });
+}
+function renderCatHorario() {
+  document.getElementById('cat-horario').innerHTML = CAT_HORARIO.map(c => {
+    const nome = (GRUPOS.find(g => g.grupo === c.categoria) || {}).nome || c.categoria;
+    return `<tr data-cat="${H(c.categoria)}">
+      <td style="font-weight:600">${H(nome)}</td>
+      <td><input type="time" class="form-control form-control-sm ch-ini" style="width:110px" value="${H((c.horario_inicio || '').slice(0, 5))}"></td>
+      <td><input type="time" class="form-control form-control-sm ch-fim" style="width:110px" value="${H((c.horario_fim || '').slice(0, 5))}"></td>
+      <td><input type="number" min="1" max="720" class="form-control form-control-sm num ch-max" value="${H(c.ligado_horas_max ?? '')}"></td>
+      <td><button class="btn btn-primary btn-sm" onclick="salvarCatHorario('${H(c.categoria)}')">Salvar</button></td>
+    </tr>`;
+  }).join('');
+}
+function salvarCatHorario(categoria) {
+  const tr = document.querySelector(`#cat-horario tr[data-cat="${CSS.escape(categoria)}"]`);
+  post('categoria_horario_salvar', {
+    categoria,
+    horario_inicio: tr.querySelector('.ch-ini').value,
+    horario_fim: tr.querySelector('.ch-fim').value,
+    ligado_horas_max: tr.querySelector('.ch-max').value,
+  }).then(d => {
+    if (!d.ok) return fb('fb-cat-horario', d.erro || 'falha', false);
+    fb('fb-cat-horario', 'Salvo.', true); carregarCatHorario();
+  });
+}
+
+function carregarExcecoes() {
+  fetch('?action=excecoes_listar').then(r => r.json()).then(d => {
+    if (!d.ok) return fb('fb-excecoes', d.erro || 'falha ao carregar', false);
+    EXCECOES = d.excecoes; renderExcecoes();
+  });
+}
+function renderExcecoes() {
+  const tb = document.getElementById('excecoes');
+  if (!EXCECOES.length) { tb.innerHTML = '<tr><td colspan="6" class="text-muted">Nenhuma exceção cadastrada.</td></tr>'; return; }
+  tb.innerHTML = EXCECOES.map(e => {
+    const nome = (GRUPOS.find(g => g.grupo === e.categoria) || {}).nome || e.categoria;
+    return `<tr>
+      <td>${H(nome)}</td><td>${H(e.loja)}</td><td>${DIAS[e.dia_semana] || e.dia_semana}</td>
+      <td>${H((e.horario_inicio || '').slice(0, 5))}</td><td>${H((e.horario_fim || '').slice(0, 5))}</td>
+      <td><button class="btn btn-link btn-sm p-0 text-danger" onclick="excluirExcecao('${H(e.categoria)}','${H(e.loja)}',${e.dia_semana})">excluir</button></td>
+    </tr>`;
+  }).join('');
+}
+function salvarExcecao() {
+  post('excecoes_salvar', {
+    categoria: document.getElementById('exc-categoria').value,
+    loja: document.getElementById('exc-loja').value,
+    dia_semana: document.getElementById('exc-dia').value,
+    horario_inicio: document.getElementById('exc-inicio').value,
+    horario_fim: document.getElementById('exc-fim').value,
+  }).then(d => {
+    if (!d.ok) return fb('fb-excecoes', d.erro || 'falha', false);
+    fb('fb-excecoes', 'Exceção salva.', true); carregarExcecoes();
+  });
+}
+function excluirExcecao(categoria, loja, diaSemana) {
+  if (!confirm('Excluir essa exceção?')) return;
+  post('excecoes_excluir', { categoria, loja, dia_semana: diaSemana }).then(d => {
+    if (!d.ok) return fb('fb-excecoes', d.erro || 'falha', false);
+    carregarExcecoes();
+  });
+}
+
+function carregarFeriados() {
+  fetch('?action=feriados_listar').then(r => r.json()).then(d => {
+    if (!d.ok) return fb('fb-feriados', d.erro || 'falha ao carregar', false);
+    FERIADOS = d.feriados; renderFeriados();
+  });
+}
+function renderFeriados() {
+  const tb = document.getElementById('feriados');
+  if (!FERIADOS.length) { tb.innerHTML = '<tr><td colspan="3" class="text-muted">Nenhum feriado cadastrado.</td></tr>'; return; }
+  tb.innerHTML = FERIADOS.map(f => `<tr>
+      <td>${H(f.data)}</td><td>${H(f.loja) || '<span class="text-muted">Todas</span>'}</td>
+      <td><button class="btn btn-link btn-sm p-0 text-danger" onclick="excluirFeriado('${H(f.data)}','${H(f.loja)}')">excluir</button></td>
+    </tr>`).join('');
+}
+function salvarFeriado() {
+  const data = document.getElementById('fer-data').value;
+  if (!data) return fb('fb-feriados', 'escolha uma data', false);
+  post('feriados_salvar', { data, loja: document.getElementById('fer-loja').value }).then(d => {
+    if (!d.ok) return fb('fb-feriados', d.erro || 'falha', false);
+    fb('fb-feriados', 'Feriado salvo.', true); carregarFeriados();
+  });
+}
+function excluirFeriado(data, loja) {
+  if (!confirm('Excluir esse feriado?')) return;
+  post('feriados_excluir', { data, loja }).then(d => {
+    if (!d.ok) return fb('fb-feriados', d.erro || 'falha', false);
+    carregarFeriados();
+  });
 }
 
 function renderGrupos() {
@@ -444,6 +670,7 @@ function excluirManual(id) {
 ['f-grupo', 'f-loja', 'f-mon'].forEach(i => document.getElementById(i).addEventListener('change', renderLista));
 document.getElementById('f-busca').addEventListener('input', renderLista);
 carregar();
+carregarCatHorario(); carregarExcecoes(); carregarFeriados();
 // status muda a cada rodada; bg=1 = não conta como atividade pro logout por inatividade.
 // Não atualiza com alguém digitando/escolhendo num campo (perderia o que foi digitado).
 setInterval(() => {
