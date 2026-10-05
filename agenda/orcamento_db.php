@@ -27,4 +27,11 @@ $db = $pdo->query("SHOW COLUMNS FROM glpi_portal_orcamento LIKE 'concluido'")->f
 if (!$db) {
     $pdo->exec("ALTER TABLE glpi_portal_orcamento ADD COLUMN concluido TINYINT(1) DEFAULT 0");
 }
+
+// Adiciona a coluna ativo se não existir — item suspenso (ativo=0) continua
+// listado, mas não entra em nenhuma soma do orçamento
+$col_ativo = $pdo->query("SHOW COLUMNS FROM glpi_portal_orcamento LIKE 'ativo'")->fetch();
+if (!$col_ativo) {
+    $pdo->exec("ALTER TABLE glpi_portal_orcamento ADD COLUMN ativo TINYINT(1) DEFAULT 1");
+}
 ?>

@@ -21,6 +21,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !$orc_ouvinte) {
             $pdo->prepare($sql)->execute($params);
         } elseif ($_POST['action'] === 'delete') {
             $pdo->prepare("DELETE FROM glpi_portal_orcamento WHERE id=?")->execute([(int)$_POST['id']]);
+        } elseif ($_POST['action'] === 'toggle_ativo') {
+            $pdo->prepare("UPDATE glpi_portal_orcamento SET ativo = 1 - ativo WHERE id=?")->execute([(int)$_POST['id']]);
         }
         header("Location: orcamento.php"); exit;
     }
@@ -139,6 +141,14 @@ $lojas = $stmt_lojas->fetchAll(PDO::FETCH_COLUMN);
       background: none; border: none; cursor: pointer; font-size: .95rem; padding: .15rem .3rem; border-radius: 4px;
     }
     .btn-acao:hover { background: #f3f4f6; }
+
+    /* Item suspenso — riscado, tom claro, não entra nas somas */
+    tr.row-suspenso td { color: #9ca3af; }
+    tr.row-suspenso td:not(:last-child) {
+      text-decoration: line-through; text-decoration-color: #e53935; text-decoration-thickness: 1.5px;
+    }
+    tr.row-suspenso .badge-cat { opacity: .55; }
+    tr.row-suspenso:hover { background: #fafafa; }
 
     footer { text-align: center; color: #bbb; font-size: .78rem; padding: 2rem; }
   </style>
@@ -373,11 +383,13 @@ $lojas = $stmt_lojas->fetchAll(PDO::FETCH_COLUMN);
 const MODO_OUVINTE_ORC = <?= $orc_ouvinte ? 'true' : 'false' ?>;
 let modal;
 let modalConcretizar;
+let modalDetalhesOrc;
 let itens = <?= json_encode($itens) ?>;
 
 document.addEventListener('DOMContentLoaded', () => {
   modal = new bootstrap.Modal(document.getElementById('modalItem'));
   modalConcretizar = new bootstrap.Modal(document.getElementById('modalConcretizar'));
+  modalDetalhesOrc = new bootstrap.Modal(document.getElementById('modalDetalhesOrc'));
 
   // Carregar filtros salvos
   const filtrosSaved = JSON.parse(localStorage.getItem('orc_filtros') || '{}');
@@ -403,9 +415,14 @@ function fmt(v) {
   return 'R$ ' + Number(v || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 }
 
+function ativoItem(i) {
+  return Number(i.ativo ?? 1) !== 0;
+}
+
 function atualizarStats(listaItems = itens) {
-  const plan  = listaItems.reduce((s, i) => s + Number(i.total_previsto || 0), 0);
-  const real  = listaItems.reduce((s, i) => s + Number(i.total_realizado || 0), 0);
+  const somaveis = listaItems.filter(ativoItem);
+  const plan  = somaveis.reduce((s, i) => s + Number(i.total_previsto || 0), 0);
+  const real  = somaveis.reduce((s, i) => s + Number(i.total_realizado || 0), 0);
   const saldo = plan - real;
   const pct   = plan > 0 ? Math.min(Math.round(real / plan * 100), 100) : 0;
   const corPct = pct >= 90 ? '#e53935' : pct >= 70 ? '#fb8c00' : '#43a047';
@@ -413,7 +430,7 @@ function atualizarStats(listaItems = itens) {
   document.getElementById('s-planejado').textContent     = fmt(plan);
   document.getElementById('s-planejado-sub').textContent = listaItems.length + ' ite' + (listaItems.length === 1 ? 'm' : 'ns');
   document.getElementById('s-realizado').textContent     = fmt(real);
-  document.getElementById('s-realizado-sub').textContent = listaItems.filter(i => Number(i.total_realizado) > 0).length + ' com valor';
+  document.getElementById('s-realizado-sub').textContent = somaveis.filter(i => Number(i.total_realizado) > 0).length + ' com valor';
   document.getElementById('s-saldo').textContent         = fmt(Math.abs(saldo));
   document.getElementById('s-saldo').className           = 's-value ' + (saldo >= 0 ? 'saldo-pos' : 'saldo-neg');
   document.getElementById('s-saldo-sub').textContent     = saldo >= 0 ? 'Dentro do orçamento' : 'Acima do orçamento';
@@ -519,8 +536,8 @@ function renderTabela(lista) {
   tbody.innerHTML = Object.entries(agrupado).map(([grupo, items]) => {
     let rows = '';
     if (modosAgrupamento.loja && modosAgrupamento.categoria) {
-      const totalPrevGrupo = items.reduce((s, i) => s + Number(i.total_previsto || 0), 0);
-      const totalRealGrupo = items.reduce((s, i) => s + Number(i.total_realizado || 0), 0);
+      const totalPrevGrupo = items.filter(ativoItem).reduce((s, i) => s + Number(i.total_previsto || 0), 0);
+      const totalRealGrupo = items.filter(ativoItem).reduce((s, i) => s + Number(i.total_realizado || 0), 0);
       rows += `<tr style="background:#eef2f6; font-weight:bold">
         <td colspan="9">
           <i class="bi bi-diagram-3-fill me-1 text-primary"></i> ${esc(grupo)}
@@ -529,8 +546,8 @@ function renderTabela(lista) {
         </td>
       </tr>`;
     } else if (modosAgrupamento.loja) {
-      const totalPrevGrupo = items.reduce((s, i) => s + Number(i.total_previsto || 0), 0);
-      const totalRealGrupo = items.reduce((s, i) => s + Number(i.total_realizado || 0), 0);
+      const totalPrevGrupo = items.filter(ativoItem).reduce((s, i) => s + Number(i.total_previsto || 0), 0);
+      const totalRealGrupo = items.filter(ativoItem).reduce((s, i) => s + Number(i.total_realizado || 0), 0);
       rows += `<tr style="background:#eef2f6; font-weight:bold">
         <td colspan="9">
           <i class="bi bi-shop me-1 text-primary"></i> Loja: ${esc(grupo)}
@@ -539,8 +556,8 @@ function renderTabela(lista) {
         </td>
       </tr>`;
     } else if (modosAgrupamento.categoria) {
-      const totalPrevGrupo = items.reduce((s, i) => s + Number(i.total_previsto || 0), 0);
-      const totalRealGrupo = items.reduce((s, i) => s + Number(i.total_realizado || 0), 0);
+      const totalPrevGrupo = items.filter(ativoItem).reduce((s, i) => s + Number(i.total_previsto || 0), 0);
+      const totalRealGrupo = items.filter(ativoItem).reduce((s, i) => s + Number(i.total_realizado || 0), 0);
       rows += `<tr style="background:#eef2f6; font-weight:bold">
         <td colspan="9">
           <i class="bi bi-tags me-1 text-primary"></i> Categoria: ${esc(grupo)}
@@ -556,11 +573,12 @@ function renderTabela(lista) {
     }
 
     rows += items.map(i => {
-      const plan  = Number(i.total_previsto || 0);
-      const real  = Number(i.total_realizado || 0);
-      const saldo = plan - real;
-      const cls   = CAT_CLASS[i.categoria] || 'cat-outros';
-      return `<tr>
+      const plan   = Number(i.total_previsto || 0);
+      const real   = Number(i.total_realizado || 0);
+      const saldo  = plan - real;
+      const cls    = CAT_CLASS[i.categoria] || 'cat-outros';
+      const susp   = !ativoItem(i);
+      return `<tr class="${susp ? 'row-suspenso' : ''}">
         <td><span class="badge-cat ${cls}">${esc(i.categoria)}</span></td>
         <td>${esc(i.loja || '-')}</td>
         <td style="max-width:220px">${esc(i.descricao)}</td>
@@ -570,10 +588,12 @@ function renderTabela(lista) {
         <td style="font-weight:600;color:#e53935">${fmt(real)}</td>
         <td class="${saldo >= 0 ? 'saldo-pos' : 'saldo-neg'}">${saldo >= 0 ? '' : '-'}${fmt(Math.abs(saldo))}</td>
         <td style="text-align:center;white-space:nowrap">
+          <button class="btn-acao text-secondary" title="Ver detalhes" onclick="verDetalhesOrc('${i.id}')"><i class="bi bi-eye-fill"></i></button>
           ${MODO_OUVINTE_ORC ? '' : `
           <button class="btn-acao text-primary" title="Editar" onclick="editarItem('${i.id}')"><i class="bi bi-pencil-fill"></i></button>
           <button class="btn-acao text-danger"  title="Excluir" onclick="excluirDireto('${i.id}')"><i class="bi bi-trash-fill"></i></button>
           <button class="btn-acao text-success" title="Concretizar Despesa" onclick="abrirModalConcretizar('${i.id}')"><i class="bi bi-check-circle-fill"></i></button>
+          <button class="btn-acao ${susp ? 'text-success' : 'text-warning'}" title="${susp ? 'Reativar item' : 'Suspender item'}" onclick="toggleAtivoItem('${i.id}', ${susp})"><i class="bi ${susp ? 'bi-play-circle-fill' : 'bi-pause-circle-fill'}"></i></button>
           `}
         </td>
       </tr>`;
@@ -637,6 +657,35 @@ function excluirDireto(id) {
   if (!confirm('Excluir este item de orçamento?')) return;
   document.getElementById('del-id').value = id;
   document.getElementById('form-delete').submit();
+}
+
+function toggleAtivoItem(id, estaSuspenso) {
+  if (!estaSuspenso && !confirm('Suspender este item? Os valores dele deixam de ser somados no orçamento até você reativar.')) return;
+  document.getElementById('toggle-id').value = id;
+  document.getElementById('form-toggle-ativo').submit();
+}
+
+function verDetalhesOrc(id) {
+  const i = itens.find(x => String(x.id) === String(id));
+  if (!i) return;
+  const plan  = Number(i.total_previsto || 0);
+  const real  = Number(i.total_realizado || 0);
+  const saldo = plan - real;
+  const corpo = document.getElementById('detalhes-orc-corpo');
+  corpo.innerHTML = `
+    <dl class="row mb-0">
+      <dt class="col-sm-4">Categoria</dt><dd class="col-sm-8">${esc(i.categoria)}</dd>
+      <dt class="col-sm-4">Loja</dt><dd class="col-sm-8">${esc(i.loja || '-')}</dd>
+      <dt class="col-sm-4">Mês/Ano</dt><dd class="col-sm-8">${esc(i.mes_ano || '-')}</dd>
+      <dt class="col-sm-4">Descrição</dt><dd class="col-sm-8">${esc(i.descricao)}</dd>
+      <dt class="col-sm-4">Previsto</dt><dd class="col-sm-8">${i.qty_prevista || 0} x ${fmt(i.unit_previsto || 0)} = <b>${fmt(plan)}</b></dd>
+      <dt class="col-sm-4">Realizado</dt><dd class="col-sm-8">${i.qty_realizada || 0} x ${fmt(i.unit_realizado || 0)} = <b>${fmt(real)}</b></dd>
+      <dt class="col-sm-4">Saldo</dt><dd class="col-sm-8 ${saldo >= 0 ? 'saldo-pos' : 'saldo-neg'}">${saldo >= 0 ? '' : '-'}${fmt(Math.abs(saldo))}</dd>
+      <dt class="col-sm-4">Status</dt><dd class="col-sm-8">${ativoItem(i) ? '<span class="text-success fw-semibold">Ativo</span>' : '<span class="text-danger fw-semibold">Suspenso (fora das somas)</span>'}</dd>
+      <dt class="col-sm-4">Concretizado</dt><dd class="col-sm-8">${Number(i.concluido || 0) ? 'Sim' : 'Não'}</dd>
+      <dt class="col-sm-4">Observação</dt><dd class="col-sm-8">${esc(i.observacao || '-')}</dd>
+    </dl>`;
+  modalDetalhesOrc.show();
 }
 
 function abrirModalConcretizar(id) {
@@ -745,9 +794,29 @@ function esc(s) {
   </div>
 </div>
 
+<!-- Modal Ver Detalhes -->
+<div class="modal fade" id="modalDetalhesOrc" tabindex="-1">
+  <div class="modal-dialog modal-dialog-centered">
+    <div class="modal-content">
+      <div class="modal-header" style="background:#374151;color:white">
+        <h5 class="modal-title fw-bold"><i class="bi bi-eye-fill me-2"></i>Detalhes do Item</h5>
+        <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body" id="detalhes-orc-corpo"></div>
+      <div class="modal-footer">
+        <button class="btn btn-secondary" data-bs-dismiss="modal">Fechar</button>
+      </div>
+    </div>
+  </div>
+</div>
+
 <form id="form-delete" method="POST" style="display:none">
   <input type="hidden" name="action" value="delete"/>
   <input type="hidden" name="id" id="del-id"/>
+</form>
+<form id="form-toggle-ativo" method="POST" style="display:none">
+  <input type="hidden" name="action" value="toggle_ativo"/>
+  <input type="hidden" name="id" id="toggle-id"/>
 </form>
 <footer><i class="bi bi-shield-lock me-1"></i>Central de TI — Orçamento</footer>
 </body>
