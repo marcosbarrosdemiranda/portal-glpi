@@ -27,7 +27,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !$orc_ouvinte) {
 }
 
 // ── Fetch dos dados ───────────────────────────────────────────
-$stmt = $pdo->query("SELECT * FROM glpi_portal_orcamento ORDER BY mes_ano ASC, id ASC");
+$stmt = $pdo->query("SELECT *, (qty_prevista * unit_previsto) as total_previsto, (qty_realizada * unit_realizado) as total_realizado FROM glpi_portal_orcamento ORDER BY mes_ano ASC, id ASC");
 $itens = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
 // Fetch Lojas (Entidades GLPI)
@@ -260,7 +260,6 @@ $lojas = $stmt_lojas->fetchAll(PDO::FETCH_COLUMN);
             <th>Categoria</th>
             <th>Loja</th>
             <th>Descrição</th>
-            <th>Mês/Ano</th>
             <th style="text-align:center">Qtd x Unit (Prev)</th>
             <th>Total Prev</th>
             <th style="text-align:center">Qtd x Unit (Real)</th>
@@ -270,7 +269,7 @@ $lojas = $stmt_lojas->fetchAll(PDO::FETCH_COLUMN);
           </tr>
         </thead>
         <tbody id="tbl-body">
-          <tr class="empty-row"><td colspan="10"><i class="bi bi-inbox fs-4 d-block mb-2"></i>Nenhum item cadastrado. Clique em "Novo Item" para começar.</td></tr>
+          <tr class="empty-row"><td colspan="9"><i class="bi bi-inbox fs-4 d-block mb-2"></i>Nenhum item cadastrado. Clique em "Novo Item" para começar.</td></tr>
         </tbody>
       </table>
     </div>
@@ -479,7 +478,7 @@ function renderTabela(lista) {
 
   document.getElementById('tbl-count').textContent = lista.length + ' ite' + (lista.length === 1 ? 'm' : 'ns');
   if (!lista.length) {
-    tbody.innerHTML = '<tr class="empty-row"><td colspan="10"><i class="bi bi-inbox fs-4 d-block mb-2"></i>Nenhum item encontrado.</td></tr>';
+    tbody.innerHTML = '<tr class="empty-row"><td colspan="9"><i class="bi bi-inbox fs-4 d-block mb-2"></i>Nenhum item encontrado.</td></tr>';
     return;
   }
 
@@ -523,7 +522,7 @@ function renderTabela(lista) {
       const totalPrevGrupo = items.reduce((s, i) => s + Number(i.total_previsto || 0), 0);
       const totalRealGrupo = items.reduce((s, i) => s + Number(i.total_realizado || 0), 0);
       rows += `<tr style="background:#eef2f6; font-weight:bold">
-        <td colspan="10">
+        <td colspan="9">
           <i class="bi bi-diagram-3-fill me-1 text-primary"></i> ${esc(grupo)}
           <span class="badge bg-secondary ms-2">${items.length} ${items.length === 1 ? 'item' : 'itens'}</span>
           <span class="ms-3 text-muted fw-normal" style="font-size:.8rem">Previsto: <b class="text-primary">${fmt(totalPrevGrupo)}</b> | Realizado: <b class="text-danger">${fmt(totalRealGrupo)}</b></span>
@@ -533,7 +532,7 @@ function renderTabela(lista) {
       const totalPrevGrupo = items.reduce((s, i) => s + Number(i.total_previsto || 0), 0);
       const totalRealGrupo = items.reduce((s, i) => s + Number(i.total_realizado || 0), 0);
       rows += `<tr style="background:#eef2f6; font-weight:bold">
-        <td colspan="10">
+        <td colspan="9">
           <i class="bi bi-shop me-1 text-primary"></i> Loja: ${esc(grupo)}
           <span class="badge bg-secondary ms-2">${items.length} ${items.length === 1 ? 'item' : 'itens'}</span>
           <span class="ms-3 text-muted fw-normal" style="font-size:.8rem">Previsto: <b class="text-primary">${fmt(totalPrevGrupo)}</b> | Realizado: <b class="text-danger">${fmt(totalRealGrupo)}</b></span>
@@ -543,7 +542,7 @@ function renderTabela(lista) {
       const totalPrevGrupo = items.reduce((s, i) => s + Number(i.total_previsto || 0), 0);
       const totalRealGrupo = items.reduce((s, i) => s + Number(i.total_realizado || 0), 0);
       rows += `<tr style="background:#eef2f6; font-weight:bold">
-        <td colspan="10">
+        <td colspan="9">
           <i class="bi bi-tags me-1 text-primary"></i> Categoria: ${esc(grupo)}
           <span class="badge bg-secondary ms-2">${items.length} ${items.length === 1 ? 'item' : 'itens'}</span>
           <span class="ms-3 text-muted fw-normal" style="font-size:.8rem">Previsto: <b class="text-primary">${fmt(totalPrevGrupo)}</b> | Realizado: <b class="text-danger">${fmt(totalRealGrupo)}</b></span>
@@ -553,7 +552,7 @@ function renderTabela(lista) {
       const split = grupo.split('-');
       const nomeMes = mesesNomes[split[1]] || split[1];
       const tituloMes = `${nomeMes} ${split[0]}`;
-      rows += `<tr style="background:#eef2f6; font-weight:bold"><td colspan="10">${tituloMes}</td></tr>`;
+      rows += `<tr style="background:#eef2f6; font-weight:bold"><td colspan="9">${tituloMes}</td></tr>`;
     }
 
     rows += items.map(i => {
@@ -565,7 +564,6 @@ function renderTabela(lista) {
         <td><span class="badge-cat ${cls}">${esc(i.categoria)}</span></td>
         <td>${esc(i.loja || '-')}</td>
         <td style="max-width:220px">${esc(i.descricao)}</td>
-        <td>${i.mes_ano || '—'}</td>
         <td style="font-size:.8rem;color:#6b7280;text-align:center">${i.qty_prevista || 0} x ${fmt(i.unit_previsto || 0)}</td>
         <td style="font-weight:600;color:#1a73e8">${fmt(plan)}</td>
         <td style="font-size:.8rem;color:#6b7280;text-align:center">${i.qty_realizada || 0} x ${fmt(i.unit_realizado || 0)}</td>
