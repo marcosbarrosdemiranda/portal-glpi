@@ -735,10 +735,31 @@ foreach ($dirs as $k => $d) {
     <div class="card-body">
       <p class="small text-muted mb-2">
         Status (somente leitura) do backup diário do código + banco do GLPI que já roda no host via Tarefa
-        Agendada do Windows (<code>\Backup\Glpi-Docker-DB</code> 05:00 e <code>\Backup\Glpi-Docker-Files</code>
-        05:30) — a frequência e a retenção local (5 dias) são configuradas lá, não aqui. Este card só mostra
-        o que a própria rotina reportou pra Central de Alertas na última vez que rodou.
+        Agendada do Windows — a frequência, o destino e a retenção são configurados lá (nos scripts
+        <code>backup-db.ps1</code>/<code>backup-files.ps1</code> e no Agendador do Windows), não aqui. Este card
+        só mostra o que a própria rotina reportou pra Central de Alertas na última vez que rodou.
       </p>
+      <table class="table table-sm table-borderless small mb-3" style="background:#f8f9fa;">
+        <thead>
+          <tr class="text-muted" style="font-size:.72rem; text-transform:uppercase;">
+            <th>Política</th><th>Frequência</th><th>Destino</th><th>Retenção</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><i class="bi bi-database me-1"></i>Banco de Dados</td>
+            <td>Diário, 05:00</td>
+            <td><code>E:\Backup Sistemas\Backup-glpi-portal\Docker-DB</code></td>
+            <td>5 dias</td>
+          </tr>
+          <tr>
+            <td><i class="bi bi-folder me-1"></i>Arquivos (anexos)</td>
+            <td>Diário, 05:30</td>
+            <td><code>E:\Backup Sistemas\Backup-glpi-portal\Docker-Files</code></td>
+            <td>Espelho (sempre atual)</td>
+          </tr>
+        </tbody>
+      </table>
       <div id="backupLocalWrap">Carregando...</div>
     </div>
     <div class="card-footer">
