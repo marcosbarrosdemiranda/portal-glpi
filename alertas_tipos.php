@@ -371,12 +371,13 @@ function alertas_catalogo(): array
         ],
         'db_central' => [
             'nome'      => 'Banco de Dados Central — Alta Carga',
-            'descricao' => 'Monitora conexões e uso de CPU do banco de dados central (SSH).',
+            'descricao' => 'Monitora conexões, CPU e memória do banco de dados central (SSH).',
             'params'    => [
                 'max_conexoes' => ['label' => 'Conexões máximas', 'default' => 1200, 'min' => 100, 'max' => 5000],
                 'max_cpu'      => ['label' => 'CPU máxima (%)', 'default' => 90, 'min' => 10, 'max' => 99],
+                'max_mem'      => ['label' => 'Memória máxima (%)', 'default' => 90, 'min' => 10, 'max' => 99],
             ],
-            'sub_tpl' => 'conexões > {max_conexoes} ou CPU > {max_cpu}%',
+            'sub_tpl' => 'conexões > {max_conexoes} ou CPU > {max_cpu}% ou memória > {max_mem}%',
             'check'  => 'alerta_check_db_central',
             'render' => 'alerta_render_db_central',
             'icone'  => 'bi-database-fill-exclamation',
@@ -590,6 +591,7 @@ function alerta_check_db_central(PDO $pdo, array $p): array
 {
     $max_conexoes = (int) ($p['max_conexoes'] ?? 1200);
     $max_cpu      = (int) ($p['max_cpu'] ?? 90);
+    $max_mem      = (int) ($p['max_mem'] ?? 90);
 
     // Este check roda dentro do portal-wpp-worker, que não tem ssh/sshpass
     // instalado — busca o status via HTTP interno no glpi-web (único
@@ -601,18 +603,19 @@ function alerta_check_db_central(PDO $pdo, array $p): array
 
     if (!$status || isset($status['error'])) return [];
 
-    // O endpoint calcula 'alerta' com os limiares default (1200/90) — refaz
-    // a comparação aqui com os limiares configurados para este tipo ($p).
-    $conexoes  = (int) ($status['conexoes'] ?? 0);
-    $cpu_usage = (float) ($status['cpu_usage'] ?? 0);
+    // O endpoint calcula 'alerta' com os limiares default — refaz a
+    // comparação aqui com os limiares configurados para este tipo ($p).
+    $conexoes      = (int) ($status['conexoes'] ?? 0);
+    $cpu_usage     = (float) ($status['cpu_usage'] ?? 0);
+    $mem_usada_pct = (float) ($status['mem_usada_pct'] ?? 0);
 
-    if ($conexoes <= $max_conexoes && $cpu_usage <= $max_cpu) return [];
+    if ($conexoes <= $max_conexoes && $cpu_usage <= $max_cpu && $mem_usada_pct <= $max_mem) return [];
 
     return [[
         'chave'   => 'db_central:status',
         'titulo'  => 'DB Central com alta carga',
         'loja'    => 'Matriz',
-        'detalhe' => "Conexões: {$conexoes}/{$max_conexoes} · CPU: {$cpu_usage}%/{$max_cpu}%"
+        'detalhe' => "Conexões: {$conexoes}/{$max_conexoes} · CPU: {$cpu_usage}%/{$max_cpu}% · Memória: {$mem_usada_pct}%/{$max_mem}%"
     ]];
 }
 

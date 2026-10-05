@@ -229,9 +229,12 @@ function solides_relatorio_texto(array $rel): string
     $abertas = 0;
     foreach ($dias as $d) {
         if (!is_array($d)) continue;
-        $corpo .= (string) ($d['resumo'] ?? '') . "\n";
-        foreach (($d['anormalidades'] ?? []) as $a) {
-            if (!is_array($a)) continue;
+        $anormalidades_dia = array_filter((array) ($d['anormalidades'] ?? []), 'is_array');
+        // ✅ na linha do próprio dia (ontem/hoje) quando ele, individualmente,
+        // não teve nenhuma anormalidade — além do veredito geral no cabeçalho.
+        $icone_dia = !$anormalidades_dia ? '✅ ' : '';
+        $corpo .= $icone_dia . (string) ($d['resumo'] ?? '') . "\n";
+        foreach ($anormalidades_dia as $a) {
             $total++;
             if (empty($a['resolvida'])) $abertas++;
             $corpo .= '  ' . (!empty($a['resolvida']) ? '✅' : '❌') . ' ' . (string) ($a['texto'] ?? $a['titulo'] ?? '') . "\n";

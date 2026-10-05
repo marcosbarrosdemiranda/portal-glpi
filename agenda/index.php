@@ -909,6 +909,13 @@ $libera_data_passada = ($cards_portal === null) || (($cards_portal['agenda_data_
               <label class="form-label fw-semibold">🕒 Ponto (API Sólides)</label>
               <div id="resp-solides-texto" class="p-3 border rounded" style="background:#f8fafc;white-space:pre-wrap;font-family:monospace;font-size:.72rem"></div>
             </div>
+
+            <!-- Status Banco de Dados Central (monitoramento 192.168.1.10) — logo
+                 abaixo de Ponto, mesmo padrão de informativo na resposta final. -->
+            <div id="resp-db-status" style="display:none" class="mb-3">
+              <label class="form-label fw-semibold">📊 Status Banco de Dados (192.168.1.10)</label>
+              <div id="resp-db-texto" class="p-3 border rounded" style="background:#f8fafc;white-space:pre-wrap;font-family:monospace;font-size:.72rem"></div>
+            </div>
           </div>
 
           <!-- Resumo de backups (rotina diária "Backup, Relatórios e Banco de Dados") —
@@ -916,12 +923,6 @@ $libera_data_passada = ($cards_portal === null) || (($cards_portal['agenda_data_
           <div id="resp-backup" style="display:none" class="col-md-8 mb-3">
             <label class="form-label fw-semibold">💾 Resumo de Backups (ontem)</label>
             <div id="resp-backup-texto" class="p-3 border rounded" style="background:#f8fafc;white-space:pre-wrap;font-family:monospace;font-size:.72rem"></div>
-          </div>
-
-          <!-- Status Banco de Dados (monitoramento 192.168.1.10) -->
-          <div id="resp-db-status" style="display:none" class="col-12 mb-3">
-            <label class="form-label fw-semibold">📊 Status Banco de Dados (192.168.1.10)</label>
-            <div id="resp-db-texto" class="p-3 border rounded" style="background:#f8fafc;white-space:pre-wrap;font-family:monospace;font-size:.72rem"></div>
           </div>
 
           <!-- Latência dos pfSense (rotina diária de Firewall e Comunicação Lojas) — informativo,
@@ -2999,6 +3000,20 @@ function abrirModalResposta() {
       .catch(() => { textoSolides.textContent = 'Ponto (API Sólides): falha ao carregar o relatório — preencha manualmente.'; });
   }
 
+  // Mesma rotina: status do Banco de Dados Central (conexões/CPU/memória).
+  const boxDb = document.getElementById('resp-db-status');
+  const textoDb = document.getElementById('resp-db-texto');
+  if (boxDb) boxDb.style.display = 'none';
+  if (textoDb) textoDb.textContent = '';
+  if (mostrarBackup && boxDb && textoDb) {
+    boxDb.style.display = '';
+    textoDb.textContent = 'Carregando status do Banco de Dados Central…';
+    fetch('../db_central_resumo_ajax.php')
+      .then(r => r.json())
+      .then(d => { textoDb.textContent = d.ok ? d.texto : 'Banco de Dados Central: falha ao carregar o status — preencha manualmente.'; })
+      .catch(() => { textoDb.textContent = 'Banco de Dados Central: falha ao carregar o status — preencha manualmente.'; });
+  }
+
   // PF Sense / Comunicação Lojas
   const mostrarFirewall = titulo.includes('Firewal, Unifi e Comunicação Lojas');
   const boxFirewall = document.getElementById('resp-firewall');
@@ -3260,6 +3275,12 @@ async function enviarResposta() {
   if (boxSolides && boxSolides.style.display !== 'none') {
     const textoSolides = document.getElementById('resp-solides-texto').textContent.trim();
     if (textoSolides) blocos.push(textoSolides);
+  }
+
+  const boxDb = document.getElementById('resp-db-status');
+  if (boxDb && boxDb.style.display !== 'none') {
+    const textoDb = document.getElementById('resp-db-texto').textContent.trim();
+    if (textoDb) blocos.push(textoDb);
   }
 
   if (textoObs) blocos.push(textoObs);
