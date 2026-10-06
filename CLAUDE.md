@@ -334,6 +334,31 @@ REGRAS ESPECIAIS:
    arquivo for removido do git, apagar manualmente no host (`ssh
    glpi-server "powershell ... Remove-Item ..."`) e grep por referências
    a ele (`<a href`, `require`) nos arquivos que ficaram.
+
+6. [Worker em loop morre inteiro e silenciosamente se um `require_once`
+   no topo falhar — 2026-10-05] Contexto: ao apagar `dude_lib.php` do
+   servidor (limpeza final da migração Dude→monitor próprio), o
+   `wpp/worker.php` (processo único que roda monitor de rede + Central
+   de Alertas + TODO o WhatsApp — grupo e chamados — num loop
+   `while true; php worker.php; sleep 30`) não foi atualizado junto e
+   continuou com `require_once '../dude_lib.php'` na linha 20. Um
+   `require_once` no TOPO do arquivo é fora de qualquer try/catch —
+   nenhum dos `catch (\Throwable $e)` internos do worker protege contra
+   isso. Resultado: 100% das passadas falharam por ~22h (5246 erros no
+   log), sem avisar ninguém, porque o container nunca "cai" (o loop só
+   tenta de novo a cada 30s pra sempre) — só aparece em
+   `docker logs <container>`, nunca numa navegação manual do portal.
+   Depois, uma tentativa de correção subiu `worker.php.new` mas o
+   `Move-Item` final nunca rodou, deixando o arquivo **ausente**
+   (mesmo efeito, erro diferente). Lições: (a) ao apagar um arquivo,
+   grep `require`/`include` dele também nos workers/crons que rodam fora
+   do request HTTP (`wpp/worker.php`, `agenda/monitor_db_worker.php`),
+   não só nas páginas navegáveis; (b) depois de um deploy `.new` →
+   `php -l` → `Move-Item`, **confirmar que o `Move-Item` rodou**
+   (`Get-ChildItem` no nome final, não só no `.new`) antes de considerar
+   concluído; (c) pra diagnosticar "notificação/alerta parou do nada",
+   `docker logs -t <worker>` com o horário aproximado é o primeiro passo,
+   não ficar só nos arquivos PHP.
 ```
 
 ---
