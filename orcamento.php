@@ -1,6 +1,7 @@
 <?php
 require_once __DIR__ . '/auth_guard.php';
 require_once __DIR__ . '/agenda/orcamento_db.php'; // Inclui a definição da tabela
+require_once __DIR__ . '/agenda/tipos_db.php'; // Catálogo de categorias compartilhado com despesas
 
 if (empty($_SESSION['autenticado'])) { header('Location: auth.php'); exit; }
 if (($_SESSION['perfil'] ?? '') === 'self-service') { header('Location: dashboard.php'); exit; }
@@ -13,10 +14,17 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !$orc_ouvinte) {
     if (isset($_POST['action'])) {
         if ($_POST['action'] === 'save') {
             $id = !empty($_POST['id']) ? (int)$_POST['id'] : null;
+            $tipoId = (int)$_POST['tipo_despesa_id'];
+            // categoria (texto) não é mais digitada — deriva do catálogo pra
+            // satisfazer a coluna NOT NULL existente sem precisar de migração
+            // de schema adicional; quem manda de verdade agora é tipo_despesa_id.
+            $catNome = $pdo->prepare("SELECT nome FROM glpi_portal_despesas_tipos WHERE id=?");
+            $catNome->execute([$tipoId]);
+            $categoria = $catNome->fetchColumn() ?: 'Outros';
             $sql = $id
-                ? "UPDATE glpi_portal_orcamento SET categoria=?, descricao=?, mes_ano=?, qty_prevista=?, unit_previsto=?, qty_realizada=?, unit_realizado=?, observacao=?, loja=? WHERE id=?"
-                : "INSERT INTO glpi_portal_orcamento (categoria, descricao, mes_ano, qty_prevista, unit_previsto, qty_realizada, unit_realizado, observacao, loja) VALUES (?,?,?,?,?,?,?,?,?)";
-            $params = [$_POST['categoria'], $_POST['descricao'], $_POST['mes_ano'], (int)$_POST['qty_prevista'], (float)$_POST['unit_previsto'], (int)$_POST['qty_realizada'], (float)$_POST['unit_realizado'], $_POST['observacao'], $_POST['loja']];
+                ? "UPDATE glpi_portal_orcamento SET categoria=?, tipo_despesa_id=?, descricao=?, mes_ano=?, qty_prevista=?, unit_previsto=?, qty_realizada=?, unit_realizado=?, observacao=?, loja=? WHERE id=?"
+                : "INSERT INTO glpi_portal_orcamento (categoria, tipo_despesa_id, descricao, mes_ano, qty_prevista, unit_previsto, qty_realizada, unit_realizado, observacao, loja) VALUES (?,?,?,?,?,?,?,?,?,?)";
+            $params = [$categoria, $tipoId, $_POST['descricao'], $_POST['mes_ano'], (int)$_POST['qty_prevista'], (float)$_POST['unit_previsto'], (int)$_POST['qty_realizada'], (float)$_POST['unit_realizado'], $_POST['observacao'], $_POST['loja']];
             if ($id) $params[] = $id;
             $pdo->prepare($sql)->execute($params);
         } elseif ($_POST['action'] === 'delete') {
@@ -29,8 +37,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !$orc_ouvinte) {
 }
 
 // ── Fetch dos dados ───────────────────────────────────────────
-$stmt = $pdo->query("SELECT *, (qty_prevista * unit_previsto) as total_previsto, (qty_realizada * unit_realizado) as total_realizado FROM glpi_portal_orcamento ORDER BY mes_ano ASC, id ASC");
+// categoria vem do JOIN com o catálogo compartilhado (não mais texto livre
+// da própria tabela) — mantém a chave "categoria" no array pra não precisar
+// reescrever todo o JS do cliente que já lê i.categoria.
+$stmt = $pdo->query("SELECT o.*, (o.qty_prevista * o.unit_previsto) as total_previsto, (o.qty_realizada * o.unit_realizado) as total_realizado, COALESCE(t.nome, o.categoria) as categoria FROM glpi_portal_orcamento o LEFT JOIN glpi_portal_despesas_tipos t ON o.tipo_despesa_id=t.id ORDER BY o.mes_ano ASC, o.id ASC");
 $itens = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+$tipos = listarTipos($pdo);
 
 // Fetch Lojas (Entidades GLPI)
 $stmt_lojas = $pdo->query("SELECT name FROM glpi_entities ORDER BY name ASC");
@@ -202,12 +215,9 @@ $lojas = $stmt_lojas->fetchAll(PDO::FETCH_COLUMN);
     <div class="d-flex flex-wrap gap-2 align-items-center w-100">
       <select id="f-cat" class="form-select form-select-sm" style="width:175px" onchange="filtrar()">
         <option value="">Todas as categorias</option>
-        <option value="Hardware">Hardware</option>
-        <option value="Software">Software</option>
-        <option value="Serviços">Serviços</option>
-        <option value="Infraestrutura">Infraestrutura</option>
-        <option value="Treinamento">Treinamento</option>
-        <option value="Outros">Outros</option>
+        <?php foreach ($tipos as $tipo): ?>
+          <option value="<?= htmlspecialchars($tipo['nome']) ?>"><?= htmlspecialchars($tipo['nome']) ?></option>
+        <?php endforeach; ?>
       </select>
       <!-- Filtros de Mês/Ano -->
       <select id="f-mes" class="form-select form-select-sm" style="width:155px" onchange="filtrar()">
@@ -303,14 +313,14 @@ $lojas = $stmt_lojas->fetchAll(PDO::FETCH_COLUMN);
           <input type="hidden" name="id" id="item-id"/>
           <div class="row g-3">
             <div class="col-md-6">
-              <label class="form-label fw-semibold">Categoria <span class="text-danger">*</span></label>
-              <select class="form-select" name="categoria" id="item-cat">
-                <option value="Hardware">Hardware</option>
-                <option value="Software">Software</option>
-                <option value="Serviços">Serviços</option>
-                <option value="Infraestrutura">Infraestrutura</option>
-                <option value="Treinamento">Treinamento</option>
-                <option value="Outros">Outros</option>
+              <label class="form-label fw-semibold">
+                Categoria <span class="text-danger">*</span>
+                <a href="#" onclick="abrirGerenciarCategorias(); return false;" title="Gerenciar categorias" style="font-size:.8rem"><i class="bi bi-gear"></i></a>
+              </label>
+              <select class="form-select" name="tipo_despesa_id" id="item-cat">
+                <?php foreach ($tipos as $tipo): ?>
+                  <option value="<?= $tipo['id'] ?>"><?= htmlspecialchars($tipo['nome']) ?></option>
+                <?php endforeach; ?>
               </select>
             </div>
             <div class="col-md-6">
@@ -604,7 +614,7 @@ function renderTabela(lista) {
 
 function abrirModal() {
   document.getElementById('item-id').value   = '';
-  document.getElementById('item-cat').value  = 'Hardware';
+  document.getElementById('item-cat').selectedIndex = 0;
   document.getElementById('item-desc').value = '';
   document.getElementById('item-loja').value = '';
   document.getElementById('qty_prevista').value = '1';
@@ -624,7 +634,7 @@ function editarItem(id) {
   const i = itens.find(x => String(x.id) === String(id));
   if (!i) return;
   document.getElementById('item-id').value   = i.id;
-  document.getElementById('item-cat').value  = i.categoria;
+  document.getElementById('item-cat').value  = i.tipo_despesa_id;
   document.getElementById('item-desc').value = i.descricao;
   document.getElementById('item-loja').value = i.loja || '';
   document.getElementById('qty_prevista').value = i.qty_prevista || '1';
@@ -818,6 +828,8 @@ function esc(s) {
   <input type="hidden" name="action" value="toggle_ativo"/>
   <input type="hidden" name="id" id="toggle-id"/>
 </form>
+<script>window.SELECTS_CATEGORIA = ['item-cat'];</script>
+<?php include __DIR__ . '/categorias_modal.php'; ?>
 <footer><i class="bi bi-shield-lock me-1"></i>Central de TI — Orçamento</footer>
 </body>
 </html>

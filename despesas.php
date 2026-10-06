@@ -157,8 +157,8 @@ $lojas = $stmt_lojas->fetchAll(PDO::FETCH_COLUMN);
                         <input type="text" name="descricao" class="form-control" required>
                     </div>
                     <div class="mb-2">
-                        <label>Categoria</label>
-                        <select name="tipo_despesa_id" class="form-select" required>
+                        <label>Categoria <a href="#" onclick="abrirGerenciarCategorias(); return false;" title="Gerenciar categorias"><i class="bi bi-gear"></i></a></label>
+                        <select name="tipo_despesa_id" id="desp-item-cat" class="form-select" required>
                             <option value="">Selecione...</option>
                             <?php foreach ($tipos as $tipo): ?>
                                 <option value="<?= $tipo['id'] ?>"><?= htmlspecialchars($tipo['nome']) ?></option>
@@ -390,5 +390,7 @@ $lojas = $stmt_lojas->fetchAll(PDO::FETCH_COLUMN);
         doc.save('despesas.pdf');
     }
 </script>
+<script>window.SELECTS_CATEGORIA = ['desp-item-cat'];</script>
+<?php include __DIR__ . '/categorias_modal.php'; ?>
 </body>
 </html>
