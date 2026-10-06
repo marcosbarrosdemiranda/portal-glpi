@@ -34,4 +34,29 @@ $col_ativo = $pdo->query("SHOW COLUMNS FROM glpi_portal_orcamento LIKE 'ativo'")
 if (!$col_ativo) {
     $pdo->exec("ALTER TABLE glpi_portal_orcamento ADD COLUMN ativo TINYINT(1) DEFAULT 1");
 }
+
+// Adiciona tipo_despesa_id se não existir — categoria passa a ser o mesmo
+// catálogo compartilhado com despesas (glpi_portal_despesas_tipos), em vez
+// de texto livre. Coluna categoria (texto) não é apagada, fica como
+// histórico/fallback.
+$col_tipo = $pdo->query("SHOW COLUMNS FROM glpi_portal_orcamento LIKE 'tipo_despesa_id'")->fetch();
+if (!$col_tipo) {
+    $pdo->exec("ALTER TABLE glpi_portal_orcamento ADD COLUMN tipo_despesa_id INT NULL");
+}
+
+// Migração de dados: linka cada linha ainda sem tipo_despesa_id ao catálogo,
+// por nome (case-insensitive); se a categoria não existir no catálogo,
+// cria a entrada (nunca deixa linha órfã). Roda a cada load, mas é barato
+// depois da primeira vez (WHERE tipo_despesa_id IS NULL já não acha nada).
+$pendentes = $pdo->query("SELECT DISTINCT categoria FROM glpi_portal_orcamento WHERE tipo_despesa_id IS NULL AND categoria IS NOT NULL AND categoria <> ''")->fetchAll(PDO::FETCH_COLUMN);
+foreach ($pendentes as $cat) {
+    $busca = $pdo->prepare("SELECT id FROM glpi_portal_despesas_tipos WHERE LOWER(nome) = LOWER(?)");
+    $busca->execute([$cat]);
+    $tipoId = $busca->fetchColumn();
+    if (!$tipoId) {
+        $pdo->prepare("INSERT INTO glpi_portal_despesas_tipos (nome) VALUES (?)")->execute([$cat]);
+        $tipoId = $pdo->lastInsertId();
+    }
+    $pdo->prepare("UPDATE glpi_portal_orcamento SET tipo_despesa_id = ? WHERE categoria = ? AND tipo_despesa_id IS NULL")->execute([$tipoId, $cat]);
+}
 ?>
