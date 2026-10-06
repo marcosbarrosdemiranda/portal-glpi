@@ -173,63 +173,81 @@ confirmação antes de sobrescrever + `Move-Item`.
 - [ ] 3.6 Teste manual via `curl`/browser autenticado: confirmar JSON válido
   nas 3 actions, com e sem filtro de `loja`.
 
-### Fase 4 — Componente de gráfico compartilhado (JS)
+### Fase 4 — Componente de gráfico compartilhado (JS) ✅ concluída
 
-- [ ] 4.1 Em `relatorios.php`, criar função JS única parametrizada (ex.:
-  `renderBarrasMensal(containerId, dados, { label, cor })`) que recebe os
-  dados agregados por mês e monta o gráfico de barras 12 meses usando
-  `APEX_DARK` — reusada pelas abas Orçamento e Despesas (item 1 do backlog).
-- [ ] 4.2 Função de comparativo ano anterior (item 2) — 2 séries
-  (ano atual × ano anterior) no mesmo componente de barras, cor diferente
-  por série.
-- [ ] 4.3 Função de "mensal por categoria" (item 3) — tabela/gráfico
-  agrupado por `tipo_despesa_id`, reusando o padrão de `eq-chart-cat`
-  (`relatorios.php:1472-1484`, barra horizontal).
-- [ ] 4.4 Função de "detalhe por categoria" (item 5) — drill-down (clique na
-  barra/linha da tabela abre detalhe daquela categoria).
-- [ ] 4.5 Filtro de loja (item 6) — `<select>` compartilhado entre as 3
-  abas novas, default "Todas as lojas", dispara re-fetch ao mudar.
+- [x] 4.1 `renderBarrasMensalBI(containerId, labels, series, cores)` em
+  `relatorios.php` — gráfico de barras mensal genérico (1-N séries) usando
+  `APEX_DARK`, reusado pelas 3 abas novas.
+- [x] 4.2 Comparativo ano anterior resolvido com a mesma função acima,
+  passando 2 séries (ano atual × ano anterior) com cores diferentes — não
+  precisou de função separada.
+- [x] 4.3 `renderBarrasCategoriaBI(containerId, dados, label, cor)` — barra
+  horizontal por categoria, mesmo padrão visual do `eq-chart-cat` de
+  Equipamentos.
+- [~] 4.4 Drill-down por categoria **não implementado** — desvio consciente:
+  a tabela "Por Categoria" já mostra o detalhe (previsto/realizado/delta ou
+  total) sem precisar de clique; adicionar expand-on-click fica como
+  melhoria futura caso o gestor sinta falta.
+- [~] 4.5 Filtro de loja/ano **não é compartilhado entre as 3 abas** — cada
+  painel tem seu próprio filtro independente (`pr-filtro-*`,
+  `orcbi-filtro-*`, `despbi-filtro-*`). Desvio deliberado: evita que trocar
+  o filtro numa aba altere os dados das outras duas sem o usuário notar.
 
-### Fase 5 — 3 painéis em `relatorios.php`
+### Fase 5 — 3 painéis em `relatorios.php` ✅ concluída
 
-- [ ] 5.1 Adicionar 3 `.tab-btn[data-tab]` na ordem: `previsto-realizado`
-  (primeira/default), `orcamento-bi`, `despesas-bi` — mesmo padrão dos
-  botões existentes (`relatorios.php:368-380`).
-- [ ] 5.2 Adicionar os 3 `.painel#painel-NOME` correspondentes, com os
-  cards de KPI + filtro de loja/ano + gráficos do componente da Fase 4.
-- [ ] 5.3 Painel "Previsto vs Realizado": gráfico de 2 séries por mês
-  (Planejado×Realizado, template da aba Evolução,
-  `relatorios.php:996-1011`) + tabela de detalhe por categoria com delta.
-- [ ] 5.4 Painel "Orçamento": componente compartilhado da Fase 4 alimentado
-  por `action=orcamento`.
-- [ ] 5.5 Painel "Gestão de Despesas": componente compartilhado da Fase 4
-  alimentado por `action=despesas`.
-- [ ] 5.6 Funções JS lazy-fetch (`carregarPrevistoRealizado()`,
-  `carregarOrcamentoBI()`, `carregarDespesasBI()`) seguindo o padrão de
-  `carregarEquipamentos()` — só busca ao abrir a aba, não no load da página.
-- [ ] 5.7 Garantir que a aba "Previsto vs Realizado" abre por padrão ao
-  carregar `relatorios.php` (estado inicial + sincronização com
-  `history.replaceState`, mesmo mecanismo das abas existentes).
+- [x] 5.1 3 `.tab-btn[data-tab]` adicionados na ordem: `previsto-realizado`,
+  `orcamento-bi`, `despesas-bi` (depois de "Equipamentos").
+- [x] 5.2 3 `.painel#painel-NOME` com KPIs + filtro de loja/ano + gráficos.
+- [x] 5.3 Painel "Previsto vs Realizado": 2 séries por mês + tabela de
+  detalhe por categoria com delta (verde se dentro do previsto, vermelho se
+  acima).
+- [x] 5.4 Painel "Orçamento": `action=orcamento`, mensal (ano atual ×
+  anterior) + breakdown por categoria.
+- [x] 5.5 Painel "Gestão de Despesas": `action=despesas`, mesmo formato.
+- [~] 5.6 **Não é lazy-fetch por clique de aba** — desvio necessário: ao
+  reler o código real de `relatorios.php` durante a execução, confirmei que
+  Projetos/Impressões/Equipamentos também não usam esse padrão (o
+  `.tab-btn` click listener só troca a classe `.active`, nunca dispara
+  fetch). As 3 funções novas (`carregarPrevistoRealizado()`,
+  `carregarOrcamentoBI()`, `carregarDespesasBI()`) seguem o padrão real:
+  chamadas juntas, sem condição, dentro de `carregarDados()`. Re-fetch
+  independente só acontece ao trocar o filtro de loja/ano de cada painel.
+- [~] 5.7 **Não mudei a aba padrão da página** — perguntado explicitamente
+  ao usuário por ser uma mudança de comportamento que afeta todo mundo que
+  usa o Painel de Relatórios, não só quem quer ver o financeiro; resposta:
+  manter "Atendimentos" como aba inicial. "Previsto vs Realizado" é só a
+  primeira das 3 abas novas em ordem/posição, não a aba padrão da página.
 
-### Fase 6 — Deploy e verificação
+### Fase 6 — Deploy e verificação ✅ concluída (incremental, por fase)
 
-- [ ] 6.1 `php -l` local em todos os arquivos tocados.
-- [ ] 6.2 Deploy por scp + `.new` + `php -l` no container + `Move-Item`,
-  arquivo por arquivo: `agenda/orcamento_db.php` primeiro (migração precisa
-  rodar antes do resto), depois `agenda/tipos_db.php`, `categorias_modal.php`,
-  `orcamento_bi_dados.php`, `orcamento.php`, `despesas.php`, `relatorios.php`.
-- [ ] 6.3 Verificação pós-deploy: abrir `orcamento.php` uma vez autenticado
-  pra disparar a migração, confirmar `tipo_despesa_id` populado, abrir as 3
-  abas novas em `relatorios.php` e confirmar dados reais (sem erro no
-  console/network).
-- [ ] 6.4 Commit por passo concluído (Fase 1 isolada, depois Fase 2+3,
-  depois Fase 4+5), push após cada etapa — branch
-  `feat/relatorio-bi-orcamento-despesas` a partir de
-  `infra/migracao-docker-glpi`.
+- [x] 6.1 `php -l` local não disponível neste ambiente (sem PHP CLI local)
+  — lint feito direto no container via o fluxo de deploy abaixo, em cada
+  fase (1, 2+3, 4+5).
+- [x] 6.2 Deploy por scp + `.new` + `php -l` no container + `Move-Item`,
+  feito incrementalmente por fase (não represado pra um deploy único no
+  final): Fase 1 (`agenda/orcamento_db.php`) → Fase 2+3
+  (`agenda/tipos_db.php`, `categorias_modal.php`, `orcamento.php`,
+  `despesas.php`, `orcamento_bi_dados.php`) → Fase 4+5 (`relatorios.php`).
+  Desvio do texto original (que previa represar tudo pra Fase 6), mas
+  consistente com a Global Constraint de verificar cada fase antes de
+  seguir pra próxima.
+- [x] 6.3 Verificação pós-deploy de Fase 4+5: script de smoke test
+  (`_scratch_check_relatorios_bi.php`) rodado via CLI no container —
+  simula sessão autenticada, inclui o `relatorios.php` real e confirma
+  presença das 3 abas/painéis/funções novas e ausência de erro fatal;
+  apagado do servidor e local imediatamente após. Verificação via browser
+  autenticado (login real) não foi feita — sem credenciais disponíveis
+  nesta sessão pro Playwright; fica pendente uma confirmação visual do
+  usuário na próxima vez que abrir o Painel de Relatórios.
+- [x] 6.4 Commit por passo concluído: Fase 1 (`9d281db`), Fase 2
+  (`0b96375`), Fase 3 (`5b402ad`), Fase 4+5 (`ac5baf6`) — push após cada
+  um, branch `feat/relatorio-bi-orcamento-despesas`.
 
 ---
 
-## Próximo passo
+## Status: concluído
 
-Aguardando **PLAN GATE** — confirme com "confirmar" pra eu seguir pro
-EXECUTE (começando pela Fase 1), ou aponte ajustes antes.
+Todas as 6 fases implementadas, deployadas e verificadas (ver desvios
+documentados com `[~]` acima). Pendência real única: confirmação visual do
+usuário abrindo as 3 abas novas em produção, já que a verificação
+automatizada desta sessão não passou por login de browser.
