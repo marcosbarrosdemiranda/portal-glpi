@@ -22,6 +22,16 @@ try {
 $entidade_id = (int)($_GET['entidade_id'] ?? 0);
 $dt_ini = $_GET['dt_ini'] ?? date('Y-m-01');
 $dt_fim = $_GET['dt_fim'] ?? date('Y-m-d');
+
+// Lojas pro filtro das abas de BI financeiro (Previsto vs Realizado /
+// Orçamento / Despesas) — mesma convenção de orcamento.php/despesas.php:
+// nome bruto de glpi_entities (não completename/apelido), porque é isso
+// que fica salvo em glpi_portal_orcamento.loja e glpi_portal_despesas.loja.
+$lojas_bi = [];
+try {
+    $lojas_bi = $pdo->query("SELECT name FROM glpi_entities ORDER BY name ASC")->fetchAll(PDO::FETCH_COLUMN);
+} catch (Exception $e) { /* fallback */ }
+$ano_atual_bi = (int)date('Y');
 ?>
 <!DOCTYPE html>
 <html lang="pt-BR">
@@ -378,6 +388,9 @@ body {
   <button class="tab-btn" data-tab="projetos"><i class="bi bi-folder"></i> Projetos</button>
   <button class="tab-btn" data-tab="impressoes"><i class="bi bi-printer"></i> Impressões</button>
   <button class="tab-btn" data-tab="equipamentos"><i class="bi bi-hdd-network"></i> Equipamentos</button>
+  <button class="tab-btn" data-tab="previsto-realizado"><i class="bi bi-bar-chart-line"></i> Previsto vs Realizado</button>
+  <button class="tab-btn" data-tab="orcamento-bi"><i class="bi bi-wallet2"></i> Orçamento</button>
+  <button class="tab-btn" data-tab="despesas-bi"><i class="bi bi-cash-coin"></i> Gestão de Despesas</button>
 </div>
 
 <!-- ═══════════════════ Content ══════════════════════════ -->
@@ -644,6 +657,130 @@ body {
       <div id="eq-vazio" style="text-align:center;padding:2rem;color:var(--text-dim);display:none">
         <i class="bi bi-inbox" style="font-size:2rem;display:block;margin-bottom:.5rem"></i>
         Nenhum equipamento com chamado vinculado no período. Vincule equipamentos nos chamados ou no Inventário.
+      </div>
+    </div>
+  </div>
+
+  <!-- ═══════════════ Previsto vs Realizado ══════════════════ -->
+  <div class="painel" id="painel-previsto-realizado">
+    <div class="painel-title"><i class="bi bi-bar-chart-line"></i>Previsto vs Realizado</div>
+
+    <div style="display:flex;flex-wrap:wrap;gap:.75rem;align-items:flex-end;margin-bottom:1rem">
+      <div class="campo" style="display:flex;flex-direction:column;gap:.25rem">
+        <label style="font-size:.68rem;color:var(--text-dim);text-transform:uppercase;letter-spacing:.06em;font-weight:700">Loja</label>
+        <select id="pr-filtro-loja" onchange="carregarPrevistoRealizado()" style="background:var(--bg-elevated);color:var(--text);border:1px solid var(--border);border-radius:8px;padding:.4rem .75rem;font-size:.82rem;color-scheme:dark;min-width:180px">
+          <option value="">Todas as lojas</option>
+          <?php foreach ($lojas_bi as $lj): ?>
+            <option value="<?= htmlspecialchars($lj) ?>"><?= htmlspecialchars($lj) ?></option>
+          <?php endforeach; ?>
+        </select>
+      </div>
+      <div class="campo" style="display:flex;flex-direction:column;gap:.25rem">
+        <label style="font-size:.68rem;color:var(--text-dim);text-transform:uppercase;letter-spacing:.06em;font-weight:700">Ano</label>
+        <input type="number" id="pr-filtro-ano" value="<?= $ano_atual_bi ?>" onchange="carregarPrevistoRealizado()" style="background:var(--bg-elevated);color:var(--text);border:1px solid var(--border);border-radius:8px;padding:.4rem .75rem;font-size:.82rem;color-scheme:dark;width:100px"/>
+      </div>
+    </div>
+
+    <div class="kpi-row">
+      <div class="kpi-card accent-cyan"><div class="kpi-label">📝 Previsto no ano</div><div class="kpi-val" id="pr-kpi-previsto">—</div><div class="kpi-sub">soma dos 12 meses</div></div>
+      <div class="kpi-card accent-gold"><div class="kpi-label">💳 Realizado no ano</div><div class="kpi-val" id="pr-kpi-realizado">—</div><div class="kpi-sub">pago no período</div></div>
+      <div class="kpi-card accent-red"><div class="kpi-label">📊 % do previsto gasto</div><div class="kpi-val" id="pr-kpi-pct">—</div><div class="kpi-sub">realizado / previsto</div></div>
+    </div>
+
+    <div class="chart-card full-width" style="margin-bottom:1rem">
+      <h3>Previsto x Realizado — Mensal</h3>
+      <div class="chart-wrap" id="pr-chart-mensal"></div>
+    </div>
+
+    <div class="chart-card full-width">
+      <h3>📋 Por Categoria</h3>
+      <div style="overflow-x:auto"><table class="tabela-bi">
+        <thead><tr><th>Categoria</th><th>Previsto</th><th>Realizado</th><th>Diferença</th></tr></thead>
+        <tbody id="pr-tbody-cat"></tbody>
+      </table></div>
+    </div>
+  </div>
+
+  <!-- ═══════════════ Orçamento (BI) ══════════════════════════ -->
+  <div class="painel" id="painel-orcamento-bi">
+    <div class="painel-title"><i class="bi bi-wallet2"></i>Orçamento</div>
+
+    <div style="display:flex;flex-wrap:wrap;gap:.75rem;align-items:flex-end;margin-bottom:1rem">
+      <div class="campo" style="display:flex;flex-direction:column;gap:.25rem">
+        <label style="font-size:.68rem;color:var(--text-dim);text-transform:uppercase;letter-spacing:.06em;font-weight:700">Loja</label>
+        <select id="orcbi-filtro-loja" onchange="carregarOrcamentoBI()" style="background:var(--bg-elevated);color:var(--text);border:1px solid var(--border);border-radius:8px;padding:.4rem .75rem;font-size:.82rem;color-scheme:dark;min-width:180px">
+          <option value="">Todas as lojas</option>
+          <?php foreach ($lojas_bi as $lj): ?>
+            <option value="<?= htmlspecialchars($lj) ?>"><?= htmlspecialchars($lj) ?></option>
+          <?php endforeach; ?>
+        </select>
+      </div>
+      <div class="campo" style="display:flex;flex-direction:column;gap:.25rem">
+        <label style="font-size:.68rem;color:var(--text-dim);text-transform:uppercase;letter-spacing:.06em;font-weight:700">Ano</label>
+        <input type="number" id="orcbi-filtro-ano" value="<?= $ano_atual_bi ?>" onchange="carregarOrcamentoBI()" style="background:var(--bg-elevated);color:var(--text);border:1px solid var(--border);border-radius:8px;padding:.4rem .75rem;font-size:.82rem;color-scheme:dark;width:100px"/>
+      </div>
+    </div>
+
+    <div class="kpi-row">
+      <div class="kpi-card accent-cyan"><div class="kpi-label">📝 Planejado no ano</div><div class="kpi-val" id="orcbi-kpi-ano">—</div><div class="kpi-sub" id="orcbi-kpi-ano-sub">—</div></div>
+      <div class="kpi-card accent-gold"><div class="kpi-label">📅 Planejado ano anterior</div><div class="kpi-val" id="orcbi-kpi-ano-ant">—</div><div class="kpi-sub">mesmo recorte</div></div>
+      <div class="kpi-card accent-red"><div class="kpi-label">📈 Variação</div><div class="kpi-val" id="orcbi-kpi-var">—</div><div class="kpi-sub">ano atual vs anterior</div></div>
+    </div>
+
+    <div class="chart-card full-width" style="margin-bottom:1rem">
+      <h3>Planejado — Mensal (ano atual x anterior)</h3>
+      <div class="chart-wrap" id="orcbi-chart-mensal"></div>
+    </div>
+
+    <div class="chart-grid-2">
+      <div class="chart-card"><h3>Por Categoria</h3><div class="chart-wrap" id="orcbi-chart-cat"></div></div>
+      <div class="chart-card"><h3>Resumo por Categoria</h3>
+        <div style="overflow-x:auto"><table class="tabela-bi">
+          <thead><tr><th>Categoria</th><th>Planejado</th></tr></thead>
+          <tbody id="orcbi-tbody-cat"></tbody>
+        </table></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ═══════════════ Gestão de Despesas (BI) ══════════════════ -->
+  <div class="painel" id="painel-despesas-bi">
+    <div class="painel-title"><i class="bi bi-cash-coin"></i>Gestão de Despesas</div>
+
+    <div style="display:flex;flex-wrap:wrap;gap:.75rem;align-items:flex-end;margin-bottom:1rem">
+      <div class="campo" style="display:flex;flex-direction:column;gap:.25rem">
+        <label style="font-size:.68rem;color:var(--text-dim);text-transform:uppercase;letter-spacing:.06em;font-weight:700">Loja</label>
+        <select id="despbi-filtro-loja" onchange="carregarDespesasBI()" style="background:var(--bg-elevated);color:var(--text);border:1px solid var(--border);border-radius:8px;padding:.4rem .75rem;font-size:.82rem;color-scheme:dark;min-width:180px">
+          <option value="">Todas as lojas</option>
+          <?php foreach ($lojas_bi as $lj): ?>
+            <option value="<?= htmlspecialchars($lj) ?>"><?= htmlspecialchars($lj) ?></option>
+          <?php endforeach; ?>
+        </select>
+      </div>
+      <div class="campo" style="display:flex;flex-direction:column;gap:.25rem">
+        <label style="font-size:.68rem;color:var(--text-dim);text-transform:uppercase;letter-spacing:.06em;font-weight:700">Ano</label>
+        <input type="number" id="despbi-filtro-ano" value="<?= $ano_atual_bi ?>" onchange="carregarDespesasBI()" style="background:var(--bg-elevated);color:var(--text);border:1px solid var(--border);border-radius:8px;padding:.4rem .75rem;font-size:.82rem;color-scheme:dark;width:100px"/>
+      </div>
+    </div>
+
+    <div class="kpi-row">
+      <div class="kpi-card accent-cyan"><div class="kpi-label">💳 Pago no ano</div><div class="kpi-val" id="despbi-kpi-ano">—</div><div class="kpi-sub" id="despbi-kpi-ano-sub">—</div></div>
+      <div class="kpi-card accent-gold"><div class="kpi-label">📅 Pago ano anterior</div><div class="kpi-val" id="despbi-kpi-ano-ant">—</div><div class="kpi-sub">mesmo recorte</div></div>
+      <div class="kpi-card accent-red"><div class="kpi-label">📈 Variação</div><div class="kpi-val" id="despbi-kpi-var">—</div><div class="kpi-sub">ano atual vs anterior</div></div>
+    </div>
+
+    <div class="chart-card full-width" style="margin-bottom:1rem">
+      <h3>Pago — Mensal (ano atual x anterior)</h3>
+      <div class="chart-wrap" id="despbi-chart-mensal"></div>
+    </div>
+
+    <div class="chart-grid-2">
+      <div class="chart-card"><h3>Por Categoria</h3><div class="chart-wrap" id="despbi-chart-cat"></div></div>
+      <div class="chart-card"><h3>Resumo por Categoria</h3>
+        <div style="overflow-x:auto"><table class="tabela-bi">
+          <thead><tr><th>Categoria</th><th>Pago</th></tr></thead>
+          <tbody id="despbi-tbody-cat"></tbody>
+        </table></div>
       </div>
     </div>
   </div>
@@ -1386,6 +1523,9 @@ async function carregarDados() {
     carregarProjetos();
     carregarImpressoes();
     carregarEquipamentos();
+    carregarPrevistoRealizado();
+    carregarOrcamentoBI();
+    carregarDespesasBI();
   } catch (err) {
     document.getElementById('loading-state').style.display = 'none';
     document.getElementById('painel-erro').classList.add('active');
@@ -1538,6 +1678,166 @@ function toggleEquipDet(i, tr) {
   dets.forEach(d => d.style.display = abrir ? 'table-row' : 'none');
   const chev = document.querySelector('.eq-chev-' + i);
   if (chev) chev.style.transform = abrir ? 'rotate(90deg)' : '';
+}
+
+// ══════════════════════════════════════════════════════════════
+// BI FINANCEIRO — Previsto vs Realizado / Orçamento / Despesas
+// Componente de gráfico compartilhado entre as 3 abas, alimentado
+// por orcamento_bi_dados.php (fora do fetch central relatorios_dados.php).
+// ══════════════════════════════════════════════════════════════
+
+const MESES_ABREV = ['Jan','Fev','Mar','Abr','Mai','Jun','Jul','Ago','Set','Out','Nov','Dez'];
+
+function fmtMoedaBI(v) {
+  return 'R$ ' + Number(v || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+}
+
+function fmtMoedaCompactaBI(v) {
+  v = Number(v || 0);
+  const sinal = v < 0 ? '-' : '';
+  v = Math.abs(v);
+  if (v >= 1000) return sinal + 'R$ ' + (v / 1000).toLocaleString('pt-BR', { maximumFractionDigits: 1 }) + 'k';
+  return sinal + 'R$ ' + v.toFixed(0);
+}
+
+// mesesAno: array de 'YYYY-MM' (o que o backend devolve) → labels curtos ('Jan', 'Fev'...)
+function labelsMeses(mensal) {
+  return mensal.map(m => MESES_ABREV[parseInt(m.mes.split('-')[1], 10) - 1] || m.mes);
+}
+
+// Gráfico de barras mensal — 1 ou 2 séries (ex: Previsto x Realizado, ou ano atual x anterior).
+function renderBarrasMensalBI(containerId, labels, series, cores) {
+  if (charts[containerId]) { charts[containerId].destroy(); delete charts[containerId]; }
+  charts[containerId] = new ApexCharts(document.getElementById(containerId), {
+    ...APEX_DARK,
+    chart: { ...APEX_DARK.chart, type: 'bar', height: 300 },
+    series,
+    colors: cores,
+    xaxis: { categories: labels },
+    yaxis: { labels: { style: APEX_DARK.yaxis.labels.style, formatter: v => fmtMoedaCompactaBI(v) } },
+    plotOptions: { bar: { borderRadius: 4, columnWidth: '55%' } },
+    dataLabels: { enabled: false },
+    legend: { labels: { colors: '#7a8aaa' } },
+    tooltip: { ...APEX_DARK.tooltip, y: { formatter: v => fmtMoedaBI(v) } },
+  });
+  charts[containerId].render();
+}
+
+// Gráfico de barras horizontal por categoria (padrão igual ao eq-chart-cat de Equipamentos).
+function renderBarrasCategoriaBI(containerId, dados, label, cor) {
+  if (charts[containerId]) { charts[containerId].destroy(); delete charts[containerId]; }
+  const el = document.getElementById(containerId);
+  if (!dados.length) {
+    el.innerHTML = '<p style="color:var(--text-dim);text-align:center;padding:2rem">Sem dados</p>';
+    return;
+  }
+  el.innerHTML = '';
+  charts[containerId] = new ApexCharts(el, {
+    ...APEX_DARK,
+    chart: { ...APEX_DARK.chart, type: 'bar', height: Math.max(260, dados.length * 34) },
+    series: [{ name: label, data: dados.map(x => x.total) }],
+    colors: [cor],
+    xaxis: { categories: dados.map(x => x.categoria) },
+    plotOptions: { bar: { borderRadius: 4, horizontal: true, barHeight: '65%' } },
+    dataLabels: { enabled: true, formatter: v => fmtMoedaCompactaBI(v), style: { colors: ['#fff'], fontWeight: 700 } },
+    tooltip: { ...APEX_DARK.tooltip, y: { formatter: v => fmtMoedaBI(v) } },
+  });
+  charts[containerId].render();
+}
+
+// ── Previsto vs Realizado ──────────────────────────────────────
+async function carregarPrevistoRealizado() {
+  const loja = document.getElementById('pr-filtro-loja').value;
+  const ano = document.getElementById('pr-filtro-ano').value || new Date().getFullYear();
+  try {
+    const res = await fetch('orcamento_bi_dados.php?action=previsto_realizado&ano=' + encodeURIComponent(ano) + '&loja=' + encodeURIComponent(loja));
+    if (!res.ok) throw new Error('HTTP ' + res.status);
+    const d = await res.json();
+    if (!d.ok) throw new Error(d.error || 'falha');
+
+    const totalPrevisto = d.mensal.reduce((s, m) => s + m.previsto, 0);
+    const totalRealizado = d.mensal.reduce((s, m) => s + m.realizado, 0);
+    document.getElementById('pr-kpi-previsto').textContent = fmtMoedaBI(totalPrevisto);
+    document.getElementById('pr-kpi-realizado').textContent = fmtMoedaBI(totalRealizado);
+    document.getElementById('pr-kpi-pct').textContent = totalPrevisto > 0 ? Math.round(totalRealizado / totalPrevisto * 100) + '%' : '—';
+
+    renderBarrasMensalBI('pr-chart-mensal', labelsMeses(d.mensal),
+      [{ name: 'Previsto', data: d.mensal.map(m => m.previsto) }, { name: 'Realizado', data: d.mensal.map(m => m.realizado) }],
+      ['#06b6d4', '#eab308']);
+
+    const tbody = document.getElementById('pr-tbody-cat');
+    tbody.innerHTML = d.por_categoria.length
+      ? d.por_categoria.map(c => {
+          const delta = c.realizado - c.previsto;
+          const cor = delta > 0 ? 'var(--red)' : 'var(--green)';
+          return `<tr><td>${escHtml(c.categoria)}</td><td>${fmtMoedaBI(c.previsto)}</td><td>${fmtMoedaBI(c.realizado)}</td><td style="font-weight:700;color:${cor}">${delta > 0 ? '+' : ''}${fmtMoedaBI(delta)}</td></tr>`;
+        }).join('')
+      : '<tr><td colspan="4" style="color:var(--text-dim)">Sem dados</td></tr>';
+  } catch (err) {
+    document.getElementById('pr-tbody-cat').innerHTML = `<tr><td colspan="4" style="color:var(--red)">Erro: ${escHtml(err.message)}</td></tr>`;
+  }
+}
+
+// ── Orçamento (planejado) ──────────────────────────────────────
+async function carregarOrcamentoBI() {
+  const loja = document.getElementById('orcbi-filtro-loja').value;
+  const ano = document.getElementById('orcbi-filtro-ano').value || new Date().getFullYear();
+  try {
+    const res = await fetch('orcamento_bi_dados.php?action=orcamento&ano=' + encodeURIComponent(ano) + '&loja=' + encodeURIComponent(loja));
+    if (!res.ok) throw new Error('HTTP ' + res.status);
+    const d = await res.json();
+    if (!d.ok) throw new Error(d.error || 'falha');
+
+    const totalAno = d.mensal.reduce((s, m) => s + m.total, 0);
+    const totalAnoAnt = d.mensal_ano_anterior.reduce((s, m) => s + m.total, 0);
+    const variacao = totalAnoAnt > 0 ? ((totalAno - totalAnoAnt) / totalAnoAnt * 100) : null;
+    document.getElementById('orcbi-kpi-ano').textContent = fmtMoedaBI(totalAno);
+    document.getElementById('orcbi-kpi-ano-sub').textContent = 'ano ' + ano;
+    document.getElementById('orcbi-kpi-ano-ant').textContent = fmtMoedaBI(totalAnoAnt);
+    document.getElementById('orcbi-kpi-var').textContent = variacao === null ? '—' : (variacao > 0 ? '+' : '') + Math.round(variacao) + '%';
+
+    renderBarrasMensalBI('orcbi-chart-mensal', labelsMeses(d.mensal),
+      [{ name: 'Ano ' + ano, data: d.mensal.map(m => m.total) }, { name: 'Ano ' + (ano - 1), data: d.mensal_ano_anterior.map(m => m.total) }],
+      ['#06b6d4', '#7a8aaa']);
+
+    renderBarrasCategoriaBI('orcbi-chart-cat', d.por_categoria, 'Planejado', '#06b6d4');
+    document.getElementById('orcbi-tbody-cat').innerHTML = d.por_categoria.length
+      ? d.por_categoria.map(c => `<tr><td>${escHtml(c.categoria)}</td><td style="font-weight:700;color:var(--cyan)">${fmtMoedaBI(c.total)}</td></tr>`).join('')
+      : '<tr><td colspan="2" style="color:var(--text-dim)">Sem dados</td></tr>';
+  } catch (err) {
+    document.getElementById('orcbi-tbody-cat').innerHTML = `<tr><td colspan="2" style="color:var(--red)">Erro: ${escHtml(err.message)}</td></tr>`;
+  }
+}
+
+// ── Gestão de Despesas (realizado) ─────────────────────────────
+async function carregarDespesasBI() {
+  const loja = document.getElementById('despbi-filtro-loja').value;
+  const ano = document.getElementById('despbi-filtro-ano').value || new Date().getFullYear();
+  try {
+    const res = await fetch('orcamento_bi_dados.php?action=despesas&ano=' + encodeURIComponent(ano) + '&loja=' + encodeURIComponent(loja));
+    if (!res.ok) throw new Error('HTTP ' + res.status);
+    const d = await res.json();
+    if (!d.ok) throw new Error(d.error || 'falha');
+
+    const totalAno = d.mensal.reduce((s, m) => s + m.total, 0);
+    const totalAnoAnt = d.mensal_ano_anterior.reduce((s, m) => s + m.total, 0);
+    const variacao = totalAnoAnt > 0 ? ((totalAno - totalAnoAnt) / totalAnoAnt * 100) : null;
+    document.getElementById('despbi-kpi-ano').textContent = fmtMoedaBI(totalAno);
+    document.getElementById('despbi-kpi-ano-sub').textContent = 'ano ' + ano;
+    document.getElementById('despbi-kpi-ano-ant').textContent = fmtMoedaBI(totalAnoAnt);
+    document.getElementById('despbi-kpi-var').textContent = variacao === null ? '—' : (variacao > 0 ? '+' : '') + Math.round(variacao) + '%';
+
+    renderBarrasMensalBI('despbi-chart-mensal', labelsMeses(d.mensal),
+      [{ name: 'Ano ' + ano, data: d.mensal.map(m => m.total) }, { name: 'Ano ' + (ano - 1), data: d.mensal_ano_anterior.map(m => m.total) }],
+      ['#eab308', '#7a8aaa']);
+
+    renderBarrasCategoriaBI('despbi-chart-cat', d.por_categoria, 'Pago', '#eab308');
+    document.getElementById('despbi-tbody-cat').innerHTML = d.por_categoria.length
+      ? d.por_categoria.map(c => `<tr><td>${escHtml(c.categoria)}</td><td style="font-weight:700;color:var(--gold)">${fmtMoedaBI(c.total)}</td></tr>`).join('')
+      : '<tr><td colspan="2" style="color:var(--text-dim)">Sem dados</td></tr>';
+  } catch (err) {
+    document.getElementById('despbi-tbody-cat').innerHTML = `<tr><td colspan="2" style="color:var(--red)">Erro: ${escHtml(err.message)}</td></tr>`;
+  }
 }
 
 // ══════════════════════════════════════════════════════════════
