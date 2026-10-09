@@ -178,9 +178,18 @@ function gat_msg_alerta_novo(string $nomeTipo, array $o): string
          . (string) ($o['detalhe'] ?? '');
 }
 
-function gat_msg_alerta_resolvido(string $nomeTipo, string $chave): string
+/**
+ * $titulo/$loja vêm do último evento 'nova' gravado em portal_alertas_historico
+ * pra essa chave (mesmo texto que saiu no 🔔) — sem isso, cai no fallback de
+ * derivar da própria chave (ex.: "device:138" -> "138"), que é a chave crua,
+ * não o nome/loja do dispositivo.
+ */
+function gat_msg_alerta_resolvido(string $nomeTipo, string $chave, ?string $titulo = null, ?string $loja = null): string
 {
-    return "✅ *Resolvido — {$nomeTipo}*\n" . gat_alerta_titulo_da_chave($chave);
+    $tituloFinal = ($titulo !== null && $titulo !== '')
+        ? gat_alerta_titulo_loja($titulo, $loja ?? '')
+        : gat_alerta_titulo_da_chave($chave);
+    return "✅ *Resolvido — {$nomeTipo}*\n" . $tituloFinal;
 }
 
 /**
@@ -403,6 +412,12 @@ function gat_alertas_tipo(PDO $pdo, string $slug, array $def, array $cfg, string
     $del = $pdo->prepare(
         "DELETE FROM portal_alertas_ocorrencias WHERE tipo = ? AND chave = ?"
     );
+    // Recupera titulo/loja do último 🔔 dessa chave pra montar o ✅ igual.
+    $ultimaNova = $pdo->prepare(
+        "SELECT titulo, loja FROM portal_alertas_historico
+         WHERE tipo = ? AND chave = ? AND evento = 'nova'
+         ORDER BY criado_em DESC LIMIT 1"
+    );
 
     // Horário de silêncio por tipo (portal_alertas_horario, configurável em
     // alertas_config.php) — só se aplica quando notif_whatsapp está ligado;
@@ -428,12 +443,20 @@ function gat_alertas_tipo(PDO $pdo, string $slug, array $def, array $cfg, string
     // RESOLVIDAS
     foreach ($guardadas as $chave => $row) {
         if (isset($porChave[$chave])) continue;
+        $ultimaNova->execute([$slug, $chave]);
+        $nova   = $ultimaNova->fetch(PDO::FETCH_ASSOC) ?: null;
+        $titulo = $nova['titulo'] ?? null;
+        $loja   = $nova['loja'] ?? null;
         if ($notifica) {
-            $r = gat_enviar($grupo, gat_msg_alerta_resolvido($nome, (string) $chave));
+            $r = gat_enviar($grupo, gat_msg_alerta_resolvido($nome, (string) $chave, $titulo, $loja));
             if (empty($r['ok'])) continue;   // não apaga -> re-tenta
         }
         $del->execute([$slug, $chave]);
-        alertas_historico_registrar($pdo, $slug, (string) $chave, 'resolvida', gat_alerta_titulo_da_chave((string) $chave));
+        alertas_historico_registrar(
+            $pdo, $slug, (string) $chave, 'resolvida',
+            ($titulo !== null && $titulo !== '') ? $titulo : gat_alerta_titulo_da_chave((string) $chave),
+            $loja
+        );
     }
 
     // LEMBRETE — também respeita o horário de silêncio (nada de reenviar às 3h
