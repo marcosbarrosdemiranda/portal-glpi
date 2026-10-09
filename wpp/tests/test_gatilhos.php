@@ -165,7 +165,13 @@ t_eq(
 t_eq(
     gat_msg_alerta_resolvido('Discos quase cheios', 'disco:SRV-01|C:'),
     "✅ *Resolvido — Discos quase cheios*\nSRV-01 (C:)",
-    'msg_alerta_resolvido: extrai o titulo legível da chave'
+    'msg_alerta_resolvido: sem titulo/loja do histórico, cai no fallback de extrair da chave'
+);
+// com titulo/loja (vindos do histórico) -> usa o mesmo "titulo — loja" do 🔔, não a chave crua
+t_eq(
+    gat_msg_alerta_resolvido('Sem comunicação (IPs/dispositivos)', 'device:138', 'PDV129-LJ003', 'Lj 003'),
+    "✅ *Resolvido — Sem comunicação (IPs/dispositivos)*\nPDV129-LJ003 — Lj 003",
+    'msg_alerta_resolvido: com titulo/loja, mostra "titulo — loja" igual ao alerta de novo'
 );
 
 $devidas = [];
@@ -324,6 +330,23 @@ if (isset($pdo) && $pdo instanceof PDO) {
         t_eq(count($enviadas), 0, 'gat_alertas_tipo: grupo vazio -> 0 envios');
         t_eq((int) $pdo->query("SELECT COUNT(*) FROM portal_alertas_ocorrencias WHERE tipo='$TIPO'")->fetchColumn(), 1,
              'gat_alertas_tipo: grupo vazio ainda popula a tabela');
+
+        // -- RESOLVIDA com chave != titulo (caso real: "device:138" vs "PDV129-LJ003 — Lj 003")
+        // -- o ✅ tem que mostrar o mesmo titulo/loja do 🔔 anterior, não a chave crua derivada.
+        $limpa();
+        $enviadas = [];
+        $GLOBALS['__wpp_fake_send'] = function ($d, $t) use (&$enviadas) { $enviadas[] = [$d, $t]; return ['ok' => true]; };
+        $oDevice = ['chave' => 'device:999', 'titulo' => 'PDV129-LJ003', 'loja' => 'Lj 003', 'detalhe' => 'x'];
+        $GLOBALS['__fake_ocorr'] = [$oDevice];
+        gat_alertas_tipo($pdo, $TIPO, $defFake, $cfg(true), $GRP);   // NOVA
+        $enviadas = [];
+        $GLOBALS['__fake_ocorr'] = [];
+        gat_alertas_tipo($pdo, $TIPO, $defFake, $cfg(true), $GRP);   // RESOLVIDA
+        t_eq(
+            $enviadas[0][1] ?? '',
+            "✅ *Resolvido — Alerta de Teste*\nPDV129-LJ003 — Lj 003",
+            'gat_alertas_tipo: ✅ mostra titulo — loja do histórico, não a chave crua ("999")'
+        );
     } finally {
         unset($GLOBALS['__wpp_fake_send'], $GLOBALS['__fake_ocorr']);
         $limpa();
