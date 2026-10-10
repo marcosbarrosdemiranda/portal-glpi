@@ -148,3 +148,59 @@ if ($pdo instanceof PDO) {
         $limpa();
     }
 }
+
+// ---------------------------------------------------------------------------
+// monitor_check_tipo() — horário por categoria/loja (fix 2026-10-10: sem_contato
+// vazava notificação fora do horário configurado, porque só "device" era filtrado;
+// link/latencia/service continuam sempre alertando, isso não mudou).
+// ligado_muito_tempo não é testado aqui: a SQL do tipo já quebra por causa de
+// g.max_horas ausente (bug separado, ver backlog_monitor-max-horas-missing).
+// ---------------------------------------------------------------------------
+if ($pdo instanceof PDO) {
+    $LOJA_PDV = '__teste_loja_pdv__';
+    $LOJA_FW  = '__teste_loja_fw__';
+    $dia = (int) date('w');
+    $limpaHorario = function () use ($pdo, $LOJA_PDV, $LOJA_FW, $dia) {
+        $pdo->prepare("DELETE FROM portal_monitor_dispositivos WHERE origem = 'manual' AND nome LIKE '__teste_monitor_horario__%'")->execute();
+        monitor_horario_excecao_excluir($pdo, 'pdvs', $LOJA_PDV, $dia);
+        monitor_horario_excecao_excluir($pdo, 'firewalls', $LOJA_FW, $dia);
+    };
+    try {
+        $limpaHorario();
+
+        // janela garantidamente fora de "agora" (2-3h atrás, não cruza pra incluir o
+        // horário atual em nenhum caso) e janela que cobre o dia inteiro
+        $foraIni = date('H:i:s', strtotime('-3 hours'));
+        $foraFim = date('H:i:s', strtotime('-2 hours'));
+        $diaTodoIni = '00:00:00';
+        $diaTodoFim = '23:59:59';
+
+        $idPdv = monitor_manual_criar($pdo, '__teste_monitor_horario__pdv', '10.255.255.21', $LOJA_PDV, 'pdvs');
+        monitor_set_monitorar($pdo, $idPdv, true);
+        $pdo->prepare("UPDATE portal_monitor_dispositivos SET status = 'down', status_desde = NOW() WHERE id = ?")->execute([$idPdv]);
+        $chavePdv = "monitor:sem_contato:$idPdv";
+
+        $idFw = monitor_manual_criar($pdo, '__teste_monitor_horario__fw', '10.255.255.22', $LOJA_FW, 'firewalls');
+        monitor_set_monitorar($pdo, $idFw, true);
+        $pdo->prepare("UPDATE portal_monitor_dispositivos SET status = 'down', status_desde = NOW() WHERE id = ?")->execute([$idFw]);
+        $chaveFw = "monitor:link:$idFw";
+
+        // fora do horário configurado -> sem_contato não dispara pro PDV (fix)
+        monitor_horario_excecao_salvar($pdo, 'pdvs', $LOJA_PDV, $dia, $foraIni, $foraFim);
+        $chaves = array_column(monitor_check_tipo($pdo, 'sem_contato'), 'chave');
+        t_ok(!in_array($chavePdv, $chaves, true), 'check_tipo(sem_contato): fora do horário configurado -> não aparece');
+
+        // dentro do horário configurado -> volta a aparecer
+        monitor_horario_excecao_salvar($pdo, 'pdvs', $LOJA_PDV, $dia, $diaTodoIni, $diaTodoFim);
+        $chaves = array_column(monitor_check_tipo($pdo, 'sem_contato'), 'chave');
+        t_ok(in_array($chavePdv, $chaves, true), 'check_tipo(sem_contato): dentro do horário configurado -> aparece');
+
+        // link (infra) ignora horário por categoria mesmo com exceção fora da janela -> sempre alerta
+        monitor_horario_excecao_salvar($pdo, 'firewalls', $LOJA_FW, $dia, $foraIni, $foraFim);
+        $chaves = array_column(monitor_check_tipo($pdo, 'link'), 'chave');
+        t_ok(in_array($chaveFw, $chaves, true), 'check_tipo(link): não respeita horário por categoria (infra sempre alerta)');
+    } finally {
+        $pdo->prepare("DELETE FROM portal_monitor_dispositivos WHERE origem = 'manual' AND nome LIKE '__teste_monitor_horario__%'")->execute();
+        $limpaHorario();
+    }
+}
