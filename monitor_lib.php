@@ -680,10 +680,13 @@ function monitor_check_tipo(PDO $pdo, string $tipo): array
         ];
     }
 
-    // Único dos tipos "down atual" que respeita o horário por categoria/loja
-    // e feriado — decisão antiga do usuário (era assim no The Dude também):
-    // Link/Latência/Serviço sempre alertam, independente de horário.
-    if ($tipo === 'device') {
+    // Tipos escopados ao grupo "pdvs" (device/sem_contato/ligado_muito_tempo) respeitam o
+    // horário por categoria/loja e feriado — todos checam o mesmo PDV, então o silêncio
+    // configurado tem que valer pros três, não só pro "device". Fix 2026-10-10: sem_contato
+    // e ligado_muito_tempo vazavam notificação fora do horário porque só "device" era filtrado.
+    // Link/Latência/Serviço (infra, não depende de loja/horário) continuam sempre alertando —
+    // decisão antiga do usuário (era assim no The Dude também).
+    if (in_array($tipo, ['device', 'sem_contato', 'ligado_muito_tempo'], true)) {
         $out = array_values(array_filter(
             $out,
             fn($o) => monitor_categoria_no_horario($pdo, $o['categoria'], $o['loja']) && !monitor_feriado_hoje($pdo, $o['loja'])
