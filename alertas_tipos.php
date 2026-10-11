@@ -698,7 +698,7 @@ function antena_ocorrencias_offline(array $antenas): array
         $out[] = [
             'chave'   => 'antena_offline:' . $a['id'],
             'titulo'  => 'Antena offline: ' . ($a['nome'] ?? $a['ip'] ?? ''),
-            'loja'    => '',
+            'loja'    => (string) ($a['loja'] ?? ''),
             'detalhe' => 'IP ' . ($a['ip'] ?? '?') . ' não respondeu via SSH'
                 . (!empty($a['ultima_verificacao']) ? ' (última verificação: ' . $a['ultima_verificacao'] . ')' : ''),
         ];
@@ -723,7 +723,7 @@ function antena_ocorrencias_reinicio(array $antenas): array
         $out[] = [
             'chave'   => 'antena_reinicio:' . $a['id'] . ':' . ($a['ultima_verificacao'] ?? (string) time()),
             'titulo'  => 'Antena reiniciou: ' . ($a['nome'] ?? $a['ip'] ?? ''),
-            'loja'    => '',
+            'loja'    => (string) ($a['loja'] ?? ''),
             'detalhe' => 'Uptime caiu de ' . (int) $anterior . 's para ' . (int) $atual . 's',
         ];
     }
@@ -739,7 +739,7 @@ function antena_ocorrencias_clientes_excesso(array $antenas, int $limite): array
         $out[] = [
             'chave'   => 'antena_clientes_excesso:' . $a['id'],
             'titulo'  => 'Excesso de clientes: ' . ($a['nome'] ?? $a['ip'] ?? ''),
-            'loja'    => '',
+            'loja'    => (string) ($a['loja'] ?? ''),
             'detalhe' => (int) $clientes . ' clientes conectados (limite ' . $limite . ')',
         ];
     }

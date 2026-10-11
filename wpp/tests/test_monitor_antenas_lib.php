@@ -11,11 +11,13 @@ global $pdo;
 // antena_ocorrencias_*() — puras, sem banco/rede (filtros usados pelos 3 checks)
 // ---------------------------------------------------------------------------
 $offline = antena_ocorrencias_offline([
-    ['id' => 1, 'nome' => 'Loja A', 'ip' => '10.0.0.1', 'status' => 'offline', 'ultima_verificacao' => '2026-10-10 08:00:00'],
+    ['id' => 1, 'nome' => 'Loja A', 'ip' => '10.0.0.1', 'loja' => 'Lj 001', 'status' => 'offline', 'ultima_verificacao' => '2026-10-10 08:00:00'],
     ['id' => 2, 'nome' => 'Loja B', 'ip' => '10.0.0.2', 'status' => 'online'],
 ]);
 t_eq(count($offline), 1, 'ocorrencias_offline: só a antena offline gera ocorrência');
 t_eq($offline[0]['chave'], 'antena_offline:1', 'ocorrencias_offline: chave é antena_offline:<id>');
+t_eq($offline[0]['loja'], 'Lj 001', 'ocorrencias_offline: propaga a loja da antena');
+t_eq(antena_ocorrencias_offline([['id' => 1, 'status' => 'offline']])[0]['loja'], '', 'ocorrencias_offline: sem loja cadastrada -> string vazia (não null)');
 
 t_eq(antena_ocorrencias_offline([['id' => 1, 'status' => 'online']]), [], 'ocorrencias_offline: online -> nenhuma ocorrência');
 t_eq(antena_ocorrencias_offline([['id' => 1, 'status' => 'desconhecido']]), [], 'ocorrencias_offline: desconhecido -> nenhuma ocorrência (não é offline confirmado)');
@@ -43,8 +45,10 @@ t_eq(antena_ocorrencias_clientes_excesso([['id' => 7, 'clientes_conectados' => 1
 // ---------------------------------------------------------------------------
 if (isset($pdo) && $pdo instanceof PDO) {
     $NOME_TESTE = '__teste_antena__';
-    $limpa = function () use ($pdo, $NOME_TESTE) {
+    $NOME_ENTIDADE_TESTE = 'teste_antena_loja';
+    $limpa = function () use ($pdo, $NOME_TESTE, $NOME_ENTIDADE_TESTE) {
         $pdo->prepare("DELETE FROM portal_monitor_antenas WHERE nome = ?")->execute([$NOME_TESTE]);
+        $pdo->prepare("DELETE FROM glpi_entities WHERE name = ?")->execute([$NOME_ENTIDADE_TESTE]);
     };
     $antenaId = function () use ($pdo, $NOME_TESTE) {
         $st = $pdo->prepare("SELECT id FROM portal_monitor_antenas WHERE nome = ?");
@@ -59,9 +63,23 @@ if (isset($pdo) && $pdo instanceof PDO) {
 
     try {
         $limpa();
-        monitor_antena_salvar($pdo, null, $NOME_TESTE, '10.9.9.9', 'admin', 'senha-teste', true);
+        // entities_id = FK solta pra glpi_entities (sem constraint real), mesmo
+        // padrão de test_chatbot_menu.php/test_glpi_bot_lojas.php: insere uma
+        // entidade sentinela em vez de depender de um id real de produção.
+        // glpi_entities.id NÃO é auto_increment no schema real do GLPI (id=0 já
+        // existe), daí o MAX(id)+1000.
+        $idEntidadeTeste = (int) $pdo->query("SELECT COALESCE(MAX(id), 0) FROM glpi_entities")->fetchColumn() + 1000;
+        $pdo->exec("INSERT INTO glpi_entities (id, name, completename, level) VALUES ($idEntidadeTeste, '$NOME_ENTIDADE_TESTE', 'Entidade raiz > teste_antena_loja', 2)");
+
+        monitor_antena_salvar($pdo, null, $NOME_TESTE, '10.9.9.9', 'admin', 'senha-teste', true, $idEntidadeTeste);
         $id = $antenaId();
         t_ok($id > 0, 'salvar: cria a antena de teste');
+        $entitiesIdSalvo = (int) $pdo->query("SELECT entities_id FROM portal_monitor_antenas WHERE id = $id")->fetchColumn();
+        t_eq($entitiesIdSalvo, $idEntidadeTeste, 'salvar: persiste entities_id (FK solta pra glpi_entities, mesmo padrão de inventario_pc.php)');
+
+        $listagem = monitor_antena_listar($pdo);
+        $itemListado = current(array_filter($listagem, fn($x) => (int) $x['id'] === $id));
+        t_eq($itemListado['loja'], 'Entidade raiz > teste_antena_loja', 'listar: resolve loja via apelido_entidade() a partir de entities_id (sem mapeamento cadastrado -> cai no completename cru)');
 
         // 1ª varredura: SSH ok, antena acabou de "subir"
         $GLOBALS['__monitor_antena_ssh_fake'] = fn($ip, $u, $s) =>
@@ -176,6 +194,7 @@ if (isset($pdo) && $pdo instanceof PDO) {
         $inserirEvento($CHAVE1, 'resolvida', "$DIA_TESTE 08:15:00");
         $resumo1 = antena_resumo_quedas_dia($pdo, $DIA_TESTE);
         t_eq($resumo1[9999901]['nome'], 'Antena #9999901', 'resumo_quedas_dia: sem linha em portal_monitor_antenas -> nome de fallback');
+        t_eq($resumo1[9999901]['loja'], '', 'resumo_quedas_dia: sem linha em portal_monitor_antenas -> loja vazia (não null)');
         t_eq($resumo1[9999901]['quedas'], 1, 'resumo_quedas_dia: 1 par nova/resolvida -> 1 queda');
         t_eq($resumo1[9999901]['minutos_offline'], 15, 'resumo_quedas_dia: soma os minutos entre nova e resolvida');
 
@@ -194,6 +213,18 @@ if (isset($pdo) && $pdo instanceof PDO) {
         t_ok(strpos($textoFinal, 'Antena #9999901') !== false, 'resumo_texto: cita a antena sem cadastro pelo nome de fallback');
         t_ok(strpos($textoFinal, '2 quedas') !== false, 'resumo_texto: pluraliza "quedas" corretamente');
         t_ok(strpos($textoFinal, '1 queda,') !== false, 'resumo_texto: não pluraliza no singular');
+
+        // agrupamento por loja (pura, sem banco) — só agrupa quando pelo menos
+        // 1 item tem loja preenchida (coluna nova, retrocompatível com o texto
+        // plano de quando nenhuma antena tinha loja cadastrada)
+        $textoComLoja = antena_resumo_texto([
+            ['nome' => 'AP Salão', 'loja' => 'Lj 001', 'quedas' => 1, 'minutos_offline' => 5],
+            ['nome' => 'AP Estoque', 'loja' => 'Lj 002', 'quedas' => 2, 'minutos_offline' => 10],
+            ['nome' => 'AP Sem Loja', 'loja' => '', 'quedas' => 1, 'minutos_offline' => 3],
+        ], $DIA_TESTE);
+        t_ok(strpos($textoComLoja, 'Lj 001:') !== false && strpos($textoComLoja, 'Lj 002:') !== false,
+            'resumo_texto: com pelo menos 1 loja preenchida -> agrupa por loja');
+        t_ok(strpos($textoComLoja, 'Sem loja:') !== false, 'resumo_texto: antena sem loja cai no grupo "Sem loja"');
     } finally {
         $limpaHist();
     }

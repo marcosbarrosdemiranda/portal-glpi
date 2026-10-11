@@ -20,6 +20,7 @@ require_once __DIR__ . '/agenda/config.php'; // GLPI_APP_TOKEN, usado por vault_
 require_once __DIR__ . '/agenda/db.php';     // $pdo
 require_once __DIR__ . '/vault_crypto.php';  // vault_encrypt()/vault_decrypt()
 require_once __DIR__ . '/wpp/db.php';        // wpp_cfg_get()/wpp_cfg_set() — credencial/limite globais
+require_once __DIR__ . '/entidade_alias.php'; // apelido_entidade() — nome curto da loja (Lj 003) a partir de glpi_entities
 
 // cria a tabela ao incluir (padrão do portal)
 (function () {
@@ -39,6 +40,22 @@ require_once __DIR__ . '/wpp/db.php';        // wpp_cfg_get()/wpp_cfg_set() — 
         ultima_verificacao  DATETIME NULL,
         criado_em           TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
+
+    // migração leve — loja acrescentada depois do 1º deploy, como FK solta
+    // pra glpi_entities (entities_id), mesmo padrão de cadastro usado em
+    // inventario_pc.php: select alimentado por glpi_entities + apelido_entidade()
+    // pra exibir o nome curto, não texto livre (pedido explícito do usuário,
+    // 2026-10-11: "tem q puxar a lista do banco e ter a opção de escolha...
+    // igual é feito no inventário de pcs"). Uma 1ª tentativa desta mesma sessão
+    // usou coluna `loja` VARCHAR livre (padrão de portal_monitor_dispositivos) —
+    // trocada aqui porque nenhuma antena real ainda tinha usado o campo.
+    $cols = array_column($pdo->query("SHOW COLUMNS FROM portal_monitor_antenas")->fetchAll(PDO::FETCH_ASSOC), 'Field');
+    if (!in_array('entities_id', $cols, true)) {
+        $pdo->exec("ALTER TABLE portal_monitor_antenas ADD COLUMN entities_id INT NULL AFTER ip");
+    }
+    if (in_array('loja', $cols, true)) {
+        $pdo->exec("ALTER TABLE portal_monitor_antenas DROP COLUMN loja");
+    }
 })();
 
 /**
@@ -178,10 +195,18 @@ function monitor_antena_ssh_check(string $ip, string $usuario, string $senha): a
  */
 function monitor_antenas_varrer(PDO $pdo, int $minIntervaloSeg = 20): array
 {
-    $antenas = $pdo->query("SELECT * FROM portal_monitor_antenas WHERE ativo = 1 ORDER BY nome")->fetchAll(PDO::FETCH_ASSOC);
+    // LEFT JOIN glpi_entities (sem FK real, mesmo padrão de inventario_pc.php) só
+    // pra resolver o nome curto da loja (apelido_entidade) — entities_id em si
+    // já vem na própria tabela via SELECT *.
+    $antenas = $pdo->query("SELECT a.*, e.completename AS entidade_completename
+            FROM portal_monitor_antenas a
+            LEFT JOIN glpi_entities e ON e.id = a.entities_id
+            WHERE a.ativo = 1 ORDER BY a.nome")->fetchAll(PDO::FETCH_ASSOC);
     $resultado = [];
 
     foreach ($antenas as $antena) {
+        $antena['loja'] = $antena['entidade_completename'] !== null ? apelido_entidade($antena['entidade_completename']) : '';
+        unset($antena['entidade_completename']);
         $uptimeAnterior = $antena['uptime_segundos'] !== null ? (int) $antena['uptime_segundos'] : null;
         $ultimaVerificacao = $antena['ultima_verificacao'];
 
@@ -225,10 +250,24 @@ function monitor_antenas_varrer(PDO $pdo, int $minIntervaloSeg = 20): array
     return $resultado;
 }
 
-/** Lista todas as antenas cadastradas (ativas ou não), pra tela de cadastro. */
+/**
+ * Lista todas as antenas cadastradas (ativas ou não), pra tela de cadastro.
+ * Inclui 'loja' (nome curto via apelido_entidade) já resolvida, igual
+ * monitor_antenas_varrer() — entities_id vem cru pra popular o <select> de edição.
+ */
 function monitor_antena_listar(PDO $pdo): array
 {
-    return $pdo->query("SELECT * FROM portal_monitor_antenas ORDER BY nome")->fetchAll(PDO::FETCH_ASSOC);
+    $antenas = $pdo->query("SELECT a.*, e.completename AS entidade_completename
+            FROM portal_monitor_antenas a
+            LEFT JOIN glpi_entities e ON e.id = a.entities_id
+            ORDER BY a.nome")->fetchAll(PDO::FETCH_ASSOC);
+
+    foreach ($antenas as &$antena) {
+        $antena['loja'] = $antena['entidade_completename'] !== null ? apelido_entidade($antena['entidade_completename']) : '';
+        unset($antena['entidade_completename']);
+    }
+
+    return $antenas;
 }
 
 /**
@@ -241,7 +280,7 @@ function monitor_antena_listar(PDO $pdo): array
  * dentro do dia (ainda offline, ou resolveu só no dia seguinte) conta como
  * 1 queda e soma até o fim do dia consultado (minutos parciais).
  *
- * @return array<int,array{nome:string,quedas:int,minutos_offline:int}> indexado por id da antena
+ * @return array<int,array{nome:string,loja:string,quedas:int,minutos_offline:int}> indexado por id da antena
  */
 function antena_resumo_quedas_dia(PDO $pdo, string $data): array
 {
@@ -258,7 +297,9 @@ function antena_resumo_quedas_dia(PDO $pdo, string $data): array
         $porChave[$ev['chave']][] = $ev;
     }
 
-    $nomesPorId = $pdo->query("SELECT id, nome FROM portal_monitor_antenas")->fetchAll(PDO::FETCH_KEY_PAIR);
+    $antenasPorId = $pdo->query("SELECT a.id, a.nome, e.completename AS entidade_completename
+            FROM portal_monitor_antenas a
+            LEFT JOIN glpi_entities e ON e.id = a.entities_id")->fetchAll(PDO::FETCH_ASSOC | PDO::FETCH_UNIQUE);
 
     $resumo = [];
     foreach ($porChave as $chave => $eventos) {
@@ -268,7 +309,14 @@ function antena_resumo_quedas_dia(PDO $pdo, string $data): array
         foreach ($eventos as $ev) {
             if ($ev['evento'] === 'nova') {
                 $abertaDesde = $ev['criado_em'];
-                $resumo[$id] = $resumo[$id] ?? ['nome' => $nomesPorId[$id] ?? ('Antena #' . $id), 'quedas' => 0, 'minutos_offline' => 0];
+                $resumo[$id] = $resumo[$id] ?? [
+                    'nome' => $antenasPorId[$id]['nome'] ?? ('Antena #' . $id),
+                    'loja' => isset($antenasPorId[$id]['entidade_completename']) && $antenasPorId[$id]['entidade_completename'] !== null
+                        ? apelido_entidade($antenasPorId[$id]['entidade_completename'])
+                        : '',
+                    'quedas' => 0,
+                    'minutos_offline' => 0,
+                ];
                 $resumo[$id]['quedas']++;
             } elseif ($ev['evento'] === 'resolvida' && $abertaDesde !== null) {
                 $resumo[$id]['minutos_offline'] += max(0, (int) round((strtotime($ev['criado_em']) - strtotime($abertaDesde)) / 60));
@@ -292,12 +340,32 @@ function antena_resumo_texto(array $resumo, string $data): string
         return "Antenas UniFi: sem quedas em {$dataFmt}.";
     }
 
-    usort($resumo, fn($a, $b) => strnatcasecmp($a['nome'], $b['nome']));
+    $linha = fn($r) => '• ' . $r['nome'] . ': ' . $r['quedas'] . ' queda' . ($r['quedas'] === 1 ? '' : 's')
+        . ', ' . $r['minutos_offline'] . ' min offline';
 
+    // Só agrupa por loja se pelo menos 1 antena já tiver a coluna preenchida
+    // (coluna nova, vazia por padrão) — enquanto nenhuma loja for cadastrada,
+    // mantém o formato plano original (mesmo padrão de alerta_render_monitor()).
+    $temLoja = (bool) array_filter($resumo, fn($r) => trim((string) ($r['loja'] ?? '')) !== '');
     $out = "Antenas UniFi — quedas em {$dataFmt}:\n";
+
+    if (!$temLoja) {
+        usort($resumo, fn($a, $b) => strnatcasecmp($a['nome'], $b['nome']));
+        foreach ($resumo as $r) $out .= '  ' . $linha($r) . "\n";
+        return rtrim($out);
+    }
+
+    $porLoja = [];
     foreach ($resumo as $r) {
-        $out .= '  • ' . $r['nome'] . ': ' . $r['quedas'] . ' queda' . ($r['quedas'] === 1 ? '' : 's')
-            . ', ' . $r['minutos_offline'] . " min offline\n";
+        $loja = trim((string) ($r['loja'] ?? '')) ?: 'Sem loja';
+        $porLoja[$loja][] = $r;
+    }
+    ksort($porLoja, SORT_NATURAL | SORT_FLAG_CASE);
+
+    foreach ($porLoja as $loja => $itens) {
+        usort($itens, fn($a, $b) => strnatcasecmp($a['nome'], $b['nome']));
+        $out .= "  {$loja}:\n";
+        foreach ($itens as $r) $out .= '    ' . $linha($r) . "\n";
     }
     return rtrim($out);
 }
@@ -305,8 +373,11 @@ function antena_resumo_texto(array $resumo, string $data): string
 /**
  * Cria (quando $id é null) ou atualiza uma antena. Senha vazia em edição
  * mantém a senha já salva (não força re-digitar pra só trocar o nome/IP).
+ *
+ * $entitiesId é a loja (FK solta pra glpi_entities.id, sem constraint real
+ * no banco — mesmo padrão de inventario_pc.php). 0/null = sem loja.
  */
-function monitor_antena_salvar(PDO $pdo, ?int $id, string $nome, string $ip, string $sshUsuario, string $sshSenha, bool $ativo): int
+function monitor_antena_salvar(PDO $pdo, ?int $id, string $nome, string $ip, string $sshUsuario, string $sshSenha, bool $ativo, ?int $entitiesId = null): int
 {
     $nome = trim($nome);
     $ip = trim($ip);
@@ -314,21 +385,22 @@ function monitor_antena_salvar(PDO $pdo, ?int $id, string $nome, string $ip, str
     if ($ip === '') throw new \InvalidArgumentException('IP obrigatório');
 
     $sshUsuario = trim($sshUsuario);
+    $entitiesId = $entitiesId !== null && $entitiesId > 0 ? $entitiesId : null;
     $senhaEnc = $sshSenha !== '' ? vault_encrypt($sshSenha) : null;
 
     if ($id === null) {
-        $pdo->prepare("INSERT INTO portal_monitor_antenas (nome, ip, ssh_usuario, ssh_senha_enc, ativo)
-                       VALUES (?, ?, ?, ?, ?)")
-            ->execute([$nome, $ip, $sshUsuario ?: null, $senhaEnc, $ativo ? 1 : 0]);
+        $pdo->prepare("INSERT INTO portal_monitor_antenas (nome, ip, entities_id, ssh_usuario, ssh_senha_enc, ativo)
+                       VALUES (?, ?, ?, ?, ?, ?)")
+            ->execute([$nome, $ip, $entitiesId, $sshUsuario ?: null, $senhaEnc, $ativo ? 1 : 0]);
         return (int) $pdo->lastInsertId();
     }
 
     if ($senhaEnc !== null) {
-        $pdo->prepare("UPDATE portal_monitor_antenas SET nome = ?, ip = ?, ssh_usuario = ?, ssh_senha_enc = ?, ativo = ? WHERE id = ?")
-            ->execute([$nome, $ip, $sshUsuario ?: null, $senhaEnc, $ativo ? 1 : 0, $id]);
+        $pdo->prepare("UPDATE portal_monitor_antenas SET nome = ?, ip = ?, entities_id = ?, ssh_usuario = ?, ssh_senha_enc = ?, ativo = ? WHERE id = ?")
+            ->execute([$nome, $ip, $entitiesId, $sshUsuario ?: null, $senhaEnc, $ativo ? 1 : 0, $id]);
     } else {
-        $pdo->prepare("UPDATE portal_monitor_antenas SET nome = ?, ip = ?, ssh_usuario = ?, ativo = ? WHERE id = ?")
-            ->execute([$nome, $ip, $sshUsuario ?: null, $ativo ? 1 : 0, $id]);
+        $pdo->prepare("UPDATE portal_monitor_antenas SET nome = ?, ip = ?, entities_id = ?, ssh_usuario = ?, ativo = ? WHERE id = ?")
+            ->execute([$nome, $ip, $entitiesId, $sshUsuario ?: null, $ativo ? 1 : 0, $id]);
     }
     return $id;
 }

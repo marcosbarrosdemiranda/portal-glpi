@@ -7,6 +7,7 @@ require_once __DIR__ . '/agenda/db.php';
 require_once __DIR__ . '/agenda/config.php';
 require_once __DIR__ . '/vault_crypto.php';
 require_once __DIR__ . '/monitor_antenas_lib.php';
+require_once __DIR__ . '/entidade_alias.php'; // apelido_entidade() — nome curto da loja, mesmo padrão de inventario_pc.php
 
 function esc(string $s): string {
     return htmlspecialchars($s, ENT_QUOTES, 'UTF-8');
@@ -47,6 +48,7 @@ if ($action) {
         $body       = json_decode(file_get_contents('php://input'), true) ?? [];
         $nome       = trim($body['nome'] ?? '');
         $ip         = trim($body['ip'] ?? '');
+        $entitiesId = (int)($body['entities_id'] ?? 0);
         $sshUsuario = trim($body['ssh_usuario'] ?? '');
         // Senha não é trimada de propósito — pode ter espaços à margem que fazem parte dela.
         $sshSenha   = (string)($body['ssh_senha'] ?? '');
@@ -61,7 +63,7 @@ if ($action) {
         }
 
         try {
-            $novoId = monitor_antena_salvar($pdo, $action === 'antena_save' ? $id : null, $nome, $ip, $sshUsuario, $sshSenha, $ativo);
+            $novoId = monitor_antena_salvar($pdo, $action === 'antena_save' ? $id : null, $nome, $ip, $sshUsuario, $sshSenha, $ativo, $entitiesId);
             echo json_encode(['ok' => true, 'id' => $novoId]);
         } catch (\InvalidArgumentException $e) {
             echo json_encode(['ok' => false, 'msg' => $e->getMessage()]);
@@ -128,6 +130,7 @@ if ($action) {
 // ── Antenas cadastradas (snapshot já persistido — sem SSH no page load,
 // a varredura é feita pelo ciclo da Central de Alertas / worker) ──
 $antenas          = monitor_antena_listar($pdo);
+$entidades        = $pdo->query("SELECT id, completename FROM glpi_entities ORDER BY completename")->fetchAll();
 $antenaUsuarioCfg = (string) wpp_cfg_get('antena_ssh_usuario', '');
 $antenaLimiteCfg  = (int) wpp_cfg_get('antena_limite_clientes', '30');
 ?>
@@ -236,7 +239,7 @@ $antenaLimiteCfg  = (int) wpp_cfg_get('antena_limite_clientes', '30');
   <?php foreach ($antenas as $a): ?>
     <div class="antena-card">
       <?php if ($is_admin): ?>
-      <button type="button" class="antena-cfg" onclick='editarAntena(<?= json_encode(['id'=>$a['id'],'nome'=>$a['nome'],'ip'=>$a['ip'],'ssh_usuario'=>$a['ssh_usuario'],'ativo'=>(int)$a['ativo']], JSON_HEX_APOS | JSON_HEX_QUOT | JSON_HEX_AMP | JSON_HEX_TAG) ?>)' title="Editar">
+      <button type="button" class="antena-cfg" onclick='editarAntena(<?= json_encode(['id'=>$a['id'],'nome'=>$a['nome'],'ip'=>$a['ip'],'entities_id'=>(int)($a['entities_id'] ?? 0),'ssh_usuario'=>$a['ssh_usuario'],'ativo'=>(int)$a['ativo']], JSON_HEX_APOS | JSON_HEX_QUOT | JSON_HEX_AMP | JSON_HEX_TAG) ?>)' title="Editar">
         <i class="bi bi-gear-fill"></i>
       </button>
       <?php endif; ?>
@@ -244,7 +247,7 @@ $antenaLimiteCfg  = (int) wpp_cfg_get('antena_limite_clientes', '30');
         <span class="antena-dot <?= esc($a['status']) ?>"></span>
         <span class="antena-nome"><?= esc($a['nome']) ?></span>
       </div>
-      <div class="antena-ip"><?= esc($a['ip']) ?></div>
+      <div class="antena-ip"><?= esc($a['ip']) ?><?= !empty($a['loja']) ? ' · ' . esc($a['loja']) : '' ?></div>
       <div class="antena-modelo"><?= esc($a['modelo'] ?? '—') ?><?= $a['firmware_versao'] ? ' · fw ' . esc($a['firmware_versao']) : '' ?></div>
       <div class="antena-meta">
         <span><i class="bi bi-people-fill me-1"></i><?= $a['clientes_conectados'] !== null ? (int)$a['clientes_conectados'] : '—' ?> clientes</span>
@@ -284,6 +287,15 @@ $antenaLimiteCfg  = (int) wpp_cfg_get('antena_limite_clientes', '30');
           <input type="text" class="form-control font-monospace" id="ant-ip" placeholder="192.168.x.x"/>
         </div>
         <div class="mb-3">
+          <label class="form-label fw-semibold">Loja <span class="text-muted small">(opcional)</span></label>
+          <select class="form-control" id="ant-entidade">
+            <option value="0">—</option>
+            <?php foreach ($entidades as $e): ?>
+              <option value="<?= (int)$e['id'] ?>"><?= esc(apelido_entidade($e['completename'])) ?></option>
+            <?php endforeach; ?>
+          </select>
+        </div>
+        <div class="mb-3">
           <label class="form-label fw-semibold">Usuário SSH <span class="text-muted small">(vazio = usa o padrão global)</span></label>
           <input type="text" class="form-control" id="ant-usuario" placeholder="ubnt"/>
         </div>
@@ -319,6 +331,7 @@ function abrirModalAntena() {
   document.getElementById('ant-id').value = '';
   document.getElementById('ant-nome').value = '';
   document.getElementById('ant-ip').value = '';
+  document.getElementById('ant-entidade').value = '0';
   document.getElementById('ant-usuario').value = '';
   document.getElementById('ant-senha').value = '';
   document.getElementById('ant-senha').placeholder = '••••••••';
@@ -333,6 +346,7 @@ function editarAntena(a) {
   document.getElementById('ant-id').value = a.id;
   document.getElementById('ant-nome').value = a.nome;
   document.getElementById('ant-ip').value = a.ip;
+  document.getElementById('ant-entidade').value = a.entities_id || 0;
   document.getElementById('ant-usuario').value = a.ssh_usuario || '';
   document.getElementById('ant-senha').value = '';
   document.getElementById('ant-senha').placeholder = 'Deixe em branco para manter a senha atual';
@@ -387,6 +401,7 @@ async function salvarAntena() {
   const id      = document.getElementById('ant-id').value;
   const nome    = document.getElementById('ant-nome').value.trim();
   const ip      = document.getElementById('ant-ip').value.trim();
+  const entitiesId = parseInt(document.getElementById('ant-entidade').value, 10) || 0;
   const usuario = document.getElementById('ant-usuario').value.trim();
   const senha   = document.getElementById('ant-senha').value;
   const ativo   = document.getElementById('ant-ativo').checked;
@@ -416,7 +431,7 @@ async function salvarAntena() {
   const action = id ? 'antena_save' : 'antena_add';
   const r = await fetch(`inventario_redes.php?action=${action}`, {
     method: 'POST', headers: {'Content-Type':'application/json'},
-    body: JSON.stringify({id, nome, ip, ssh_usuario: usuario, ssh_senha: senha, ativo}),
+    body: JSON.stringify({id, nome, ip, entities_id: entitiesId, ssh_usuario: usuario, ssh_senha: senha, ativo}),
   });
   const d = await r.json();
   if (d.ok) { modalAntena.hide(); location.reload(); }
