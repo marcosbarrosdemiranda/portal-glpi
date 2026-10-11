@@ -307,8 +307,10 @@ REGRAS ESPECIAIS:
    (e qualquer tipo já `ativo=1`+`notif_whatsapp=1` em produção) disparam
    pro grupo assim que uma máquina/origem NOVA cadastrada manda o primeiro
    `status:error` — não é preciso criar o tipo, só a origem já é
-   suficiente. Checar `notif_whatsapp` em `alertas_config.php` antes de
-   testar erro de uma integração nova com tipo de alerta já existente.
+   suficiente. Checar `notif_whatsapp` na aba "Catálogo de Alertas" de
+   `monitor_dispositivos.php` (antigo `alertas_config.php`, fundido ali em
+   2026-10-11 — ver item 9) antes de testar erro de uma integração nova
+   com tipo de alerta já existente.
 
 4. [Produção pode ficar vários commits atrás do git HEAD sem ninguém notar
    — 2026-10-04] Contexto: `alertas.php` deu HTTP 500 porque
@@ -383,6 +385,23 @@ REGRAS ESPECIAIS:
    recorrente certo — o cron (`agenda/sync_rotinas.php`) só cria/sincroniza
    o chamado em si, nunca o texto do resumo. Antes de assumir "resumo
    automático = cron", confirmar onde o fetch de fato dispara.
+
+9. [Fato técnico específico num memory/backlog pode ficar obsoleto mesmo
+   sem o arquivo inteiro estar errado — 2026-10-11] Contexto: no merge de
+   `alertas_config.php` em `monitor_dispositivos.php`, o plano era esconder
+   o horário genérico por tipo (`portal_alertas_horario`) dos 3 tipos
+   `monitor_device`/`monitor_sem_contato`/`monitor_ligado_muito_tempo` por
+   já terem o horário granular por grupo/loja/dia. Um backlog memory
+   (criado 2026-10-05) dizia que só `monitor_device` de fato respeitava o
+   horário granular — se fosse verdade ainda, esconder a linha genérica
+   dos outros 2 seria regressão (tiraria a única proteção de horário que
+   tinham). `monitor_lib.php:682-693` mostrou que isso já tinha sido
+   corrigido em 2026-10-10 (comentário explícito no código, commit
+   separado) e o memory nunca foi atualizado. Antes de basear uma decisão
+   de design num fato técnico específico — não só "existe/não existe" —
+   vindo de um memory/backlog, confirmar contra o código atual, porque
+   memory registra o estado de quando foi escrito, não necessariamente o
+   de agora.
 ```
 
 ---
