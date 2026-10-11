@@ -106,27 +106,29 @@ function pode_ver(string $key, ?array $cards): bool {
 
     /* ── Cards ── */
     /* Layout em 5 colunas (era 3) + cards um pouco menores — pedido 2026-09-13.
-       Mudança isolada só de CSS: pra reverter pro layout anterior, restaurar
-       max-width:900px / minmax(240px,1fr) / padding 2rem 1.5rem / ícone 70px. */
+       Reduzido de novo — pedido 2026-10-11 (era minmax(200px,1fr) / gap 1.1rem /
+       padding 1.5rem 1.1rem / ícone 58px / h5 1rem / p .8rem). Pra reverter só
+       esta rodada, voltar os valores acima; pro layout original de 2026-09-13,
+       ver o comentário anterior (max-width:900px / minmax(240px,1fr) / etc).*/
     .cards-wrap {
       max-width: 1300px; margin: -.9rem auto 2rem;
       padding: 0 1.5rem;
       display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-      gap: 1.1rem;
+      grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+      gap: .8rem;
     }
 
     .dash-card {
       background: white;
-      border-radius: 14px;
+      border-radius: 12px;
       box-shadow: 0 4px 24px rgba(0,0,0,.1);
-      padding: 1.5rem 1.1rem;
+      padding: 1rem .85rem;
       text-align: center;
       text-decoration: none;
       color: #333;
       transition: transform .2s, box-shadow .2s;
       cursor: pointer;
-      border-top: 5px solid transparent;
+      border-top: 4px solid transparent;
     }
     .dash-card:hover {
       transform: translateY(-5px);
@@ -135,14 +137,14 @@ function pode_ver(string $key, ?array $cards): bool {
     }
 
     .dash-card .card-icon {
-      width: 58px; height: 58px;
+      width: 44px; height: 44px;
       border-radius: 50%;
       display: flex; align-items: center; justify-content: center;
-      margin: 0 auto 1rem;
-      font-size: 1.6rem;
+      margin: 0 auto .6rem;
+      font-size: 1.25rem;
     }
-    .dash-card h5 { font-weight: 700; font-size: 1rem; margin: 0 0 .35rem; }
-    .dash-card p  { font-size: .8rem; color: #888; margin: 0; }
+    .dash-card h5 { font-weight: 700; font-size: .88rem; margin: 0 0 .3rem; }
+    .dash-card p  { font-size: .72rem; color: #888; margin: 0; }
 
     /* Cores por card */
     .card-agenda    { border-top-color: #1a73e8; }
