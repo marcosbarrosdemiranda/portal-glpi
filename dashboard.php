@@ -133,17 +133,23 @@ function pode_ver(string $key, ?array $cards): bool {
        do .dash-card pra não cortar o tooltip, que estoura o quadrado por
        posicionamento absoluto. Hover só existe em mouse — em touch
        (celular/tablet) a descrição não aparece, só ícone+título; aceito
-       porque o uso é majoritariamente desktop. Pra reverter: ver rodada
-       anterior no histórico do git.*/
+       porque o uso é majoritariamente desktop.
+       6ª rodada (mesmo dia): usuário pediu reagrupar em só 2 linhas
+       (Atendimento+KPIs+Acessos+Recursos / Gestão de TI+Configuração) e
+       aumentar um pouco o card. max-width do container subiu de
+       1300px->1850px pra caber as 4 seções da 1ª linha lado a lado em tela
+       larga; em tela mais estreita o flex-wrap de .dash-row ainda quebra
+       pra linha de baixo normalmente, sem gambiarra. Pra reverter: ver
+       rodada anterior no histórico do git.*/
     .dash-sections {
       display: flex; flex-direction: column;
       gap: 1rem;
-      max-width: 1300px; margin: .6rem auto 1rem;
+      max-width: 1850px; margin: .6rem auto 1rem;
       padding: 0 1.5rem;
     }
     .dash-row {
       display: flex; flex-wrap: wrap; align-items: flex-start;
-      gap: 1rem 2.2rem;
+      gap: 1rem 1.8rem;
     }
     .dash-section { flex: 0 1 auto; }
     .dash-section-cards {
@@ -153,11 +159,11 @@ function pode_ver(string $key, ?array $cards): bool {
 
     .dash-card {
       position: relative;
-      flex: 0 0 95px; width: 95px; aspect-ratio: 1 / 1;
+      flex: 0 0 108px; width: 108px; aspect-ratio: 1 / 1;
       background: white;
       border-radius: 12px;
       box-shadow: 0 4px 24px rgba(0,0,0,.1);
-      padding: .5rem .4rem;
+      padding: .6rem .45rem;
       display: flex; flex-direction: column; align-items: center; justify-content: center;
       text-align: center;
       text-decoration: none;
@@ -174,17 +180,17 @@ function pode_ver(string $key, ?array $cards): bool {
     }
 
     .dash-card .card-icon {
-      width: 34px; height: 34px; flex-shrink: 0;
+      width: 38px; height: 38px; flex-shrink: 0;
       border-radius: 50%;
       display: flex; align-items: center; justify-content: center;
-      margin: 0 auto .35rem;
-      font-size: 1rem;
+      margin: 0 auto .4rem;
+      font-size: 1.1rem;
     }
     .dash-card h5 {
-      font-weight: 700; font-size: .72rem; margin: 0; line-height: 1.15;
+      font-weight: 700; font-size: .76rem; margin: 0; line-height: 1.15;
       display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden;
     }
-    .dash-card p.text-muted.small { font-size: .58rem; color: #888; margin: .1rem 0 0; line-height: 1.1; }
+    .dash-card p.text-muted.small { font-size: .6rem; color: #888; margin: .1rem 0 0; line-height: 1.1; }
 
     /* Tooltip com a descrição — só aparece no hover (desktop) */
     .dash-card .card-tip {
@@ -361,7 +367,7 @@ function pode_ver(string $key, ?array $cards): bool {
 
 <?php if (!$is_self): /* perfil portal ou técnico — mostra cards do perfil */ ?>
 
-  <!-- dash-row força Atendimento + KPIs numa linha só (não depende do flex-wrap encaixar) -->
+  <!-- dash-row força Atendimento + KPIs + Acessos + Recursos numa linha só (não depende do flex-wrap encaixar) -->
   <div class="dash-row">
 
   <!-- ── ATENDIMENTO ── -->
@@ -441,11 +447,6 @@ function pode_ver(string $key, ?array $cards): bool {
   </section>
   <?php endif; ?>
 
-  </div>
-
-  <!-- dash-row força Acessos + Recursos numa linha só -->
-  <div class="dash-row">
-
   <!-- ── ACESSOS ── -->
   <?php if (pode_ver('acesso_remoto',$perfil_cards) || pode_ver('infra',$perfil_cards) || pode_ver('erp',$perfil_cards)): ?>
   <section class="dash-section">
@@ -515,6 +516,9 @@ function pode_ver(string $key, ?array $cards): bool {
   <?php endif; ?>
 
   </div>
+
+  <!-- dash-row força Gestão de TI + Configuração numa linha só -->
+  <div class="dash-row">
 
   <!-- ── GESTÃO DE TI ── -->
   <?php if (pode_ver('projetos',$perfil_cards)||pode_ver('equipe',$perfil_cards)||pode_ver('orcamento',$perfil_cards)||pode_ver('contratos',$perfil_cards)||pode_ver('licencas',$perfil_cards)||pode_ver('reunioes_rp',$perfil_cards)||pode_ver('despesas',$perfil_cards)): ?>
@@ -655,6 +659,8 @@ function pode_ver(string $key, ?array $cards): bool {
   </div>
   </section>
   <?php endif; ?>
+
+  </div>
 
 <?php endif; ?>
 
