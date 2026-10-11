@@ -243,12 +243,18 @@ function monitor_antena_reiniciar(string $ip, string $usuario, string $senha): a
  * $minIntervaloSeg — evita triplicar carga de SSH quando os 3 tipos de
  * alerta (Fase 2) chamam o endpoint no mesmo ciclo do worker.
  *
+ * Fix 2026-10-11: default subiu de 20 pra 90s. O worker roda esse endpoint
+ * a cada ~30s (wpp/worker.php) — com 20s de janela, TODA passada achava o
+ * cache vencido e refazia a varredura SSH sequencial das 21 antenas, sem
+ * nunca aproveitar o throttle (daí o portal lento continuamente, não só
+ * num pico isolado). 90s garante folga sobre o ciclo do worker.
+ *
  * Cada item devolvido inclui 'uptime_anterior' (valor antes do UPDATE),
  * pra alerta_check_antena_reinicio comparar sem precisar de outra leitura.
  *
  * @return array<int,array> snapshot de cada antena ativa
  */
-function monitor_antenas_varrer(PDO $pdo, int $minIntervaloSeg = 20): array
+function monitor_antenas_varrer(PDO $pdo, int $minIntervaloSeg = 90): array
 {
     // LEFT JOIN glpi_entities (sem FK real, mesmo padrão de inventario_pc.php) só
     // pra resolver o nome curto da loja (apelido_entidade) — entities_id em si

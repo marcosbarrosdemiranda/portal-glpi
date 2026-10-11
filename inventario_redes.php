@@ -32,6 +32,13 @@ function formatarHaQuanto(string $datetime): string {
 
 $is_admin = in_array($_SESSION['perfil'] ?? '', ['admin', 'super-admin', 'tecnico']);
 
+// Fix 2026-10-11: fecha a sessão aqui (nada abaixo lê/grava $_SESSION de novo).
+// As ações 'antena_testar'/'antena_reiniciar' chamam SSH (até 8s de timeout) —
+// com a sessão ainda aberta, o lock de arquivo do PHP travava QUALQUER outra
+// aba/requisição do mesmo usuário logado até o SSH terminar (portal "lento/
+// travado" reportado pelo usuário enquanto uma antena ficava offline/lenta).
+session_write_close();
+
 // ── AJAX: CRUD de antenas + credencial/limite globais (somente admin) ──
 // Tabela portal_monitor_antenas é criada por monitor_antenas_lib.php ao
 // incluir. portal_unifi_controladoras/unifi_client.php continuam no
