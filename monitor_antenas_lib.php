@@ -111,8 +111,14 @@ function monitor_antena_ssh_check(string $ip, string $usuario, string $senha): a
     // `timeout 8` cobre o comando inteiro (conexão + execução remota) —
     // `</dev/null` fecha o stdin pra qualquer comando que tente ler input
     // falhar/sair rápido em vez de ficar pendurado (ver docblock acima).
+    // `-o LogLevel=ERROR` suprime o "Warning: Permanently added '<ip>' ...
+    // to the list of known hosts." que o SSH imprime no 1º contato com
+    // uma antena nova — sem isso, essa linha entra misturada antes do
+    // JSON (via 2>&1) e quebra o json_decode (achado real, 2026-10-11:
+    // só não apareceu antes porque a antena de teste já tinha host key
+    // conhecida de testes anteriores).
     exec(
-        "timeout 8 sshpass -e ssh -o StrictHostKeyChecking=no -o ConnectTimeout=3 $host "
+        "timeout 8 sshpass -e ssh -o StrictHostKeyChecking=no -o LogLevel=ERROR -o ConnectTimeout=3 $host "
             . escapeshellarg('mca-dump') . ' </dev/null 2>&1',
         $output,
         $return_var
@@ -123,7 +129,12 @@ function monitor_antena_ssh_check(string $ip, string $usuario, string $senha): a
         return $resultado;
     }
 
-    $json = json_decode(implode("\n", $output), true);
+    // Defensivo: mesmo com LogLevel=ERROR, se alguma linha de ruído ainda
+    // vier antes do JSON (banner diferente, etc.), pula pro primeiro '{'
+    // em vez de falhar o parse inteiro por causa de 1 linha extra.
+    $bruto = implode("\n", $output);
+    $inicioJson = strpos($bruto, '{');
+    $json = $inicioJson !== false ? json_decode(substr($bruto, $inicioJson), true) : null;
     if (!is_array($json)) {
         $resultado['erro'] = 'Resposta inesperada do mca-dump (formato não-JSON)';
         return $resultado;
