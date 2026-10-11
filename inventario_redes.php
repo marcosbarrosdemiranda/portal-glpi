@@ -6,7 +6,7 @@ if (($_SESSION['perfil'] ?? '') === 'self-service') { header('Location: dashboar
 require_once __DIR__ . '/agenda/db.php';
 require_once __DIR__ . '/agenda/config.php';
 require_once __DIR__ . '/vault_crypto.php';
-require_once __DIR__ . '/unifi_client.php';
+require_once __DIR__ . '/monitor_antenas_lib.php';
 
 function esc(string $s): string {
     return htmlspecialchars($s, ENT_QUOTES, 'UTF-8');
@@ -22,25 +22,19 @@ function formatarUptime(int $segundos): string {
     return "{$minutos}min";
 }
 
+/** "última verificação há Xmin" do grid de antenas (inventario_redes.php). */
+function formatarHaQuanto(string $datetime): string {
+    $decorrido = time() - strtotime($datetime);
+    if ($decorrido < 0) return 'agora';
+    return 'há ' . formatarUptime($decorrido);
+}
+
 $is_admin = in_array($_SESSION['perfil'] ?? '', ['admin', 'super-admin', 'tecnico']);
 
-// ── Tabela de controladoras UniFi ────────────────────────────────
-$pdo->exec("
-    CREATE TABLE IF NOT EXISTS portal_unifi_controladoras (
-        id                 INT AUTO_INCREMENT PRIMARY KEY,
-        apelido            VARCHAR(60)   NOT NULL,
-        url                VARCHAR(255)  NOT NULL,
-        usuario            VARCHAR(100)  NOT NULL,
-        senha_enc          TEXT          NOT NULL,
-        site               VARCHAR(60)   NOT NULL DEFAULT 'default',
-        ativo              TINYINT(1)    DEFAULT 1,
-        ultimo_teste_ok    TINYINT(1)    DEFAULT NULL,
-        ultima_verificacao DATETIME      DEFAULT NULL,
-        criado_em          TIMESTAMP     DEFAULT CURRENT_TIMESTAMP
-    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
-");
-
-// ── AJAX: CRUD de controladoras (somente admin) ─────────────────
+// ── AJAX: CRUD de antenas + credencial/limite globais (somente admin) ──
+// Tabela portal_monitor_antenas é criada por monitor_antenas_lib.php ao
+// incluir. portal_unifi_controladoras/unifi_client.php continuam no
+// código (sem UI aqui) — ver spec 2026-10-10-monitor-antenas-unifi-ssh.
 $action = $_GET['action'] ?? '';
 if ($action) {
     header('Content-Type: application/json');
@@ -49,80 +43,80 @@ if ($action) {
     }
     if (!$is_admin) { echo json_encode(['ok' => false, 'msg' => 'Sem permissão']); exit; }
 
-    if ($action === 'controladora_add' || $action === 'controladora_save') {
-        $body    = json_decode(file_get_contents('php://input'), true) ?? [];
-        $apelido = trim($body['apelido'] ?? '');
-        $url     = trim($body['url'] ?? '');
-        $usuario = trim($body['usuario'] ?? '');
-        // Senha não é trimada de propósito — pode ter espaços à margem que fazem parte dela (mesmo padrão de pfsense_proxy.php)
-        $senha   = (string)($body['senha'] ?? '');
-        $site    = trim($body['site'] ?? '') ?: 'default';
-        $id      = (int)($body['id'] ?? 0);
+    if ($action === 'antena_add' || $action === 'antena_save') {
+        $body       = json_decode(file_get_contents('php://input'), true) ?? [];
+        $nome       = trim($body['nome'] ?? '');
+        $ip         = trim($body['ip'] ?? '');
+        $sshUsuario = trim($body['ssh_usuario'] ?? '');
+        // Senha não é trimada de propósito — pode ter espaços à margem que fazem parte dela.
+        $sshSenha   = (string)($body['ssh_senha'] ?? '');
+        $ativo      = !empty($body['ativo']);
+        $id         = (int)($body['id'] ?? 0);
 
-        if ($action === 'controladora_save' && !$id) {
+        if ($action === 'antena_save' && !$id) {
             echo json_encode(['ok' => false, 'msg' => 'ID inválido']); exit;
         }
-
-        if (!$apelido || !$url || !$usuario) {
-            echo json_encode(['ok' => false, 'msg' => 'Apelido, URL e usuário são obrigatórios']); exit;
-        }
-        if (!preg_match('~^https?://~i', $url)) {
-            echo json_encode(['ok' => false, 'msg' => 'URL deve começar com http:// ou https://']); exit;
+        if (!$nome || !$ip) {
+            echo json_encode(['ok' => false, 'msg' => 'Nome e IP são obrigatórios']); exit;
         }
 
-        // Edição sem nova senha = mantém a senha atual, não re-testa —
-        // mas só quando URL/usuário não mudaram. Se mudaram, a senha salva seria
-        // enviada em texto puro pro host novo sem o usuário nunca ter digitado ela de novo.
-        if ($action === 'controladora_save' && $senha === '') {
-            $stAtual = $pdo->prepare("SELECT url, usuario FROM portal_unifi_controladoras WHERE id=?");
-            $stAtual->execute([$id]);
-            $atual = $stAtual->fetch(PDO::FETCH_ASSOC);
-            $urlOuUsuarioMudou = $atual && ($atual['url'] !== $url || $atual['usuario'] !== $usuario);
+        try {
+            $novoId = monitor_antena_salvar($pdo, $action === 'antena_save' ? $id : null, $nome, $ip, $sshUsuario, $sshSenha, $ativo);
+            echo json_encode(['ok' => true, 'id' => $novoId]);
+        } catch (\InvalidArgumentException $e) {
+            echo json_encode(['ok' => false, 'msg' => $e->getMessage()]);
+        }
+        exit;
+    }
 
-            if (!$urlOuUsuarioMudou) {
-                $st = $pdo->prepare("UPDATE portal_unifi_controladoras SET apelido=?, url=?, usuario=?, site=? WHERE id=?");
-                $st->execute([$apelido, $url, $usuario, $site, $id]);
-                echo json_encode(['ok' => true]); exit;
+    if ($action === 'antena_testar') {
+        // Testa com os dados do formulário (antes de salvar) ou, se vier um id
+        // sem usuário/senha no corpo, com a credencial já salva/global.
+        $body       = json_decode(file_get_contents('php://input'), true) ?? [];
+        $ip         = trim($body['ip'] ?? '');
+        $sshUsuario = trim($body['ssh_usuario'] ?? '');
+        $sshSenha   = (string)($body['ssh_senha'] ?? '');
+        $id         = (int)($body['id'] ?? 0);
+
+        if ($ip === '') { echo json_encode(['ok' => false, 'erro' => 'IP obrigatório']); exit; }
+
+        if ($sshUsuario === '' || $sshSenha === '') {
+            $antenaAtual = ['ssh_usuario' => $sshUsuario, 'ssh_senha_enc' => ''];
+            if ($id) {
+                $st = $pdo->prepare("SELECT ssh_usuario, ssh_senha_enc FROM portal_monitor_antenas WHERE id=?");
+                $st->execute([$id]);
+                $antenaAtual = $st->fetch(PDO::FETCH_ASSOC) ?: $antenaAtual;
             }
-            echo json_encode(['ok' => false, 'msg' => 'Informe a senha novamente ao alterar URL ou usuário']); exit;
+            $cred       = monitor_antena_credencial($antenaAtual);
+            $sshUsuario = $sshUsuario !== '' ? $sshUsuario : $cred['usuario'];
+            $sshSenha   = $sshSenha !== '' ? $sshSenha : $cred['senha'];
         }
 
-        if ($senha === '') { echo json_encode(['ok' => false, 'msg' => 'Senha é obrigatória']); exit; }
-        $teste = unifi_testar_login($url, $usuario, $senha);
-        if (!$teste['ok']) { echo json_encode(['ok' => false, 'msg' => 'Login falhou: ' . $teste['msg']]); exit; }
-
-        $senhaEnc = vault_encrypt($senha);
-        if ($action === 'controladora_add') {
-            $st = $pdo->prepare("INSERT INTO portal_unifi_controladoras (apelido,url,usuario,senha_enc,site,ultimo_teste_ok,ultima_verificacao) VALUES (?,?,?,?,?,1,NOW())");
-            $st->execute([$apelido, $url, $usuario, $senhaEnc, $site]);
-            echo json_encode(['ok' => true, 'id' => $pdo->lastInsertId()]);
-        } else {
-            $st = $pdo->prepare("UPDATE portal_unifi_controladoras SET apelido=?, url=?, usuario=?, senha_enc=?, site=?, ultimo_teste_ok=1, ultima_verificacao=NOW() WHERE id=?");
-            $st->execute([$apelido, $url, $usuario, $senhaEnc, $site, $id]);
-            echo json_encode(['ok' => true]);
-        }
+        echo json_encode(monitor_antena_ssh_check($ip, $sshUsuario, $sshSenha));
         exit;
     }
 
-    if ($action === 'controladora_testar') {
+    if ($action === 'antena_delete') {
         $body = json_decode(file_get_contents('php://input'), true) ?? [];
         $id   = (int)($body['id'] ?? 0);
-        $st = $pdo->prepare("SELECT * FROM portal_unifi_controladoras WHERE id=?");
-        $st->execute([$id]);
-        $row = $st->fetch(PDO::FETCH_ASSOC);
-        if (!$row) { echo json_encode(['ok' => false, 'msg' => 'Controladora não encontrada']); exit; }
-
-        $teste = unifi_testar_login($row['url'], $row['usuario'], vault_decrypt($row['senha_enc']));
-        $pdo->prepare("UPDATE portal_unifi_controladoras SET ultimo_teste_ok=?, ultima_verificacao=NOW() WHERE id=?")
-            ->execute([$teste['ok'] ? 1 : 0, $id]);
-        echo json_encode($teste);
+        monitor_antena_excluir($pdo, $id);
+        echo json_encode(['ok' => true]);
         exit;
     }
 
-    if ($action === 'controladora_delete') {
-        $body = json_decode(file_get_contents('php://input'), true) ?? [];
-        $id   = (int)($body['id'] ?? 0);
-        $pdo->prepare("DELETE FROM portal_unifi_controladoras WHERE id=?")->execute([$id]);
+    if ($action === 'antena_config_salvar') {
+        $body    = json_decode(file_get_contents('php://input'), true) ?? [];
+        $usuario = trim($body['usuario'] ?? '');
+        $senha   = (string)($body['senha'] ?? '');
+        $limite  = (int)($body['limite'] ?? 0);
+
+        wpp_cfg_set('antena_ssh_usuario', $usuario);
+        if ($senha !== '') {
+            wpp_cfg_set('antena_ssh_senha_enc', vault_encrypt($senha));
+        }
+        if ($limite > 0) {
+            wpp_cfg_set('antena_limite_clientes', (string)$limite);
+        }
         echo json_encode(['ok' => true]);
         exit;
     }
@@ -131,8 +125,11 @@ if ($action) {
     exit;
 }
 
-// ── Controladoras ativas (painel + próxima etapa: listagem de APs) ──
-$controladoras = $pdo->query("SELECT * FROM portal_unifi_controladoras WHERE ativo=1 ORDER BY apelido")->fetchAll(PDO::FETCH_ASSOC);
+// ── Antenas cadastradas (snapshot já persistido — sem SSH no page load,
+// a varredura é feita pelo ciclo da Central de Alertas / worker) ──
+$antenas          = monitor_antena_listar($pdo);
+$antenaUsuarioCfg = (string) wpp_cfg_get('antena_ssh_usuario', '');
+$antenaLimiteCfg  = (int) wpp_cfg_get('antena_limite_clientes', '30');
 ?>
 <!DOCTYPE html>
 <html lang="pt-BR">
@@ -163,45 +160,33 @@ $controladoras = $pdo->query("SELECT * FROM portal_unifi_controladoras WHERE ati
 
     .wrap { max-width:1100px; margin:2rem auto 3rem; padding:0 1rem; }
 
-    /* ── Controladoras ─────────────────────────────────────────── */
-    .ctrl-section { margin-bottom:1.5rem; }
-    .ctrl-grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(180px,1fr)); gap:.75rem; }
-    .ctrl-card { background:#fff; border:2px solid #e5e7eb; border-radius:12px;
-                 padding:1rem; position:relative; transition:all .15s; }
-    .ctrl-card:hover { box-shadow:0 4px 16px rgba(0,0,0,.08); }
-    .ctrl-topo { display:flex; justify-content:space-between; align-items:center; margin-bottom:.5rem; }
-    .ctrl-badge.ok   { color:#1e8e3e; }
-    .ctrl-badge.erro { color:#d93025; }
-    .ctrl-cfg { background:none; border:none; color:#9ca3af; cursor:pointer; padding:0; }
-    .ctrl-cfg:hover { color:#1a237e; }
-    .ctrl-apelido { font-weight:700; font-size:.88rem; }
-    .ctrl-url { font-size:.72rem; color:#6b7280; word-break:break-all; }
-    .ctrl-add { display:flex; flex-direction:column; align-items:center; justify-content:center;
-                gap:.35rem; min-height:64px; border:2px dashed #d1d5db; color:#9ca3af;
-                cursor:pointer; border-radius:12px; }
-    .ctrl-add:hover { border-color:#1a237e; color:#1a237e; }
+    /* ── Config global (credencial SSH + limite de clientes) ─────── */
+    .antena-cfg-section { background:#fff; border:1px solid #e5e7eb; border-radius:12px;
+                           padding:1rem; margin-bottom:1.5rem; }
+    .antena-cfg-row { display:flex; flex-wrap:wrap; gap:.75rem; align-items:flex-end; }
+    .antena-cfg-row .form-control { min-width:160px; }
 
-    .unifi-erro-ctrl { background:#fff3e0; color:#854d0e; border:1px solid #fde68a;
-                        border-radius:8px; padding:.6rem 1rem; font-size:.82rem; margin-bottom:.75rem; }
-
-    .unifi-grupo-section { margin-bottom:1.5rem; }
-    .unifi-grupo-header { border-radius:12px 12px 0 0; padding:.65rem 1.1rem;
-                           display:flex; align-items:center; justify-content:space-between;
-                           color:#fff; font-weight:700; font-size:.85rem; background:#2e7d32; }
-    .unifi-grupo-count { font-size:.72rem; opacity:.85; font-weight:400; }
-    .unifi-grupo-body { background:#fff; border:1px solid #e5e7eb; border-top:none;
-                         border-radius:0 0 12px 12px; padding:1rem; }
-    .unifi-ap-grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(220px,1fr)); gap:.85rem; }
-    .unifi-ap-card { border:1px solid #e5e7eb; border-radius:12px; padding:1rem;
-                      background:#fff; display:flex; flex-direction:column; gap:.4rem; }
-    .unifi-ap-topo { display:flex; align-items:center; gap:.5rem; }
-    .unifi-ap-dot { width:10px; height:10px; border-radius:50%; flex-shrink:0; }
-    .unifi-ap-dot.online  { background:#1e8e3e; }
-    .unifi-ap-dot.offline { background:#d93025; }
-    .unifi-ap-nome { font-weight:700; font-size:.88rem; }
-    .unifi-ap-modelo { font-size:.75rem; color:#6b7280; }
-    .unifi-ap-meta { display:flex; flex-wrap:wrap; gap:.6rem; margin-top:.4rem;
-                      padding-top:.5rem; border-top:1px solid #f3f4f6; font-size:.72rem; color:#6b7280; }
+    /* ── Antenas (cadastro + status via SSH) ──────────────────────── */
+    .antena-grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(220px,1fr)); gap:.85rem; }
+    .antena-card { border:1px solid #e5e7eb; border-radius:12px; padding:1rem;
+                    background:#fff; display:flex; flex-direction:column; gap:.4rem; position:relative; }
+    .antena-topo { display:flex; align-items:center; gap:.5rem; }
+    .antena-dot { width:10px; height:10px; border-radius:50%; flex-shrink:0; }
+    .antena-dot.online        { background:#1e8e3e; }
+    .antena-dot.offline       { background:#d93025; }
+    .antena-dot.desconhecido  { background:#9ca3af; }
+    .antena-nome { font-weight:700; font-size:.88rem; }
+    .antena-ip { font-size:.72rem; color:#6b7280; }
+    .antena-modelo { font-size:.75rem; color:#6b7280; }
+    .antena-meta { display:flex; flex-wrap:wrap; gap:.6rem; margin-top:.4rem;
+                    padding-top:.5rem; border-top:1px solid #f3f4f6; font-size:.72rem; color:#6b7280; }
+    .antena-cfg { background:none; border:none; color:#9ca3af; cursor:pointer; padding:0;
+                   position:absolute; top:.75rem; right:.75rem; }
+    .antena-cfg:hover { color:#1a237e; }
+    .antena-add { display:flex; flex-direction:column; align-items:center; justify-content:center;
+                   gap:.35rem; min-height:64px; border:2px dashed #d1d5db; color:#9ca3af;
+                   cursor:pointer; border-radius:12px; }
+    .antena-add:hover { border-color:#1a237e; color:#1a237e; }
   </style>
 </head>
 <body>
@@ -215,145 +200,108 @@ $controladoras = $pdo->query("SELECT * FROM portal_unifi_controladoras WHERE ati
   <h1 style="font-size:1.5rem;font-weight:700;margin:0">
     <i class="bi bi-wifi me-2"></i>Redes — Access Points UniFi
   </h1>
-  <p style="opacity:.8;margin-top:.5rem">Status ao vivo das controladoras UniFi do grupo</p>
+  <p style="opacity:.8;margin-top:.5rem">Status das antenas UniFi (verificação via SSH)</p>
 </div>
 
 <div class="wrap">
 
-<div class="ctrl-section">
+<?php if ($is_admin): ?>
+<div class="antena-cfg-section">
   <h6 class="fw-bold mb-2" style="color:#374151">
-    <i class="bi bi-hdd-network me-2"></i>Controladoras UniFi
+    <i class="bi bi-gear-fill me-2"></i>Credencial SSH padrão e limite de clientes
   </h6>
-  <div class="ctrl-grid">
-    <?php foreach ($controladoras as $c): ?>
-      <div class="ctrl-card">
-        <div class="ctrl-topo">
-          <span class="ctrl-badge <?= $c['ultimo_teste_ok'] ? 'ok' : 'erro' ?>">
-            <i class="bi <?= $c['ultimo_teste_ok'] ? 'bi-check-circle-fill' : 'bi-exclamation-triangle-fill' ?>"></i>
-          </span>
-          <?php if ($is_admin): ?>
-          <button type="button" class="ctrl-cfg" onclick='editarControladora(<?= json_encode(['id'=>$c['id'],'apelido'=>$c['apelido'],'url'=>$c['url'],'usuario'=>$c['usuario'],'site'=>$c['site']], JSON_HEX_APOS | JSON_HEX_QUOT | JSON_HEX_AMP | JSON_HEX_TAG) ?>)' title="Editar">
-            <i class="bi bi-gear-fill"></i>
-          </button>
-          <?php endif; ?>
-        </div>
-        <div class="ctrl-apelido"><?= esc($c['apelido']) ?></div>
-        <div class="ctrl-url"><?= esc($c['url']) ?></div>
-      </div>
-    <?php endforeach; ?>
-    <?php if ($is_admin): ?>
-      <div class="ctrl-card ctrl-add" onclick="abrirModalControladora()">
-        <i class="bi bi-plus-circle" style="font-size:1.5rem"></i>
-        <div class="ctrl-apelido">Adicionar</div>
-      </div>
-    <?php endif; ?>
+  <div class="antena-cfg-row">
+    <div>
+      <label class="form-label small mb-1">Usuário SSH padrão</label>
+      <input type="text" class="form-control" id="cfg-usuario" value="<?= esc($antenaUsuarioCfg) ?>" placeholder="ubnt"/>
+    </div>
+    <div>
+      <label class="form-label small mb-1">Senha SSH padrão</label>
+      <input type="password" class="form-control font-monospace" id="cfg-senha" placeholder="Deixe em branco para manter" autocomplete="new-password"/>
+    </div>
+    <div>
+      <label class="form-label small mb-1">Limite de clientes conectados</label>
+      <input type="number" class="form-control" id="cfg-limite" value="<?= (int)$antenaLimiteCfg ?>" min="1"/>
+    </div>
+    <button type="button" class="btn btn-primary" onclick="salvarConfigAntenas()" style="background:#1a237e;border-color:#1a237e">
+      <i class="bi bi-check-lg me-1"></i>Salvar
+    </button>
   </div>
+  <div id="cfg-msg" class="small mt-2" style="display:none"></div>
 </div>
+<?php endif; ?>
 
-<!-- ═══════════════ ACCESS POINTS ═══════════════ -->
-<?php
-$errosControladoras = [];
-$apsPorControladora  = [];
-
-// Libera o lock de sessão antes do fetch lento — evita travar outras abas do mesmo usuário
-session_write_close();
-
-$stAtualizaTeste = $pdo->prepare("UPDATE portal_unifi_controladoras SET ultimo_teste_ok=?, ultima_verificacao=NOW() WHERE id=?");
-
-foreach ($controladoras as $c) {
-    $senha     = vault_decrypt($c['senha_enc']);
-    $resultado = unifi_listar_aps($c['url'], $c['usuario'], $senha, $c['site']);
-    if (isset($resultado['erro'])) {
-        $errosControladoras[] = ['apelido' => $c['apelido'], 'msg' => $resultado['erro']];
-        $stAtualizaTeste->execute([0, $c['id']]);
-        continue;
-    }
-    $apsPorControladora[$c['id']] = $resultado;
-    $stAtualizaTeste->execute([1, $c['id']]);
-}
-?>
-
-<?php foreach ($errosControladoras as $err): ?>
-  <div class="unifi-erro-ctrl">
-    <i class="bi bi-exclamation-triangle-fill me-2"></i>
-    <strong><?= esc($err['apelido']) ?>:</strong> não foi possível carregar — <?= esc($err['msg']) ?>
-  </div>
-<?php endforeach; ?>
-
-<?php if (!$controladoras): ?>
-  <div class="text-muted small mt-4">Cadastre uma controladora acima para ver os access points aqui.</div>
-<?php else: ?>
-  <?php foreach ($controladoras as $c): if (!isset($apsPorControladora[$c['id']])) continue; ?>
-    <?php $aps = $apsPorControladora[$c['id']]; ?>
-    <div class="unifi-grupo-section">
-      <div class="unifi-grupo-header">
-        <span><i class="bi bi-wifi me-2"></i><?= esc($c['apelido']) ?></span>
-        <span class="unifi-grupo-count"><?= count($aps) ?> access point(s)</span>
+<!-- ═══════════════ ANTENAS (SSH) ═══════════════ -->
+<div class="antena-grid">
+  <?php foreach ($antenas as $a): ?>
+    <div class="antena-card">
+      <?php if ($is_admin): ?>
+      <button type="button" class="antena-cfg" onclick='editarAntena(<?= json_encode(['id'=>$a['id'],'nome'=>$a['nome'],'ip'=>$a['ip'],'ssh_usuario'=>$a['ssh_usuario'],'ativo'=>(int)$a['ativo']], JSON_HEX_APOS | JSON_HEX_QUOT | JSON_HEX_AMP | JSON_HEX_TAG) ?>)' title="Editar">
+        <i class="bi bi-gear-fill"></i>
+      </button>
+      <?php endif; ?>
+      <div class="antena-topo">
+        <span class="antena-dot <?= esc($a['status']) ?>"></span>
+        <span class="antena-nome"><?= esc($a['nome']) ?></span>
       </div>
-      <div class="unifi-grupo-body">
-        <?php if ($aps): ?>
-          <div class="unifi-ap-grid">
-            <?php foreach ($aps as $ap): ?>
-              <div class="unifi-ap-card">
-                <div class="unifi-ap-topo">
-                  <span class="unifi-ap-dot <?= $ap['status'] ?>"></span>
-                  <span class="unifi-ap-nome"><?= esc($ap['nome']) ?></span>
-                </div>
-                <div class="unifi-ap-modelo"><?= esc($ap['modelo']) ?></div>
-                <div class="unifi-ap-meta">
-                  <span><i class="bi bi-people-fill me-1"></i><?= (int)$ap['clientes'] ?> clientes</span>
-                  <span><i class="bi bi-clock-history me-1"></i><?= esc(formatarUptime($ap['uptime_seg'])) ?></span>
-                </div>
-              </div>
-            <?php endforeach; ?>
-          </div>
-        <?php else: ?>
-          <p class="text-muted small mb-0">Nenhum access point encontrado nessa controladora.</p>
-        <?php endif; ?>
+      <div class="antena-ip"><?= esc($a['ip']) ?></div>
+      <div class="antena-modelo"><?= esc($a['modelo'] ?? '—') ?><?= $a['firmware_versao'] ? ' · fw ' . esc($a['firmware_versao']) : '' ?></div>
+      <div class="antena-meta">
+        <span><i class="bi bi-people-fill me-1"></i><?= $a['clientes_conectados'] !== null ? (int)$a['clientes_conectados'] : '—' ?> clientes</span>
+        <span><i class="bi bi-clock-history me-1"></i><?= $a['ultima_verificacao'] ? esc(formatarHaQuanto($a['ultima_verificacao'])) : 'nunca verificado' ?></span>
       </div>
     </div>
   <?php endforeach; ?>
+  <?php if ($is_admin): ?>
+    <div class="antena-card antena-add" onclick="abrirModalAntena()">
+      <i class="bi bi-plus-circle" style="font-size:1.5rem"></i>
+      <div class="antena-nome">Adicionar</div>
+    </div>
+  <?php endif; ?>
+</div>
+<?php if (!$antenas && !$is_admin): ?>
+  <div class="text-muted small mt-4">Nenhuma antena cadastrada.</div>
 <?php endif; ?>
 
 </div><!-- /wrap -->
 
-<!-- Modal: adicionar/editar controladora UniFi -->
-<div class="modal fade" id="modalControladora" tabindex="-1">
+<!-- Modal: adicionar/editar antena UniFi (via SSH) -->
+<div class="modal fade" id="modalAntena" tabindex="-1">
   <div class="modal-dialog modal-dialog-centered">
     <div class="modal-content">
       <div class="modal-header" style="background:linear-gradient(135deg,#1a237e,#1565c0);color:white">
-        <h5 class="modal-title fw-bold" id="modalControladoraTitulo"><i class="bi bi-wifi me-2"></i>Nova Controladora</h5>
+        <h5 class="modal-title fw-bold" id="modalAntenaTitulo"><i class="bi bi-wifi me-2"></i>Nova Antena</h5>
         <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
       </div>
       <div class="modal-body">
-        <input type="hidden" id="ctrl-id"/>
+        <input type="hidden" id="ant-id"/>
         <div class="mb-3">
-          <label class="form-label fw-semibold">Apelido</label>
-          <input type="text" class="form-control" id="ctrl-apelido" placeholder="Ex: Loja 101"/>
-        </div>
-        <div class="mb-3">
-          <label class="form-label fw-semibold">URL <span class="text-muted small">(ex: https://192.168.1.10:8443)</span></label>
-          <input type="text" class="form-control font-monospace" id="ctrl-url" placeholder="https://192.168.x.x:8443"/>
+          <label class="form-label fw-semibold">Nome</label>
+          <input type="text" class="form-control" id="ant-nome" placeholder="Ex: AP Loja 101 - Salão"/>
         </div>
         <div class="mb-3">
-          <label class="form-label fw-semibold">Usuário</label>
-          <input type="text" class="form-control" id="ctrl-usuario" placeholder="admin"/>
+          <label class="form-label fw-semibold">IP</label>
+          <input type="text" class="form-control font-monospace" id="ant-ip" placeholder="192.168.x.x"/>
         </div>
         <div class="mb-3">
-          <label class="form-label fw-semibold">Senha</label>
-          <input type="password" class="form-control font-monospace" id="ctrl-senha" placeholder="••••••••" autocomplete="new-password"/>
+          <label class="form-label fw-semibold">Usuário SSH <span class="text-muted small">(vazio = usa o padrão global)</span></label>
+          <input type="text" class="form-control" id="ant-usuario" placeholder="ubnt"/>
         </div>
-        <div class="mb-2">
-          <label class="form-label fw-semibold">Site <span class="text-muted small">(padrão: default)</span></label>
-          <input type="text" class="form-control" id="ctrl-site" placeholder="default"/>
+        <div class="mb-3">
+          <label class="form-label fw-semibold">Senha SSH <span class="text-muted small">(vazio = usa o padrão global)</span></label>
+          <input type="password" class="form-control font-monospace" id="ant-senha" placeholder="••••••••" autocomplete="new-password"/>
         </div>
-        <div id="ctrl-erro" class="text-danger small" style="display:none"></div>
+        <div class="mb-2 form-check form-switch">
+          <input class="form-check-input" type="checkbox" id="ant-ativo" checked/>
+          <label class="form-check-label" for="ant-ativo">Ativa (entra na varredura)</label>
+        </div>
+        <div id="ant-erro" class="text-danger small" style="display:none"></div>
       </div>
       <div class="modal-footer">
-        <button type="button" class="btn btn-outline-danger me-auto" id="btn-excluir-ctrl" style="display:none" onclick="excluirControladora()"><i class="bi bi-trash me-1"></i>Excluir</button>
-        <button type="button" class="btn btn-outline-secondary" id="btn-testar-ctrl" style="display:none" onclick="testarControladora()"><i class="bi bi-plug me-1"></i>Testar</button>
+        <button type="button" class="btn btn-outline-danger me-auto" id="btn-excluir-ant" style="display:none" onclick="excluirAntena()"><i class="bi bi-trash me-1"></i>Excluir</button>
+        <button type="button" class="btn btn-outline-secondary" id="btn-testar-ant" onclick="testarAntena()"><i class="bi bi-plug me-1"></i>Testar</button>
         <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
-        <button type="button" class="btn btn-primary" onclick="salvarControladora()" style="background:#1a237e;border-color:#1a237e"><i class="bi bi-check-lg me-1"></i>Salvar</button>
+        <button type="button" class="btn btn-primary" onclick="salvarAntena()" style="background:#1a237e;border-color:#1a237e"><i class="bi bi-check-lg me-1"></i>Salvar</button>
       </div>
     </div>
   </div>
@@ -361,71 +309,73 @@ foreach ($controladoras as $c) {
 
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
 <script>
-let modalControladora;
+let modalAntena;
 document.addEventListener('DOMContentLoaded', () => {
-  const el = document.getElementById('modalControladora');
-  if (el) modalControladora = new bootstrap.Modal(el);
+  const el = document.getElementById('modalAntena');
+  if (el) modalAntena = new bootstrap.Modal(el);
 });
 
-function abrirModalControladora() {
-  document.getElementById('ctrl-id').value = '';
-  document.getElementById('ctrl-apelido').value = '';
-  document.getElementById('ctrl-url').value = '';
-  document.getElementById('ctrl-usuario').value = '';
-  document.getElementById('ctrl-senha').value = '';
-  document.getElementById('ctrl-senha').placeholder = '••••••••';
-  document.getElementById('ctrl-site').value = '';
-  document.getElementById('ctrl-erro').style.display = 'none';
-  document.getElementById('modalControladoraTitulo').innerHTML = '<i class="bi bi-wifi me-2"></i>Nova Controladora';
-  document.getElementById('btn-excluir-ctrl').style.display = 'none';
-  document.getElementById('btn-testar-ctrl').style.display = 'none';
-  modalControladora.show();
+function abrirModalAntena() {
+  document.getElementById('ant-id').value = '';
+  document.getElementById('ant-nome').value = '';
+  document.getElementById('ant-ip').value = '';
+  document.getElementById('ant-usuario').value = '';
+  document.getElementById('ant-senha').value = '';
+  document.getElementById('ant-senha').placeholder = '••••••••';
+  document.getElementById('ant-ativo').checked = true;
+  document.getElementById('ant-erro').style.display = 'none';
+  document.getElementById('modalAntenaTitulo').innerHTML = '<i class="bi bi-wifi me-2"></i>Nova Antena';
+  document.getElementById('btn-excluir-ant').style.display = 'none';
+  modalAntena.show();
 }
 
-function editarControladora(c) {
-  document.getElementById('ctrl-id').value = c.id;
-  document.getElementById('ctrl-apelido').value = c.apelido;
-  document.getElementById('ctrl-url').value = c.url;
-  document.getElementById('ctrl-usuario').value = c.usuario;
-  document.getElementById('ctrl-senha').value = '';
-  document.getElementById('ctrl-senha').placeholder = 'Deixe em branco para manter a senha atual';
-  document.getElementById('ctrl-site').value = c.site;
-  document.getElementById('ctrl-erro').style.display = 'none';
-  document.getElementById('modalControladoraTitulo').textContent = c.apelido;
-  document.getElementById('btn-excluir-ctrl').style.display = 'inline-block';
-  document.getElementById('btn-testar-ctrl').style.display = 'inline-block';
-  modalControladora.show();
+function editarAntena(a) {
+  document.getElementById('ant-id').value = a.id;
+  document.getElementById('ant-nome').value = a.nome;
+  document.getElementById('ant-ip').value = a.ip;
+  document.getElementById('ant-usuario').value = a.ssh_usuario || '';
+  document.getElementById('ant-senha').value = '';
+  document.getElementById('ant-senha').placeholder = 'Deixe em branco para manter a senha atual';
+  document.getElementById('ant-ativo').checked = !!a.ativo;
+  document.getElementById('ant-erro').style.display = 'none';
+  document.getElementById('modalAntenaTitulo').textContent = a.nome;
+  document.getElementById('btn-excluir-ant').style.display = 'inline-block';
+  modalAntena.show();
 }
 
-async function testarControladora() {
-  const id     = document.getElementById('ctrl-id').value;
-  const erroEl = document.getElementById('ctrl-erro');
+async function testarAntena() {
+  const id      = document.getElementById('ant-id').value;
+  const ip      = document.getElementById('ant-ip').value.trim();
+  const usuario = document.getElementById('ant-usuario').value.trim();
+  const senha   = document.getElementById('ant-senha').value;
+  const erroEl  = document.getElementById('ant-erro');
   erroEl.style.display = 'none';
-  if (!id) return;
 
-  const btn = document.getElementById('btn-testar-ctrl');
+  if (!ip) { erroEl.className = 'text-danger small'; erroEl.textContent = 'Informe o IP antes de testar.'; erroEl.style.display = ''; return; }
+
+  const btn = document.getElementById('btn-testar-ant');
   const htmlOriginal = btn.innerHTML;
   btn.disabled = true;
   btn.innerHTML = '<i class="bi bi-hourglass-split me-1"></i>Testando...';
 
   try {
-    const r = await fetch('inventario_redes.php?action=controladora_testar', {
+    const r = await fetch('inventario_redes.php?action=antena_testar', {
       method: 'POST', headers: {'Content-Type':'application/json'},
-      body: JSON.stringify({id}),
+      body: JSON.stringify({id, ip, ssh_usuario: usuario, ssh_senha: senha}),
     });
     const d = await r.json();
     if (d.ok) {
       erroEl.className = 'text-success small';
-      erroEl.textContent = 'Login ok — conexão com a controladora funcionando.';
+      erroEl.textContent = 'Conexão SSH ok' + (d.modelo ? ` — ${d.modelo}` : '') + '.';
       erroEl.style.display = '';
     } else {
       erroEl.className = 'text-danger small';
-      erroEl.textContent = d.msg || 'Falha ao testar controladora.';
+      erroEl.textContent = d.erro || 'Falha ao testar antena.';
       erroEl.style.display = '';
     }
   } catch (e) {
     erroEl.className = 'text-danger small';
-    erroEl.textContent = 'Erro ao testar controladora.';
+    erroEl.textContent = 'Erro ao testar antena.';
     erroEl.style.display = '';
   } finally {
     btn.disabled = false;
@@ -433,42 +383,73 @@ async function testarControladora() {
   }
 }
 
-async function salvarControladora() {
-  const id      = document.getElementById('ctrl-id').value;
-  const apelido = document.getElementById('ctrl-apelido').value.trim();
-  const url     = document.getElementById('ctrl-url').value.trim();
-  const usuario = document.getElementById('ctrl-usuario').value.trim();
-  const senha   = document.getElementById('ctrl-senha').value;
-  const site    = document.getElementById('ctrl-site').value.trim();
-  const erroEl  = document.getElementById('ctrl-erro');
+async function salvarAntena() {
+  const id      = document.getElementById('ant-id').value;
+  const nome    = document.getElementById('ant-nome').value.trim();
+  const ip      = document.getElementById('ant-ip').value.trim();
+  const usuario = document.getElementById('ant-usuario').value.trim();
+  const senha   = document.getElementById('ant-senha').value;
+  const ativo   = document.getElementById('ant-ativo').checked;
+  const erroEl  = document.getElementById('ant-erro');
   erroEl.style.display = 'none';
 
-  if (!apelido || !url || !usuario) {
-    erroEl.textContent = 'Preencha apelido, URL e usuário.';
+  if (!nome || !ip) {
+    erroEl.className = 'text-danger small';
+    erroEl.textContent = 'Preencha nome e IP.';
     erroEl.style.display = '';
     return;
   }
 
-  const action = id ? 'controladora_save' : 'controladora_add';
+  // Mesma regra UX do cadastro de controladoras que esta tela substitui:
+  // bloqueia o save se o teste de conexão falhar.
+  const teste = await fetch('inventario_redes.php?action=antena_testar', {
+    method: 'POST', headers: {'Content-Type':'application/json'},
+    body: JSON.stringify({id, ip, ssh_usuario: usuario, ssh_senha: senha}),
+  }).then(r => r.json());
+  if (!teste.ok) {
+    erroEl.className = 'text-danger small';
+    erroEl.textContent = 'Teste falhou: ' + (teste.erro || 'não foi possível conectar.');
+    erroEl.style.display = '';
+    return;
+  }
+
+  const action = id ? 'antena_save' : 'antena_add';
   const r = await fetch(`inventario_redes.php?action=${action}`, {
     method: 'POST', headers: {'Content-Type':'application/json'},
-    body: JSON.stringify({id, apelido, url, usuario, senha, site}),
+    body: JSON.stringify({id, nome, ip, ssh_usuario: usuario, ssh_senha: senha, ativo}),
   });
   const d = await r.json();
-  if (d.ok) { modalControladora.hide(); location.reload(); }
-  else { erroEl.textContent = d.msg || 'Erro ao salvar'; erroEl.style.display = ''; }
+  if (d.ok) { modalAntena.hide(); location.reload(); }
+  else { erroEl.className = 'text-danger small'; erroEl.textContent = d.msg || 'Erro ao salvar'; erroEl.style.display = ''; }
 }
 
-async function excluirControladora() {
-  const id = document.getElementById('ctrl-id').value;
-  if (!id || !confirm('Excluir esta controladora? Os APs dela deixarão de aparecer.')) return;
-  const r = await fetch('inventario_redes.php?action=controladora_delete', {
+async function excluirAntena() {
+  const id = document.getElementById('ant-id').value;
+  if (!id || !confirm('Excluir esta antena?')) return;
+  const r = await fetch('inventario_redes.php?action=antena_delete', {
     method: 'POST', headers: {'Content-Type':'application/json'},
     body: JSON.stringify({id}),
   });
   const d = await r.json();
-  if (d.ok) { modalControladora.hide(); location.reload(); }
+  if (d.ok) { modalAntena.hide(); location.reload(); }
   else alert(d.msg || 'Erro ao excluir');
+}
+
+async function salvarConfigAntenas() {
+  const usuario = document.getElementById('cfg-usuario').value.trim();
+  const senha   = document.getElementById('cfg-senha').value;
+  const limite  = document.getElementById('cfg-limite').value;
+  const msgEl   = document.getElementById('cfg-msg');
+
+  const r = await fetch('inventario_redes.php?action=antena_config_salvar', {
+    method: 'POST', headers: {'Content-Type':'application/json'},
+    body: JSON.stringify({usuario, senha, limite}),
+  });
+  const d = await r.json();
+  msgEl.className = d.ok ? 'text-success small mt-2' : 'text-danger small mt-2';
+  msgEl.textContent = d.ok ? 'Configuração salva.' : (d.msg || 'Erro ao salvar.');
+  msgEl.style.display = '';
+  if (d.ok) document.getElementById('cfg-senha').value = '';
 }
 </script>
 </body>
