@@ -260,22 +260,24 @@ container + confirmação + `Move-Item` (mesmo fluxo de sempre).
 
 ### Fase 4 — Deploy final e verificação
 
-- [ ] 4.1 Confirmar que a imagem nova do `glpi-web` (com `sshpass`) foi
-  de fato rebuildada e está rodando em produção (`docker exec glpi-web
-  which sshpass ssh` — não assumir, [[fix-alertas-500-drift-producao]]
-  já mostrou que isso falha silenciosamente).
-- [ ] 4.2 Grep final por `abrirModalControladora|editarControladora|testarControladora|unifi_listar_aps|unifi_login|unifi_testar_login`
-  fora de `inventario_redes.php`/`unifi_client.php` — confirmar que nada
-  mais referencia o fluxo removido (mesmo cuidado do incidente de
-  2026-10-05, [[incident-alertas-whatsapp-quebrados-pos-deploy-1004]]).
-- [ ] 4.3 Commit por fase concluída, push após cada um, branch nova
-  (`feat/monitor-antenas-unifi-ssh`, a partir de
-  [[branch-integracao-infra-docker]] `infra/migracao-docker-glpi`, não de
-  `main`).
-- [ ] 4.4 Reportar pendências reais ao usuário: (a) credencial SSH ainda
-  precisa ser padronizada nas antenas (bloqueante pro teste real, não pro
-  código); (b) comando `mca-status` validado contra pelo menos 1 antena
-  real.
+- [x] 4.1 Confirmado via `docker exec glpi-web which sshpass ssh` em
+  produção: `/usr/bin/sshpass` e `/usr/bin/ssh` presentes — a imagem foi
+  de fato rebuildada com os pacotes adicionados ao Dockerfile na Fase 1
+  (não assumido, checado diretamente — [[fix-alertas-500-drift-producao]]).
+- [x] 4.2 Grep por `abrirModalControladora|editarControladora|testarControladora|unifi_listar_aps|unifi_login|unifi_testar_login`
+  feito ainda durante a execução das Fases 2/3 — só `unifi_client.php`
+  (auto-referência) e documentação batem; nenhuma referência órfã em
+  `inventario_redes.php` ou em qualquer worker.
+- [x] 4.3 Commit por fase concluída, push após cada um — `57091cc`
+  (Dockerfile), `275427c`+`7455e20` (Fase 1), `aaf01b8` (Fase 2),
+  `63c26be` (Fase 3), todos em `feat/monitor-antenas-unifi-ssh`
+  (a partir de [[branch-integracao-infra-docker]]
+  `infra/migracao-docker-glpi`, não de `main`).
+- [x] 4.4 Pendências reais reportadas ao usuário (ver relatório final da
+  sessão): (a) credencial SSH ainda precisa ser padronizada nas antenas
+  reais (bloqueante só pro teste manual 1.5, não pro código); (b)
+  comando `mca-status`/formato JSON ainda não validado contra hardware
+  real (risco já registrado na spec original).
 
 ---
 
@@ -293,4 +295,4 @@ container + confirmação + `Move-Item` (mesmo fluxo de sempre).
 
 ---
 
-## Status: Fase 1 implementada e deployada (1.1-1.4, 1.6); 1.5 pendente de credencial SSH real. Fase 2 implementada, testada (32/0) e deployada (2.1-2.6), com notif_whatsapp=0 confirmado em produção. Fase 3 implementada, testada (44/0) e deployada (3.1-3.4). Fase 4: 4.2 (grep de referências órfãs) já confirmado limpo; 4.1 (rebuild da imagem Docker) e 4.4 (relatório final) pendentes.
+## Status: PLANO CONCLUÍDO. Fase 1 implementada e deployada (1.1-1.4, 1.6); 1.5 pendente de credencial SSH real (não bloqueia código). Fase 2 implementada, testada (32/0) e deployada (2.1-2.6), com notif_whatsapp=0 confirmado em produção. Fase 3 implementada, testada (44/0) e deployada (3.1-3.4). Fase 4 concluída (4.1-4.4): imagem Docker com sshpass/ssh confirmada em produção, sem referências órfãs ao fluxo antigo, todas as fases commitadas/pushadas. Pendências reais remanescentes (fora do código): padronizar credencial SSH nas antenas reais; validar `mca-status` contra hardware real.
