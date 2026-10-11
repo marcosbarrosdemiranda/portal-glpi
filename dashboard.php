@@ -107,28 +107,41 @@ function pode_ver(string $key, ?array $cards): bool {
     /* ── Cards ── */
     /* Layout em 5 colunas (era 3) + cards um pouco menores — pedido 2026-09-13.
        Reduzido de novo — pedido 2026-10-11 (era minmax(200px,1fr) / gap 1.1rem /
-       padding 1.5rem 1.1rem / ícone 58px / h5 1rem / p .8rem). Pra reverter só
-       esta rodada, voltar os valores acima; pro layout original de 2026-09-13,
-       ver o comentário anterior (max-width:900px / minmax(240px,1fr) / etc).*/
-    .cards-wrap {
+       padding 1.5rem 1.1rem / ícone 58px / h5 1rem / p .8rem). */
+    /* Reestruturado 2026-10-11 (2ª rodada): de grid único pra seções flex
+       (.dash-sections > .dash-section > .dash-section-cards), pra categorias
+       curtas (Atendimento+KPIs, Acessos+Recursos) ficarem lado a lado
+       naturalmente — e cards com largura FIXA (não mais 1fr) + aspect-ratio
+       1/1, pra ficarem quadrados mesmo dentro de uma seção estreita. Textos
+       das descrições também foram encurtados (~7 palavras) + line-clamp:3
+       pra não vazar do quadrado. Pra reverter: restaurar o .cards-wrap em
+       grid acima e os parágrafos originais (ver histórico do git).*/
+    .dash-sections {
+      display: flex; flex-wrap: wrap; align-items: flex-start;
+      gap: 1.6rem 2.2rem;
       max-width: 1300px; margin: -.9rem auto 2rem;
       padding: 0 1.5rem;
-      display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
-      gap: .8rem;
+    }
+    .dash-section { flex: 0 1 auto; }
+    .dash-section-cards {
+      display: flex; flex-wrap: wrap;
+      gap: .7rem;
     }
 
     .dash-card {
+      flex: 0 0 110px; width: 110px; aspect-ratio: 1 / 1;
       background: white;
       border-radius: 12px;
       box-shadow: 0 4px 24px rgba(0,0,0,.1);
-      padding: 1rem .85rem;
+      padding: .7rem .5rem;
+      display: flex; flex-direction: column; align-items: center; justify-content: center;
       text-align: center;
       text-decoration: none;
       color: #333;
       transition: transform .2s, box-shadow .2s;
       cursor: pointer;
       border-top: 4px solid transparent;
+      overflow: hidden;
     }
     .dash-card:hover {
       transform: translateY(-5px);
@@ -137,14 +150,18 @@ function pode_ver(string $key, ?array $cards): bool {
     }
 
     .dash-card .card-icon {
-      width: 44px; height: 44px;
+      width: 36px; height: 36px; flex-shrink: 0;
       border-radius: 50%;
       display: flex; align-items: center; justify-content: center;
-      margin: 0 auto .6rem;
-      font-size: 1.25rem;
+      margin: 0 auto .4rem;
+      font-size: 1.05rem;
     }
-    .dash-card h5 { font-weight: 700; font-size: .88rem; margin: 0 0 .3rem; }
-    .dash-card p  { font-size: .72rem; color: #888; margin: 0; }
+    .dash-card h5 { font-weight: 700; font-size: .78rem; margin: 0 0 .25rem; line-height: 1.15; }
+    .dash-card p  {
+      font-size: .64rem; color: #888; margin: 0; line-height: 1.2;
+      display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden;
+    }
+    .dash-card p.text-muted.small { -webkit-line-clamp: 1; margin-bottom: .1rem; }
 
     /* Cores por card */
     .card-agenda    { border-top-color: #1a73e8; }
@@ -233,15 +250,14 @@ function pode_ver(string $key, ?array $cards): bool {
 
     /* Separador de seção */
     .section-label {
-      grid-column: 1 / -1;
       font-size: .72rem; font-weight: 700; text-transform: uppercase;
       letter-spacing: .1em; color: #6b7280;
       padding: .6rem .25rem .3rem;
       border-bottom: 2px solid #e5e7eb;
-      margin-top: 1rem;
+      margin: 0 0 .6rem;
       display: flex; align-items: center; gap: .4rem;
     }
-    .section-label:first-child { margin-top: 3rem; }
+    .dash-top-cards { margin-bottom: .8rem; }
 
     /* Rodapé */
     footer {
@@ -273,27 +289,29 @@ function pode_ver(string $key, ?array $cards): bool {
 </div>
 
 <!-- Cards -->
-<div class="cards-wrap">
+<div class="dash-sections">
 
 <?php if ($is_self_glpi): ?>
-  <!-- Cards básicos do self-service — sempre aparecem no topo -->
+  <!-- Cards básicos do self-service — sempre aparecem no topo, sem seção/label -->
+  <div class="dash-section-cards dash-top-cards">
   <a href="portal/atendente.php" class="dash-card card-usuario">
     <div class="card-icon"><i class="bi bi-person-raised-hand"></i></div>
     <h5>Abrir Chamado</h5>
-    <p>Formulário rápido para solicitar suporte ao setor de TI.</p>
+    <p>Formulário rápido para solicitar suporte.</p>
   </a>
 
   <a href="meus_chamados.php" class="dash-card card-agenda">
     <div class="card-icon"><i class="bi bi-clock-history"></i></div>
     <h5>Meus Chamados</h5>
-    <p>Acompanhe o status das suas solicitações abertas e resolvidas.</p>
+    <p>Veja o status dos seus chamados.</p>
   </a>
 
   <a href="http://192.168.1.246:3000/login" target="_blank" rel="noopener" class="dash-card card-conhecimento">
     <div class="card-icon"><i class="bi bi-book-fill"></i></div>
     <h5>Área do Conhecimento</h5>
-    <p>Acesse artigos, tutoriais e documentações da equipe de TI.</p>
+    <p>Artigos, tutoriais e documentações da equipe.</p>
   </a>
+  </div>
 
 <?php endif; ?>
 
@@ -301,14 +319,15 @@ function pode_ver(string $key, ?array $cards): bool {
 
   <!-- ── ATENDIMENTO ── -->
   <?php if (pode_ver('agenda',$perfil_cards) || (pode_ver('abrir_chamado',$perfil_cards) && !$is_self_glpi) || pode_ver('historico',$perfil_cards) || pode_ver('pendencias',$perfil_cards) || pode_ver('alertas',$perfil_cards)): ?>
+  <section class="dash-section">
   <div class="section-label"><i class="bi bi-headset me-2"></i>Atendimento</div>
-  <?php endif; ?>
+  <div class="dash-section-cards">
 
   <?php if (pode_ver('agenda', $perfil_cards)): ?>
   <a href="agenda/" class="dash-card card-agenda">
     <div class="card-icon"><i class="bi bi-calendar3"></i></div>
     <h5>Agenda de Atendimentos</h5>
-    <p>Visualize e gerencie os chamados agendados, crie eventos e acompanhe sua equipe.</p>
+    <p>Chamados agendados, eventos e equipe.</p>
   </a>
   <?php endif; ?>
 
@@ -317,7 +336,7 @@ function pode_ver(string $key, ?array $cards): bool {
     <div class="card-icon"><i class="bi bi-headset"></i></div>
     <h5>Abrir Chamado</h5>
     <p class="text-muted small mb-1">Por atendente</p>
-    <p>Formulário completo para técnicos de TI registrarem chamados com todos os detalhes.</p>
+    <p>Registre chamados com todos os detalhes.</p>
   </a>
   <?php endif; ?>
 
@@ -325,7 +344,7 @@ function pode_ver(string $key, ?array $cards): bool {
   <a href="historico.php" class="dash-card card-historico">
     <div class="card-icon"><i class="bi bi-clock-history"></i></div>
     <h5>Histórico de Chamados</h5>
-    <p>Liste, filtre e acompanhe todos os chamados registrados no GLPI.</p>
+    <p>Liste e filtre chamados registrados no GLPI.</p>
   </a>
   <?php endif; ?>
 
@@ -333,7 +352,7 @@ function pode_ver(string $key, ?array $cards): bool {
   <a href="pendencias.php" class="dash-card card-pendencias">
     <div class="card-icon"><i class="bi bi-sticky-fill"></i></div>
     <h5>Pendências e Anotações</h5>
-    <p>Anotações por loja: lembretes de visita, itens pendentes — converta em chamado quando necessário.</p>
+    <p>Anotações por loja — converta em chamado.</p>
   </a>
   <?php endif; ?>
 
@@ -341,78 +360,25 @@ function pode_ver(string $key, ?array $cards): bool {
   <a href="alertas.php" class="dash-card card-alertas">
     <div class="card-icon"><i class="bi bi-bell-fill"></i></div>
     <h5>Central de Alertas</h5>
-    <p>Equipamentos e sistemas fora do ar, disco cheio, VPN de loja caída, inventário atrasado — num lugar só.</p>
+    <p>Equipamentos e sistemas fora do ar.</p>
   </a>
   <?php endif; ?>
 
-  <!-- ── ACESSOS ── -->
-  <?php if (pode_ver('acesso_remoto',$perfil_cards) || pode_ver('infra',$perfil_cards) || pode_ver('erp',$perfil_cards)): ?>
-  <div class="section-label"><i class="bi bi-grid-3x3-gap-fill me-2"></i>Acessos</div>
-  <?php endif; ?>
-
-  <?php if (pode_ver('acesso_remoto', $perfil_cards)): ?>
-  <a href="acessos.php#remoto" class="dash-card card-acesso-remoto">
-    <div class="card-icon"><i class="bi bi-display-fill"></i></div>
-    <h5>Acesso Remoto</h5>
-    <p>Remote Desktop (RDP), VNC e AnyDesk para suporte e acesso a servidores.</p>
-  </a>
-  <?php endif; ?>
-
-  <?php if (pode_ver('infra', $perfil_cards)): ?>
-  <a href="acessos.php#infra" class="dash-card card-infra">
-    <div class="card-icon"><i class="bi bi-hdd-network-fill"></i></div>
-    <h5>Infraestrutura</h5>
-    <p>pfSense, VMware, Mikrotik e UniFi — gerenciamento da rede e servidores.</p>
-  </a>
-  <?php endif; ?>
-
-  <?php if (pode_ver('erp', $perfil_cards)): ?>
-  <a href="acessos.php#erp" class="dash-card card-erp">
-    <div class="card-icon"><i class="bi bi-building-fill-gear"></i></div>
-    <h5>Ferramentas ERP</h5>
-    <p>Sistemas de gestão e ferramentas corporativas da empresa.</p>
-  </a>
-  <?php endif; ?>
-
-  <!-- ── RECURSOS ── -->
-  <?php if ((pode_ver('conhecimento',$perfil_cards) && !$is_self_glpi) || pode_ver('cofre',$perfil_cards) || pode_ver('ferramentas_gmais',$perfil_cards)): ?>
-  <div class="section-label"><i class="bi bi-collection-fill me-2"></i>Recursos</div>
-  <?php endif; ?>
-
-  <?php if (pode_ver('conhecimento', $perfil_cards) && !$is_self_glpi): ?>
-  <a href="http://192.168.1.246:3000/login" target="_blank" rel="noopener" class="dash-card card-conhecimento">
-    <div class="card-icon"><i class="bi bi-book-fill"></i></div>
-    <h5>Área do Conhecimento</h5>
-    <p>Acesse artigos, tutoriais e documentações da equipe de TI.</p>
-  </a>
-  <?php endif; ?>
-
-  <?php if (pode_ver('cofre', $perfil_cards)): ?>
-  <a href="cofre.php" class="dash-card card-cofre">
-    <div class="card-icon"><i class="bi bi-safe2-fill"></i></div>
-    <h5>Cofre TI</h5>
-    <p>Senhas, comandos e documentação interna da equipe — seguro e com busca rápida.</p>
-  </a>
-  <?php endif; ?>
-
-  <?php if (pode_ver('ferramentas_gmais', $perfil_cards)): ?>
-  <a href="ferramentas_gmais.php" class="dash-card card-ferramentas-gmais">
-    <div class="card-icon"><i class="bi bi-diagram-3-fill"></i></div>
-    <h5>Ferramentas Gmais</h5>
-    <p>Acesso rápido aos sistemas internos do grupo — Checklist, Ponto e outros.</p>
-  </a>
+  </div>
+  </section>
   <?php endif; ?>
 
   <!-- ── KPIs ── -->
   <?php if (pode_ver('relatorios',$perfil_cards) || pode_ver('inventario',$perfil_cards)): ?>
+  <section class="dash-section">
   <div class="section-label"><i class="bi bi-bar-chart-line me-2"></i>KPIs</div>
-  <?php endif; ?>
+  <div class="dash-section-cards">
 
   <?php if (pode_ver('relatorios', $perfil_cards)): ?>
   <a href="relatorios.php" class="dash-card card-relatorio">
     <div class="card-icon"><i class="bi bi-bar-chart-fill"></i></div>
     <h5>Painel de Relatórios</h5>
-    <p>Dashboards com gráficos de chamados por atendente, loja, categoria e Monitor SLA.</p>
+    <p>Gráficos de chamados, lojas e SLA.</p>
   </a>
   <?php endif; ?>
 
@@ -420,20 +386,93 @@ function pode_ver(string $key, ?array $cards): bool {
   <a href="inventario.php" class="dash-card card-inventario">
     <div class="card-icon"><i class="bi bi-pc-display"></i></div>
     <h5>Inventário</h5>
-    <p>Monitore máquinas por loja — status online/offline e configurações.</p>
+    <p>Máquinas por loja — status e configurações.</p>
   </a>
+  <?php endif; ?>
+
+  </div>
+  </section>
+  <?php endif; ?>
+
+  <!-- ── ACESSOS ── -->
+  <?php if (pode_ver('acesso_remoto',$perfil_cards) || pode_ver('infra',$perfil_cards) || pode_ver('erp',$perfil_cards)): ?>
+  <section class="dash-section">
+  <div class="section-label"><i class="bi bi-grid-3x3-gap-fill me-2"></i>Acessos</div>
+  <div class="dash-section-cards">
+
+  <?php if (pode_ver('acesso_remoto', $perfil_cards)): ?>
+  <a href="acessos.php#remoto" class="dash-card card-acesso-remoto">
+    <div class="card-icon"><i class="bi bi-display-fill"></i></div>
+    <h5>Acesso Remoto</h5>
+    <p>RDP, VNC e AnyDesk para suporte remoto.</p>
+  </a>
+  <?php endif; ?>
+
+  <?php if (pode_ver('infra', $perfil_cards)): ?>
+  <a href="acessos.php#infra" class="dash-card card-infra">
+    <div class="card-icon"><i class="bi bi-hdd-network-fill"></i></div>
+    <h5>Infraestrutura</h5>
+    <p>pfSense, VMware, Mikrotik e UniFi.</p>
+  </a>
+  <?php endif; ?>
+
+  <?php if (pode_ver('erp', $perfil_cards)): ?>
+  <a href="acessos.php#erp" class="dash-card card-erp">
+    <div class="card-icon"><i class="bi bi-building-fill-gear"></i></div>
+    <h5>Ferramentas ERP</h5>
+    <p>Sistemas de gestão corporativos da empresa.</p>
+  </a>
+  <?php endif; ?>
+
+  </div>
+  </section>
+  <?php endif; ?>
+
+  <!-- ── RECURSOS ── -->
+  <?php if ((pode_ver('conhecimento',$perfil_cards) && !$is_self_glpi) || pode_ver('cofre',$perfil_cards) || pode_ver('ferramentas_gmais',$perfil_cards)): ?>
+  <section class="dash-section">
+  <div class="section-label"><i class="bi bi-collection-fill me-2"></i>Recursos</div>
+  <div class="dash-section-cards">
+
+  <?php if (pode_ver('conhecimento', $perfil_cards) && !$is_self_glpi): ?>
+  <a href="http://192.168.1.246:3000/login" target="_blank" rel="noopener" class="dash-card card-conhecimento">
+    <div class="card-icon"><i class="bi bi-book-fill"></i></div>
+    <h5>Área do Conhecimento</h5>
+    <p>Artigos, tutoriais e documentações da equipe.</p>
+  </a>
+  <?php endif; ?>
+
+  <?php if (pode_ver('cofre', $perfil_cards)): ?>
+  <a href="cofre.php" class="dash-card card-cofre">
+    <div class="card-icon"><i class="bi bi-safe2-fill"></i></div>
+    <h5>Cofre TI</h5>
+    <p>Senhas e documentação interna, com busca.</p>
+  </a>
+  <?php endif; ?>
+
+  <?php if (pode_ver('ferramentas_gmais', $perfil_cards)): ?>
+  <a href="ferramentas_gmais.php" class="dash-card card-ferramentas-gmais">
+    <div class="card-icon"><i class="bi bi-diagram-3-fill"></i></div>
+    <h5>Ferramentas Gmais</h5>
+    <p>Checklist, Ponto e outros sistemas internos.</p>
+  </a>
+  <?php endif; ?>
+
+  </div>
+  </section>
   <?php endif; ?>
 
   <!-- ── GESTÃO DE TI ── -->
   <?php if (pode_ver('projetos',$perfil_cards)||pode_ver('equipe',$perfil_cards)||pode_ver('orcamento',$perfil_cards)||pode_ver('contratos',$perfil_cards)||pode_ver('licencas',$perfil_cards)||pode_ver('reunioes_rp',$perfil_cards)||pode_ver('despesas',$perfil_cards)): ?>
+  <section class="dash-section">
   <div class="section-label"><i class="bi bi-briefcase me-2"></i>Gestão de TI</div>
-  <?php endif; ?>
+  <div class="dash-section-cards">
 
   <?php if (pode_ver('projetos', $perfil_cards)): ?>
   <a href="projetos.php" class="dash-card card-projetos">
     <div class="card-icon"><i class="bi bi-kanban-fill"></i></div>
     <h5>Projetos</h5>
-    <p>Gerencie projetos de TI — implantações, migrações e upgrades com prazo e progresso.</p>
+    <p>Implantações, migrações e upgrades.</p>
   </a>
   <?php endif; ?>
 
@@ -441,7 +480,7 @@ function pode_ver(string $key, ?array $cards): bool {
   <a href="equipe.php" class="dash-card card-equipe">
     <div class="card-icon"><i class="bi bi-people-fill"></i></div>
     <h5>Equipe</h5>
-    <p>Visão da equipe: carga de chamados por técnico, disponibilidade e desempenho.</p>
+    <p>Carga de chamados por técnico e desempenho.</p>
   </a>
   <?php endif; ?>
 
@@ -449,7 +488,7 @@ function pode_ver(string $key, ?array $cards): bool {
   <a href="orcamento.php" class="dash-card card-orcamento">
     <div class="card-icon"><i class="bi bi-cash-coin"></i></div>
     <h5>Orçamento</h5>
-    <p>Controle de gastos de TI por categoria — planejado vs realizado por período.</p>
+    <p>Gastos de TI — planejado vs realizado.</p>
   </a>
   <?php endif; ?>
 
@@ -457,7 +496,7 @@ function pode_ver(string $key, ?array $cards): bool {
   <a href="contratos.php" class="dash-card card-contratos">
     <div class="card-icon"><i class="bi bi-file-earmark-text-fill"></i></div>
     <h5>Contratos</h5>
-    <p>Contratos ativos de TI — manutenção, ISP, licenças — com alertas de vencimento.</p>
+    <p>Contratos de TI com alertas de vencimento.</p>
   </a>
   <?php endif; ?>
 
@@ -465,7 +504,7 @@ function pode_ver(string $key, ?array $cards): bool {
   <a href="licencas.php" class="dash-card card-licencas">
     <div class="card-icon"><i class="bi bi-key-fill"></i></div>
     <h5>Licenças de Software</h5>
-    <p>Controle de licenças: quantidade usada vs disponível, vencimentos e compliance.</p>
+    <p>Licenças usadas vs disponíveis e vencimentos.</p>
   </a>
   <?php endif; ?>
 
@@ -473,7 +512,7 @@ function pode_ver(string $key, ?array $cards): bool {
   <a href="reunioes_rp.php" class="dash-card card-reunioes-rp">
     <div class="card-icon"><i class="bi bi-people-fill"></i></div>
     <h5>Reuniões RP</h5>
-    <p>Registro de reuniões com a RP Info: participantes, pauta e decisões/pendências.</p>
+    <p>Reuniões com a RP Info e pendências.</p>
   </a>
   <?php endif; ?>
 
@@ -481,20 +520,25 @@ function pode_ver(string $key, ?array $cards): bool {
   <a href="despesas.php" class="dash-card card-despesas">
     <div class="card-icon"><i class="bi bi-wallet2"></i></div>
     <h5>Gestão de Despesas</h5>
-    <p>Acompanhe e registre as despesas de TI relacionadas aos orçamentos.</p>
+    <p>Despesas de TI ligadas aos orçamentos.</p>
   </a>
+  <?php endif; ?>
+
+  </div>
+  </section>
   <?php endif; ?>
 
   <!-- ── CONFIGURAÇÃO ── -->
   <?php if (pode_ver('usuarios',$perfil_cards)||pode_ver('categorias',$perfil_cards)||pode_ver('entidades',$perfil_cards)||pode_ver('sla',$perfil_cards)||pode_ver('logs',$perfil_cards)||pode_ver('manutencao',$perfil_cards)||pode_ver('perfis',$perfil_cards)||pode_ver('notificacoes_config',$perfil_cards)): ?>
+  <section class="dash-section">
   <div class="section-label"><i class="bi bi-gear-wide-connected me-2"></i>Configuração</div>
-  <?php endif; ?>
+  <div class="dash-section-cards">
 
   <?php if (pode_ver('usuarios', $perfil_cards)): ?>
   <a href="usuarios.php" class="dash-card card-usuarios">
     <div class="card-icon"><i class="bi bi-people-fill"></i></div>
     <h5>Gestão de Usuários</h5>
-    <p>Cadastre, edite e gerencie usuários do GLPI — perfis, e-mail, loja e acesso.</p>
+    <p>Usuários do GLPI — perfis e acesso.</p>
   </a>
   <?php endif; ?>
 
@@ -502,7 +546,7 @@ function pode_ver(string $key, ?array $cards): bool {
   <a href="perfis.php" class="dash-card card-usuarios" style="--card-accent:#7b1fa2;">
     <div class="card-icon" style="background:#f3e5f5;color:#7b1fa2;"><i class="bi bi-shield-person-fill"></i></div>
     <h5>Perfis de Usuário</h5>
-    <p>Defina quais cards cada perfil pode ver e o nível de acesso — ouvinte ou interagir.</p>
+    <p>Cards e nível de acesso por perfil.</p>
   </a>
   <?php endif; ?>
 
@@ -510,7 +554,7 @@ function pode_ver(string $key, ?array $cards): bool {
   <a href="categorias.php" class="dash-card card-categorias">
     <div class="card-icon"><i class="bi bi-tags-fill"></i></div>
     <h5>Categorias</h5>
-    <p>Gerencie categorias de chamados — crie, edite e organize o catálogo de serviços.</p>
+    <p>Categorias e catálogo de serviços.</p>
   </a>
   <?php endif; ?>
 
@@ -518,7 +562,7 @@ function pode_ver(string $key, ?array $cards): bool {
   <a href="gerenciar_entidades.php" class="dash-card card-gerenciar-entidades">
     <div class="card-icon"><i class="bi bi-shop"></i></div>
     <h5>Lojas</h5>
-    <p>Visualize e gerencie as lojas/entidades cadastradas no GLPI.</p>
+    <p>Lojas/entidades cadastradas no GLPI.</p>
   </a>
   <?php endif; ?>
 
@@ -526,7 +570,7 @@ function pode_ver(string $key, ?array $cards): bool {
   <a href="sla.php" class="dash-card card-sla-config">
     <div class="card-icon"><i class="bi bi-clock-fill"></i></div>
     <h5>SLAs</h5>
-    <p>Consulte os acordos de nível de serviço — prazos, prioridades e regras.</p>
+    <p>Prazos, prioridades e regras de SLA.</p>
   </a>
   <?php endif; ?>
 
@@ -534,7 +578,7 @@ function pode_ver(string $key, ?array $cards): bool {
   <a href="logs_portal.php" class="dash-card card-logs">
     <div class="card-icon"><i class="bi bi-journal-text"></i></div>
     <h5>Logs do Portal</h5>
-    <p>Registros de sessão, erros e sincronia do portal para auditoria.</p>
+    <p>Sessão, erros e sincronia para auditoria.</p>
   </a>
   <?php endif; ?>
 
@@ -542,7 +586,7 @@ function pode_ver(string $key, ?array $cards): bool {
   <a href="manutencao.php" class="dash-card card-manutencao">
     <div class="card-icon"><i class="bi bi-tools"></i></div>
     <h5>Manutenção</h5>
-    <p>Limpeza de cache, sincronia manual e diagnósticos do sistema.</p>
+    <p>Cache, sincronia e diagnósticos do sistema.</p>
   </a>
   <?php endif; ?>
 
@@ -550,8 +594,12 @@ function pode_ver(string $key, ?array $cards): bool {
   <a href="config_notificacoes.php" class="dash-card card-logs">
     <div class="card-icon"><i class="bi bi-bell-fill"></i></div>
     <h5>Notificações</h5>
-    <p>WhatsApp — conexão da linha do TI, grupos de Alertas e Chamados.</p>
+    <p>Linha do TI, grupos de Alertas e Chamados.</p>
   </a>
+  <?php endif; ?>
+
+  </div>
+  </section>
   <?php endif; ?>
 
 <?php endif; ?>
