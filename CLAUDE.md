@@ -359,6 +359,30 @@ REGRAS ESPECIAIS:
    concluído; (c) pra diagnosticar "notificação/alerta parou do nada",
    `docker logs -t <worker>` com o horário aproximado é o primeiro passo,
    não ficar só nos arquivos PHP.
+
+7. [Quoting aninhado quebra em `ssh host "docker exec container <cmd com
+   aspas>"` — 2026-10-11] Contexto: diagnosticar via `grep -n 'padrão'
+   arquivo` ou `php -r "..."` dentro do `glpi-web`, passando pela cadeia
+   PowerShell → ssh → `docker exec` → shell Linux, falhou repetidas vezes
+   com erro de quoting (aspas simples/duplas aninhadas se perdem no
+   caminho). Pra comando simples, envolver em `sh -c \"...\"`; pra
+   qualquer coisa além de uma linha, escrever um `.php` standalone local,
+   subir via `scp` e rodar com `docker exec glpi-web php
+   /caminho/script.php`, apagando o script local e remoto logo depois de
+   usar — virou o padrão pra qualquer inspeção/mutação de banco de
+   produção via terminal nesta sessão.
+
+8. [Resumo "automático" da rotina diária da Agenda não é cron — é fetch
+   condicionado ao título do chamado — 2026-10-11] Contexto: ao
+   implementar o resumo de quedas de antenas (Fase 3 de
+   `2026-10-10-monitor-antenas-unifi-ssh.md`), a suposição inicial era de
+   que o texto (como o de backup) era gerado por um cron às 7h. Na
+   verdade é calculado on-demand, via AJAX, só quando o técnico abre o
+   modal de resposta (`abrirModalResposta()` em `agenda/index.php`),
+   condicionado a `titulo.includes('...')` batendo com o chamado
+   recorrente certo — o cron (`agenda/sync_rotinas.php`) só cria/sincroniza
+   o chamado em si, nunca o texto do resumo. Antes de assumir "resumo
+   automático = cron", confirmar onde o fetch de fato dispara.
 ```
 
 ---
