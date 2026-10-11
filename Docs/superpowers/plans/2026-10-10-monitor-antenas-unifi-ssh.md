@@ -95,12 +95,13 @@ container + confirmação + `Move-Item` (mesmo fluxo de sempre).
 
 ### Fase 1 — Cadastro + check SSH + status no Inventário
 
-- [ ] 1.1 `docker/Dockerfile`: adicionar `openssh-client` e `sshpass` à
+- [x] 1.1 `docker/Dockerfile`: adicionar `openssh-client` e `sshpass` à
   lista de `apt-get install -y` (junto de `iputils-ping`, antes do
   `docker-php-ext-configure`). Rebuild local não é possível nesta sessão
   (sem Docker local) — validar no host (`docker exec glpi-web which
-  sshpass ssh`) só depois do deploy da imagem nova.
-- [ ] 1.2 Criar `monitor_antenas_lib.php` (raiz):
+  sshpass ssh`) só depois do deploy da imagem nova. **Commit `57091cc`.**
+  Pendente: rebuild/deploy da imagem em produção (Fase 4).
+- [x] 1.2 Criar `monitor_antenas_lib.php` (raiz):
   - `CREATE TABLE IF NOT EXISTS portal_monitor_antenas (id INT AUTO_INCREMENT PRIMARY KEY, nome VARCHAR(80) NOT NULL, ip VARCHAR(45) NOT NULL, ssh_usuario VARCHAR(100) NULL, ssh_senha_enc TEXT NULL, ativo TINYINT(1) DEFAULT 1, status ENUM('online','offline','desconhecido') DEFAULT 'desconhecido', modelo VARCHAR(80) NULL, firmware_versao VARCHAR(40) NULL, clientes_conectados INT NULL, uptime_segundos INT NULL, ultima_verificacao DATETIME NULL, criado_em TIMESTAMP DEFAULT CURRENT_TIMESTAMP)` (mesmo padrão `CREATE TABLE IF NOT EXISTS` ao incluir o arquivo).
   - `monitor_antena_credencial(array $antena): array` — resolve
     `[usuario, senha]`: usa `ssh_usuario`/`ssh_senha_enc` da própria antena
@@ -122,11 +123,11 @@ container + confirmação + `Move-Item` (mesmo fluxo de sempre).
     comparar sem precisar de outra leitura).
   - CRUD de cadastro (`monitor_antena_salvar/excluir/listar`), mesmo
     contrato de `monitor_manual_criar/atualizar/excluir` (`monitor_lib.php:545-574`).
-- [ ] 1.3 Criar `antenas_unifi_status.php` (raiz): `require agenda/db.php`
+- [x] 1.3 Criar `antenas_unifi_status.php` (raiz): `require agenda/db.php`
   + `require monitor_antenas_lib.php`; `header('Content-Type:
   application/json'); echo json_encode(monitor_antenas_varrer($pdo));`
   — mesmo formato minimalista de `agenda/postgres_status.php`.
-- [ ] 1.4 `inventario_redes.php`:
+- [x] 1.4 `inventario_redes.php`:
   - Remover `require_once unifi_client.php` (linha 9).
   - Remover o bloco de AJAX de controladoras (linhas 44-132: `add/save`,
     `testar`, `delete`) e substituir por `antena_add/antena_save`,
@@ -159,9 +160,14 @@ container + confirmação + `Move-Item` (mesmo fluxo de sempre).
   estiver padronizada — pendência do usuário), confirmar que "Testar"
   bloqueia save em caso de falha e que o grid mostra o snapshot depois de
   pelo menos 1 ciclo do worker (ou de uma chamada manual ao endpoint).
-- [ ] 1.6 `php -l` no container pra todos os arquivos novos/editados desta
+  **Bloqueado: credencial SSH ainda não padronizada nas antenas reais —
+  não bloqueia o código, só este teste.**
+- [x] 1.6 `php -l` no container pra todos os arquivos novos/editados desta
   fase. Deploy incremental (scp + `.new` + `Move-Item`), antes de avançar
-  pra Fase 2.
+  pra Fase 2. **Feito — `php -l` limpo nos 3 arquivos; smoke test de
+  `antenas_unifi_status.php` em produção devolveu `200 []` (tabela
+  vazia); `inventario_redes.php` devolveu `302` (redirect de login,
+  esperado sem sessão). Commit `275427c`.**
 
 ### Fase 2 — Alertas na Central
 
@@ -253,4 +259,4 @@ container + confirmação + `Move-Item` (mesmo fluxo de sempre).
 
 ---
 
-## Status: planejado (não iniciado)
+## Status: Fase 1 implementada e deployada (1.1-1.4, 1.6); 1.5 pendente de credencial SSH real. Fase 2-4 não iniciadas.
