@@ -11,6 +11,8 @@ RUN apt-get update && apt-get install -y \
         libsqlite3-dev \
         libsnmp-dev \
         iputils-ping \
+        openssh-client \
+        sshpass \
     && docker-php-ext-configure gd --with-freetype --with-jpeg \
     && docker-php-ext-install -j$(nproc) \
         gd \
