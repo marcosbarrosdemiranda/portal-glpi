@@ -171,7 +171,7 @@ function pode_ver(string $key, ?array $cards): bool {
     }
     .dash-card h5 { font-weight: 700; font-size: .78rem; margin: 0 0 .25rem; line-height: 1.15; }
     .dash-card p  {
-      font-size: .68rem; color: #888; margin: 0; line-height: 1.2;
+      font-size: .6rem; color: #888; margin: 0; line-height: 1.15;
       display: -webkit-box; -webkit-line-clamp: 4; -webkit-box-orient: vertical; overflow: hidden;
     }
     .dash-card p.text-muted.small { -webkit-line-clamp: 1; margin-bottom: .1rem; }
