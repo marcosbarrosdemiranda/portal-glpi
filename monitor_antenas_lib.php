@@ -67,14 +67,22 @@ function monitor_antena_credencial(array $antena): array
 }
 
 /**
- * Checa 1 antena via SSH (mca-status). Timeout curto explícito — uma
- * antena travada não pode travar a varredura (ausente no padrão original
- * de db_central_lib.php, necessário aqui por N antenas no mesmo ciclo).
+ * Checa 1 antena via SSH (mca-dump). Timeout curto explícito de conexão
+ * E de execução — uma antena travada não pode travar a varredura (ausente
+ * no padrão original de db_central_lib.php, necessário aqui por N antenas
+ * no mesmo ciclo).
  *
- * ATENÇÃO: comando/formato de saída (`mca-status`, JSON) ainda não
- * validados contra uma antena real — risco registrado na spec
- * (2026-10-10-monitor-antenas-unifi-ssh-design.md). Ajustar o parsing
- * abaixo depois do primeiro teste real.
+ * Validado 2026-10-11 contra 1 antena real (UAP-AC-Lite, firmware
+ * BZ.6.8.2): esse firmware NÃO tem `mca-status` (o comando previsto na
+ * spec original) — só `mca-dump` (JSON direto, sem interação) e
+ * `mca-cli-op` (interativo — nunca usar sem `timeout` de execução, trava
+ * a sessão SSH aberta na antena pra sempre). Daí o `timeout 8` + `</dev/null`
+ * abaixo, além do `ConnectTimeout=3` que já existia (esse só limita a
+ * conexão, não a execução do comando). Mantém os caminhos `sys.*`/
+ * `wireless.*` como fallback pra firmwares mais novos que ainda usem o
+ * formato de `mca-status` previsto na spec original
+ * (2026-10-10-monitor-antenas-unifi-ssh-design.md) — esse formato
+ * continua sem validar contra hardware real.
  *
  * Seam de teste (mesmo padrão de monitor_lib.php):
  * $GLOBALS['__monitor_antena_ssh_fake'] = fn(string $ip, string $usuario, string $senha): array.
@@ -100,8 +108,12 @@ function monitor_antena_ssh_check(string $ip, string $usuario, string $senha): a
     $return_var = 0;
     putenv('SSHPASS=' . $senha);
     $host = escapeshellarg("$usuario@$ip");
+    // `timeout 8` cobre o comando inteiro (conexão + execução remota) —
+    // `</dev/null` fecha o stdin pra qualquer comando que tente ler input
+    // falhar/sair rápido em vez de ficar pendurado (ver docblock acima).
     exec(
-        "sshpass -e ssh -o StrictHostKeyChecking=no -o ConnectTimeout=3 $host " . escapeshellarg('mca-status') . ' 2>&1',
+        "timeout 8 sshpass -e ssh -o StrictHostKeyChecking=no -o ConnectTimeout=3 $host "
+            . escapeshellarg('mca-dump') . ' </dev/null 2>&1',
         $output,
         $return_var
     );
@@ -113,19 +125,20 @@ function monitor_antena_ssh_check(string $ip, string $usuario, string $senha): a
 
     $json = json_decode(implode("\n", $output), true);
     if (!is_array($json)) {
-        $resultado['erro'] = 'Resposta inesperada do mca-status (formato não-JSON — comando/parsing não validados, ver spec)';
+        $resultado['erro'] = 'Resposta inesperada do mca-dump (formato não-JSON)';
         return $resultado;
     }
 
-    // Esquema esperado (melhor esforço — ajustar após validar contra hardware real):
-    // {"sys": {"uptime": N, "fwversion": "...", "board": {"name": "..."}},
-    //  "wireless": {"vap_table": [{"num_sta": N}, ...]}}
-    $uptime = $json['sys']['uptime'] ?? $json['uptime'] ?? null;
+    // Esquema real (validado 2026-10-11 contra UAP-AC-Lite/BZ.6.8.2):
+    // uptime/vap_table/model/model_display no topo do JSON. sys.*/
+    // wireless.* ficam como fallback pro formato de mca-status previsto
+    // na spec original, pra firmwares ainda não testados.
+    $uptime = $json['uptime'] ?? $json['sys']['uptime'] ?? null;
     $firmware = $json['sys']['fwversion'] ?? $json['fwversion'] ?? null;
-    $modelo = $json['sys']['board']['name'] ?? $json['board']['name'] ?? $json['model'] ?? null;
+    $modelo = $json['model_display'] ?? $json['model'] ?? $json['sys']['board']['name'] ?? $json['board']['name'] ?? null;
 
     $clientes = null;
-    $vaps = $json['wireless']['vap_table'] ?? $json['vap_table'] ?? null;
+    $vaps = $json['vap_table'] ?? $json['wireless']['vap_table'] ?? null;
     if (is_array($vaps)) {
         $clientes = 0;
         foreach ($vaps as $vap) {
