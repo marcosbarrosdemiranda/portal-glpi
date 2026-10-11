@@ -117,31 +117,37 @@ function pode_ver(string $key, ?array $cards): bool {
        (margin-top negativo) cobrindo o fundo azul do cabeçalho. Corrigido:
        cards 110px->135px + line-clamp 3->4 + gap maior; .dash-row agrupa
        explicitamente as 2 seções de cada linha (não depende de encaixe);
-       margin-top voltou a ser positivo. Pra reverter: ver rodada anterior
-       no histórico do git.*/
+       margin-top voltou a ser positivo.
+       4ª rodada (mesmo dia): pedido pra caber tudo numa tela sem rolar.
+       Reduzido gap entre seções/linhas/cards e o card um pouco (135px->120px,
+       mantendo line-clamp 4 pra não cortar descrição de novo). Conteúdo do
+       card passou de centralizado (justify-content:center) pra ancorado no
+       topo (flex-start) — card com descrição curta não ficava mais "boiando"
+       no meio do quadrado. Pra reverter: ver rodada anterior no histórico
+       do git.*/
     .dash-sections {
       display: flex; flex-direction: column;
-      gap: 1.8rem;
-      max-width: 1300px; margin: 1rem auto 2rem;
+      gap: 1rem;
+      max-width: 1300px; margin: .6rem auto 1rem;
       padding: 0 1.5rem;
     }
     .dash-row {
       display: flex; flex-wrap: wrap; align-items: flex-start;
-      gap: 1.8rem 2.6rem;
+      gap: 1rem 2.2rem;
     }
     .dash-section { flex: 0 1 auto; }
     .dash-section-cards {
       display: flex; flex-wrap: wrap;
-      gap: .9rem;
+      gap: .6rem;
     }
 
     .dash-card {
-      flex: 0 0 135px; width: 135px; aspect-ratio: 1 / 1;
+      flex: 0 0 120px; width: 120px; aspect-ratio: 1 / 1;
       background: white;
       border-radius: 12px;
       box-shadow: 0 4px 24px rgba(0,0,0,.1);
-      padding: .9rem .65rem;
-      display: flex; flex-direction: column; align-items: center; justify-content: center;
+      padding: .7rem .55rem;
+      display: flex; flex-direction: column; align-items: center; justify-content: flex-start;
       text-align: center;
       text-decoration: none;
       color: #333;
@@ -157,15 +163,15 @@ function pode_ver(string $key, ?array $cards): bool {
     }
 
     .dash-card .card-icon {
-      width: 42px; height: 42px; flex-shrink: 0;
+      width: 38px; height: 38px; flex-shrink: 0;
       border-radius: 50%;
       display: flex; align-items: center; justify-content: center;
-      margin: 0 auto .45rem;
-      font-size: 1.2rem;
+      margin: 0 auto .4rem;
+      font-size: 1.1rem;
     }
-    .dash-card h5 { font-weight: 700; font-size: .83rem; margin: 0 0 .3rem; line-height: 1.15; }
+    .dash-card h5 { font-weight: 700; font-size: .78rem; margin: 0 0 .25rem; line-height: 1.15; }
     .dash-card p  {
-      font-size: .7rem; color: #888; margin: 0; line-height: 1.25;
+      font-size: .68rem; color: #888; margin: 0; line-height: 1.2;
       display: -webkit-box; -webkit-line-clamp: 4; -webkit-box-orient: vertical; overflow: hidden;
     }
     .dash-card p.text-muted.small { -webkit-line-clamp: 1; margin-bottom: .1rem; }
@@ -259,17 +265,17 @@ function pode_ver(string $key, ?array $cards): bool {
     .section-label {
       font-size: .72rem; font-weight: 700; text-transform: uppercase;
       letter-spacing: .1em; color: #6b7280;
-      padding: .6rem .25rem .3rem;
+      padding: .35rem .25rem .25rem;
       border-bottom: 2px solid #e5e7eb;
-      margin: 0 0 .6rem;
+      margin: 0 0 .4rem;
       display: flex; align-items: center; gap: .4rem;
     }
-    .dash-top-cards { margin-bottom: .8rem; }
+    .dash-top-cards { margin-bottom: .6rem; }
 
     /* Rodapé */
     footer {
       text-align: center; color: #bbb; font-size: .78rem;
-      padding: 2rem; margin-top: auto;
+      padding: .8rem 2rem; margin-top: auto;
     }
   </style>
 </head>
