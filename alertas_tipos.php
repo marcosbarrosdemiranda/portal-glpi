@@ -20,6 +20,7 @@ require_once __DIR__ . '/monitor_links_lib.php'; // rede_link — links de inter
 require_once __DIR__ . '/sefaz_lib.php';
 require_once __DIR__ . '/solides_lib.php';
 require_once __DIR__ . '/impressoras_lib.php';
+require_once __DIR__ . '/monitor_antenas_lib.php'; // antenas UniFi via SSH (worker consome via HTTP, ver alerta_antenas_status())
 require_once __DIR__ . '/wpp/evo_api.php'; // evo_send_text() — usado por alerta_dispensar()
 
 // cria a tabela ao incluir (padrão do portal)
@@ -383,6 +384,36 @@ function alertas_catalogo(): array
             'icone'  => 'bi-database-fill-exclamation',
             'cor'    => 'danger',
         ],
+        'antena_offline' => [
+            'nome'      => 'Antena UniFi Offline',
+            'descricao' => 'Antena não respondeu via SSH na última verificação (sem janela de silêncio — antenas ficam ligadas 24/7).',
+            'params'    => [],
+            'check'  => 'alerta_check_antena_offline',
+            'render' => 'alerta_render_antena',
+            'icone'  => 'bi-wifi-off',
+            'cor'    => 'danger',
+        ],
+        'antena_reinicio' => [
+            'nome'      => 'Antena UniFi Reiniciou',
+            'descricao' => 'Uptime da antena caiu entre duas verificações seguidas (reinício inesperado, mesmo sem a antena ter ficado "offline").',
+            'params'    => [],
+            'check'  => 'alerta_check_antena_reinicio',
+            'render' => 'alerta_render_antena',
+            'icone'  => 'bi-arrow-repeat',
+            'cor'    => 'warning',
+        ],
+        'antena_clientes_excesso' => [
+            'nome'      => 'Antena UniFi — Excesso de Clientes',
+            'descricao' => 'Número de clientes conectados na antena passou do limite global configurado.',
+            'params'    => [
+                'limite' => ['label' => 'Limite de clientes conectados', 'default' => (int) wpp_cfg_get('antena_limite_clientes', '30'), 'min' => 1, 'max' => 500],
+            ],
+            'sub_tpl' => 'clientes conectados > {limite}',
+            'check'  => 'alerta_check_antena_clientes_excesso',
+            'render' => 'alerta_render_antena',
+            'icone'  => 'bi-people-fill',
+            'cor'    => 'warning',
+        ],
     ];
 }
 
@@ -627,6 +658,119 @@ function alerta_render_db_central(array $ocorr, string $tipo = ''): string
     }
     $H = fn($s) => htmlspecialchars((string) $s, ENT_QUOTES, 'UTF-8');
     $out = '<table><thead><tr><th>Incidente</th><th>Detalhe</th><th></th></tr></thead><tbody>';
+    foreach ($ocorr as $o) {
+        $out .= '<tr><td style="font-weight:600">' . $H($o['titulo']) . '</td>'
+              . '<td style="color:#d97706">' . $H($o['detalhe']) . '</td>'
+              . '<td>' . alerta_botao_dispensar_html($tipo, (string) $o['chave']) . '</td></tr>';
+    }
+    return $out . '</tbody></table>';
+}
+
+/**
+ * Snapshot das antenas UniFi pra uso pelos 3 checks abaixo. Este check roda
+ * dentro do portal-wpp-worker, que não tem ssh/sshpass instalado — busca via
+ * HTTP interno no glpi-web (único container com as ferramentas de SSH), em
+ * vez de chamar monitor_antenas_varrer() direto. Mesmo padrão de
+ * alerta_check_db_central(). monitor_antenas_varrer() já se auto-throttla,
+ * então as 3 chamadas (uma por tipo de alerta, no mesmo ciclo do worker) não
+ * triplicam a carga de SSH nas antenas.
+ */
+function alerta_antenas_status(): array
+{
+    $json = @file_get_contents('http://glpi-web/glpi2/portal-glpi/antenas_unifi_status.php');
+    $antenas = $json ? json_decode($json, true) : null;
+    return is_array($antenas) ? $antenas : [];
+}
+
+/**
+ * Lógica pura dos 3 filtros abaixo — separada do fetch HTTP pra ser
+ * testável sem rede real (mesmo padrão de sefaz_parsear_html_ms(), puro,
+ * vs. alerta_check_sefaz_ms(), que só faz o fetch + delega).
+ *
+ * @param array $antenas snapshot (mesmo formato de alerta_antenas_status())
+ * @return array ocorrências: ['chave','titulo','loja','detalhe']
+ */
+function antena_ocorrencias_offline(array $antenas): array
+{
+    $out = [];
+    foreach ($antenas as $a) {
+        if (($a['status'] ?? '') !== 'offline') continue;
+        $out[] = [
+            'chave'   => 'antena_offline:' . $a['id'],
+            'titulo'  => 'Antena offline: ' . ($a['nome'] ?? $a['ip'] ?? ''),
+            'loja'    => '',
+            'detalhe' => 'IP ' . ($a['ip'] ?? '?') . ' não respondeu via SSH'
+                . (!empty($a['ultima_verificacao']) ? ' (última verificação: ' . $a['ultima_verificacao'] . ')' : ''),
+        ];
+    }
+    return $out;
+}
+
+/**
+ * Compara uptime_segundos atual com uptime_anterior (vindo do endpoint, que
+ * devolve o valor de antes do UPDATE — ver monitor_antenas_varrer()). Chave
+ * inclui a última verificação pra não ficar presa numa única ocorrência
+ * eternamente aberta a cada reinício novo.
+ */
+function antena_ocorrencias_reinicio(array $antenas): array
+{
+    $out = [];
+    foreach ($antenas as $a) {
+        $atual = $a['uptime_segundos'] ?? null;
+        $anterior = $a['uptime_anterior'] ?? null;
+        if ($atual === null || $anterior === null) continue;
+        if ((int) $atual >= (int) $anterior) continue;
+        $out[] = [
+            'chave'   => 'antena_reinicio:' . $a['id'] . ':' . ($a['ultima_verificacao'] ?? (string) time()),
+            'titulo'  => 'Antena reiniciou: ' . ($a['nome'] ?? $a['ip'] ?? ''),
+            'loja'    => '',
+            'detalhe' => 'Uptime caiu de ' . (int) $anterior . 's para ' . (int) $atual . 's',
+        ];
+    }
+    return $out;
+}
+
+function antena_ocorrencias_clientes_excesso(array $antenas, int $limite): array
+{
+    $out = [];
+    foreach ($antenas as $a) {
+        $clientes = $a['clientes_conectados'] ?? null;
+        if ($clientes === null || (int) $clientes <= $limite) continue;
+        $out[] = [
+            'chave'   => 'antena_clientes_excesso:' . $a['id'],
+            'titulo'  => 'Excesso de clientes: ' . ($a['nome'] ?? $a['ip'] ?? ''),
+            'loja'    => '',
+            'detalhe' => (int) $clientes . ' clientes conectados (limite ' . $limite . ')',
+        ];
+    }
+    return $out;
+}
+
+/** @return array ocorrências: ['chave','titulo','loja','detalhe'] */
+function alerta_check_antena_offline(PDO $pdo, array $p): array
+{
+    return antena_ocorrencias_offline(alerta_antenas_status());
+}
+
+function alerta_check_antena_reinicio(PDO $pdo, array $p): array
+{
+    return antena_ocorrencias_reinicio(alerta_antenas_status());
+}
+
+function alerta_check_antena_clientes_excesso(PDO $pdo, array $p): array
+{
+    $limite = (int) ($p['limite'] ?? wpp_cfg_get('antena_limite_clientes', '30'));
+    return antena_ocorrencias_clientes_excesso(alerta_antenas_status(), $limite);
+}
+
+/** Render compartilhado pelos 3 tipos de alerta de antena. */
+function alerta_render_antena(array $ocorr, string $tipo = ''): string
+{
+    if (!$ocorr) {
+        return '<div class="vazio"><i class="bi bi-check-circle-fill me-1"></i>Nenhuma ocorrência.</div>';
+    }
+    $H = fn($s) => htmlspecialchars((string) $s, ENT_QUOTES, 'UTF-8');
+    $out = '<table><thead><tr><th>Antena</th><th>Detalhe</th><th></th></tr></thead><tbody>';
     foreach ($ocorr as $o) {
         $out .= '<tr><td style="font-weight:600">' . $H($o['titulo']) . '</td>'
               . '<td style="color:#d97706">' . $H($o['detalhe']) . '</td>'

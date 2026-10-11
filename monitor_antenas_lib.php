@@ -76,10 +76,17 @@ function monitor_antena_credencial(array $antena): array
  * (2026-10-10-monitor-antenas-unifi-ssh-design.md). Ajustar o parsing
  * abaixo depois do primeiro teste real.
  *
+ * Seam de teste (mesmo padrão de monitor_lib.php):
+ * $GLOBALS['__monitor_antena_ssh_fake'] = fn(string $ip, string $usuario, string $senha): array.
+ *
  * @return array{ok:bool,uptime:?int,clientes:?int,firmware:?string,modelo:?string,erro:?string}
  */
 function monitor_antena_ssh_check(string $ip, string $usuario, string $senha): array
 {
+    if (isset($GLOBALS['__monitor_antena_ssh_fake']) && is_callable($GLOBALS['__monitor_antena_ssh_fake'])) {
+        return ($GLOBALS['__monitor_antena_ssh_fake'])($ip, $usuario, $senha);
+    }
+
     $resultado = ['ok' => false, 'uptime' => null, 'clientes' => null, 'firmware' => null, 'modelo' => null, 'erro' => null];
 
     $ip = trim($ip);

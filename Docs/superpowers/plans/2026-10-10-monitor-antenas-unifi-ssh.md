@@ -171,44 +171,46 @@ container + confirmação + `Move-Item` (mesmo fluxo de sempre).
 
 ### Fase 2 — Alertas na Central
 
-- [ ] 2.1 `alertas_tipos.php`: `require_once __DIR__ .
+- [x] 2.1 `alertas_tipos.php`: `require_once __DIR__ .
   '/monitor_antenas_lib.php';` (junto dos outros `require_once` de lib,
   linha ~21).
-- [ ] 2.2 3 funções de check (mesmo arquivo ou `monitor_antenas_lib.php`,
-  decidir na implementação pelo padrão mais próximo — `solides_lib.php`
-  mistura check+lib no mesmo arquivo, `sitef_lib.php` planejado também
-  assim): cada uma chama
-  `@file_get_contents('http://glpi-web/glpi2/portal-glpi/antenas_unifi_status.php')`
-  (mesmo padrão de `alerta_check_db_central`, `alertas_tipos.php:607`),
-  decodifica o JSON (array de antenas) e filtra:
-  - `alerta_check_antena_offline`: antenas com `status='offline'` →
+- [x] 2.2 3 funções de check, cada uma chamando `alerta_antenas_status()`
+  (fetch via `file_get_contents('http://glpi-web/glpi2/portal-glpi/antenas_unifi_status.php')`,
+  mesmo padrão de `alerta_check_db_central`) e delegando pra 3 funções
+  **puras** (`antena_ocorrencias_offline/reinicio/clientes_excesso` —
+  extraídas assim justamente pra serem testáveis sem rede real, mesmo
+  padrão de `sefaz_parsear_html_ms` puro vs. `alerta_check_sefaz_ms`
+  fetch+delega):
+  - `antena_ocorrencias_offline`: antenas com `status='offline'` →
     1 ocorrência por antena (`chave = 'antena_offline:' . $id`).
-  - `alerta_check_antena_reinicio`: antenas cujo `uptime_anterior` (vindo
-    do JSON) é maior que o `uptime` atual → 1 ocorrência por antena
-    (`chave = 'antena_reinicio:' . $id . ':' . $ultima_verificacao` —
-    inclui timestamp na chave pra não ficar "presa" numa única ocorrência
-    eternamente aberta a cada reinício novo).
-  - `alerta_check_antena_clientes_excesso`: antenas com
-    `clientes_conectados > $p['limite']` (`$p['limite']` com default lido
-    de `wpp_cfg_get('antena_limite_clientes', '30')` — parâmetro do
-    catálogo, editável em "Configurar Alertas" como os outros tipos).
-- [ ] 2.3 1 função de render compartilhada (`alerta_render_antena`,
-  mesmo padrão simples de `alerta_render_solides`/`alerta_render_db_central`:
+  - `antena_ocorrencias_reinicio`: antenas cujo `uptime_anterior` é maior
+    que o `uptime` atual → 1 ocorrência por antena (`chave =
+    'antena_reinicio:' . $id . ':' . $ultima_verificacao`).
+  - `antena_ocorrencias_clientes_excesso`: antenas com
+    `clientes_conectados > $limite` (`$limite` lido de `$p['limite']`,
+    default `wpp_cfg_get('antena_limite_clientes', '30')`).
+- [x] 2.3 1 função de render compartilhada (`alerta_render_antena`,
   tabela título/detalhe/botão dispensar).
-- [ ] 2.4 3 entradas no catálogo (`alertas_catalogo()`), ícone
+- [x] 2.4 3 entradas no catálogo (`alertas_catalogo()`), ícone
   `bi-wifi-off`/`bi-arrow-repeat`/`bi-people-fill`, cor `danger`/`warning`/
-  `warning`, `notif_whatsapp` nasce implícito em `0` (comportamento padrão
-  de linha ausente em `portal_alertas_config` — confirmar, se não for o
-  caso, inserir explicitamente as 3 linhas com `notif_whatsapp=0` no
-  deploy, igual ao fluxo de `sitef_dns`).
-- [ ] 2.5 Testes em `wpp/tests/test_monitor_antenas_lib.php`: mock de
-  `monitor_antena_ssh_check` (sem rede real) simulando online→offline
-  (gera ocorrência offline), uptime caindo entre duas varreduras (gera
-  ocorrência reinício), clientes acima do limite (gera ocorrência),
-  dentro do limite (não gera).
-- [ ] 2.6 `php -l` + deploy incremental. **Imediatamente após**, confirmar
-  `notif_whatsapp=0` nos 3 tipos em produção antes de qualquer teste real
-  com antena de verdade ([[feedback_mutar-whatsapp-antes-de-testar]]).
+  `warning`. **Confirmado:** linha ausente em `portal_alertas_config`
+  default pra `notif_whatsapp => true` (não `0` como se esperava) — por
+  isso as 3 linhas foram inseridas explicitamente no deploy (2.6), igual
+  ao fluxo de `sitef_dns`.
+- [x] 2.5 Testes em `wpp/tests/test_monitor_antenas_lib.php`: mock de
+  `monitor_antena_ssh_check` via seam `$GLOBALS['__monitor_antena_ssh_fake']`
+  (mesmo padrão de `$GLOBALS['__monitor_ping_fake']` em `monitor_lib.php`,
+  sem rede real) cobrindo online→offline (ocorrência offline), uptime
+  caindo entre duas varreduras online (ocorrência reinício), throttle
+  (não roda SSH de novo dentro do intervalo), clientes acima/dentro do
+  limite, e CRUD básico (salvar/excluir). **32 testes, 0 falhas**
+  (`php wpp/tests/run_scoped.php wpp/tests/test_monitor_antenas_lib.php`
+  em produção).
+- [x] 2.6 `php -l` + deploy incremental (scp `.new` → lint → confirmação →
+  `Move-Item`, confirmado via `Get-ChildItem`). **Imediatamente após**,
+  inseridas as 3 linhas em `portal_alertas_config` com `ativo=1,
+  notif_whatsapp=0` em produção, confirmado por SELECT antes de qualquer
+  teste real com antena de verdade ([[feedback_mutar-whatsapp-antes-de-testar]]).
 
 ### Fase 3 — Resumo na Agenda
 
@@ -259,4 +261,4 @@ container + confirmação + `Move-Item` (mesmo fluxo de sempre).
 
 ---
 
-## Status: Fase 1 implementada e deployada (1.1-1.4, 1.6); 1.5 pendente de credencial SSH real. Fase 2-4 não iniciadas.
+## Status: Fase 1 implementada e deployada (1.1-1.4, 1.6); 1.5 pendente de credencial SSH real. Fase 2 implementada, testada (32/0) e deployada (2.1-2.6), com notif_whatsapp=0 confirmado em produção. Fase 3-4 não iniciadas.
