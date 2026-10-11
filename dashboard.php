@@ -123,8 +123,18 @@ function pode_ver(string $key, ?array $cards): bool {
        mantendo line-clamp 4 pra não cortar descrição de novo). Conteúdo do
        card passou de centralizado (justify-content:center) pra ancorado no
        topo (flex-start) — card com descrição curta não ficava mais "boiando"
-       no meio do quadrado. Pra reverter: ver rodada anterior no histórico
-       do git.*/
+       no meio do quadrado.
+       5ª rodada (mesmo dia, ideia do usuário): a descrição saiu do card e
+       virou tooltip (.card-tip) exibido só no :hover — resolve de vez o
+       cortar/apertar, porque o card não precisa mais reservar altura pra
+       texto variável. Card encolhido pra 95px (só ícone+título, por isso
+       voltou a centralizar com justify-content:center — sem descrição
+       variável, não tem mais o problema de "boiar"). overflow:hidden saiu
+       do .dash-card pra não cortar o tooltip, que estoura o quadrado por
+       posicionamento absoluto. Hover só existe em mouse — em touch
+       (celular/tablet) a descrição não aparece, só ícone+título; aceito
+       porque o uso é majoritariamente desktop. Pra reverter: ver rodada
+       anterior no histórico do git.*/
     .dash-sections {
       display: flex; flex-direction: column;
       gap: 1rem;
@@ -142,39 +152,60 @@ function pode_ver(string $key, ?array $cards): bool {
     }
 
     .dash-card {
-      flex: 0 0 120px; width: 120px; aspect-ratio: 1 / 1;
+      position: relative;
+      flex: 0 0 95px; width: 95px; aspect-ratio: 1 / 1;
       background: white;
       border-radius: 12px;
       box-shadow: 0 4px 24px rgba(0,0,0,.1);
-      padding: .7rem .55rem;
-      display: flex; flex-direction: column; align-items: center; justify-content: flex-start;
+      padding: .5rem .4rem;
+      display: flex; flex-direction: column; align-items: center; justify-content: center;
       text-align: center;
       text-decoration: none;
       color: #333;
       transition: transform .2s, box-shadow .2s;
       cursor: pointer;
       border-top: 4px solid transparent;
-      overflow: hidden;
     }
     .dash-card:hover {
       transform: translateY(-5px);
       box-shadow: 0 10px 32px rgba(0,0,0,.15);
       color: #333;
+      z-index: 30;
     }
 
     .dash-card .card-icon {
-      width: 38px; height: 38px; flex-shrink: 0;
+      width: 34px; height: 34px; flex-shrink: 0;
       border-radius: 50%;
       display: flex; align-items: center; justify-content: center;
-      margin: 0 auto .4rem;
-      font-size: 1.1rem;
+      margin: 0 auto .35rem;
+      font-size: 1rem;
     }
-    .dash-card h5 { font-weight: 700; font-size: .78rem; margin: 0 0 .25rem; line-height: 1.15; }
-    .dash-card p  {
-      font-size: .6rem; color: #888; margin: 0; line-height: 1.15;
-      display: -webkit-box; -webkit-line-clamp: 4; -webkit-box-orient: vertical; overflow: hidden;
+    .dash-card h5 {
+      font-weight: 700; font-size: .72rem; margin: 0; line-height: 1.15;
+      display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden;
     }
-    .dash-card p.text-muted.small { -webkit-line-clamp: 1; margin-bottom: .1rem; }
+    .dash-card p.text-muted.small { font-size: .58rem; color: #888; margin: .1rem 0 0; line-height: 1.1; }
+
+    /* Tooltip com a descrição — só aparece no hover (desktop) */
+    .dash-card .card-tip {
+      position: absolute; left: 50%; top: calc(100% + 8px);
+      transform: translateX(-50%) translateY(-4px);
+      width: max-content; max-width: 190px;
+      background: var(--primary); color: #fff;
+      padding: .45rem .65rem; border-radius: 6px;
+      font-size: .7rem; line-height: 1.3; text-align: left; font-weight: 400;
+      opacity: 0; pointer-events: none;
+      transition: opacity .15s, transform .15s;
+      box-shadow: 0 6px 18px rgba(0,0,0,.25);
+    }
+    .dash-card .card-tip::after {
+      content: ''; position: absolute; bottom: 100%; left: 50%;
+      transform: translateX(-50%);
+      border: 5px solid transparent; border-bottom-color: var(--primary);
+    }
+    .dash-card:hover .card-tip {
+      opacity: 1; transform: translateX(-50%) translateY(0);
+    }
 
     /* Cores por card */
     .card-agenda    { border-top-color: #1a73e8; }
@@ -310,19 +341,19 @@ function pode_ver(string $key, ?array $cards): bool {
   <a href="portal/atendente.php" class="dash-card card-usuario">
     <div class="card-icon"><i class="bi bi-person-raised-hand"></i></div>
     <h5>Abrir Chamado</h5>
-    <p>Formulário rápido para solicitar suporte.</p>
+    <span class="card-tip">Formulário rápido para solicitar suporte.</span>
   </a>
 
   <a href="meus_chamados.php" class="dash-card card-agenda">
     <div class="card-icon"><i class="bi bi-clock-history"></i></div>
     <h5>Meus Chamados</h5>
-    <p>Veja o status dos seus chamados.</p>
+    <span class="card-tip">Veja o status dos seus chamados.</span>
   </a>
 
   <a href="http://192.168.1.246:3000/login" target="_blank" rel="noopener" class="dash-card card-conhecimento">
     <div class="card-icon"><i class="bi bi-book-fill"></i></div>
     <h5>Área do Conhecimento</h5>
-    <p>Artigos, tutoriais e documentações da equipe.</p>
+    <span class="card-tip">Artigos, tutoriais e documentações da equipe.</span>
   </a>
   </div>
 
@@ -343,7 +374,7 @@ function pode_ver(string $key, ?array $cards): bool {
   <a href="agenda/" class="dash-card card-agenda">
     <div class="card-icon"><i class="bi bi-calendar3"></i></div>
     <h5>Agenda de Atendimentos</h5>
-    <p>Chamados agendados, eventos e equipe.</p>
+    <span class="card-tip">Chamados agendados, eventos e equipe.</span>
   </a>
   <?php endif; ?>
 
@@ -352,7 +383,7 @@ function pode_ver(string $key, ?array $cards): bool {
     <div class="card-icon"><i class="bi bi-headset"></i></div>
     <h5>Abrir Chamado</h5>
     <p class="text-muted small mb-1">Por atendente</p>
-    <p>Registre chamados com todos os detalhes.</p>
+    <span class="card-tip">Registre chamados com todos os detalhes.</span>
   </a>
   <?php endif; ?>
 
@@ -360,7 +391,7 @@ function pode_ver(string $key, ?array $cards): bool {
   <a href="historico.php" class="dash-card card-historico">
     <div class="card-icon"><i class="bi bi-clock-history"></i></div>
     <h5>Histórico de Chamados</h5>
-    <p>Liste e filtre chamados registrados no GLPI.</p>
+    <span class="card-tip">Liste e filtre chamados registrados no GLPI.</span>
   </a>
   <?php endif; ?>
 
@@ -368,7 +399,7 @@ function pode_ver(string $key, ?array $cards): bool {
   <a href="pendencias.php" class="dash-card card-pendencias">
     <div class="card-icon"><i class="bi bi-sticky-fill"></i></div>
     <h5>Pendências e Anotações</h5>
-    <p>Anotações por loja — converta em chamado.</p>
+    <span class="card-tip">Anotações por loja — converta em chamado.</span>
   </a>
   <?php endif; ?>
 
@@ -376,7 +407,7 @@ function pode_ver(string $key, ?array $cards): bool {
   <a href="alertas.php" class="dash-card card-alertas">
     <div class="card-icon"><i class="bi bi-bell-fill"></i></div>
     <h5>Central de Alertas</h5>
-    <p>Equipamentos e sistemas fora do ar.</p>
+    <span class="card-tip">Equipamentos e sistemas fora do ar.</span>
   </a>
   <?php endif; ?>
 
@@ -394,7 +425,7 @@ function pode_ver(string $key, ?array $cards): bool {
   <a href="relatorios.php" class="dash-card card-relatorio">
     <div class="card-icon"><i class="bi bi-bar-chart-fill"></i></div>
     <h5>Painel de Relatórios</h5>
-    <p>Gráficos de chamados, lojas e SLA.</p>
+    <span class="card-tip">Gráficos de chamados, lojas e SLA.</span>
   </a>
   <?php endif; ?>
 
@@ -402,7 +433,7 @@ function pode_ver(string $key, ?array $cards): bool {
   <a href="inventario.php" class="dash-card card-inventario">
     <div class="card-icon"><i class="bi bi-pc-display"></i></div>
     <h5>Inventário</h5>
-    <p>Máquinas por loja — status e configurações.</p>
+    <span class="card-tip">Máquinas por loja — status e configurações.</span>
   </a>
   <?php endif; ?>
 
@@ -425,7 +456,7 @@ function pode_ver(string $key, ?array $cards): bool {
   <a href="acessos.php#remoto" class="dash-card card-acesso-remoto">
     <div class="card-icon"><i class="bi bi-display-fill"></i></div>
     <h5>Acesso Remoto</h5>
-    <p>RDP, VNC e AnyDesk para suporte remoto.</p>
+    <span class="card-tip">RDP, VNC e AnyDesk para suporte remoto.</span>
   </a>
   <?php endif; ?>
 
@@ -433,7 +464,7 @@ function pode_ver(string $key, ?array $cards): bool {
   <a href="acessos.php#infra" class="dash-card card-infra">
     <div class="card-icon"><i class="bi bi-hdd-network-fill"></i></div>
     <h5>Infraestrutura</h5>
-    <p>pfSense, VMware, Mikrotik e UniFi.</p>
+    <span class="card-tip">pfSense, VMware, Mikrotik e UniFi.</span>
   </a>
   <?php endif; ?>
 
@@ -441,7 +472,7 @@ function pode_ver(string $key, ?array $cards): bool {
   <a href="acessos.php#erp" class="dash-card card-erp">
     <div class="card-icon"><i class="bi bi-building-fill-gear"></i></div>
     <h5>Ferramentas ERP</h5>
-    <p>Sistemas de gestão corporativos da empresa.</p>
+    <span class="card-tip">Sistemas de gestão corporativos da empresa.</span>
   </a>
   <?php endif; ?>
 
@@ -459,7 +490,7 @@ function pode_ver(string $key, ?array $cards): bool {
   <a href="http://192.168.1.246:3000/login" target="_blank" rel="noopener" class="dash-card card-conhecimento">
     <div class="card-icon"><i class="bi bi-book-fill"></i></div>
     <h5>Área do Conhecimento</h5>
-    <p>Artigos, tutoriais e documentações da equipe.</p>
+    <span class="card-tip">Artigos, tutoriais e documentações da equipe.</span>
   </a>
   <?php endif; ?>
 
@@ -467,7 +498,7 @@ function pode_ver(string $key, ?array $cards): bool {
   <a href="cofre.php" class="dash-card card-cofre">
     <div class="card-icon"><i class="bi bi-safe2-fill"></i></div>
     <h5>Cofre TI</h5>
-    <p>Senhas e documentação interna, com busca.</p>
+    <span class="card-tip">Senhas e documentação interna, com busca.</span>
   </a>
   <?php endif; ?>
 
@@ -475,7 +506,7 @@ function pode_ver(string $key, ?array $cards): bool {
   <a href="ferramentas_gmais.php" class="dash-card card-ferramentas-gmais">
     <div class="card-icon"><i class="bi bi-diagram-3-fill"></i></div>
     <h5>Ferramentas Gmais</h5>
-    <p>Checklist, Ponto e outros sistemas internos.</p>
+    <span class="card-tip">Checklist, Ponto e outros sistemas internos.</span>
   </a>
   <?php endif; ?>
 
@@ -495,7 +526,7 @@ function pode_ver(string $key, ?array $cards): bool {
   <a href="projetos.php" class="dash-card card-projetos">
     <div class="card-icon"><i class="bi bi-kanban-fill"></i></div>
     <h5>Projetos</h5>
-    <p>Implantações, migrações e upgrades.</p>
+    <span class="card-tip">Implantações, migrações e upgrades.</span>
   </a>
   <?php endif; ?>
 
@@ -503,7 +534,7 @@ function pode_ver(string $key, ?array $cards): bool {
   <a href="equipe.php" class="dash-card card-equipe">
     <div class="card-icon"><i class="bi bi-people-fill"></i></div>
     <h5>Equipe</h5>
-    <p>Carga de chamados por técnico e desempenho.</p>
+    <span class="card-tip">Carga de chamados por técnico e desempenho.</span>
   </a>
   <?php endif; ?>
 
@@ -511,7 +542,7 @@ function pode_ver(string $key, ?array $cards): bool {
   <a href="orcamento.php" class="dash-card card-orcamento">
     <div class="card-icon"><i class="bi bi-cash-coin"></i></div>
     <h5>Orçamento</h5>
-    <p>Gastos de TI — planejado vs realizado.</p>
+    <span class="card-tip">Gastos de TI — planejado vs realizado.</span>
   </a>
   <?php endif; ?>
 
@@ -519,7 +550,7 @@ function pode_ver(string $key, ?array $cards): bool {
   <a href="contratos.php" class="dash-card card-contratos">
     <div class="card-icon"><i class="bi bi-file-earmark-text-fill"></i></div>
     <h5>Contratos</h5>
-    <p>Contratos de TI com alertas de vencimento.</p>
+    <span class="card-tip">Contratos de TI com alertas de vencimento.</span>
   </a>
   <?php endif; ?>
 
@@ -527,7 +558,7 @@ function pode_ver(string $key, ?array $cards): bool {
   <a href="licencas.php" class="dash-card card-licencas">
     <div class="card-icon"><i class="bi bi-key-fill"></i></div>
     <h5>Licenças de Software</h5>
-    <p>Licenças usadas vs disponíveis e vencimentos.</p>
+    <span class="card-tip">Licenças usadas vs disponíveis e vencimentos.</span>
   </a>
   <?php endif; ?>
 
@@ -535,7 +566,7 @@ function pode_ver(string $key, ?array $cards): bool {
   <a href="reunioes_rp.php" class="dash-card card-reunioes-rp">
     <div class="card-icon"><i class="bi bi-people-fill"></i></div>
     <h5>Reuniões RP</h5>
-    <p>Reuniões com a RP Info e pendências.</p>
+    <span class="card-tip">Reuniões com a RP Info e pendências.</span>
   </a>
   <?php endif; ?>
 
@@ -543,7 +574,7 @@ function pode_ver(string $key, ?array $cards): bool {
   <a href="despesas.php" class="dash-card card-despesas">
     <div class="card-icon"><i class="bi bi-wallet2"></i></div>
     <h5>Gestão de Despesas</h5>
-    <p>Despesas de TI ligadas aos orçamentos.</p>
+    <span class="card-tip">Despesas de TI ligadas aos orçamentos.</span>
   </a>
   <?php endif; ?>
 
@@ -561,7 +592,7 @@ function pode_ver(string $key, ?array $cards): bool {
   <a href="usuarios.php" class="dash-card card-usuarios">
     <div class="card-icon"><i class="bi bi-people-fill"></i></div>
     <h5>Gestão de Usuários</h5>
-    <p>Usuários do GLPI — perfis e acesso.</p>
+    <span class="card-tip">Usuários do GLPI — perfis e acesso.</span>
   </a>
   <?php endif; ?>
 
@@ -569,7 +600,7 @@ function pode_ver(string $key, ?array $cards): bool {
   <a href="perfis.php" class="dash-card card-usuarios" style="--card-accent:#7b1fa2;">
     <div class="card-icon" style="background:#f3e5f5;color:#7b1fa2;"><i class="bi bi-shield-person-fill"></i></div>
     <h5>Perfis de Usuário</h5>
-    <p>Cards e nível de acesso por perfil.</p>
+    <span class="card-tip">Cards e nível de acesso por perfil.</span>
   </a>
   <?php endif; ?>
 
@@ -577,7 +608,7 @@ function pode_ver(string $key, ?array $cards): bool {
   <a href="categorias.php" class="dash-card card-categorias">
     <div class="card-icon"><i class="bi bi-tags-fill"></i></div>
     <h5>Categorias</h5>
-    <p>Categorias e catálogo de serviços.</p>
+    <span class="card-tip">Categorias e catálogo de serviços.</span>
   </a>
   <?php endif; ?>
 
@@ -585,7 +616,7 @@ function pode_ver(string $key, ?array $cards): bool {
   <a href="gerenciar_entidades.php" class="dash-card card-gerenciar-entidades">
     <div class="card-icon"><i class="bi bi-shop"></i></div>
     <h5>Lojas</h5>
-    <p>Lojas/entidades cadastradas no GLPI.</p>
+    <span class="card-tip">Lojas/entidades cadastradas no GLPI.</span>
   </a>
   <?php endif; ?>
 
@@ -593,7 +624,7 @@ function pode_ver(string $key, ?array $cards): bool {
   <a href="sla.php" class="dash-card card-sla-config">
     <div class="card-icon"><i class="bi bi-clock-fill"></i></div>
     <h5>SLAs</h5>
-    <p>Prazos, prioridades e regras de SLA.</p>
+    <span class="card-tip">Prazos, prioridades e regras de SLA.</span>
   </a>
   <?php endif; ?>
 
@@ -601,7 +632,7 @@ function pode_ver(string $key, ?array $cards): bool {
   <a href="logs_portal.php" class="dash-card card-logs">
     <div class="card-icon"><i class="bi bi-journal-text"></i></div>
     <h5>Logs do Portal</h5>
-    <p>Sessão, erros e sincronia para auditoria.</p>
+    <span class="card-tip">Sessão, erros e sincronia para auditoria.</span>
   </a>
   <?php endif; ?>
 
@@ -609,7 +640,7 @@ function pode_ver(string $key, ?array $cards): bool {
   <a href="manutencao.php" class="dash-card card-manutencao">
     <div class="card-icon"><i class="bi bi-tools"></i></div>
     <h5>Manutenção</h5>
-    <p>Cache, sincronia e diagnósticos do sistema.</p>
+    <span class="card-tip">Cache, sincronia e diagnósticos do sistema.</span>
   </a>
   <?php endif; ?>
 
@@ -617,7 +648,7 @@ function pode_ver(string $key, ?array $cards): bool {
   <a href="config_notificacoes.php" class="dash-card card-logs">
     <div class="card-icon"><i class="bi bi-bell-fill"></i></div>
     <h5>Notificações</h5>
-    <p>Linha do TI, grupos de Alertas e Chamados.</p>
+    <span class="card-tip">Linha do TI, grupos de Alertas e Chamados.</span>
   </a>
   <?php endif; ?>
 
