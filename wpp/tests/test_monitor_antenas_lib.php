@@ -41,6 +41,22 @@ t_eq(antena_ocorrencias_clientes_excesso([['id' => 7, 'clientes_conectados' => 3
 t_eq(antena_ocorrencias_clientes_excesso([['id' => 7, 'clientes_conectados' => 10]], 30), [], 'ocorrencias_clientes_excesso: dentro do limite -> nenhuma ocorrência');
 
 // ---------------------------------------------------------------------------
+// monitor_antena_reiniciar() — comando de reboot via SSH (sem banco)
+// ---------------------------------------------------------------------------
+t_eq(monitor_antena_reiniciar('', 'admin', 'senha')['ok'], false, 'reiniciar: sem IP -> ok=false (retorna antes de abrir SSH)');
+t_eq(monitor_antena_reiniciar('10.9.9.9', '', 'senha')['ok'], false, 'reiniciar: sem usuário -> ok=false');
+t_eq(monitor_antena_reiniciar('10.9.9.9', 'admin', '')['ok'], false, 'reiniciar: sem senha -> ok=false');
+
+$GLOBALS['__monitor_antena_ssh_reboot_fake'] = fn($ip, $u, $s) => ['ok' => true, 'erro' => null];
+t_eq(monitor_antena_reiniciar('10.9.9.9', 'admin', 'senha-teste')['ok'], true, 'reiniciar: SSH aceitou o comando -> ok=true');
+
+$GLOBALS['__monitor_antena_ssh_reboot_fake'] = fn($ip, $u, $s) => ['ok' => false, 'erro' => 'Permission denied, please try again.'];
+$falhaAuth = monitor_antena_reiniciar('10.9.9.9', 'admin', 'senha-errada');
+t_eq($falhaAuth['ok'], false, 'reiniciar: Permission denied -> ok=false');
+t_ok(strpos($falhaAuth['erro'], 'Permission denied') !== false, 'reiniciar: erro propaga a mensagem original do SSH');
+unset($GLOBALS['__monitor_antena_ssh_reboot_fake']);
+
+// ---------------------------------------------------------------------------
 // monitor_antenas_varrer() com SSH mockado — precisa de banco
 // ---------------------------------------------------------------------------
 if (isset($pdo) && $pdo instanceof PDO) {

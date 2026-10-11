@@ -98,6 +98,22 @@ if ($action) {
         exit;
     }
 
+    if ($action === 'antena_reiniciar') {
+        $body = json_decode(file_get_contents('php://input'), true) ?? [];
+        $id   = (int)($body['id'] ?? 0);
+        if (!$id) { echo json_encode(['ok' => false, 'msg' => 'ID inválido']); exit; }
+
+        $st = $pdo->prepare("SELECT ip, ssh_usuario, ssh_senha_enc FROM portal_monitor_antenas WHERE id = ?");
+        $st->execute([$id]);
+        $antena = $st->fetch(PDO::FETCH_ASSOC);
+        if (!$antena) { echo json_encode(['ok' => false, 'msg' => 'Antena não encontrada']); exit; }
+
+        $cred = monitor_antena_credencial($antena);
+        $r = monitor_antena_reiniciar($antena['ip'], $cred['usuario'], $cred['senha']);
+        echo json_encode(['ok' => $r['ok'], 'msg' => $r['erro']]);
+        exit;
+    }
+
     if ($action === 'antena_delete') {
         $body = json_decode(file_get_contents('php://input'), true) ?? [];
         $id   = (int)($body['id'] ?? 0);
@@ -197,6 +213,9 @@ $antenaLimiteCfg  = (int) wpp_cfg_get('antena_limite_clientes', '30');
     .antena-cfg { background:none; border:none; color:#9ca3af; cursor:pointer; padding:0;
                    position:absolute; top:.75rem; right:.75rem; }
     .antena-cfg:hover { color:#1a237e; }
+    .antena-reiniciar { background:none; border:none; color:#9ca3af; cursor:pointer; padding:0;
+                         position:absolute; top:.75rem; right:2.1rem; }
+    .antena-reiniciar:hover { color:#d93025; }
     .antena-add { display:flex; flex-direction:column; align-items:center; justify-content:center;
                    gap:.35rem; min-height:64px; border:2px dashed #d1d5db; color:#9ca3af;
                    cursor:pointer; border-radius:12px; }
@@ -271,6 +290,9 @@ $cartaoAdicionar = $is_admin
         <?php foreach ($antenasLoja as $a): ?>
           <div class="antena-card">
             <?php if ($is_admin): ?>
+            <button type="button" class="antena-reiniciar" onclick="reiniciarAntena(<?= (int)$a['id'] ?>, <?= json_encode($a['nome'], JSON_HEX_APOS | JSON_HEX_QUOT) ?>)" title="Reiniciar antena">
+              <i class="bi bi-arrow-repeat"></i>
+            </button>
             <button type="button" class="antena-cfg" onclick='editarAntena(<?= json_encode(['id'=>$a['id'],'nome'=>$a['nome'],'ip'=>$a['ip'],'entities_id'=>(int)($a['entities_id'] ?? 0),'ssh_usuario'=>$a['ssh_usuario'],'ativo'=>(int)$a['ativo']], JSON_HEX_APOS | JSON_HEX_QUOT | JSON_HEX_AMP | JSON_HEX_TAG) ?>)' title="Editar">
               <i class="bi bi-gear-fill"></i>
             </button>
@@ -471,6 +493,16 @@ async function salvarAntena() {
   const d = await r.json();
   if (d.ok) { modalAntena.hide(); location.reload(); }
   else { erroEl.className = 'text-danger small'; erroEl.textContent = d.msg || 'Erro ao salvar'; erroEl.style.display = ''; }
+}
+
+async function reiniciarAntena(id, nome) {
+  if (!confirm(`Reiniciar a antena "${nome}"? Os clientes conectados nela vão cair por alguns segundos.`)) return;
+  const r = await fetch('inventario_redes.php?action=antena_reiniciar', {
+    method: 'POST', headers: {'Content-Type':'application/json'},
+    body: JSON.stringify({id}),
+  });
+  const d = await r.json();
+  alert(d.ok ? 'Comando de reinício enviado. A antena deve voltar em ~1 minuto.' : (d.msg || 'Erro ao reiniciar a antena.'));
 }
 
 async function excluirAntena() {

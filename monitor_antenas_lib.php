@@ -183,6 +183,61 @@ function monitor_antena_ssh_check(string $ip, string $usuario, string $senha): a
 }
 
 /**
+ * Reinicia 1 antena via SSH (`reboot`, built-in do firmware UniFi — não
+ * precisa de mca-cli-op). Pedido do usuário 2026-10-11: reiniciar
+ * individualmente pela tela, sem precisar de SSH manual.
+ *
+ * `reboot` encerra a conexão SSH no meio do processo — o cliente sshpass/ssh
+ * normalmente sai com "Connection to <ip> closed by remote host" e código de
+ * saída != 0 mesmo quando o comando foi aceito e a antena VAI reiniciar. Por
+ * isso não dá pra usar $return_var como critério de sucesso (igual se faz em
+ * monitor_antena_ssh_check): só erros claros de autenticação/conexão antes do
+ * comando sair (permission denied, connection refused, no route to host)
+ * contam como falha real; qualquer outra coisa é tratada como "comando
+ * enviado" — "ok" aqui significa "a antena deve estar reiniciando", não
+ * "reiniciou com sucesso" (não há como confirmar isso na mesma chamada).
+ *
+ * Seam de teste: $GLOBALS['__monitor_antena_ssh_reboot_fake'] = fn(string $ip, string $usuario, string $senha): array.
+ *
+ * @return array{ok:bool,erro:?string}
+ */
+function monitor_antena_reiniciar(string $ip, string $usuario, string $senha): array
+{
+    if (isset($GLOBALS['__monitor_antena_ssh_reboot_fake']) && is_callable($GLOBALS['__monitor_antena_ssh_reboot_fake'])) {
+        return ($GLOBALS['__monitor_antena_ssh_reboot_fake'])($ip, $usuario, $senha);
+    }
+
+    $ip = trim($ip);
+    $usuario = trim($usuario);
+    if ($ip === '' || $usuario === '' || $senha === '') {
+        return ['ok' => false, 'erro' => 'IP/usuário/senha ausentes'];
+    }
+
+    $output = [];
+    $return_var = 0;
+    putenv('SSHPASS=' . $senha);
+    $host = escapeshellarg("$usuario@$ip");
+    exec(
+        "timeout 8 sshpass -e ssh -o StrictHostKeyChecking=no -o LogLevel=ERROR -o ConnectTimeout=3 $host "
+            . escapeshellarg('reboot') . ' </dev/null 2>&1',
+        $output,
+        $return_var
+    );
+
+    $bruto = implode("\n", $output);
+    $falhaConexao = stripos($bruto, 'Permission denied') !== false
+        || stripos($bruto, 'Connection refused') !== false
+        || stripos($bruto, 'No route to host') !== false
+        || stripos($bruto, 'Could not resolve hostname') !== false;
+
+    if ($falhaConexao) {
+        return ['ok' => false, 'erro' => $bruto !== '' ? $bruto : 'Falha ao conectar via SSH (código ' . $return_var . ')'];
+    }
+
+    return ['ok' => true, 'erro' => null];
+}
+
+/**
  * Varre todas as antenas ativas, com auto-throttle: só roda SSH de novo
  * numa antena se a última verificação for mais antiga que
  * $minIntervaloSeg — evita triplicar carga de SSH quando os 3 tipos de
