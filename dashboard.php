@@ -139,12 +139,19 @@ function pode_ver(string $key, ?array $cards): bool {
        aumentar um pouco o card. max-width do container subiu de
        1300px->1850px pra caber as 4 seções da 1ª linha lado a lado em tela
        larga; em tela mais estreita o flex-wrap de .dash-row ainda quebra
-       pra linha de baixo normalmente, sem gambiarra. Pra reverter: ver
+       pra linha de baixo normalmente, sem gambiarra.
+       7ª rodada (mesmo dia): usuário pediu pra deixar Gestão de TI e
+       Configuração em 2 linhas cada (.dash-section-cards-2col, max-width
+       pra ~4 cards por linha) — isso libera largura, permitindo aumentar
+       o card de novo (108px->126px). Container subiu pra 1900px pra
+       1ª linha (Atendimento+KPIs+Acessos+Recursos) continuar cabendo lado
+       a lado com o card maior. Trade-off aceito: linha de baixo
+       (Gestão de TI+Configuração) fica ~2x mais alta. Pra reverter: ver
        rodada anterior no histórico do git.*/
     .dash-sections {
       display: flex; flex-direction: column;
       gap: 1rem;
-      max-width: 1850px; margin: .6rem auto 1rem;
+      max-width: 1900px; margin: .6rem auto 1rem;
       padding: 0 1.5rem;
     }
     .dash-row {
@@ -156,14 +163,17 @@ function pode_ver(string $key, ?array $cards): bool {
       display: flex; flex-wrap: wrap;
       gap: .6rem;
     }
+    /* Gestão de TI e Configuração: força ~4 cards por linha (2 linhas),
+       em vez de 7-8 cards numa linha só só — libera espaço pro card maior. */
+    .dash-section-cards-2col { max-width: 545px; }
 
     .dash-card {
       position: relative;
-      flex: 0 0 108px; width: 108px; aspect-ratio: 1 / 1;
+      flex: 0 0 126px; width: 126px; aspect-ratio: 1 / 1;
       background: white;
       border-radius: 12px;
       box-shadow: 0 4px 24px rgba(0,0,0,.1);
-      padding: .6rem .45rem;
+      padding: .7rem .5rem;
       display: flex; flex-direction: column; align-items: center; justify-content: center;
       text-align: center;
       text-decoration: none;
@@ -180,17 +190,17 @@ function pode_ver(string $key, ?array $cards): bool {
     }
 
     .dash-card .card-icon {
-      width: 38px; height: 38px; flex-shrink: 0;
+      width: 44px; height: 44px; flex-shrink: 0;
       border-radius: 50%;
       display: flex; align-items: center; justify-content: center;
-      margin: 0 auto .4rem;
-      font-size: 1.1rem;
+      margin: 0 auto .45rem;
+      font-size: 1.25rem;
     }
     .dash-card h5 {
-      font-weight: 700; font-size: .76rem; margin: 0; line-height: 1.15;
+      font-weight: 700; font-size: .82rem; margin: 0; line-height: 1.15;
       display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden;
     }
-    .dash-card p.text-muted.small { font-size: .6rem; color: #888; margin: .1rem 0 0; line-height: 1.1; }
+    .dash-card p.text-muted.small { font-size: .64rem; color: #888; margin: .15rem 0 0; line-height: 1.1; }
 
     /* Tooltip com a descrição — só aparece no hover (desktop) */
     .dash-card .card-tip {
@@ -524,7 +534,7 @@ function pode_ver(string $key, ?array $cards): bool {
   <?php if (pode_ver('projetos',$perfil_cards)||pode_ver('equipe',$perfil_cards)||pode_ver('orcamento',$perfil_cards)||pode_ver('contratos',$perfil_cards)||pode_ver('licencas',$perfil_cards)||pode_ver('reunioes_rp',$perfil_cards)||pode_ver('despesas',$perfil_cards)): ?>
   <section class="dash-section">
   <div class="section-label"><i class="bi bi-briefcase me-2"></i>Gestão de TI</div>
-  <div class="dash-section-cards">
+  <div class="dash-section-cards dash-section-cards-2col">
 
   <?php if (pode_ver('projetos', $perfil_cards)): ?>
   <a href="projetos.php" class="dash-card card-projetos">
@@ -590,7 +600,7 @@ function pode_ver(string $key, ?array $cards): bool {
   <?php if (pode_ver('usuarios',$perfil_cards)||pode_ver('categorias',$perfil_cards)||pode_ver('entidades',$perfil_cards)||pode_ver('sla',$perfil_cards)||pode_ver('logs',$perfil_cards)||pode_ver('manutencao',$perfil_cards)||pode_ver('perfis',$perfil_cards)||pode_ver('notificacoes_config',$perfil_cards)): ?>
   <section class="dash-section">
   <div class="section-label"><i class="bi bi-gear-wide-connected me-2"></i>Configuração</div>
-  <div class="dash-section-cards">
+  <div class="dash-section-cards dash-section-cards-2col">
 
   <?php if (pode_ver('usuarios', $perfil_cards)): ?>
   <a href="usuarios.php" class="dash-card card-usuarios">
