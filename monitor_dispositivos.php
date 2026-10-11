@@ -1,11 +1,14 @@
 <?php
 /**
- * monitor_dispositivos.php — Monitor de rede: o que monitorar e como, por grupo.
- *   - Config de cada grupo (intervalo, tolerância, queda curta, monitorar novos,
- *     ligar/desligar todos);
- *   - Equipamentos vindos do inventário + manuais, com a chave "Monitorar" e IP fixo.
- * Etapa 1 do roteiro (Docs/superpowers/specs/2026-09-25-monitor-rede-portal-design.md):
- * ainda não pinga nem alerta.
+ * monitor_dispositivos.php — tela única de configuração, em duas abas:
+ *   - "Monitor de Rede": config de cada grupo (intervalo, tolerância, queda curta,
+ *     monitorar novos, ligar/desligar todos), silêncio por horário/loja/feriado e
+ *     os equipamentos vindos do inventário + manuais (chave "Monitorar", IP fixo);
+ *   - "Catálogo de Alertas": os tipos de alerta da Central (ativo, parâmetros,
+ *     lembrete, notificação no WhatsApp) + horário genérico por tipo.
+ * A aba do catálogo veio de alertas_config.php (fundida aqui em 2026-10-11, a pedido
+ * do usuário: a config de alertas e a do monitor eram duas telas com sobreposição).
+ * Aquele arquivo agora só redireciona pra cá (#catalogo).
  */
 require_once __DIR__ . '/auth_guard.php';
 if (empty($_SESSION['autenticado'])) { header('Location: auth.php'); exit; }
@@ -14,9 +17,18 @@ if (($_SESSION['perfil'] ?? '') === 'self-service') { header('Location: dashboar
 require_once __DIR__ . '/agenda/db.php';
 require_once __DIR__ . '/monitor_lib.php';
 require_once __DIR__ . '/monitor_links_lib.php'; // quadro "Links de internet"
+require_once __DIR__ . '/alertas_tipos.php';     // aba "Catálogo de Alertas"
 
 $cards = $_SESSION['portal_perfil_cards'] ?? null;
 if ($cards !== null && !isset($cards['notificacoes_config'])) { header('Location: dashboard.php'); exit; }
+
+/**
+ * Tipos cujo silêncio por horário é configurado na aba "Monitor de Rede" (por grupo/loja/dia
+ * e feriado — monitor_check_tipo() filtra os três lá, ver monitor_lib.php). Mostrar também o
+ * horário genérico por tipo (portal_alertas_horario) na aba do catálogo seriam dois mecanismos
+ * independentes pro mesmo alerta, que foi justamente a redundância que motivou juntar as telas.
+ */
+const CATALOGO_HORARIO_NA_ABA_MONITOR = ['monitor_device', 'monitor_sem_contato', 'monitor_ligado_muito_tempo'];
 
 /* ─────────── Handlers AJAX ─────────── */
 $action = $_GET['action'] ?? '';
@@ -60,6 +72,42 @@ if ($action !== '') {
 
         if ($action === 'feriados_listar') {
             $ok(['feriados' => monitor_feriado_listar($pdo)]);
+            exit;
+        }
+
+        // ── Aba "Catálogo de Alertas" (herdado de alertas_config.php) ──
+        if ($action === 'catalogo_ler') {
+            $tipos = [];
+            foreach (alertas_catalogo() as $slug => $def) {
+                $cfg = alertas_config_do_tipo($pdo, $slug);
+                $schema = [];
+                foreach ($def['params'] as $k => $meta) {
+                    $schema[$k] = ['label' => $meta['label'], 'min' => (int) $meta['min'], 'max' => (int) $meta['max']];
+                }
+                $tipos[] = [
+                    'slug'           => $slug,
+                    'nome'           => $def['nome'],
+                    'descricao'      => $def['descricao'],
+                    'icone'          => $def['icone'],
+                    'cor'            => $def['cor'],
+                    'params_schema'  => $schema,
+                    'ativo'          => $cfg['ativo'] ? 1 : 0,
+                    'params'         => $cfg['params'],
+                    'notif_whatsapp' => $cfg['notif_whatsapp'] ? 1 : 0,
+                    'lembrete_min'   => $cfg['lembrete_min'],
+                ];
+            }
+            $ok(['tipos' => $tipos]);
+            exit;
+        }
+
+        if ($action === 'catalogo_horarios_listar') {
+            $tipos = [];
+            foreach (alertas_catalogo() as $slug => $def) {
+                if (in_array($slug, CATALOGO_HORARIO_NA_ABA_MONITOR, true)) continue; // já tem horário granular na outra aba
+                $tipos[] = ['tipo' => $slug, 'nome' => $def['nome'], 'horario' => alertas_horario_atual($pdo, $slug)];
+            }
+            $ok(['tipos' => $tipos]);
             exit;
         }
 
@@ -157,6 +205,75 @@ if ($action !== '') {
                 monitor_manual_excluir($pdo, $id);
                 $ok();
                 break;
+
+            // ── Aba "Catálogo de Alertas" (herdado de alertas_config.php) ──
+            case 'catalogo_salvar':
+                $slug = $_POST['tipo'] ?? '';
+                $def  = alertas_catalogo()[$slug] ?? null;
+                if (!$def) { $err('tipo desconhecido'); break; }
+
+                $lembrete = (int) ($_POST['lembrete_min'] ?? 0);
+                if ($lembrete < 0 || $lembrete > 10080) { $err('lembrete deve ser de 0 a 10080 min'); break; }
+
+                // valida cada parâmetro contra o min/max do catálogo antes de gravar
+                $params = [];
+                $erroParam = null;
+                foreach ($def['params'] as $k => $meta) {
+                    $v = (int) ($_POST['p_' . $k] ?? $meta['default']);
+                    if ($v < $meta['min'] || $v > $meta['max']) { $erroParam = "{$meta['label']}: informe de {$meta['min']} a {$meta['max']}"; break; }
+                    $params[$k] = $v;
+                }
+                if ($erroParam) { $err($erroParam); break; }
+
+                $ativo = (($_POST['ativo'] ?? '') === '1') ? 1 : 0;
+                $notif = (($_POST['notif_whatsapp'] ?? '') === '1') ? 1 : 0;
+
+                $st = $pdo->prepare(
+                    "INSERT INTO portal_alertas_config (tipo, ativo, params, notif_whatsapp, lembrete_min)
+                     VALUES (?, ?, ?, ?, ?)
+                     ON DUPLICATE KEY UPDATE ativo=VALUES(ativo), params=VALUES(params),
+                         notif_whatsapp=VALUES(notif_whatsapp), lembrete_min=VALUES(lembrete_min)"
+                );
+                $st->execute([$slug, $ativo, json_encode($params), $notif, $lembrete]);
+
+                // Anti-blast: ao ATIVAR o tipo, marca as ocorrências correntes como
+                // "já vistas" (sem notificar) — assim o gat_alertas só manda 🔔 do que
+                // aparecer DEPOIS. Ao desativar, limpa as linhas do tipo.
+                try {
+                    if ($ativo) {
+                        $ocorr = call_user_func($def['check'], $pdo, $params);
+                        $insOc = $pdo->prepare(
+                            "INSERT IGNORE INTO portal_alertas_ocorrencias (tipo, chave, primeiro_visto) VALUES (?, ?, NOW())"
+                        );
+                        foreach ($ocorr as $o) { $insOc->execute([$slug, $o['chave']]); }
+                    } else {
+                        $pdo->prepare("DELETE FROM portal_alertas_ocorrencias WHERE tipo = ?")->execute([$slug]);
+                    }
+                } catch (\Throwable $e) {
+                    // semear/limpar é best-effort: não pode derrubar o salvar da config
+                }
+                $ok();
+                break;
+            case 'catalogo_horario_salvar':
+                $tipo = trim((string) ($_POST['tipo'] ?? ''));
+                if (!isset(alertas_catalogo()[$tipo])) { $err('tipo desconhecido'); break; }
+                if (in_array($tipo, CATALOGO_HORARIO_NA_ABA_MONITOR, true)) { $err('esse tipo usa o horário configurado na aba Monitor de Rede'); break; }
+
+                $horaInicio = trim((string) ($_POST['horario_inicio'] ?? ''));
+                $horaFim    = trim((string) ($_POST['horario_fim'] ?? ''));
+                if ($horaInicio === '' && $horaFim === '') {
+                    alertas_horario_remover($pdo, $tipo);
+                    $ok();
+                    break;
+                }
+                if (!preg_match('/^\d{2}:\d{2}$/', $horaInicio) || !preg_match('/^\d{2}:\d{2}$/', $horaFim)) {
+                    $err('preencha os dois horários (HH:MM), ou deixe os dois em branco pra sempre notificar');
+                    break;
+                }
+                alertas_horario_salvar($pdo, $tipo, $horaInicio . ':00', $horaFim . ':00');
+                $ok();
+                break;
+
             default:
                 $err('ação desconhecida');
         }
@@ -198,18 +315,51 @@ if ($action !== '') {
     .ip-fixo { width:130px; }
     .estimativa { color:#6b7280; font-size:.72rem; }
     footer { text-align:center; color:#bbb; font-size:.78rem; padding:2rem; }
+
+    /* ── Abas (Monitor de Rede / Catálogo de Alertas) ── */
+    .tabs { display:flex; gap:.5rem; margin-bottom:1.1rem; }
+    .tab-btn { background:#fff; border:1px solid #e5e7eb; border-radius:8px; padding:.5rem 1.1rem; font-weight:700;
+               font-size:.85rem; color:#374151; cursor:pointer; }
+    .tab-btn.active { background:var(--primary); color:#fff; border-color:var(--primary); }
+    .tab-pane { display:none; }
+    .tab-pane.active { display:block; }
+
+    /* ── Catálogo de Alertas (herdado de alertas_config.php) ── */
+    .bloco { background:#fff; border:1px solid #e5e7eb; border-radius:12px; box-shadow:0 2px 8px rgba(0,0,0,.06);
+             padding:1.1rem 1.25rem; margin-bottom:1.1rem; }
+    .bloco-h { font-weight:700; font-size:1rem; display:flex; align-items:center; gap:.5rem; }
+    .bloco-h .bi { font-size:1.15rem; }
+    .bloco-desc { margin:.15rem 0 .8rem; }
+    .bloco .form-switch { margin:.35rem 0; }
+    .bloco .form-check-label { cursor:pointer; }
+    .sub { transition:opacity .15s; margin-top:.5rem; }
+    .sub.off { opacity:.4; }
+    .campo { display:flex; align-items:center; gap:.5rem; flex-wrap:wrap; margin:.5rem 0; }
+    .campo .form-label { margin:0; font-weight:600; font-size:.85rem; color:#374151; }
+    .campo input { width:90px; }
+    .campo .un { font-size:.8rem; color:#6b7280; }
+    .bloco .btn-salvar { margin-top:.9rem; }
+    .feedback { border-radius:8px; padding:.5rem .8rem; font-size:.83rem; margin-top:.7rem; display:none; }
+    .feedback.ok  { background:#f0fdf4; border:1px solid #22c55e; color:#166534; display:block; }
+    .feedback.err { background:#fef2f2; border:1px solid #ef4444; color:#991b1b; display:block; }
+    .feedback.info{ background:#eff6ff; border:1px solid #3b82f6; color:#1e40af; display:block; }
   </style>
 </head>
 <body>
 <div class="topbar">
   <div class="brand"><i class="bi bi-broadcast"></i> Monitor de Rede</div>
   <div style="display:flex;gap:.5rem;align-items:center">
-    <a href="alertas_config.php"><i class="bi bi-arrow-left me-1"></i>Configurar Alertas</a>
     <a href="dashboard.php"><i class="bi bi-grid me-1"></i>Início</a>
   </div>
 </div>
 
 <div class="wrap">
+  <div class="tabs">
+    <button type="button" class="tab-btn" data-tab="monitor" onclick="mudarAba('monitor')"><i class="bi bi-broadcast me-1"></i>Monitor de Rede</button>
+    <button type="button" class="tab-btn" data-tab="catalogo" onclick="mudarAba('catalogo')"><i class="bi bi-sliders me-1"></i>Catálogo de Alertas</button>
+  </div>
+
+  <div class="tab-pane" id="tab-monitor">
   <div class="alert alert-info py-2 small">
     <i class="bi bi-info-circle me-1"></i>
     <b>Monitor de rede ativo:</b> é ele que gera os alertas de rede da Central (equipamento fora, queda de VPN,
@@ -324,6 +474,21 @@ if ($action !== '') {
     </div>
     <div id="fb-man" class="small mt-2"></div>
   </div>
+  </div><!-- /tab-monitor -->
+
+  <div class="tab-pane" id="tab-catalogo">
+    <h6 class="mb-1">Catálogo de Alertas</h6>
+    <p class="small text-muted mb-3">Ligue/desligue cada tipo de alerta e ajuste os parâmetros, o lembrete e a notificação no grupo Alertas do WhatsApp.</p>
+    <div id="lista-catalogo"><div class="text-muted small">Carregando…</div></div>
+
+    <div class="card-box mt-3">
+      <h6 class="mb-2"><i class="bi bi-clock me-1"></i>Horário de notificação</h6>
+      <p class="small text-muted mb-2">Fora do horário, o tipo continua sendo checado mas não vira alerta (nem painel, nem WhatsApp). Deixe os dois campos em branco pra notificar 24h.
+        Os tipos "Sem comunicação (IPs/dispositivos)", "Monitor de rede parado" e "Equipamento ligado há muito tempo" não aparecem aqui — usam o horário por grupo/loja/dia na aba Monitor de Rede.</p>
+      <div id="horario-catalogo-lista">Carregando…</div>
+      <div id="fb-horario-catalogo" class="small mt-2"></div>
+    </div>
+  </div><!-- /tab-catalogo -->
 </div>
 <footer><i class="bi bi-shield-lock me-1"></i>Central de TI — Monitor de Rede</footer>
 
@@ -657,10 +822,152 @@ function excluirManual(id) {
   post('manual_excluir', { id }).then(d => { if (!d.ok) return fb('fb-lista', d.erro || 'falha', false); carregar(); });
 }
 
+/* ───────────────────── Abas ───────────────────── */
+function mudarAba(tab) {
+  document.querySelectorAll('.tab-btn').forEach(b => b.classList.toggle('active', b.dataset.tab === tab));
+  document.querySelectorAll('.tab-pane').forEach(p => p.classList.toggle('active', p.id === 'tab-' + tab));
+  if (location.hash !== '#' + tab) history.replaceState(null, '', '#' + tab);
+}
+
+/* ───────────────────── Catálogo de Alertas (herdado de alertas_config.php) ───────────────────── */
+let CATALOGO = [];
+
+function carregarCatalogo() {
+  fetch('?action=catalogo_ler').then(r => r.json()).then(d => {
+    const cont = document.getElementById('lista-catalogo');
+    if (!d.ok) { cont.innerHTML = '<div class="feedback err">Erro ao carregar: ' + H(d.erro || 'falha') + '</div>'; return; }
+    CATALOGO = d.tipos || [];
+    cont.innerHTML = '';
+    if (!CATALOGO.length) { cont.innerHTML = '<div class="text-muted small">Nenhum tipo de alerta no catálogo.</div>'; return; }
+    CATALOGO.forEach(t => cont.appendChild(montarBlocoCatalogo(t)));
+  });
+}
+
+function sincronizarBlocoCatalogo(bloco) {
+  const on = bloco.querySelector('.chk-ativo').checked;
+  const sub = bloco.querySelector('.sub');
+  sub.classList.toggle('off', !on);
+  sub.querySelectorAll('input').forEach(i => i.disabled = !on);
+}
+
+function montarBlocoCatalogo(t) {
+  const bloco = document.createElement('div');
+  bloco.className = 'bloco';
+  bloco.setAttribute('data-slug', t.slug);
+
+  const params = Object.keys(t.params_schema || {}).map(k => {
+    const meta = t.params_schema[k];
+    const v = (t.params && t.params[k] != null) ? t.params[k] : meta.min;
+    return `<div class="campo"><label class="form-label" for="p-${H(t.slug)}-${H(k)}">${H(meta.label)}</label>
+      <input type="number" class="form-control form-control-sm p-param" id="p-${H(t.slug)}-${H(k)}" data-k="${H(k)}" min="${meta.min}" max="${meta.max}" step="1" value="${H(v)}">
+      <span class="un">(${meta.min}–${meta.max})</span></div>`;
+  }).join('');
+
+  bloco.innerHTML = `
+    <div class="bloco-h"><i class="bi ${H(t.icone)}"></i><span>${H(t.nome)}</span></div>
+    <div class="bloco-desc small text-muted">${H(t.descricao)}</div>
+    <div class="form-check form-switch">
+      <input type="checkbox" class="form-check-input chk-ativo" id="ativo-${H(t.slug)}" ${t.ativo ? 'checked' : ''}>
+      <label class="form-check-label fw-semibold" for="ativo-${H(t.slug)}">Ativo</label>
+    </div>
+    <div class="sub">
+      ${params}
+      <div class="form-check form-switch">
+        <input type="checkbox" class="form-check-input chk-notif" id="notif-${H(t.slug)}" ${t.notif_whatsapp ? 'checked' : ''}>
+        <label class="form-check-label" for="notif-${H(t.slug)}">Notificar no grupo Alertas do WhatsApp</label>
+      </div>
+      <small class="text-muted d-block" style="margin:-.15rem 0 .35rem 2.5rem">Manda 🔔 quando o alerta aparece, ✅ quando é resolvido, e ⏰ de lembrete conforme o intervalo abaixo.</small>
+      <div class="campo">
+        <label class="form-label" for="lembrete-${H(t.slug)}">Lembrete (min · 0 = sem lembrete)</label>
+        <input type="number" class="form-control form-control-sm inp-lembrete" id="lembrete-${H(t.slug)}" min="0" max="10080" step="1" value="${t.lembrete_min ?? 0}">
+      </div>
+    </div>
+    <button type="button" class="btn btn-primary btn-sm btn-salvar"><i class="bi bi-save me-1"></i>Salvar</button>
+    <div class="feedback"></div>`;
+
+  bloco.querySelector('.btn-salvar').addEventListener('click', () => salvarCatalogo(t.slug, bloco.querySelector('.btn-salvar')));
+  bloco.querySelector('.chk-ativo').addEventListener('change', () => sincronizarBlocoCatalogo(bloco));
+  sincronizarBlocoCatalogo(bloco);
+  return bloco;
+}
+
+function salvarCatalogo(slug, btn) {
+  const bloco = document.querySelector('.bloco[data-slug="' + slug + '"]');
+  if (!bloco) return;
+  const fbEl = bloco.querySelector('.feedback');
+  const dados = {
+    tipo: slug,
+    ativo: bloco.querySelector('.chk-ativo').checked ? '1' : '0',
+    notif_whatsapp: bloco.querySelector('.chk-notif').checked ? '1' : '0',
+  };
+  let lem = parseInt(bloco.querySelector('.inp-lembrete').value, 10);
+  if (isNaN(lem)) lem = 0;
+  if (lem < 0 || lem > 10080) { fbEl.className = 'feedback err'; fbEl.textContent = 'Lembrete: informe de 0 a 10080 min.'; return; }
+  dados.lembrete_min = lem;
+
+  let erroLocal = null;
+  bloco.querySelectorAll('.p-param').forEach(inp => {
+    const k = inp.getAttribute('data-k');
+    const min = parseInt(inp.min, 10), max = parseInt(inp.max, 10);
+    const v = parseInt(inp.value, 10);
+    if (isNaN(v) || v < min || v > max) erroLocal = erroLocal || (k + ': informe de ' + min + ' a ' + max + '.');
+    dados['p_' + k] = isNaN(v) ? min : v;
+  });
+  if (erroLocal) { fbEl.className = 'feedback err'; fbEl.textContent = erroLocal; return; }
+
+  btn.disabled = true;
+  fbEl.className = 'feedback info'; fbEl.textContent = 'Salvando…';
+  post('catalogo_salvar', dados).then(d => {
+    btn.disabled = false;
+    fbEl.className = 'feedback ' + (d.ok ? 'ok' : 'err');
+    fbEl.textContent = d.ok ? 'Configuração salva.' : ('Erro: ' + (d.erro || 'falha ao salvar'));
+  }).catch(err => {
+    btn.disabled = false;
+    fbEl.className = 'feedback err';
+    fbEl.textContent = 'Erro de conexão: ' + (err.message || err);
+  });
+}
+
+function carregarHorarioCatalogo() {
+  fetch('?action=catalogo_horarios_listar').then(r => r.json()).then(d => {
+    const lista = document.getElementById('horario-catalogo-lista');
+    if (!d.ok || !(d.tipos || []).length) { lista.innerHTML = '<div class="text-muted small">Nenhum tipo elegível no catálogo.</div>'; return; }
+    lista.innerHTML = '';
+    d.tipos.forEach(t => lista.appendChild(linhaHorarioCatalogo(t)));
+  });
+}
+function linhaHorarioCatalogo(t) {
+  const div = document.createElement('div');
+  div.className = 'd-flex gap-2 flex-wrap align-items-end mb-2 pb-2';
+  div.style.borderBottom = '1px solid #f3f4f6';
+  const ini = t.horario ? t.horario.horario_inicio.substring(0, 5) : '';
+  const fim = t.horario ? t.horario.horario_fim.substring(0, 5) : '';
+  div.innerHTML =
+    `<div style="min-width:220px"><b>${H(t.nome)}</b></div>
+     <div><label class="form-label small mb-0">Notifica das</label><input type="time" class="form-control form-control-sm hr-inicio" style="width:110px" value="${H(ini)}"></div>
+     <div><label class="form-label small mb-0">até</label><input type="time" class="form-control form-control-sm hr-fim" style="width:110px" value="${H(fim)}"></div>
+     <button type="button" class="btn btn-primary btn-sm" onclick="salvarHorarioCatalogo(this,'${H(t.tipo)}')">Salvar</button>`;
+  return div;
+}
+function salvarHorarioCatalogo(btn, tipo) {
+  const linha = btn.closest('div.d-flex');
+  post('catalogo_horario_salvar', {
+    tipo,
+    horario_inicio: linha.querySelector('.hr-inicio').value,
+    horario_fim: linha.querySelector('.hr-fim').value,
+  }).then(d => {
+    const el = document.getElementById('fb-horario-catalogo');
+    el.className = 'small mt-2 ' + (d.ok ? 'text-success' : 'text-danger');
+    el.textContent = d.ok ? (tipo + ' salvo.') : (d.erro || 'erro ao salvar');
+  });
+}
+
 ['f-grupo', 'f-loja', 'f-mon'].forEach(i => document.getElementById(i).addEventListener('change', renderLista));
 document.getElementById('f-busca').addEventListener('input', renderLista);
+mudarAba(location.hash === '#catalogo' ? 'catalogo' : 'monitor'); // alertas_config.php redireciona pra #catalogo
 carregar();
 carregarCatHorario(); carregarExcecoes(); carregarFeriados();
+carregarCatalogo(); carregarHorarioCatalogo();
 // status muda a cada rodada; bg=1 = não conta como atividade pro logout por inatividade.
 // Não atualiza com alguém digitando/escolhendo num campo (perderia o que foi digitado).
 setInterval(() => {
