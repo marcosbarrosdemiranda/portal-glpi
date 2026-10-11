@@ -109,31 +109,38 @@ function pode_ver(string $key, ?array $cards): bool {
        Reduzido de novo — pedido 2026-10-11 (era minmax(200px,1fr) / gap 1.1rem /
        padding 1.5rem 1.1rem / ícone 58px / h5 1rem / p .8rem). */
     /* Reestruturado 2026-10-11 (2ª rodada): de grid único pra seções flex
-       (.dash-sections > .dash-section > .dash-section-cards), pra categorias
-       curtas (Atendimento+KPIs, Acessos+Recursos) ficarem lado a lado
-       naturalmente — e cards com largura FIXA (não mais 1fr) + aspect-ratio
-       1/1, pra ficarem quadrados mesmo dentro de uma seção estreita. Textos
-       das descrições também foram encurtados (~7 palavras) + line-clamp:3
-       pra não vazar do quadrado. Pra reverter: restaurar o .cards-wrap em
-       grid acima e os parágrafos originais (ver histórico do git).*/
+       (.dash-sections > .dash-row > .dash-section > .dash-section-cards).
+       3ª rodada (mesmo dia, ajuste fino pedido pelo usuário): cards tinham
+       ficado pequenos demais (cortando descrição) e apertados, o pareamento
+       "numa linha" (Atendimento+KPIs / Acessos+Recursos) não tava garantido
+       (dependia do flex-wrap encaixar por acaso), e o container subiu demais
+       (margin-top negativo) cobrindo o fundo azul do cabeçalho. Corrigido:
+       cards 110px->135px + line-clamp 3->4 + gap maior; .dash-row agrupa
+       explicitamente as 2 seções de cada linha (não depende de encaixe);
+       margin-top voltou a ser positivo. Pra reverter: ver rodada anterior
+       no histórico do git.*/
     .dash-sections {
-      display: flex; flex-wrap: wrap; align-items: flex-start;
-      gap: 1.6rem 2.2rem;
-      max-width: 1300px; margin: -.9rem auto 2rem;
+      display: flex; flex-direction: column;
+      gap: 1.8rem;
+      max-width: 1300px; margin: 1rem auto 2rem;
       padding: 0 1.5rem;
+    }
+    .dash-row {
+      display: flex; flex-wrap: wrap; align-items: flex-start;
+      gap: 1.8rem 2.6rem;
     }
     .dash-section { flex: 0 1 auto; }
     .dash-section-cards {
       display: flex; flex-wrap: wrap;
-      gap: .7rem;
+      gap: .9rem;
     }
 
     .dash-card {
-      flex: 0 0 110px; width: 110px; aspect-ratio: 1 / 1;
+      flex: 0 0 135px; width: 135px; aspect-ratio: 1 / 1;
       background: white;
       border-radius: 12px;
       box-shadow: 0 4px 24px rgba(0,0,0,.1);
-      padding: .7rem .5rem;
+      padding: .9rem .65rem;
       display: flex; flex-direction: column; align-items: center; justify-content: center;
       text-align: center;
       text-decoration: none;
@@ -150,16 +157,16 @@ function pode_ver(string $key, ?array $cards): bool {
     }
 
     .dash-card .card-icon {
-      width: 36px; height: 36px; flex-shrink: 0;
+      width: 42px; height: 42px; flex-shrink: 0;
       border-radius: 50%;
       display: flex; align-items: center; justify-content: center;
-      margin: 0 auto .4rem;
-      font-size: 1.05rem;
+      margin: 0 auto .45rem;
+      font-size: 1.2rem;
     }
-    .dash-card h5 { font-weight: 700; font-size: .78rem; margin: 0 0 .25rem; line-height: 1.15; }
+    .dash-card h5 { font-weight: 700; font-size: .83rem; margin: 0 0 .3rem; line-height: 1.15; }
     .dash-card p  {
-      font-size: .64rem; color: #888; margin: 0; line-height: 1.2;
-      display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden;
+      font-size: .7rem; color: #888; margin: 0; line-height: 1.25;
+      display: -webkit-box; -webkit-line-clamp: 4; -webkit-box-orient: vertical; overflow: hidden;
     }
     .dash-card p.text-muted.small { -webkit-line-clamp: 1; margin-bottom: .1rem; }
 
@@ -317,6 +324,9 @@ function pode_ver(string $key, ?array $cards): bool {
 
 <?php if (!$is_self): /* perfil portal ou técnico — mostra cards do perfil */ ?>
 
+  <!-- dash-row força Atendimento + KPIs numa linha só (não depende do flex-wrap encaixar) -->
+  <div class="dash-row">
+
   <!-- ── ATENDIMENTO ── -->
   <?php if (pode_ver('agenda',$perfil_cards) || (pode_ver('abrir_chamado',$perfil_cards) && !$is_self_glpi) || pode_ver('historico',$perfil_cards) || pode_ver('pendencias',$perfil_cards) || pode_ver('alertas',$perfil_cards)): ?>
   <section class="dash-section">
@@ -394,6 +404,11 @@ function pode_ver(string $key, ?array $cards): bool {
   </section>
   <?php endif; ?>
 
+  </div>
+
+  <!-- dash-row força Acessos + Recursos numa linha só -->
+  <div class="dash-row">
+
   <!-- ── ACESSOS ── -->
   <?php if (pode_ver('acesso_remoto',$perfil_cards) || pode_ver('infra',$perfil_cards) || pode_ver('erp',$perfil_cards)): ?>
   <section class="dash-section">
@@ -461,6 +476,8 @@ function pode_ver(string $key, ?array $cards): bool {
   </div>
   </section>
   <?php endif; ?>
+
+  </div>
 
   <!-- ── GESTÃO DE TI ── -->
   <?php if (pode_ver('projetos',$perfil_cards)||pode_ver('equipe',$perfil_cards)||pode_ver('orcamento',$perfil_cards)||pode_ver('contratos',$perfil_cards)||pode_ver('licencas',$perfil_cards)||pode_ver('reunioes_rp',$perfil_cards)||pode_ver('despesas',$perfil_cards)): ?>
