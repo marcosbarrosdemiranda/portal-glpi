@@ -208,6 +208,77 @@ function monitor_antena_listar(PDO $pdo): array
 }
 
 /**
+ * Conta quedas (antena_offline) por antena num dia e soma os minutos
+ * offline, emparelhando pares 'nova' -> 'resolvida' em
+ * portal_alertas_historico pela mesma chave ('antena_offline:<id>') — a
+ * tabela e a chave são escritas por gat_alertas_tipo()/alertas_tipos.php,
+ * não por este arquivo (depende de quem chama já ter incluído
+ * alertas_tipos.php, ver antena_resumo_ajax.php). Queda sem 'resolvida'
+ * dentro do dia (ainda offline, ou resolveu só no dia seguinte) conta como
+ * 1 queda e soma até o fim do dia consultado (minutos parciais).
+ *
+ * @return array<int,array{nome:string,quedas:int,minutos_offline:int}> indexado por id da antena
+ */
+function antena_resumo_quedas_dia(PDO $pdo, string $data): array
+{
+    $inicio = $data . ' 00:00:00';
+    $fim = $data . ' 23:59:59';
+
+    $st = $pdo->prepare("SELECT chave, evento, criado_em FROM portal_alertas_historico
+        WHERE tipo = 'antena_offline' AND criado_em BETWEEN ? AND ?
+        ORDER BY chave, criado_em, id");
+    $st->execute([$inicio, $fim]);
+
+    $porChave = [];
+    foreach ($st->fetchAll(PDO::FETCH_ASSOC) as $ev) {
+        $porChave[$ev['chave']][] = $ev;
+    }
+
+    $nomesPorId = $pdo->query("SELECT id, nome FROM portal_monitor_antenas")->fetchAll(PDO::FETCH_KEY_PAIR);
+
+    $resumo = [];
+    foreach ($porChave as $chave => $eventos) {
+        $id = (int) str_replace('antena_offline:', '', $chave);
+        $abertaDesde = null;
+
+        foreach ($eventos as $ev) {
+            if ($ev['evento'] === 'nova') {
+                $abertaDesde = $ev['criado_em'];
+                $resumo[$id] = $resumo[$id] ?? ['nome' => $nomesPorId[$id] ?? ('Antena #' . $id), 'quedas' => 0, 'minutos_offline' => 0];
+                $resumo[$id]['quedas']++;
+            } elseif ($ev['evento'] === 'resolvida' && $abertaDesde !== null) {
+                $resumo[$id]['minutos_offline'] += max(0, (int) round((strtotime($ev['criado_em']) - strtotime($abertaDesde)) / 60));
+                $abertaDesde = null;
+            }
+        }
+        // queda ainda aberta no fim do dia consultado -> soma os minutos parciais
+        if ($abertaDesde !== null && isset($resumo[$id])) {
+            $resumo[$id]['minutos_offline'] += max(0, (int) round((strtotime($fim) - strtotime($abertaDesde)) / 60));
+        }
+    }
+
+    return $resumo;
+}
+
+/** Texto pronto pra pré-preencher a resposta — mesmo padrão de backup_resumo_texto(). */
+function antena_resumo_texto(array $resumo, string $data): string
+{
+    $dataFmt = date('d/m/Y', strtotime($data));
+    if (!$resumo) {
+        return "Antenas UniFi: sem quedas em {$dataFmt}.";
+    }
+
+    usort($resumo, fn($a, $b) => strnatcasecmp($a['nome'], $b['nome']));
+
+    $out = "Antenas UniFi — quedas em {$dataFmt}:\n";
+    foreach ($resumo as $r) {
+        $out .= '  • ' . $r['nome'] . ': ' . $r['quedas'] . ' queda' . ($r['quedas'] === 1 ? '' : 's')
+            . ', ' . $r['minutos_offline'] . " min offline\n";
+    }
+    return rtrim($out);
+}
+
+/**
  * Cria (quando $id é null) ou atualiza uma antena. Senha vazia em edição
  * mantém a senha já salva (não força re-digitar pra só trocar o nome/IP).
  */

@@ -214,17 +214,49 @@ container + confirmação + `Move-Item` (mesmo fluxo de sempre).
 
 ### Fase 3 — Resumo na Agenda
 
-- [ ] 3.1 Localizar o bloco da rotina diária 7h que hoje monta o resumo de
-  backup ([[agenda-resumo-backup-auto]]) e entender o padrão de "resumo
-  pronto, pré-preenchendo a resposta".
-- [ ] 3.2 Adicionar bloco análogo pra antenas: por antena, contar
-  ocorrências `antena_offline` abertas/fechadas no dia anterior
-  (`portal_alertas_ocorrencias` ou equivalente) e somar minutos entre
-  abertura/fechamento → "Antena X: N queda(s), Y min offline".
-- [ ] 3.3 Teste manual: confirmar que o resumo de backup existente não
-  quebra com a adição, e que o bloco de antenas aparece mesmo com 0
-  quedas (texto "sem quedas ontem", não ausência silenciosa).
-- [ ] 3.4 `php -l` + deploy incremental.
+- [x] 3.1 Localizado: o resumo de backup não é montado por um cron às 7h
+  — é calculado on-demand, via AJAX, quando o técnico abre o modal de
+  resposta (`abrirModalResposta()` em `agenda/index.php`), condicionado a
+  `titulo.includes('...')` no título do chamado recorrente. O chamado
+  "Firewal, Unifi e Comunicação Lojas" (não o de Backup) já contém
+  "Unifi" no título — escolhido como o lugar correto pra injetar o bloco
+  de antenas (desvio da leitura literal do task, que citava o bloco de
+  backup só como *padrão* a seguir, não como o chamado exato de destino).
+- [x] 3.2 Implementado em `monitor_antenas_lib.php`:
+  `antena_resumo_quedas_dia(PDO $pdo, string $data): array` — lê
+  `portal_alertas_historico` (tipo `antena_offline`, escrita por
+  `alertas_historico_registrar()`/`gat_alertas_tipo()`), empareia
+  eventos `nova`→`resolvida` por `chave`, soma minutos offline por
+  antena (queda ainda aberta no fim do dia soma parcial até 23:59:59);
+  `antena_resumo_texto(array $resumo, string $data): string` — texto
+  pronto no mesmo padrão de `backup_resumo_texto()`. Novo endpoint
+  `antena_resumo_ajax.php` (raiz, autenticado via `auth_guard.php`,
+  requer `alertas_tipos.php` — que já traz `monitor_antenas_lib.php`,
+  evita require circular) expõe isso como JSON. `agenda/index.php`:
+  bloco `#resp-antenas` renderizado quando `mostrarFirewall` é true,
+  buscado via `fetch('../antena_resumo_ajax.php')` em
+  `abrirModalResposta()`, e seu texto é incluído nos `blocos` enviados
+  por `enviarResposta()`.
+- [x] 3.3 Teste manual: bloco de backup (`#resp-firewall`) intacto, sem
+  interferência — a edição foi só uma adição ao lado dele, sem tocar seu
+  bloco. Caso "0 quedas" cobre por teste automatizado (ver 3.4) o texto
+  "Antenas UniFi: sem quedas em DD/MM/YYYY." (nunca ausência silenciosa).
+- [x] 3.4 12 novos testes em `wpp/tests/test_monitor_antenas_lib.php`
+  (chaves sentinela `antena_offline:9999901`/`9999902`, isoladas de
+  qualquer antena real): dia sem eventos → array vazio + texto "sem
+  quedas"; antena sem linha em `portal_monitor_antenas` → nome de
+  fallback `"Antena #<id>"`; 1 par nova/resolvida → 1 queda/15min; 2
+  pares no mesmo dia → soma quedas e minutos; queda ainda aberta no fim
+  do dia → conta 1 queda + minutos parciais; texto final cita o nome de
+  fallback e pluraliza "queda"/"quedas" corretamente. `php -l` limpo +
+  deploy incremental (scp `.new` → lint → confirmação → `Move-Item`,
+  confirmado via `Get-ChildItem`) dos 4 arquivos
+  (`monitor_antenas_lib.php`, `antena_resumo_ajax.php` novo,
+  `agenda/index.php`, `wpp/tests/test_monitor_antenas_lib.php`).
+  **Resultado: 44 testes, 0 falhas** (32 da Fase 2 + 12 novos,
+  `php wpp/tests/run_scoped.php wpp/tests/test_monitor_antenas_lib.php`
+  em produção). Confirmado por SELECT: 0 linhas residuais em
+  `portal_alertas_historico`/`portal_monitor_antenas` após o teste.
 
 ### Fase 4 — Deploy final e verificação
 
@@ -261,4 +293,4 @@ container + confirmação + `Move-Item` (mesmo fluxo de sempre).
 
 ---
 
-## Status: Fase 1 implementada e deployada (1.1-1.4, 1.6); 1.5 pendente de credencial SSH real. Fase 2 implementada, testada (32/0) e deployada (2.1-2.6), com notif_whatsapp=0 confirmado em produção. Fase 3-4 não iniciadas.
+## Status: Fase 1 implementada e deployada (1.1-1.4, 1.6); 1.5 pendente de credencial SSH real. Fase 2 implementada, testada (32/0) e deployada (2.1-2.6), com notif_whatsapp=0 confirmado em produção. Fase 3 implementada, testada (44/0) e deployada (3.1-3.4). Fase 4: 4.2 (grep de referências órfãs) já confirmado limpo; 4.1 (rebuild da imagem Docker) e 4.4 (relatório final) pendentes.

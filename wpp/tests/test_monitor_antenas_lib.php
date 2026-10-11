@@ -147,3 +147,56 @@ if (isset($pdo) && $pdo instanceof PDO) {
 } else {
     echo "  -- testes de banco (monitor_antenas_lib): banco indisponível, pulados\n";
 }
+
+// ---------------------------------------------------------------------------
+// antena_resumo_quedas_dia() / antena_resumo_texto() — resumo diário (Fase 3),
+// a partir de portal_alertas_historico (tabela escrita por alertas_tipos.php).
+// Ids sentinela (99999xx) garantem isolamento de qualquer antena real.
+// ---------------------------------------------------------------------------
+if (isset($pdo) && $pdo instanceof PDO) {
+    $DIA_TESTE = '2026-10-01';
+    $CHAVE1 = 'antena_offline:9999901'; // sem linha em portal_monitor_antenas -> nome cai no fallback
+    $CHAVE2 = 'antena_offline:9999902'; // queda ainda aberta no fim do dia
+
+    $limpaHist = function () use ($pdo, $CHAVE1, $CHAVE2) {
+        $pdo->prepare("DELETE FROM portal_alertas_historico WHERE chave IN (?, ?)")->execute([$CHAVE1, $CHAVE2]);
+    };
+    $inserirEvento = function (string $chave, string $evento, string $quando) use ($pdo) {
+        $pdo->prepare("INSERT INTO portal_alertas_historico (tipo, chave, evento, titulo, criado_em) VALUES ('antena_offline', ?, ?, 'teste', ?)")
+            ->execute([$chave, $evento, $quando]);
+    };
+
+    try {
+        $limpaHist();
+
+        t_eq(antena_resumo_quedas_dia($pdo, $DIA_TESTE), [], 'resumo_quedas_dia: sem eventos no dia -> array vazio');
+        t_eq(antena_resumo_texto([], $DIA_TESTE), 'Antenas UniFi: sem quedas em 01/10/2026.', 'resumo_texto: vazio -> "sem quedas", não ausência silenciosa');
+
+        $inserirEvento($CHAVE1, 'nova', "$DIA_TESTE 08:00:00");
+        $inserirEvento($CHAVE1, 'resolvida', "$DIA_TESTE 08:15:00");
+        $resumo1 = antena_resumo_quedas_dia($pdo, $DIA_TESTE);
+        t_eq($resumo1[9999901]['nome'], 'Antena #9999901', 'resumo_quedas_dia: sem linha em portal_monitor_antenas -> nome de fallback');
+        t_eq($resumo1[9999901]['quedas'], 1, 'resumo_quedas_dia: 1 par nova/resolvida -> 1 queda');
+        t_eq($resumo1[9999901]['minutos_offline'], 15, 'resumo_quedas_dia: soma os minutos entre nova e resolvida');
+
+        $inserirEvento($CHAVE1, 'nova', "$DIA_TESTE 10:00:00");
+        $inserirEvento($CHAVE1, 'resolvida', "$DIA_TESTE 10:05:00");
+        $resumo2 = antena_resumo_quedas_dia($pdo, $DIA_TESTE);
+        t_eq($resumo2[9999901]['quedas'], 2, 'resumo_quedas_dia: 2 quedas no mesmo dia -> soma as duas');
+        t_eq($resumo2[9999901]['minutos_offline'], 20, 'resumo_quedas_dia: soma os minutos das 2 quedas (15+5)');
+
+        $inserirEvento($CHAVE2, 'nova', "$DIA_TESTE 23:50:00");
+        $resumo3 = antena_resumo_quedas_dia($pdo, $DIA_TESTE);
+        t_eq($resumo3[9999902]['quedas'], 1, 'resumo_quedas_dia: queda ainda aberta no fim do dia -> conta como 1 queda');
+        t_eq($resumo3[9999902]['minutos_offline'], 10, 'resumo_quedas_dia: queda aberta -> soma minutos parciais até 23:59:59 (10min)');
+
+        $textoFinal = antena_resumo_texto(array_values($resumo3), $DIA_TESTE);
+        t_ok(strpos($textoFinal, 'Antena #9999901') !== false, 'resumo_texto: cita a antena sem cadastro pelo nome de fallback');
+        t_ok(strpos($textoFinal, '2 quedas') !== false, 'resumo_texto: pluraliza "quedas" corretamente');
+        t_ok(strpos($textoFinal, '1 queda,') !== false, 'resumo_texto: não pluraliza no singular');
+    } finally {
+        $limpaHist();
+    }
+} else {
+    echo "  -- testes de banco (antena_resumo_quedas_dia): banco indisponível, pulados\n";
+}
