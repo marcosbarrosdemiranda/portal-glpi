@@ -150,9 +150,12 @@ if ($pdo instanceof PDO) {
 }
 
 // ---------------------------------------------------------------------------
-// monitor_check_tipo() — horário por categoria/loja (fix 2026-10-10: sem_contato
+// monitor_check_tipo() — horário por categoria/loja (fix 2026-10-10: ligado_muito_tempo
 // vazava notificação fora do horário configurado, porque só "device" era filtrado;
 // link/latencia/service continuam sempre alertando, isso não mudou).
+// Usa o tipo "device" pro PDV de teste porque "sem_contato" foi removido em 2026-10-11
+// (era a mesma query de equipamento fora do ar, só filtrada a grupo='pdvs' — duplicava
+// 🔔/✅ no WhatsApp pro mesmo PDV; ver backlog_monitor-sem-contato-duplica-device).
 // ligado_muito_tempo não é testado aqui: a SQL do tipo já quebra por causa de
 // g.max_horas ausente (bug separado, ver backlog_monitor-max-horas-missing).
 // ---------------------------------------------------------------------------
@@ -178,22 +181,22 @@ if ($pdo instanceof PDO) {
         $idPdv = monitor_manual_criar($pdo, '__teste_monitor_horario__pdv', '10.255.255.21', $LOJA_PDV, 'pdvs');
         monitor_set_monitorar($pdo, $idPdv, true);
         $pdo->prepare("UPDATE portal_monitor_dispositivos SET status = 'down', status_desde = NOW() WHERE id = ?")->execute([$idPdv]);
-        $chavePdv = "monitor:sem_contato:$idPdv";
+        $chavePdv = "monitor:device:$idPdv";
 
         $idFw = monitor_manual_criar($pdo, '__teste_monitor_horario__fw', '10.255.255.22', $LOJA_FW, 'firewalls');
         monitor_set_monitorar($pdo, $idFw, true);
         $pdo->prepare("UPDATE portal_monitor_dispositivos SET status = 'down', status_desde = NOW() WHERE id = ?")->execute([$idFw]);
         $chaveFw = "monitor:link:$idFw";
 
-        // fora do horário configurado -> sem_contato não dispara pro PDV (fix)
+        // fora do horário configurado -> device não dispara pro PDV (fix)
         monitor_horario_excecao_salvar($pdo, 'pdvs', $LOJA_PDV, $dia, $foraIni, $foraFim);
-        $chaves = array_column(monitor_check_tipo($pdo, 'sem_contato'), 'chave');
-        t_ok(!in_array($chavePdv, $chaves, true), 'check_tipo(sem_contato): fora do horário configurado -> não aparece');
+        $chaves = array_column(monitor_check_tipo($pdo, 'device'), 'chave');
+        t_ok(!in_array($chavePdv, $chaves, true), 'check_tipo(device): fora do horário configurado -> não aparece');
 
         // dentro do horário configurado -> volta a aparecer
         monitor_horario_excecao_salvar($pdo, 'pdvs', $LOJA_PDV, $dia, $diaTodoIni, $diaTodoFim);
-        $chaves = array_column(monitor_check_tipo($pdo, 'sem_contato'), 'chave');
-        t_ok(in_array($chavePdv, $chaves, true), 'check_tipo(sem_contato): dentro do horário configurado -> aparece');
+        $chaves = array_column(monitor_check_tipo($pdo, 'device'), 'chave');
+        t_ok(in_array($chavePdv, $chaves, true), 'check_tipo(device): dentro do horário configurado -> aparece');
 
         // link (infra) ignora horário por categoria mesmo com exceção fora da janela -> sempre alerta
         monitor_horario_excecao_salvar($pdo, 'firewalls', $LOJA_FW, $dia, $foraIni, $foraFim);

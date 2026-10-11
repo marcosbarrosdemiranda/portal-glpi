@@ -28,7 +28,7 @@ if ($cards !== null && !isset($cards['notificacoes_config'])) { header('Location
  * horário genérico por tipo (portal_alertas_horario) na aba do catálogo seriam dois mecanismos
  * independentes pro mesmo alerta, que foi justamente a redundância que motivou juntar as telas.
  */
-const CATALOGO_HORARIO_NA_ABA_MONITOR = ['monitor_device', 'monitor_sem_contato', 'monitor_ligado_muito_tempo'];
+const CATALOGO_HORARIO_NA_ABA_MONITOR = ['monitor_device', 'monitor_ligado_muito_tempo'];
 
 /* ─────────── Handlers AJAX ─────────── */
 $action = $_GET['action'] ?? '';

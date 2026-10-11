@@ -629,7 +629,6 @@ function monitor_check_tipo(PDO $pdo, string $tipo): array
         'link'   => 'firewalls',
         'latencia' => 'firewalls',
         'service' => 'servidores-mgv',
-        'sem_contato' => 'pdvs',
         'ligado_muito_tempo' => 'pdvs',
     ];
 
@@ -679,13 +678,16 @@ function monitor_check_tipo(PDO $pdo, string $tipo): array
         ];
     }
 
-    // Tipos escopados ao grupo "pdvs" (device/sem_contato/ligado_muito_tempo) respeitam o
-    // horário por categoria/loja e feriado — todos checam o mesmo PDV, então o silêncio
-    // configurado tem que valer pros três, não só pro "device". Fix 2026-10-10: sem_contato
-    // e ligado_muito_tempo vazavam notificação fora do horário porque só "device" era filtrado.
+    // Tipos escopados ao grupo "pdvs" (device/ligado_muito_tempo) respeitam o
+    // horário por categoria/loja e feriado — checam o mesmo PDV, então o silêncio
+    // configurado tem que valer pros dois, não só pro "device". Fix 2026-10-10: ligado_muito_tempo
+    // vazava notificação fora do horário porque só "device" era filtrado.
     // Link/Latência/Serviço (infra, não depende de loja/horário) continuam sempre alertando —
     // decisão antiga do usuário (era assim no The Dude também).
-    if (in_array($tipo, ['device', 'sem_contato', 'ligado_muito_tempo'], true)) {
+    // Fix 2026-10-11: removido "sem_contato" (tipo próprio "Monitor de rede parado") — era
+    // a MESMA query de equipamento fora do ar que "device" já cobre, só filtrada a grupo='pdvs',
+    // gerando 🔔/✅ duplicado no WhatsApp pro mesmo PDV (ver backlog_monitor-sem-contato-duplica-device).
+    if (in_array($tipo, ['device', 'ligado_muito_tempo'], true)) {
         $out = array_values(array_filter(
             $out,
             fn($o) => monitor_categoria_no_horario($pdo, $o['categoria'], $o['loja']) && !monitor_feriado_hoje($pdo, $o['loja'])
@@ -699,7 +701,6 @@ function alerta_check_monitor_device(PDO $pdo, array $p): array { return monitor
 function alerta_check_monitor_link(PDO $pdo, array $p): array { return monitor_check_tipo($pdo, 'link'); }
 function alerta_check_monitor_latencia(PDO $pdo, array $p): array { return monitor_check_tipo($pdo, 'latencia'); }
 function alerta_check_monitor_service(PDO $pdo, array $p): array { return monitor_check_tipo($pdo, 'service'); }
-function alerta_check_monitor_sem_contato(PDO $pdo, array $p): array { return monitor_check_tipo($pdo, 'sem_contato'); }
 function alerta_check_monitor_ligado_muito_tempo(PDO $pdo, array $p): array { return monitor_check_tipo($pdo, 'ligado_muito_tempo'); }
 
 /* ───────────────────── Silêncio por horário / feriado (equipamento fora do ar) ─────────────────────

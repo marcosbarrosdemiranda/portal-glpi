@@ -281,17 +281,6 @@ function alertas_catalogo(): array
             'icone'  => 'bi-hdd-stack',
             'cor'    => 'danger',
         ],
-        'monitor_sem_contato' => [
-            'nome'      => 'Monitor de rede parado',
-            'descricao' => 'O monitor de rede do portal não roda uma rodada de ping há X minutos — verifique o container portal-wpp-worker.',
-            'params'    => [
-                'minutos' => ['label' => 'Minutos sem rodada', 'default' => 5, 'min' => 2, 'max' => 1440],
-            ],
-            'check'  => 'alerta_check_monitor_sem_contato',
-            'render' => 'alerta_render_monitor',
-            'icone'  => 'bi-plug',
-            'cor'    => 'warning',
-        ],
         'rede_link' => [
             'nome'      => 'Link de internet das lojas',
             'descricao' => 'Lido do Status → Gateways do pfSense de cada loja: avisa quando um link (ex.: local, Starlink) cai e quando a loja passa a sair pelo link reserva.',
