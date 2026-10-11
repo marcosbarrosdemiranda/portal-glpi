@@ -1,8 +1,21 @@
 <?php
 /**
- * check_stuck_alerts.php — diagnóstico: acha alertas do Dude "presos" (o
- * dispositivo já voltou, mas a ocorrência em portal_alertas_ocorrencias
- * continua lá). Uso: docker exec glpi-web php .../check_stuck_alerts.php
+ * check_stuck_alerts.php — diagnóstico: acha alertas do monitor de rede
+ * "presos" (o dispositivo já voltou, mas a ocorrência em
+ * portal_alertas_ocorrencias continua lá). Uso:
+ * docker exec glpi-web php .../check_stuck_alerts.php
+ *
+ * 2026-10-11: reescrito — a versão original (da época do The Dude) comparava
+ * contra portal_dude_estado usando 'dude_device'/'dude_link'/etc. e casava
+ * pd.chave (nome/IP do device) com um trecho de ao.chave. Dois problemas
+ * surgiram com a migração pro monitor próprio: (1) os tipos de alerta foram
+ * renomeados pra 'monitor_device'/'monitor_link'/... (291a82e), então o IN()
+ * nunca mais casava nada; (2) ao.chave passou a ser 'monitor:<tipo>:<id>'
+ * (id numérico de portal_monitor_dispositivos), enquanto portal_dude_estado só
+ * guarda tipo='device' chaveado por nome/IP — então mesmo corrigindo o IN(),
+ * o JOIN nunca bateria. Como device/link/latencia/service hoje vêm todos de
+ * monitor_check_tipo() (monitor_lib.php) com o mesmo esquema de chave, dá pra
+ * ler o status direto de portal_monitor_dispositivos, sem o intermediário.
  *
  * Web-gated (precisa login) — CLI (docker exec) não passa por
  * auth_guard, já que só quem tem acesso ao servidor chega lá.
@@ -21,16 +34,14 @@ SELECT
     ao.tipo,
     ao.chave AS alert_chave,
     ao.primeiro_visto,
-    pd.nome AS dude_name,
-    pd.loja,
-    pd.status AS dude_status,
-    pd.detalhe AS dude_detalhe
+    d.nome AS device_nome,
+    d.loja,
+    d.status AS device_status,
+    d.ip AS device_ip
 FROM portal_alertas_ocorrencias ao
-JOIN portal_dude_estado pd ON
-    pd.tipo = SUBSTRING_INDEX(SUBSTRING_INDEX(ao.chave, ':', 2), ':', -1)
-    AND pd.chave = SUBSTRING(ao.chave, LOCATE(':', ao.chave, LOCATE(':', ao.chave)+1)+1)
-WHERE ao.tipo IN ('dude_device', 'dude_link', 'dude_latencia', 'dude_service')
-  AND pd.status != 'down';
+JOIN portal_monitor_dispositivos d ON d.id = CAST(SUBSTRING_INDEX(ao.chave, ':', -1) AS UNSIGNED)
+WHERE ao.tipo IN ('monitor_device', 'monitor_link', 'monitor_latencia', 'monitor_service')
+  AND d.status != 'down';
 ";
 
 try {
@@ -46,10 +57,10 @@ try {
             echo "Tipo: {$row['tipo']}\n";
             echo "Chave do alerta: {$row['alert_chave']}\n";
             echo "Primeiro visto: {$row['primeiro_visto']}\n";
-            echo "Nome do Dude: {$row['dude_name']}\n";
+            echo "Dispositivo: {$row['device_nome']}\n";
             echo "Loja: {$row['loja']}\n";
-            echo "Status do Dude: {$row['dude_status']}\n";
-            echo "Detalhe do Dude: {$row['dude_detalhe']}\n";
+            echo "Status atual: {$row['device_status']}\n";
+            echo "IP: {$row['device_ip']}\n";
             echo "-----------------------------------------------------------------\n";
         }
         echo "Total: " . count($results) . " alertas presos\n";

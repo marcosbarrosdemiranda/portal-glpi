@@ -425,17 +425,16 @@ function monitor_dispositivo_por_origem(PDO $pdo, string $origem, int $origemId)
 /** Tudo (menos removidos do inventário), com o IP efetivo (ip_fixo vence). */
 function monitor_listar(PDO $pdo): array
 {
-    // quedas_24h = reinícios/quedas curtas nas últimas 24h;
-    // dude_status = o que o Dude diz desse IP (modo sombra: comparar antes da virada)
+    // quedas_24h = reinícios/quedas curtas nas últimas 24h.
+    // Até 2026-10-11 havia aqui um subselect "dude_status" (modo sombra: comparar
+    // o ping do monitor contra o que o Dude dizia desse IP, via portal_dude_estado).
+    // Removido porque portal_dude_estado.tipo='device' hoje só é escrito pelo
+    // próprio monitor_espelhar_estado() — a comparação tinha virado o monitor
+    // contra uma cópia de si mesmo, não contra uma fonte externa.
     return $pdo->query("
         SELECT d.*, COALESCE(d.ip_fixo, d.ip) AS ip_efetivo, g.nome AS grupo_nome,
                (SELECT COUNT(*) FROM portal_monitor_quedas_curtas q
-                 WHERE q.dispositivo_id = d.id AND q.inicio >= NOW() - INTERVAL 24 HOUR) AS quedas_24h,
-               (SELECT e.status FROM portal_dude_estado e
-                 WHERE e.tipo = 'device' AND e.endereco <> ''
-                   AND (e.endereco COLLATE utf8mb4_unicode_ci = d.ip_fixo
-                        OR FIND_IN_SET(e.endereco COLLATE utf8mb4_unicode_ci, d.ips))
-                 LIMIT 1) AS dude_status
+                 WHERE q.dispositivo_id = d.id AND q.inicio >= NOW() - INTERVAL 24 HOUR) AS quedas_24h
         FROM portal_monitor_dispositivos d
         LEFT JOIN portal_monitor_grupos g ON g.grupo = d.grupo
         WHERE d.removido_em IS NULL

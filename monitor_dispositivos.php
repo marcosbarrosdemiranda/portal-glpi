@@ -213,7 +213,7 @@ if ($action !== '') {
   <div class="alert alert-info py-2 small">
     <i class="bi bi-info-circle me-1"></i>
     <b>Monitor de rede ativo:</b> é ele que gera os alertas de rede da Central (equipamento fora, queda de VPN,
-    link de internet). O The Dude não altera mais nada. A coluna "Central" mostra o que a Central de Alertas está vendo.
+    link de internet).
     <div id="rodada" class="mt-1"></div>
   </div>
 
@@ -302,7 +302,6 @@ if ($action !== '') {
         <select id="f-mon" class="form-select form-select-sm" style="width:150px">
           <option value="">Todos</option><option value="1">Só monitorados</option><option value="0">Só não monitorados</option>
           <option value="down">Só fora do ar</option><option value="quedas">Com reinício/queda curta (24h)</option>
-          <option value="diverge">Diferente da Central</option>
         </select></div>
       <div><label class="form-label small mb-0">Buscar</label>
         <input id="f-busca" class="form-control form-control-sm" style="width:160px" placeholder="nome ou IP"></div>
@@ -348,7 +347,7 @@ function carregar(bg = false) {
     document.getElementById('rodada').innerHTML = rd.ultima
       ? `Última rodada: <b>${H(rd.ultima.slice(11))}</b> · ${rd.qtd} pingado(s) em ${(rd.ms / 1000).toFixed(1).replace('.', ',')} s ·
          🟢 ${cnt('up')} no ar · 🔴 ${cnt('down')} fora · ⚪ ${cnt('desconhecido')} sem resposta ainda ·
-         🟡 ${on.filter(x => +x.quedas_24h).length} com reinício nas 24h · ⚠️ ${on.filter(diverge).length} diferente da Central`
+         🟡 ${on.filter(x => +x.quedas_24h).length} com reinício nas 24h`
       : 'Nenhuma rodada ainda — o worker roda a cada ~30 s.';
     if (d.sinc && d.sinc.novos) fb('fb-lista', d.sinc.novos + ' equipamento(s) novo(s) do inventário entraram agora.', true);
   });
@@ -509,7 +508,7 @@ function renderLista() {
   let html = '';
   for (const [grupo, lista] of Object.entries(porGrupo)) {
     html += `<div class="grupo-titulo">${H(grupo)} <span class="text-muted fw-normal">(${lista.length})</span></div>
-      <table><thead><tr><th style="width:70px">Monitorar</th><th>Status</th><th>Nome</th><th>Loja</th><th>IP</th><th>Latência</th><th>Reinícios 24h</th><th title="O que a Central de Alertas está vendo (atualiza a cada rodada)">Central</th><th>IP fixo</th><th title="Para equipamento que bloqueia ping: testa só esta porta TCP">Porta TCP</th><th>Origem</th><th></th></tr></thead><tbody>`;
+      <table><thead><tr><th style="width:70px">Monitorar</th><th>Status</th><th>Nome</th><th>Loja</th><th>IP</th><th>Latência</th><th>Reinícios 24h</th><th>IP fixo</th><th title="Para equipamento que bloqueia ping: testa só esta porta TCP">Porta TCP</th><th>Origem</th><th></th></tr></thead><tbody>`;
     for (const x of lista) {
       const outros = (x.ips || '').split(',').filter(ip => ip && ip !== x.ip);
       html += `<tr>
@@ -521,7 +520,6 @@ function renderLista() {
         <td>${H(x.ip_efetivo) || '<span class="text-danger">sem IP</span>'}${outros.length ? `<div class="ips-extra" title="IPs antigos/alternativos do inventário — o monitor testa todos">+ ${H(outros.join(', '))}</div>` : ''}</td>
         <td>${x.latencia_ms !== null && +x.monitorar ? H(Math.round(x.latencia_ms)) + ' ms' : '<span class="text-muted">—</span>'}</td>
         <td>${+x.quedas_24h ? `<a href="#" onclick="verQuedas(${x.id});return false">🟡 ${x.quedas_24h}</a>` : '<span class="text-muted">0</span>'}</td>
-        <td>${dudeHtml(x)}</td>
         <td>${x.origem === 'manual' ? '<span class="text-muted">—</span>' :
              `<input class="form-control form-control-sm ip-fixo" value="${H(x.ip_fixo || '')}" placeholder="usar do inventário"
                      onchange="setIpFixo(${x.id}, this)">`}</td>
@@ -547,18 +545,10 @@ function statusHtml(x) {
   if (x.status === 'down') return `🔴 <b>fora</b> <span class="estimativa">desde ${desdeTxt(x.status_desde)}</span>`;
   return +x.falhas_seguidas ? `⚪ sem resposta (${x.falhas_seguidas}x)` : '⚪ aguardando 1º ping';
 }
-// "diferente da Central" só conta quando os dois têm opinião formada
-const diverge = x => +x.monitorar && x.dude_status && (x.status === 'up' || x.status === 'down') && x.status !== x.dude_status;
-function dudeHtml(x) {
-  if (!x.dude_status) return '<span class="text-muted">—</span>';
-  const t = x.dude_status === 'up' ? 'no ar' : 'fora';
-  return diverge(x) ? `<span class="text-warning fw-semibold" title="A Central ainda mostra diferente do ping — corrige na próxima rodada">⚠️ ${t}</span>` : `<span class="text-muted">${t}</span>`;
-}
 function filtroMostrar(x, fm) {
   if (fm === '') return true;
   if (fm === 'down') return +x.monitorar && x.status === 'down';
   if (fm === 'quedas') return +x.quedas_24h > 0;
-  if (fm === 'diverge') return diverge(x);
   return String(+x.monitorar) === fm;
 }
 function verQuedas(id) {
