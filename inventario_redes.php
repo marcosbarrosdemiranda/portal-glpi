@@ -169,6 +169,17 @@ $antenaLimiteCfg  = (int) wpp_cfg_get('antena_limite_clientes', '30');
     .antena-cfg-row { display:flex; flex-wrap:wrap; gap:.75rem; align-items:flex-end; }
     .antena-cfg-row .form-control { min-width:160px; }
 
+    /* ── Seções por loja (mesmo padrão visual de inventario_pc.php) ── */
+    .grp { margin-bottom:.8rem; }
+    .grp-hd { background:#1a237e; color:#fff; border-radius:10px; padding:.6rem 1.1rem; font-weight:700; font-size:.9rem;
+              display:flex; align-items:center; justify-content:space-between; cursor:pointer; user-select:none; }
+    .grp-n { font-weight:600; opacity:.9; font-size:.82rem; display:flex; align-items:center; gap:.4rem; }
+    .grp-hd .chev { transition:transform .2s; }
+    .grp.open .grp-hd { border-radius:10px 10px 0 0; }
+    .grp.open .grp-hd .chev { transform:rotate(180deg); }
+    .grp-bd { display:none; padding:.85rem 1.1rem 1rem; border:1px solid #e5e7eb; border-top:none; border-radius:0 0 10px 10px; }
+    .grp.open .grp-bd { display:block; }
+
     /* ── Antenas (cadastro + status via SSH) ──────────────────────── */
     .antena-grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(220px,1fr)); gap:.85rem; }
     .antena-card { border:1px solid #e5e7eb; border-radius:12px; padding:1rem;
@@ -234,35 +245,59 @@ $antenaLimiteCfg  = (int) wpp_cfg_get('antena_limite_clientes', '30');
 </div>
 <?php endif; ?>
 
-<!-- ═══════════════ ANTENAS (SSH) ═══════════════ -->
-<div class="antena-grid">
-  <?php foreach ($antenas as $a): ?>
-    <div class="antena-card">
-      <?php if ($is_admin): ?>
-      <button type="button" class="antena-cfg" onclick='editarAntena(<?= json_encode(['id'=>$a['id'],'nome'=>$a['nome'],'ip'=>$a['ip'],'entities_id'=>(int)($a['entities_id'] ?? 0),'ssh_usuario'=>$a['ssh_usuario'],'ativo'=>(int)$a['ativo']], JSON_HEX_APOS | JSON_HEX_QUOT | JSON_HEX_AMP | JSON_HEX_TAG) ?>)' title="Editar">
-        <i class="bi bi-gear-fill"></i>
-      </button>
-      <?php endif; ?>
-      <div class="antena-topo">
-        <span class="antena-dot <?= esc($a['status']) ?>"></span>
-        <span class="antena-nome"><?= esc($a['nome']) ?></span>
-      </div>
-      <div class="antena-ip"><?= esc($a['ip']) ?><?= !empty($a['loja']) ? ' · ' . esc($a['loja']) : '' ?></div>
-      <div class="antena-modelo"><?= esc($a['modelo'] ?? '—') ?><?= $a['firmware_versao'] ? ' · fw ' . esc($a['firmware_versao']) : '' ?></div>
-      <div class="antena-meta">
-        <span><i class="bi bi-people-fill me-1"></i><?= $a['clientes_conectados'] !== null ? (int)$a['clientes_conectados'] : '—' ?> clientes</span>
-        <span><i class="bi bi-clock-history me-1"></i><?= $a['ultima_verificacao'] ? esc(formatarHaQuanto($a['ultima_verificacao'])) : 'nunca verificado' ?></span>
-      </div>
-    </div>
-  <?php endforeach; ?>
-  <?php if ($is_admin): ?>
-    <div class="antena-card antena-add" onclick="abrirModalAntena()">
-      <i class="bi bi-plus-circle" style="font-size:1.5rem"></i>
-      <div class="antena-nome">Adicionar</div>
-    </div>
-  <?php endif; ?>
+<!-- ═══════════════ ANTENAS (SSH) — seções por loja, igual inventario_pc.php ═══════════════ -->
+<?php
+// Agrupa por loja (apelido_entidade() já resolvido em monitor_antena_listar()).
+// "Sem loja" junta antenas sem entities_id cadastrado, mesmo padrão de inventario_pc.php.
+$porLoja = [];
+foreach ($antenas as $a) { $porLoja[$a['loja'] ?: 'Sem loja'][] = $a; }
+ksort($porLoja, SORT_LOCALE_STRING);
+$cartaoAdicionar = $is_admin
+    ? '<div class="antena-card antena-add" onclick="abrirModalAntena()"><i class="bi bi-plus-circle" style="font-size:1.5rem"></i><div class="antena-nome">Adicionar</div></div>'
+    : '';
+?>
+<?php if ($antenas): ?>
+<div class="mb-2">
+  <button type="button" class="btn btn-outline-secondary btn-sm" onclick="toggleTodosGrupos()"><i class="bi bi-arrows-expand me-1"></i>Todas as lojas</button>
 </div>
-<?php if (!$antenas && !$is_admin): ?>
+<?php foreach ($porLoja as $loja => $antenasLoja): ?>
+  <div class="grp open">
+    <div class="grp-hd" onclick="this.parentElement.classList.toggle('open')">
+      <span><i class="bi bi-shop me-1"></i><?= esc($loja) ?></span>
+      <span class="grp-n"><?= count($antenasLoja) ?> <i class="bi bi-chevron-down chev"></i></span>
+    </div>
+    <div class="grp-bd">
+      <div class="antena-grid">
+        <?php foreach ($antenasLoja as $a): ?>
+          <div class="antena-card">
+            <?php if ($is_admin): ?>
+            <button type="button" class="antena-cfg" onclick='editarAntena(<?= json_encode(['id'=>$a['id'],'nome'=>$a['nome'],'ip'=>$a['ip'],'entities_id'=>(int)($a['entities_id'] ?? 0),'ssh_usuario'=>$a['ssh_usuario'],'ativo'=>(int)$a['ativo']], JSON_HEX_APOS | JSON_HEX_QUOT | JSON_HEX_AMP | JSON_HEX_TAG) ?>)' title="Editar">
+              <i class="bi bi-gear-fill"></i>
+            </button>
+            <?php endif; ?>
+            <div class="antena-topo">
+              <span class="antena-dot <?= esc($a['status']) ?>"></span>
+              <span class="antena-nome"><?= esc($a['nome']) ?></span>
+            </div>
+            <div class="antena-ip"><?= esc($a['ip']) ?><?= !empty($a['loja']) ? ' · ' . esc($a['loja']) : '' ?></div>
+            <div class="antena-modelo"><?= esc($a['modelo'] ?? '—') ?><?= $a['firmware_versao'] ? ' · fw ' . esc($a['firmware_versao']) : '' ?></div>
+            <div class="antena-meta">
+              <span><i class="bi bi-people-fill me-1"></i><?= $a['clientes_conectados'] !== null ? (int)$a['clientes_conectados'] : '—' ?> clientes</span>
+              <span><i class="bi bi-clock-history me-1"></i><?= $a['ultima_verificacao'] ? esc(formatarHaQuanto($a['ultima_verificacao'])) : 'nunca verificado' ?></span>
+            </div>
+          </div>
+        <?php endforeach; ?>
+      </div>
+    </div>
+  </div>
+<?php endforeach; ?>
+<?php endif; ?>
+
+<?php if ($is_admin): ?>
+  <div class="antena-grid">
+    <?= $cartaoAdicionar ?>
+  </div>
+<?php elseif (!$antenas): ?>
   <div class="text-muted small mt-4">Nenhuma antena cadastrada.</div>
 <?php endif; ?>
 
@@ -448,6 +483,12 @@ async function excluirAntena() {
   const d = await r.json();
   if (d.ok) { modalAntena.hide(); location.reload(); }
   else alert(d.msg || 'Erro ao excluir');
+}
+
+function toggleTodosGrupos() {
+  const g = document.querySelectorAll('.grp');
+  const algumFechado = [...g].some(x => !x.classList.contains('open'));
+  g.forEach(x => x.classList.toggle('open', algumFechado));
 }
 
 async function salvarConfigAntenas() {
