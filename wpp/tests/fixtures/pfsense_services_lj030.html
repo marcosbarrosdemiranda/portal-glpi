@@ -1,0 +1,59 @@
+<!-- Trecho real (reduzido) do status_services.php do pfSense da Lj 030, capturado
+     2026-10-12 via sonda somente-leitura (login web reaproveitando o cookie, mesmo
+     padrão de monitor_links_lib.php). Mantidos só os serviços relevantes +
+     1 serviço qualquer (bsnmpd) pra garantir que o parser filtra certo. -->
+<div class="table-responsive">
+<table class="table table-striped table-hover">
+<thead>
+<tr><th>Serviço</th><th>Descrição</th><th>Status</th><th>Ações</th></tr>
+</thead>
+<tbody>
+					<tr>
+						<td>
+							bsnmpd						</td>
+						<td>
+							Serviço SNMP						</td>
+						<td>
+							<i class="text-success fa fa-check-circle fa-1x" title="Executando"><span style="display: none">Executando</span></i>						</td>
+						<td>
+							<a href="#" id="restartservice-bsnmpd" ><i class="fa fa-repeat" title="Reiniciar Serviço "></i></a>
+<a href="#" id="stopservice-bsnmpd"><i class="fa fa-stop-circle-o" title="Parar Serviço "></i></a>
+						</td>
+					</tr>
+					<tr>
+						<td>
+							pfb_dnsbl						</td>
+						<td>
+							pfBlockerNG DNSBL service						</td>
+						<td>
+							<i class="text-danger fa fa-times-circle fa-1x" title="Interrompido"><span style="display: none">Interrompido</span></i>						</td>
+						<td>
+							<a title="Iniciar Serviço " href="#" id="startservice-pfb_dnsbl"><i class="fa fa-play-circle"></i></a>
+						</td>
+					</tr>
+					<tr>
+						<td>
+							pfb_filter						</td>
+						<td>
+							pfBlockerNG firewall filter service						</td>
+						<td>
+							<i class="text-danger fa fa-times-circle fa-1x" title="Interrompido"><span style="display: none">Interrompido</span></i>						</td>
+						<td>
+							<a title="Iniciar Serviço " href="#" id="startservice-pfb_filter"><i class="fa fa-play-circle"></i></a>
+						</td>
+					</tr>
+					<tr>
+						<td>
+							snort						</td>
+						<td>
+							Snort IDS/IPS Daemon						</td>
+						<td>
+							<i class="text-success fa fa-check-circle fa-1x" title="Executando"><span style="display: none">Executando</span></i>						</td>
+						<td>
+							<a href="#" id="restartservice-snort" ><i class="fa fa-repeat" title="Reiniciar Serviço "></i></a>
+<a href="#" id="stopservice-snort"><i class="fa fa-stop-circle-o" title="Parar Serviço "></i></a>
+						</td>
+					</tr>
+</tbody>
+</table>
+</div>

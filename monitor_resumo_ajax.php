@@ -2,9 +2,10 @@
 /**
  * monitor_resumo_ajax.php — endpoint AJAX que devolve a latência dos
  * pfSense (Matriz e filiais) + o status dos links de internet por loja
- * (acrescentado 2026-10-12, Fase 1 da expansão do box pfSense — ver
- * monitor_links_lib.php) para preencher a rotina diária de 'Firewal, Unifi
- * e Comunicação Lojas'.
+ * (Fase 1, 2026-10-12 — ver monitor_links_lib.php) + a saúde de cada
+ * pfSense: mem/carga e status de pfBlockerNG/Snort (Fase 2, 2026-10-12 —
+ * ver monitor_pfsense_saude_lib.php) para preencher a rotina diária de
+ * 'Firewal, Unifi e Comunicação Lojas'.
  */
 require_once __DIR__ . '/auth_guard.php';
 if (empty($_SESSION['autenticado'])) {
@@ -17,6 +18,7 @@ if (empty($_SESSION['autenticado'])) {
 require_once __DIR__ . '/agenda/db.php';
 require_once __DIR__ . '/monitor_lib.php';
 require_once __DIR__ . '/monitor_links_lib.php';
+require_once __DIR__ . '/monitor_pfsense_saude_lib.php';
 
 header('Content-Type: application/json');
 
@@ -90,5 +92,19 @@ foreach ($lojasEsperadas as $loja) {
 
 $linhas[] = '';
 $linhas[] = monitor_links_resumo_texto($links, $lojasSemDado);
+
+// Saúde de cada pfSense (mem/carga + pfBlockerNG/Snort) — leitura pura, mesmo
+// worker já coletou a cada 1 min (monitor_pfsense_saude_rodada), sem nova
+// consulta ao pfSense aqui. Reaproveita $lojasEsperadas/$lojasConhecidasSemLink.
+$saude = array_values(array_filter(monitor_pfsense_saude_listar($pdo), fn($l) => in_array($l['loja'], $lojasEsperadas, true)));
+$comDadoSaude = array_unique(array_column($saude, 'loja'));
+$lojasSemDadoSaude = [];
+foreach ($lojasEsperadas as $loja) {
+    if (!in_array($loja, $comDadoSaude, true)) {
+        $lojasSemDadoSaude[$loja] = $lojasConhecidasSemLink[$loja] ?? 'sem dado';
+    }
+}
+$linhas[] = '';
+$linhas[] = monitor_pfsense_saude_resumo_texto($saude, $lojasSemDadoSaude);
 
 echo json_encode(['ok' => true, 'texto' => implode("\n", $linhas)]);
