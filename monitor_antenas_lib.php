@@ -332,6 +332,55 @@ function monitor_antena_listar(PDO $pdo): array
 }
 
 /**
+ * Texto pronto com o status ATUAL de cada antena (último estado conhecido —
+ * não dispara nova varredura SSH, reaproveita o que a Central de Alertas já
+ * mantém via seu próprio ciclo em monitor_antenas_varrer()), pra pré-preencher
+ * a resposta do chamado recorrente. Substitui antena_resumo_texto()
+ * (quedas do dia anterior) nesse uso — pedido do usuário, 2026-10-12:
+ * histórico de quedas pega falso positivo de reinício de VPN de madrugada,
+ * que não reflete se a antena está online no momento em que o técnico
+ * responde o chamado.
+ *
+ * @param array $antenas vindo de monitor_antena_listar() — ou qualquer array
+ *                        com 'ativo'/'status'/'nome'/'loja'/'ultima_verificacao'
+ */
+function antena_status_atual_texto(array $antenas): string
+{
+    $antenas = array_values(array_filter($antenas, fn($a) => (int) ($a['ativo'] ?? 1) === 1));
+    if (!$antenas) {
+        return 'Antenas UniFi: nenhuma antena ativa cadastrada.';
+    }
+
+    $total = count($antenas);
+    $offline = array_values(array_filter($antenas, fn($a) => $a['status'] === 'offline'));
+    $desconhecido = array_values(array_filter($antenas, fn($a) => $a['status'] === 'desconhecido'));
+
+    // "última verificação" = a mais recente entre as antenas lidas — reflete
+    // o ciclo do worker da Central de Alertas, não uma varredura feita agora.
+    $verificacoes = array_filter(array_column($antenas, 'ultima_verificacao'));
+    $hora = $verificacoes ? date('H:i', max(array_map('strtotime', $verificacoes))) : '?';
+
+    $linha = fn($a) => '• ' . $a['nome'] . (trim((string) ($a['loja'] ?? '')) !== '' ? ' (' . $a['loja'] . ')' : '');
+
+    if (!$offline && !$desconhecido) {
+        return "Antenas UniFi — status atual (última verificação {$hora}): ✅ todas as {$total} online.";
+    }
+
+    $out = "Antenas UniFi — status atual (última verificação {$hora}):\n";
+    if ($offline) {
+        $out .= '⚠️ ' . count($offline) . ' de ' . $total . " offline:\n";
+        foreach ($offline as $a) $out .= '  ' . $linha($a) . "\n";
+    }
+    if ($desconhecido) {
+        $out .= count($desconhecido) . " com status desconhecido (sem verificação recente):\n";
+        foreach ($desconhecido as $a) $out .= '  ' . $linha($a) . "\n";
+    }
+    $onlineCount = $total - count($offline) - count($desconhecido);
+    $out .= "✅ {$onlineCount} online.";
+    return rtrim($out);
+}
+
+/**
  * Conta quedas (antena_offline) por antena num dia e soma os minutos
  * offline, emparelhando pares 'nova' -> 'resolvida' em
  * portal_alertas_historico pela mesma chave ('antena_offline:<id>') — a

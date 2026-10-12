@@ -932,10 +932,10 @@ $libera_data_passada = ($cards_portal === null) || (($cards_portal['agenda_data_
             <div id="resp-firewall-texto" class="p-3 border rounded" style="background:#f8fafc;white-space:pre-wrap;font-family:monospace;font-size:.72rem"></div>
           </div>
 
-          <!-- Quedas de antenas UniFi (mesma rotina diária, "...Unifi..." no título) —
+          <!-- Status atual das antenas UniFi (mesma rotina diária, "...Unifi..." no título) —
                informativo, não editável; entra junto na resposta final do chamado. -->
           <div id="resp-antenas" style="display:none" class="col-12 mb-3">
-            <label class="form-label fw-semibold">📡 Antenas UniFi (quedas de ontem)</label>
+            <label class="form-label fw-semibold">📡 Antenas UniFi (status atual)</label>
             <div id="resp-antenas-texto" class="p-3 border rounded" style="background:#f8fafc;white-space:pre-wrap;font-family:monospace;font-size:.72rem"></div>
           </div>
         </div>
@@ -3040,18 +3040,18 @@ function abrirModalResposta() {
       });
   }
 
-  // Mesma rotina (Unifi): quedas de antenas de ontem.
+  // Mesma rotina (Unifi): status atual das antenas (último estado conhecido).
   const boxAntenas = document.getElementById('resp-antenas');
   const textoAntenas = document.getElementById('resp-antenas-texto');
   if (boxAntenas) boxAntenas.style.display = 'none';
   if (textoAntenas) textoAntenas.textContent = '';
   if (mostrarFirewall && boxAntenas && textoAntenas) {
     boxAntenas.style.display = '';
-    textoAntenas.textContent = 'Carregando quedas de antenas de ontem…';
+    textoAntenas.textContent = 'Carregando status atual das antenas…';
     fetch('../antena_resumo_ajax.php')
       .then(r => r.json())
-      .then(d => { textoAntenas.textContent = d.ok ? d.texto : 'Falha ao carregar quedas de antenas — preencha manualmente.'; })
-      .catch(() => { textoAntenas.textContent = 'Falha ao carregar quedas de antenas — preencha manualmente.'; });
+      .then(d => { textoAntenas.textContent = d.ok ? d.texto : 'Falha ao carregar status das antenas — preencha manualmente.'; })
+      .catch(() => { textoAntenas.textContent = 'Falha ao carregar status das antenas — preencha manualmente.'; });
   }
 
   // Checklist para chamados recorrentes

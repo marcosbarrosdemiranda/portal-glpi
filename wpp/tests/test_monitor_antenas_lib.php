@@ -41,6 +41,45 @@ t_eq(antena_ocorrencias_clientes_excesso([['id' => 7, 'clientes_conectados' => 3
 t_eq(antena_ocorrencias_clientes_excesso([['id' => 7, 'clientes_conectados' => 10]], 30), [], 'ocorrencias_clientes_excesso: dentro do limite -> nenhuma ocorrência');
 
 // ---------------------------------------------------------------------------
+// antena_status_atual_texto() — pura, sem banco/rede (texto de status atual
+// usado por antena_resumo_ajax.php desde 2026-10-12, no lugar do resumo de
+// quedas do dia anterior)
+// ---------------------------------------------------------------------------
+t_eq(
+    antena_status_atual_texto([
+        ['nome' => 'AP Salão', 'loja' => 'Lj 001', 'status' => 'online', 'ativo' => 1, 'ultima_verificacao' => '2026-10-12 08:00:00'],
+        ['nome' => 'AP Estoque', 'loja' => 'Lj 002', 'status' => 'online', 'ativo' => 1, 'ultima_verificacao' => '2026-10-12 08:05:00'],
+    ]),
+    'Antenas UniFi — status atual (última verificação 08:05): ✅ todas as 2 online.',
+    'status_atual_texto: todas online -> 1 linha com ✅ e a verificação mais recente'
+);
+
+$textoOffline = antena_status_atual_texto([
+    ['nome' => 'AP Salão', 'loja' => 'Lj 001', 'status' => 'offline', 'ativo' => 1, 'ultima_verificacao' => '2026-10-12 08:00:00'],
+    ['nome' => 'AP Estoque', 'loja' => 'Lj 002', 'status' => 'online', 'ativo' => 1, 'ultima_verificacao' => '2026-10-12 08:05:00'],
+]);
+t_ok(strpos($textoOffline, '⚠️ 1 de 2 offline:') !== false, 'status_atual_texto: com 1 offline -> cita "1 de 2 offline"');
+t_ok(strpos($textoOffline, 'AP Salão (Lj 001)') !== false, 'status_atual_texto: lista a antena offline com a loja entre parênteses');
+t_ok(strpos($textoOffline, '✅ 1 online.') !== false, 'status_atual_texto: fecha com a contagem de online');
+
+$textoDesconhecido = antena_status_atual_texto([
+    ['nome' => 'AP Depósito', 'loja' => '', 'status' => 'desconhecido', 'ativo' => 1, 'ultima_verificacao' => null],
+]);
+t_ok(strpos($textoDesconhecido, '1 com status desconhecido') !== false, 'status_atual_texto: desconhecido entra em bloco próprio, não some nem conta como offline');
+t_ok(strpos($textoDesconhecido, 'AP Depósito') !== false && strpos($textoDesconhecido, 'AP Depósito (') === false, 'status_atual_texto: sem loja cadastrada -> nome sem parênteses coladas');
+
+t_eq(
+    antena_status_atual_texto([
+        ['nome' => 'AP Ativa', 'loja' => '', 'status' => 'online', 'ativo' => 1, 'ultima_verificacao' => '2026-10-12 08:00:00'],
+        ['nome' => 'AP Desativada', 'loja' => '', 'status' => 'offline', 'ativo' => 0, 'ultima_verificacao' => '2026-10-12 08:00:00'],
+    ]),
+    'Antenas UniFi — status atual (última verificação 08:00): ✅ todas as 1 online.',
+    'status_atual_texto: antena inativa (ativo=0) não entra na contagem'
+);
+
+t_eq(antena_status_atual_texto([]), 'Antenas UniFi: nenhuma antena ativa cadastrada.', 'status_atual_texto: lista vazia -> mensagem explícita, não ausência silenciosa');
+
+// ---------------------------------------------------------------------------
 // monitor_antena_reiniciar() — comando de reboot via SSH (sem banco)
 // ---------------------------------------------------------------------------
 t_eq(monitor_antena_reiniciar('', 'admin', 'senha')['ok'], false, 'reiniciar: sem IP -> ok=false (retorna antes de abrir SSH)');
