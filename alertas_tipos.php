@@ -272,15 +272,6 @@ function alertas_catalogo(): array
             'icone'  => 'bi-speedometer2',
             'cor'    => 'warning',
         ],
-        'monitor_service' => [
-            'nome'      => 'Serviço offline (The Dude)',
-            'descricao' => 'Serviço monitorado pelo The Dude está fora do ar.',
-            'params'    => [],
-            'check'  => 'alerta_check_monitor_service',
-            'render' => 'alerta_render_monitor',
-            'icone'  => 'bi-hdd-stack',
-            'cor'    => 'danger',
-        ],
         'rede_link' => [
             'nome'      => 'Link de internet das lojas',
             'descricao' => 'Lido do Status → Gateways do pfSense de cada loja: avisa quando um link (ex.: local, Starlink) cai e quando a loja passa a sair pelo link reserva.',

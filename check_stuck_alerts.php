@@ -40,7 +40,7 @@ SELECT
     d.ip AS device_ip
 FROM portal_alertas_ocorrencias ao
 JOIN portal_monitor_dispositivos d ON d.id = CAST(SUBSTRING_INDEX(ao.chave, ':', -1) AS UNSIGNED)
-WHERE ao.tipo IN ('monitor_device', 'monitor_link', 'monitor_latencia', 'monitor_service')
+WHERE ao.tipo IN ('monitor_device', 'monitor_link', 'monitor_latencia')
   AND d.status != 'down';
 ";
 
