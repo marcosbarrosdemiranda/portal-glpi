@@ -226,6 +226,56 @@ function monitor_links_listar(PDO $pdo): array
     return $pdo->query("SELECT * FROM portal_monitor_links ORDER BY loja, principal DESC, nome")->fetchAll(PDO::FETCH_ASSOC);
 }
 
+/**
+ * Texto pronto com o status atual dos links de internet por loja, pra
+ * acrescentar no resumo do chamado recorrente "Firewal, Unifi e Comunicação
+ * Lojas" (ver monitor_resumo_ajax.php), junto da latência dos pfSense.
+ * Loja sem dado (ex.: Lj 003/010 — atrás de MikroTik, ver
+ * Docs/superpowers/specs/2026-09-25-monitor-rede-portal-design.md) entra com
+ * aviso explícito em $lojasSemDado, nunca fica de fora silenciosamente.
+ *
+ * @param array $links vindo de monitor_links_listar() (já filtrado às lojas de interesse)
+ * @param array<string,string> $lojasSemDado loja => motivo (ex.: 'atrás de MikroTik')
+ */
+function monitor_links_resumo_texto(array $links, array $lojasSemDado = []): string
+{
+    $porLoja = [];
+    foreach ($links as $l) $porLoja[$l['loja']][] = $l;
+
+    $marca = fn(string $status) => $status === 'down' ? '🔴' : ($status === 'alerta' ? '🟡' : '🟢');
+
+    $linhaLoja = function (array $itens) use ($marca) {
+        usort($itens, fn($a, $b) => ((int) $b['principal']) <=> ((int) $a['principal']));
+        $partes = [];
+        $principal = $emUso = null;
+        foreach ($itens as $l) {
+            $partes[] = $marca($l['status']) . ' ' . $l['nome'] . ($l['principal'] ? ' ⭐' : ' reserva');
+            if ($l['principal']) $principal = $l;
+            if ($l['padrao']) $emUso = $l;
+        }
+        $out = implode(' · ', $partes);
+        if ($principal && $emUso && $emUso['nome'] !== $principal['nome']) {
+            $out .= ' — ⚠️ saindo pelo reserva';
+        }
+        return $out;
+    };
+
+    $todasLojas = array_unique(array_merge(array_keys($porLoja), array_keys($lojasSemDado)));
+    sort($todasLojas, SORT_NATURAL | SORT_FLAG_CASE);
+
+    if (!$todasLojas) {
+        return 'Links de internet: nenhuma loja monitorada.';
+    }
+
+    $out = "Links de internet:\n";
+    foreach ($todasLojas as $loja) {
+        $out .= isset($porLoja[$loja])
+            ? "- {$loja}: " . $linhaLoja($porLoja[$loja]) . "\n"
+            : "- {$loja}: link não monitorado (" . ($lojasSemDado[$loja] ?? 'sem dado') . ")\n";
+    }
+    return rtrim($out);
+}
+
 /** Check da Central (tipo rede_link). Loja com VPN fora não entra (dado velho; a VPN já avisa). */
 function alerta_check_rede_link(PDO $pdo, array $p): array
 {

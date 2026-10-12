@@ -49,3 +49,37 @@ t_ok(str_contains($oc[1]['titulo'], 'starlink') && str_contains($oc[1]['detalhe'
 
 $oc = monitor_links_ocorrencias([$lk('Lj 030', 'mikrotik', 'alerta', true, true)]);
 t_eq($oc, [], 'ocorr: só perda/latência (alerta amarelo) não vira ocorrência');
+
+// ---------------------------------------------------------------------------
+// monitor_links_resumo_texto() — texto pro resumo do chamado recorrente
+// (Fase 1 do box pfSense expandido, 2026-10-12) — PURA, sem banco.
+// ---------------------------------------------------------------------------
+$row = fn(string $loja, string $nome, string $status, bool $padrao, bool $principal) => [
+    'loja' => $loja, 'nome' => $nome, 'status' => $status, 'padrao' => $padrao ? 1 : 0, 'principal' => $principal ? 1 : 0,
+];
+
+$texto = monitor_links_resumo_texto([
+    $row('Lj 001', 'rota_1', 'up', true, true),
+    $row('Lj 001', 'rota2_ivr', 'up', false, false),
+]);
+t_ok(str_contains($texto, '- Lj 001: 🟢 rota_1 ⭐ · 🟢 rota2_ivr reserva'), 'resumo_texto: principal com ⭐, reserva marcado, ambos 🟢 (up)');
+t_ok(!str_contains($texto, 'saindo pelo reserva'), 'resumo_texto: saindo pelo principal -> sem aviso de reserva');
+
+$texto = monitor_links_resumo_texto([
+    $row('Lj 030', 'mikrotik', 'down', false, true),
+    $row('Lj 030', 'starlink', 'up', true, false),
+]);
+t_ok(str_contains($texto, '🔴 mikrotik ⭐'), 'resumo_texto: status down -> 🔴');
+t_ok(str_contains($texto, '🟢 starlink reserva'), 'resumo_texto: status up -> 🟢');
+t_ok(str_contains($texto, '⚠️ saindo pelo reserva'), 'resumo_texto: em uso ≠ principal -> avisa que está saindo pelo reserva');
+
+t_ok(str_contains(monitor_links_resumo_texto([$row('Lj 030', 'mikrotik', 'alerta', true, true)]), '🟡 mikrotik'), 'resumo_texto: status alerta -> 🟡');
+
+$texto = monitor_links_resumo_texto(
+    [$row('Lj 001', 'rota_1', 'up', true, true)],
+    ['Lj 003' => 'atrás de MikroTik', 'Lj 010' => 'sem pfSense, é MikroTik']
+);
+t_ok(str_contains($texto, '- Lj 003: link não monitorado (atrás de MikroTik)'), 'resumo_texto: loja sem dado entra com o motivo, não fica de fora');
+t_ok(str_contains($texto, '- Lj 010: link não monitorado (sem pfSense, é MikroTik)'), 'resumo_texto: 2ª loja sem dado, motivo próprio');
+
+t_eq(monitor_links_resumo_texto([]), 'Links de internet: nenhuma loja monitorada.', 'resumo_texto: nada monitorado -> mensagem explícita, não string vazia');
