@@ -267,8 +267,14 @@ REGRAS ESPECIAIS:
     C:\docker\glpi-portal\glpi2\portal-glpi\). Fluxo seguro: subir como
     `<arquivo>.new` → `docker exec glpi-web php -l <arquivo>.new` →
     `Move-Item -Force` por cima do original.
-  - Branch de trabalho atual é `infra/migracao-docker-glpi` (main está
-    ~177 commits atrás) — commitar ali, não direto em main.
+  - Branch de integração de longo prazo é `infra/migracao-docker-glpi`
+    (main está ~177 commits atrás) — nunca commitar direto em main. Na
+    prática, trabalho recente abre branch própria por spec/feature
+    empilhada em cima da branch de integração (ex.: `feat/merge-alertas-monitor`
+    em cima de `feat/monitor-antenas-unifi-ssh`) e funde pra lá depois —
+    checar `git branch` / memory de projeto pra saber qual é a branch
+    ativa do momento antes de commitar, em vez de assumir
+    `infra/migracao-docker-glpi` direto.
   - Backup do host (`docker/scripts/backup-db.ps1` e `backup-files.ps1`)
     vive FORA do container, em `C:\docker\glpi-portal\scripts\` no host —
     não é deployado pelo fluxo `.new`/`docker exec php -l`/`Move-Item`
@@ -402,6 +408,20 @@ REGRAS ESPECIAIS:
    vindo de um memory/backlog, confirmar contra o código atual, porque
    memory registra o estado de quando foi escrito, não necessariamente o
    de agora.
+
+10. [Tipo de alerta escopado a 1 grupo pode já estar coberto por
+    `monitor_device` (que checa TODOS os grupos) — 2026-10-12] Contexto:
+    2ª ocorrência do mesmo padrão. `monitor_sem_contato` (removido
+    2026-10-11) e `monitor_service` (removido 2026-10-12) rodavam a MESMA
+    query de "equipamento fora do ar" que `monitor_device` já cobre
+    (grupoMap `'device' => null` = sem filtro de grupo), só filtrada a um
+    grupo específico (`pdvs`, depois `servidores-mgv`). Cada dispositivo
+    desses grupos gerava 2 ocorrências independentes pra mesma queda, cada
+    uma com seu próprio 🔔/✅ no WhatsApp. Antes de criar um tipo de alerta
+    novo escopado a um grupo em `monitor_lib.php`/`alertas_tipos.php`,
+    checar se esse grupo já não está implicitamente coberto por `device` —
+    só vale tipo próprio se a condição for *diferente* de "está down", não
+    um subconjunto da mesma query (ver backlog_monitor-sem-contato-duplica-device).
 ```
 
 ---
