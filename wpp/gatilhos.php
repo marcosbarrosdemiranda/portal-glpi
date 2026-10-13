@@ -428,6 +428,10 @@ function gat_alertas_tipo(PDO $pdo, string $slug, array $def, array $cfg, string
     // NOVAS
     foreach ($atuais as $o) {
         if (isset($guardadas[$o['chave']])) continue;
+        // Fix 2026-10-13: silenciado=true vem de monitor_check_tipo() (fora da janela
+        // de horário/feriado do grupo "pdvs") — mesmo padrão do horário genérico: não
+        // grava, re-tenta quando a janela abrir. Não envia NOVA no escuro.
+        if (!empty($o['silenciado'])) continue;
         if ($notifica) {
             if (!$dentroDoHorario) continue;   // fora do horário -> não grava, re-tenta quando a janela abrir (igual envio falhar)
             $r = gat_enviar($grupo, gat_msg_alerta_novo($nome, $o));
@@ -466,6 +470,7 @@ function gat_alertas_tipo(PDO $pdo, string $slug, array $def, array $cfg, string
         $limite  = (int) $cfg['lembrete_min'] * 60;
         $devidas = [];
         foreach ($atuais as $o) {
+            if (!empty($o['silenciado'])) continue;   // fix 2026-10-13: não cutucar lembrete durante a janela de silêncio
             $g = $guardadas[$o['chave']] ?? null;
             if (!$g) continue;   // recém-inserida nesta passada
             if (!empty($g['dispensado_em'])) continue;   // resolvida manualmente -> sem lembrete
