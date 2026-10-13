@@ -347,6 +347,43 @@ if (isset($pdo) && $pdo instanceof PDO) {
             "✅ *Resolvido — Alerta de Teste*\nPDV129-LJ003 — Lj 003",
             'gat_alertas_tipo: ✅ mostra titulo — loja do histórico, não a chave crua ("999")'
         );
+
+        // -- 'silenciado' (fix 2026-10-13): monitor_check_tipo() passa a mandar
+        // 'silenciado' => true pro PDV fora da janela/feriado em vez de tirar a linha do
+        // array — sem isso, gat_alertas_tipo() não tinha como diferenciar "saiu por
+        // horário" de "voltou de verdade" e mandava ✅ falso (ver
+        // backlog_monitor-sem-contato-duplica-device / spec do fix).
+        $ocSil = fn(string $k, bool $sil) => ['chave' => $k, 'titulo' => $k, 'loja' => 'L1', 'detalhe' => 'x', 'silenciado' => $sil];
+
+        // (a) NOVA com silenciado=true -> não grava, não envia (igual horario de silencio genérico)
+        $limpa();
+        $enviadas = [];
+        $GLOBALS['__wpp_fake_send'] = function ($d, $t) use (&$enviadas) { $enviadas[] = [$d, $t]; return ['ok' => true]; };
+        $GLOBALS['__fake_ocorr'] = [$ocSil('g', true)];
+        gat_alertas_tipo($pdo, $TIPO, $defFake, $cfg(true), $GRP);
+        t_eq(count($enviadas), 0, 'gat_alertas_tipo: NOVA com silenciado=true -> 0 envios');
+        t_eq((int) $pdo->query("SELECT COUNT(*) FROM portal_alertas_ocorrencias WHERE tipo='$TIPO'")->fetchColumn(), 0,
+             'gat_alertas_tipo: NOVA com silenciado=true -> nada gravado (retenta quando a janela abrir)');
+
+        // (b) já aberta (sem a flag) e, na passada seguinte, reaparece com silenciado=true
+        // (bateu a janela de silêncio, continua caída) -> NÃO pode disparar ✅ nem apagar a
+        // linha. Esse é o caso real do bug relatado.
+        $limpa();
+        $enviadas = [];
+        $GLOBALS['__fake_ocorr'] = [$ocSil('h', false)];
+        gat_alertas_tipo($pdo, $TIPO, $defFake, $cfg(true), $GRP);   // NOVA normal, dentro do horário
+        $enviadas = [];
+        $GLOBALS['__fake_ocorr'] = [$ocSil('h', true)];              // mesma chave, agora silenciada
+        gat_alertas_tipo($pdo, $TIPO, $defFake, $cfg(true), $GRP);
+        t_eq(count($enviadas), 0, 'gat_alertas_tipo: aberta + silenciado=true -> não dispara ✅ (fix do falso-positivo)');
+        t_eq((int) $pdo->query("SELECT COUNT(*) FROM portal_alertas_ocorrencias WHERE tipo='$TIPO'")->fetchColumn(), 1,
+             'gat_alertas_tipo: aberta + silenciado=true -> linha continua aberta (não apaga)');
+
+        // (c) lembrete vencido, mas silenciado=true -> não cutuca lembrete durante a janela de silêncio
+        $pdo->prepare("UPDATE portal_alertas_ocorrencias SET primeiro_visto = NOW() - INTERVAL 40 MINUTE, ultimo_lembrete = NULL WHERE tipo=? AND chave='h'")->execute([$TIPO]);
+        $enviadas = [];
+        gat_alertas_tipo($pdo, $TIPO, $defFake, $cfg(true, 30), $GRP);
+        t_eq(count($enviadas), 0, 'gat_alertas_tipo: lembrete vencido + silenciado=true -> não reenvia');
     } finally {
         unset($GLOBALS['__wpp_fake_send'], $GLOBALS['__fake_ocorr']);
         $limpa();
