@@ -689,11 +689,16 @@ function monitor_check_tipo(PDO $pdo, string $tipo): array
     // Fix 2026-10-12: removido "service" (tipo "Serviço offline") pelo mesmo motivo — "device"
     // já checa TODOS os grupos (grupo=null), incluindo "servidores-mgv", então os 2 servidores
     // MGV monitorados geravam 🔔/✅ duplicado (um por "device", outro por "service").
+    // Fix 2026-10-13: fora da janela/feriado, a linha era REMOVIDA do array (array_filter)
+    // em vez de só marcada — isso fazia gat_alertas_tipo() achar que o PDV "voltou" (chave
+    // desapareceu de $atuais) e disparar ✅ + apagar a ocorrência mesmo com o PDV ainda caído.
+    // Agora mantém a linha e só acrescenta 'silenciado', pra quem consome decidir o que fazer
+    // (ver backlog_monitor-sem-contato-duplica-device / spec 2026-10-13-fix-alerta-falso-positivo-horario-silencio).
     if (in_array($tipo, ['device', 'ligado_muito_tempo'], true)) {
-        $out = array_values(array_filter(
-            $out,
-            fn($o) => monitor_categoria_no_horario($pdo, $o['categoria'], $o['loja']) && !monitor_feriado_hoje($pdo, $o['loja'])
-        ));
+        foreach ($out as &$o) {
+            $o['silenciado'] = !monitor_categoria_no_horario($pdo, $o['categoria'], $o['loja']) || monitor_feriado_hoje($pdo, $o['loja']);
+        }
+        unset($o);
     }
 
     return $out;
