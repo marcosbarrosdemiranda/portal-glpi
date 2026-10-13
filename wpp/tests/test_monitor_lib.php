@@ -153,6 +153,10 @@ if ($pdo instanceof PDO) {
 // monitor_check_tipo() — horário por categoria/loja (fix 2026-10-10: ligado_muito_tempo
 // vazava notificação fora do horário configurado, porque só "device" era filtrado;
 // link/latencia/service continuam sempre alertando, isso não mudou).
+// Fix 2026-10-13: fora da janela/feriado a linha não é mais REMOVIDA do array —
+// continua presente, só marcada com 'silenciado' => true, pra gat_alertas_tipo()
+// não confundir "saiu por horário" com "resolvido de verdade" (ver
+// backlog_monitor-sem-contato-duplica-device / spec do fix de falso-positivo).
 // Usa o tipo "device" pro PDV de teste porque "sem_contato" foi removido em 2026-10-11
 // (era a mesma query de equipamento fora do ar, só filtrada a grupo='pdvs' — duplicava
 // 🔔/✅ no WhatsApp pro mesmo PDV; ver backlog_monitor-sem-contato-duplica-device).
@@ -188,20 +192,28 @@ if ($pdo instanceof PDO) {
         $pdo->prepare("UPDATE portal_monitor_dispositivos SET status = 'down', status_desde = NOW() WHERE id = ?")->execute([$idFw]);
         $chaveFw = "monitor:link:$idFw";
 
-        // fora do horário configurado -> device não dispara pro PDV (fix)
+        // fora do horário configurado -> device CONTINUA aparecendo, só marcado silenciado=true
+        // (fix 2026-10-13: antes a linha desaparecia, o que gat_alertas_tipo() lia como "resolvido")
         monitor_horario_excecao_salvar($pdo, 'pdvs', $LOJA_PDV, $dia, $foraIni, $foraFim);
-        $chaves = array_column(monitor_check_tipo($pdo, 'device'), 'chave');
-        t_ok(!in_array($chavePdv, $chaves, true), 'check_tipo(device): fora do horário configurado -> não aparece');
+        $porChave = [];
+        foreach (monitor_check_tipo($pdo, 'device') as $o) $porChave[$o['chave']] = $o;
+        t_ok(isset($porChave[$chavePdv]), 'check_tipo(device): fora do horário configurado -> continua aparecendo (não desaparece mais)');
+        t_ok(($porChave[$chavePdv]['silenciado'] ?? null) === true, 'check_tipo(device): fora do horário configurado -> silenciado=true');
 
-        // dentro do horário configurado -> volta a aparecer
+        // dentro do horário configurado -> continua aparecendo, agora silenciado=false
         monitor_horario_excecao_salvar($pdo, 'pdvs', $LOJA_PDV, $dia, $diaTodoIni, $diaTodoFim);
-        $chaves = array_column(monitor_check_tipo($pdo, 'device'), 'chave');
-        t_ok(in_array($chavePdv, $chaves, true), 'check_tipo(device): dentro do horário configurado -> aparece');
+        $porChave = [];
+        foreach (monitor_check_tipo($pdo, 'device') as $o) $porChave[$o['chave']] = $o;
+        t_ok(isset($porChave[$chavePdv]), 'check_tipo(device): dentro do horário configurado -> aparece');
+        t_ok(($porChave[$chavePdv]['silenciado'] ?? null) === false, 'check_tipo(device): dentro do horário configurado -> silenciado=false');
 
-        // link (infra) ignora horário por categoria mesmo com exceção fora da janela -> sempre alerta
+        // link (infra) ignora horário por categoria mesmo com exceção fora da janela -> sempre
+        // alerta e nunca ganha a chave 'silenciado' (só device/ligado_muito_tempo ganham)
         monitor_horario_excecao_salvar($pdo, 'firewalls', $LOJA_FW, $dia, $foraIni, $foraFim);
-        $chaves = array_column(monitor_check_tipo($pdo, 'link'), 'chave');
-        t_ok(in_array($chaveFw, $chaves, true), 'check_tipo(link): não respeita horário por categoria (infra sempre alerta)');
+        $porChave = [];
+        foreach (monitor_check_tipo($pdo, 'link') as $o) $porChave[$o['chave']] = $o;
+        t_ok(isset($porChave[$chaveFw]), 'check_tipo(link): não respeita horário por categoria (infra sempre alerta)');
+        t_ok(!array_key_exists('silenciado', $porChave[$chaveFw] ?? []), "check_tipo(link): não ganha a chave 'silenciado'");
     } finally {
         $pdo->prepare("DELETE FROM portal_monitor_dispositivos WHERE origem = 'manual' AND nome LIKE '__teste_monitor_horario__%'")->execute();
         $limpaHorario();
