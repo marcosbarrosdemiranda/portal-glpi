@@ -272,12 +272,18 @@ $lojas = $stmt_lojas->fetchAll(PDO::FETCH_COLUMN);
   <!-- Filtros -->
   <div class="filtros-bar">
     <div class="d-flex flex-wrap gap-2 align-items-center w-100">
-      <select id="f-projeto" class="select-projeto form-select form-select-sm" style="width:175px" onchange="filtrar()">
-        <option value="">Todos os projetos</option>
-        <?php foreach ($projetos as $pj): ?>
-            <option value="<?= (int)$pj['id'] ?>"><?= htmlspecialchars($pj['nome']) ?></option>
-        <?php endforeach; ?>
-      </select>
+      <div class="d-flex gap-1 align-items-center">
+        <select id="f-projeto" class="select-projeto form-select form-select-sm" style="width:175px" onchange="onChangeSelectProjeto(this, filtrar)">
+          <option value="">Todos os projetos</option>
+          <?php foreach ($projetos as $pj): ?>
+              <option value="<?= (int)$pj['id'] ?>"><?= htmlspecialchars($pj['nome']) ?></option>
+          <?php endforeach; ?>
+          <option value="__novo__">+ Novo projeto...</option>
+        </select>
+        <button type="button" class="btn btn-sm btn-outline-secondary" title="Renomear projeto selecionado no filtro" onclick="renomearProjetoFiltro()">
+          <i class="bi bi-pencil"></i>
+        </button>
+      </div>
       <select id="f-cat" class="form-select form-select-sm" style="width:175px" onchange="filtrar()">
         <option value="">Todas as categorias</option>
         <option value="Hardware">Hardware</option>
@@ -691,15 +697,21 @@ function renderTabela(lista) {
   }).join('');
 }
 
-// Criação rápida de projeto direto do select (opção "+ Novo projeto...")
-function onChangeSelectProjeto(select) {
-  if (select.value !== '__novo__') return;
+// Criação rápida de projeto direto do select (opção "+ Novo projeto...").
+// onDone é opcional — usado pelo filtro (f-projeto) pra disparar filtrar()
+// tanto numa troca normal quanto depois de criar o projeto novo; o select
+// do modal de item não passa onDone (não precisa refiltrar nada).
+function onChangeSelectProjeto(select, onDone) {
+  if (select.value !== '__novo__') {
+    if (onDone) onDone();
+    return;
+  }
   const nome = prompt('Nome do novo projeto:');
   if (!nome || !nome.trim()) { select.value = ''; return; }
-  criarProjetoRapido(nome.trim(), select);
+  criarProjetoRapido(nome.trim(), select, onDone);
 }
 
-function criarProjetoRapido(nome, selectOrigem) {
+function criarProjetoRapido(nome, selectOrigem, onDone) {
   const body = new URLSearchParams({ action_projeto: 'add', nome });
   fetch('orcamento.php', { method: 'POST', body })
     .then(r => r.json())
@@ -721,11 +733,41 @@ function criarProjetoRapido(nome, selectOrigem) {
         if (optNovo) sel.insertBefore(opt, optNovo); else sel.appendChild(opt);
       });
       if (selectOrigem) selectOrigem.value = resp.id;
+      if (onDone) onDone();
     })
     .catch(() => {
       alert('Erro de rede ao criar o projeto.');
       if (selectOrigem) selectOrigem.value = '';
     });
+}
+
+// Renomear o projeto atualmente selecionado no filtro "Todos os projetos".
+// Só o nome muda — nenhum item precisa ser revinculado, mas a label
+// precisa ser sincronizada em todo select .select-projeto e nos itens
+// já carregados em memória (projeto_nome), pra refletir sem reload.
+function renomearProjetoFiltro() {
+  const select = document.getElementById('f-projeto');
+  const id = select.value;
+  if (!id || id === '__novo__') { alert('Selecione um projeto no filtro pra renomear.'); return; }
+  const atual = select.options[select.selectedIndex].textContent;
+  const novoNome = prompt('Novo nome do projeto:', atual);
+  if (!novoNome || !novoNome.trim() || novoNome.trim() === atual) return;
+
+  const body = new URLSearchParams({ action_projeto: 'rename', id, nome: novoNome.trim() });
+  fetch('orcamento.php', { method: 'POST', body })
+    .then(r => r.json())
+    .then(resp => {
+      if (!resp.ok) { alert('Não foi possível renomear o projeto: ' + (resp.erro || '')); return; }
+      const pIdx = projetosLista.findIndex(p => String(p.id) === String(resp.id));
+      if (pIdx >= 0) projetosLista[pIdx].nome = resp.nome;
+      document.querySelectorAll('.select-projeto').forEach(sel => {
+        const opt = Array.from(sel.options).find(o => o.value === String(resp.id));
+        if (opt) opt.textContent = resp.nome;
+      });
+      itens.forEach(i => { if (String(i.projeto_id) === String(resp.id)) i.projeto_nome = resp.nome; });
+      filtrar();
+    })
+    .catch(() => alert('Erro de rede ao renomear o projeto.'));
 }
 
 function abrirModal() {
