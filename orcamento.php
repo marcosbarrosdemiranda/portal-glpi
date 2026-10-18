@@ -10,8 +10,14 @@ $_cards_orc  = $_SESSION['portal_perfil_cards'] ?? null;
 $orc_ouvinte = ($_cards_orc !== null) && (($_cards_orc['orcamento'] ?? 'ouvinte') === 'ouvinte');
 
 // ── CRUD básico via POST (se houver ação) ──────────────────────
+// Responde em JSON (não redireciona) — o front atualiza só o item mudado
+// no array `itens` e re-renderiza via filtrar(), sem reload de página.
+// Isso evita perder filtro/agrupamento/colapso, que só existem em memória
+// no JS e nunca persistiram a um F5 nem ao redirect antigo.
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && !$orc_ouvinte) {
     if (isset($_POST['action'])) {
+        header('Content-Type: application/json');
+
         if ($_POST['action'] === 'save') {
             $id = !empty($_POST['id']) ? (int)$_POST['id'] : null;
             $sql = $id
@@ -21,12 +27,42 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !$orc_ouvinte) {
             $params = [$_POST['categoria'], $_POST['descricao'], $_POST['mes_ano'], (int)$_POST['qty_prevista'], (float)$_POST['unit_previsto'], (int)$_POST['qty_realizada'], (float)$_POST['unit_realizado'], $_POST['observacao'], $_POST['loja'], $projetoId];
             if ($id) $params[] = $id;
             $pdo->prepare($sql)->execute($params);
-        } elseif ($_POST['action'] === 'delete') {
-            $pdo->prepare("DELETE FROM glpi_portal_orcamento WHERE id=?")->execute([(int)$_POST['id']]);
-        } elseif ($_POST['action'] === 'toggle_ativo') {
-            $pdo->prepare("UPDATE glpi_portal_orcamento SET ativo = 1 - ativo WHERE id=?")->execute([(int)$_POST['id']]);
+            $id = $id ?: (int)$pdo->lastInsertId();
+
+            // Devolve o item já com projeto_nome e totais calculados — a
+            // mesma forma do SELECT principal — pro front trocar só essa
+            // linha no array local.
+            $st = $pdo->prepare("
+                SELECT o.*, p.nome AS projeto_nome,
+                       (o.qty_prevista * o.unit_previsto) as total_previsto,
+                       (o.qty_realizada * o.unit_realizado) as total_realizado
+                FROM glpi_portal_orcamento o
+                LEFT JOIN glpi_portal_projetos p ON p.id = o.projeto_id
+                WHERE o.id = ?
+            ");
+            $st->execute([$id]);
+            echo json_encode(['ok' => true, 'item' => $st->fetch(PDO::FETCH_ASSOC)]);
+            exit;
         }
-        header("Location: orcamento.php"); exit;
+
+        if ($_POST['action'] === 'delete') {
+            $id = (int)$_POST['id'];
+            $pdo->prepare("DELETE FROM glpi_portal_orcamento WHERE id=?")->execute([$id]);
+            echo json_encode(['ok' => true, 'id' => $id]);
+            exit;
+        }
+
+        if ($_POST['action'] === 'toggle_ativo') {
+            $id = (int)$_POST['id'];
+            $pdo->prepare("UPDATE glpi_portal_orcamento SET ativo = 1 - ativo WHERE id=?")->execute([$id]);
+            $st = $pdo->prepare("SELECT ativo FROM glpi_portal_orcamento WHERE id=?");
+            $st->execute([$id]);
+            echo json_encode(['ok' => true, 'id' => $id, 'ativo' => (int)$st->fetchColumn()]);
+            exit;
+        }
+
+        echo json_encode(['ok' => false, 'erro' => 'ação desconhecida']);
+        exit;
     }
 }
 
@@ -718,29 +754,61 @@ function editarItem(id) {
   modal.show();
 }
 
+// Salva via fetch (sem reload) — só assim filtro/agrupamento/colapso
+// (que só existem em memória no JS) sobrevivem ao salvar um item.
 function salvarItem() {
   const desc = document.getElementById('item-desc').value.trim();
   if (!desc) { alert('Informe a descrição do item.'); return; }
-  document.getElementById('form-item').submit();
+
+  const body = new FormData(document.getElementById('form-item'));
+  fetch('orcamento.php', { method: 'POST', body })
+    .then(r => r.json())
+    .then(resp => {
+      if (!resp.ok) { alert('Não foi possível salvar o item.'); return; }
+      const idx = itens.findIndex(i => String(i.id) === String(resp.item.id));
+      if (idx >= 0) itens[idx] = resp.item; else itens.push(resp.item);
+      modal.hide();
+      filtrar(); // reaplica filtro/agrupamento atuais, sem recarregar a página
+    })
+    .catch(() => alert('Erro de rede ao salvar o item.'));
+}
+
+function excluirPorId(id) {
+  const body = new URLSearchParams({ action: 'delete', id });
+  fetch('orcamento.php', { method: 'POST', body })
+    .then(r => r.json())
+    .then(resp => {
+      if (!resp.ok) { alert('Não foi possível excluir o item.'); return; }
+      itens = itens.filter(i => String(i.id) !== String(resp.id));
+      filtrar();
+    })
+    .catch(() => alert('Erro de rede ao excluir o item.'));
 }
 
 function excluirItem() {
   if (!confirm('Excluir este item de orçamento?')) return;
   const id = document.getElementById('item-id').value;
-  document.getElementById('del-id').value = id;
-  document.getElementById('form-delete').submit();
+  modal.hide();
+  excluirPorId(id);
 }
 
 function excluirDireto(id) {
   if (!confirm('Excluir este item de orçamento?')) return;
-  document.getElementById('del-id').value = id;
-  document.getElementById('form-delete').submit();
+  excluirPorId(id);
 }
 
 function toggleAtivoItem(id, estaSuspenso) {
   if (!estaSuspenso && !confirm('Suspender este item? Os valores dele deixam de ser somados no orçamento até você reativar.')) return;
-  document.getElementById('toggle-id').value = id;
-  document.getElementById('form-toggle-ativo').submit();
+  const body = new URLSearchParams({ action: 'toggle_ativo', id });
+  fetch('orcamento.php', { method: 'POST', body })
+    .then(r => r.json())
+    .then(resp => {
+      if (!resp.ok) { alert('Não foi possível atualizar o item.'); return; }
+      const idx = itens.findIndex(i => String(i.id) === String(resp.id));
+      if (idx >= 0) itens[idx].ativo = resp.ativo;
+      filtrar();
+    })
+    .catch(() => alert('Erro de rede ao atualizar o item.'));
 }
 
 function verDetalhesOrc(id) {
@@ -891,15 +959,6 @@ function esc(s) {
     </div>
   </div>
 </div>
-
-<form id="form-delete" method="POST" style="display:none">
-  <input type="hidden" name="action" value="delete"/>
-  <input type="hidden" name="id" id="del-id"/>
-</form>
-<form id="form-toggle-ativo" method="POST" style="display:none">
-  <input type="hidden" name="action" value="toggle_ativo"/>
-  <input type="hidden" name="id" id="toggle-id"/>
-</form>
 <footer><i class="bi bi-shield-lock me-1"></i>Central de TI — Orçamento</footer>
 </body>
 </html>
