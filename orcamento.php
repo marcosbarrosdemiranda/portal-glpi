@@ -147,6 +147,9 @@ $lojas = $stmt_lojas->fetchAll(PDO::FETCH_COLUMN);
     }
     .badge-projeto.sem-projeto { background: #f3f4f6; color: #9ca3af; font-weight: 500; }
 
+    /* Cabeçalho de grupo (Projeto/Categoria/Loja) — clicável, minimiza/expande */
+    tr.grupo-header:hover { background: #e2e8f0 !important; }
+
     /* Saldo */
     .saldo-pos { color: #2e7d32; font-weight: 700; }
     .saldo-neg { color: #c62828; font-weight: 700; }
@@ -515,9 +518,15 @@ const DIMENSOES_AGRUPAMENTO = [
 ];
 
 let modosAgrupamento = { projeto: false, categoria: false, loja: false };
+// Grupos abertos manualmente pelo usuário (clique no cabeçalho) — toda vez que
+// uma dimensão é ligada/desligada, reseta: começa tudo minimizado de novo.
+let gruposExpandidos = new Set();
+// idx (ordem de render) -> chave do grupo, pro onclick do cabeçalho saber qual expandir/retrair.
+let gruposIdxAtual = [];
 
 function toggleAgrupamento(tipo) {
   modosAgrupamento[tipo] = !modosAgrupamento[tipo];
+  gruposExpandidos.clear();
 
   DIMENSOES_AGRUPAMENTO.forEach(d => {
     const btn = document.getElementById(d.btn);
@@ -527,6 +536,14 @@ function toggleAgrupamento(tipo) {
       : 'btn btn-outline-secondary';
   });
 
+  filtrar();
+}
+
+function toggleGrupoColapso(idx) {
+  const chave = gruposIdxAtual[idx];
+  if (chave === undefined) return;
+  if (gruposExpandidos.has(chave)) gruposExpandidos.delete(chave);
+  else gruposExpandidos.add(chave);
   filtrar();
 }
 
@@ -548,6 +565,7 @@ function renderTabela(lista) {
 
   // Dimensões ativas, já na ordem fixa da hierarquia (Projeto → Categoria → Loja)
   const dimensoesAtivas = DIMENSOES_AGRUPAMENTO.filter(d => modosAgrupamento[d.chave]);
+  gruposIdxAtual = [];
 
   let agrupado = {};
   if (dimensoesAtivas.length) {
@@ -565,12 +583,18 @@ function renderTabela(lista) {
 
   tbody.innerHTML = Object.entries(agrupado).map(([grupo, items]) => {
     let rows = '';
+    let colapsado = false;
     if (dimensoesAtivas.length) {
       const totalPrevGrupo = items.filter(ativoItem).reduce((s, i) => s + Number(i.total_previsto || 0), 0);
       const totalRealGrupo = items.filter(ativoItem).reduce((s, i) => s + Number(i.total_realizado || 0), 0);
       const icone = dimensoesAtivas.length > 1 ? 'bi-diagram-3-fill' : dimensoesAtivas[0].icone;
-      rows += `<tr style="background:#eef2f6; font-weight:bold">
+      const expandido = gruposExpandidos.has(grupo);
+      colapsado = !expandido;
+      const idx = gruposIdxAtual.length;
+      gruposIdxAtual.push(grupo);
+      rows += `<tr class="grupo-header" style="background:#eef2f6; font-weight:bold; cursor:pointer" onclick="toggleGrupoColapso(${idx})">
         <td colspan="10">
+          <i class="bi ${expandido ? 'bi-chevron-down' : 'bi-chevron-right'} me-2 text-muted" style="font-size:.75rem"></i>
           <i class="bi ${icone} me-1 text-primary"></i> ${esc(grupo)}
           <span class="badge bg-secondary ms-2">${items.length} ${items.length === 1 ? 'item' : 'itens'}</span>
           <span class="ms-3 text-muted fw-normal" style="font-size:.8rem">Previsto: <b class="text-primary">${fmt(totalPrevGrupo)}</b> | Realizado: <b class="text-danger">${fmt(totalRealGrupo)}</b></span>
@@ -582,6 +606,8 @@ function renderTabela(lista) {
       const tituloMes = `${nomeMes} ${split[0]}`;
       rows += `<tr style="background:#eef2f6; font-weight:bold"><td colspan="10">${tituloMes}</td></tr>`;
     }
+
+    if (colapsado) return rows;
 
     rows += items.map(i => {
       const plan   = Number(i.total_previsto || 0);
