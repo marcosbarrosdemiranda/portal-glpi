@@ -116,7 +116,7 @@ $lojas = $stmt_lojas->fetchAll(PDO::FETCH_COLUMN);
     .hero h1 { font-size: 1.5rem; font-weight: 700; margin: 0; }
     .hero p  { opacity: .8; margin-top: .5rem; font-size: .95rem; }
 
-    .wrap { max-width: 1100px; margin: -3rem auto 3rem; padding: 0 1rem; }
+    .wrap { max-width: 1600px; margin: -3rem auto 3rem; padding: 0 1rem; }
 
     /* ── Stat Cards ── */
     .stats-grid {
@@ -154,12 +154,26 @@ $lojas = $stmt_lojas->fetchAll(PDO::FETCH_COLUMN);
       display: flex; align-items: center; justify-content: space-between;
     }
     .tbl-header .title { font-weight: 700; font-size: .95rem; display: flex; align-items: center; gap: .5rem; }
-    table { width: 100%; border-collapse: collapse; font-size: .85rem; }
+    /* min-width força a tabela a não espremer coluna em tela estreita —
+       table-responsive (Bootstrap) já dá a barra de rolagem horizontal
+       quando a tela/monitor não comporta essa largura toda. */
+    table { width: 100%; min-width: 1450px; border-collapse: collapse; font-size: .85rem; }
     thead th {
       background: #f9fafb; padding: .65rem 1rem; text-align: left;
       font-weight: 700; color: #374151; border-bottom: 2px solid #e5e7eb;
       font-size: .78rem; text-transform: uppercase; letter-spacing: .04em;
+      white-space: nowrap;
     }
+    thead th:nth-child(1)  { width: 150px; }  /* Projeto   */
+    thead th:nth-child(2)  { width: 130px; }  /* Categoria */
+    thead th:nth-child(3)  { width: 140px; }  /* Loja      */
+    thead th:nth-child(4)  { width: auto;  }  /* Descrição — ocupa o resto */
+    thead th:nth-child(5)  { width: 130px; }  /* Qtd x Unit (Prev) */
+    thead th:nth-child(6)  { width: 120px; }  /* Total Prev */
+    thead th:nth-child(7)  { width: 130px; }  /* Qtd x Unit (Real) */
+    thead th:nth-child(8)  { width: 120px; }  /* Total Real */
+    thead th:nth-child(9)  { width: 110px; }  /* Saldo */
+    thead th:nth-child(10) { width: 170px; }  /* Ações */
     tbody tr { border-bottom: 1px solid #f3f4f6; transition: background .1s; }
     tbody tr:hover { background: #f0fdf4; }
     tbody td { padding: .65rem 1rem; vertical-align: middle; }
@@ -656,7 +670,7 @@ function renderTabela(lista) {
         <td><span class="badge-projeto ${temProjeto ? '' : 'sem-projeto'}">${esc(temProjeto ? i.projeto_nome : '— Sem projeto —')}</span></td>
         <td><span class="badge-cat ${cls}">${esc(i.categoria)}</span></td>
         <td>${esc(i.loja || '-')}</td>
-        <td style="max-width:220px">${esc(i.descricao)}</td>
+        <td>${esc(i.descricao)}</td>
         <td style="font-size:.8rem;color:#6b7280;text-align:center">${i.qty_prevista || 0} x ${fmt(i.unit_previsto || 0)}</td>
         <td style="font-weight:600;color:#1a73e8">${fmt(plan)}</td>
         <td style="font-size:.8rem;color:#6b7280;text-align:center">${i.qty_realizada || 0} x ${fmt(i.unit_realizado || 0)}</td>
