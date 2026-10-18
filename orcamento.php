@@ -1,6 +1,7 @@
 <?php
 require_once __DIR__ . '/auth_guard.php';
 require_once __DIR__ . '/agenda/orcamento_db.php'; // Inclui a definição da tabela
+require_once __DIR__ . '/agenda/projetos_db.php';  // Catálogo de Projetos (agrupamento acima da categoria)
 
 if (empty($_SESSION['autenticado'])) { header('Location: auth.php'); exit; }
 if (($_SESSION['perfil'] ?? '') === 'self-service') { header('Location: dashboard.php'); exit; }
@@ -14,9 +15,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !$orc_ouvinte) {
         if ($_POST['action'] === 'save') {
             $id = !empty($_POST['id']) ? (int)$_POST['id'] : null;
             $sql = $id
-                ? "UPDATE glpi_portal_orcamento SET categoria=?, descricao=?, mes_ano=?, qty_prevista=?, unit_previsto=?, qty_realizada=?, unit_realizado=?, observacao=?, loja=? WHERE id=?"
-                : "INSERT INTO glpi_portal_orcamento (categoria, descricao, mes_ano, qty_prevista, unit_previsto, qty_realizada, unit_realizado, observacao, loja) VALUES (?,?,?,?,?,?,?,?,?)";
-            $params = [$_POST['categoria'], $_POST['descricao'], $_POST['mes_ano'], (int)$_POST['qty_prevista'], (float)$_POST['unit_previsto'], (int)$_POST['qty_realizada'], (float)$_POST['unit_realizado'], $_POST['observacao'], $_POST['loja']];
+                ? "UPDATE glpi_portal_orcamento SET categoria=?, descricao=?, mes_ano=?, qty_prevista=?, unit_previsto=?, qty_realizada=?, unit_realizado=?, observacao=?, loja=?, projeto_id=? WHERE id=?"
+                : "INSERT INTO glpi_portal_orcamento (categoria, descricao, mes_ano, qty_prevista, unit_previsto, qty_realizada, unit_realizado, observacao, loja, projeto_id) VALUES (?,?,?,?,?,?,?,?,?,?)";
+            $projetoId = !empty($_POST['projeto_id']) ? (int)$_POST['projeto_id'] : null;
+            $params = [$_POST['categoria'], $_POST['descricao'], $_POST['mes_ano'], (int)$_POST['qty_prevista'], (float)$_POST['unit_previsto'], (int)$_POST['qty_realizada'], (float)$_POST['unit_realizado'], $_POST['observacao'], $_POST['loja'], $projetoId];
             if ($id) $params[] = $id;
             $pdo->prepare($sql)->execute($params);
         } elseif ($_POST['action'] === 'delete') {
@@ -29,8 +31,18 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !$orc_ouvinte) {
 }
 
 // ── Fetch dos dados ───────────────────────────────────────────
-$stmt = $pdo->query("SELECT *, (qty_prevista * unit_previsto) as total_previsto, (qty_realizada * unit_realizado) as total_realizado FROM glpi_portal_orcamento ORDER BY mes_ano ASC, id ASC");
+$stmt = $pdo->query("
+    SELECT o.*, p.nome AS projeto_nome,
+           (o.qty_prevista * o.unit_previsto) as total_previsto,
+           (o.qty_realizada * o.unit_realizado) as total_realizado
+    FROM glpi_portal_orcamento o
+    LEFT JOIN glpi_portal_projetos p ON p.id = o.projeto_id
+    ORDER BY o.mes_ano ASC, o.id ASC
+");
 $itens = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+// Catálogo de projetos (dropdown + gestão rápida)
+$projetos = listarProjetos($pdo);
 
 // Fetch Lojas (Entidades GLPI)
 $stmt_lojas = $pdo->query("SELECT name FROM glpi_entities ORDER BY name ASC");
@@ -128,6 +140,13 @@ $lojas = $stmt_lojas->fetchAll(PDO::FETCH_COLUMN);
     .cat-treinamento   { background: #f3e5f5; color: #6a1b9a; }
     .cat-outros        { background: #f3f4f6; color: #4b5563; }
 
+    /* Badge projeto — chip neutro, não reusa cor de categoria (dimensão diferente) */
+    .badge-projeto {
+      font-size: .7rem; padding: .2rem .55rem; border-radius: 8px; font-weight: 600;
+      white-space: nowrap; background: #eef2ff; color: #4338ca;
+    }
+    .badge-projeto.sem-projeto { background: #f3f4f6; color: #9ca3af; font-weight: 500; }
+
     /* Saldo */
     .saldo-pos { color: #2e7d32; font-weight: 700; }
     .saldo-neg { color: #c62828; font-weight: 700; }
@@ -200,6 +219,12 @@ $lojas = $stmt_lojas->fetchAll(PDO::FETCH_COLUMN);
   <!-- Filtros -->
   <div class="filtros-bar">
     <div class="d-flex flex-wrap gap-2 align-items-center w-100">
+      <select id="f-projeto" class="select-projeto form-select form-select-sm" style="width:175px" onchange="filtrar()">
+        <option value="">Todos os projetos</option>
+        <?php foreach ($projetos as $pj): ?>
+            <option value="<?= (int)$pj['id'] ?>"><?= htmlspecialchars($pj['nome']) ?></option>
+        <?php endforeach; ?>
+      </select>
       <select id="f-cat" class="form-select form-select-sm" style="width:175px" onchange="filtrar()">
         <option value="">Todas as categorias</option>
         <option value="Hardware">Hardware</option>
@@ -208,6 +233,12 @@ $lojas = $stmt_lojas->fetchAll(PDO::FETCH_COLUMN);
         <option value="Infraestrutura">Infraestrutura</option>
         <option value="Treinamento">Treinamento</option>
         <option value="Outros">Outros</option>
+      </select>
+      <select id="f-loja" class="form-select form-select-sm" style="width:175px" onchange="filtrar()">
+        <option value="">Todas as lojas</option>
+        <?php foreach ($lojas as $loja): ?>
+            <option value="<?= htmlspecialchars($loja) ?>"><?= htmlspecialchars($loja) ?></option>
+        <?php endforeach; ?>
       </select>
       <!-- Filtros de Mês/Ano -->
       <select id="f-mes" class="form-select form-select-sm" style="width:155px" onchange="filtrar()">
@@ -230,12 +261,6 @@ $lojas = $stmt_lojas->fetchAll(PDO::FETCH_COLUMN);
       </select>
       <input type="text" id="f-busca" class="form-control form-control-sm" style="width:180px"
              placeholder="🔍 Buscar descrição..." oninput="filtrar()" />
-      <select id="f-loja" class="form-select form-select-sm" style="width:175px" onchange="filtrar()">
-        <option value="">Todas as lojas</option>
-        <?php foreach ($lojas as $loja): ?>
-            <option value="<?= htmlspecialchars($loja) ?>"><?= htmlspecialchars($loja) ?></option>
-        <?php endforeach; ?>
-      </select>
       <button class="btn btn-novo" onclick="filtrar()"><i class="bi bi-search"></i> Filtrar</button>
       <?php if (!$orc_ouvinte): ?>
         <button class="btn btn-novo" onclick="abrirModal()">
@@ -244,11 +269,14 @@ $lojas = $stmt_lojas->fetchAll(PDO::FETCH_COLUMN);
       <?php endif; ?>
       <div class="ms-auto pt-2 border-top w-100 d-flex flex-wrap gap-2 align-items-center">
         <div class="btn-group btn-group-sm" role="group">
-          <button type="button" id="btn-grp-loja" class="btn btn-outline-secondary" onclick="toggleAgrupamento('loja')">
-            <i class="bi bi-shop me-1"></i>Lojas
+          <button type="button" id="btn-grp-projeto" class="btn btn-outline-secondary" onclick="toggleAgrupamento('projeto')">
+            <i class="bi bi-folder me-1"></i>Projetos
           </button>
           <button type="button" id="btn-grp-cat" class="btn btn-outline-secondary" onclick="toggleAgrupamento('categoria')">
             <i class="bi bi-tags me-1"></i>Categorias
+          </button>
+          <button type="button" id="btn-grp-loja" class="btn btn-outline-secondary" onclick="toggleAgrupamento('loja')">
+            <i class="bi bi-shop me-1"></i>Lojas
           </button>
         </div>
         <button class="btn btn-sm btn-outline-danger" onclick="exportarPDF('mes')"><i class="bi bi-file-earmark-pdf"></i> PDF Mês</button>
@@ -267,6 +295,7 @@ $lojas = $stmt_lojas->fetchAll(PDO::FETCH_COLUMN);
       <table>
         <thead>
           <tr>
+            <th>Projeto</th>
             <th>Categoria</th>
             <th>Loja</th>
             <th>Descrição</th>
@@ -279,7 +308,7 @@ $lojas = $stmt_lojas->fetchAll(PDO::FETCH_COLUMN);
           </tr>
         </thead>
         <tbody id="tbl-body">
-          <tr class="empty-row"><td colspan="9"><i class="bi bi-inbox fs-4 d-block mb-2"></i>Nenhum item cadastrado. Clique em "Novo Item" para começar.</td></tr>
+          <tr class="empty-row"><td colspan="10"><i class="bi bi-inbox fs-4 d-block mb-2"></i>Nenhum item cadastrado. Clique em "Novo Item" para começar.</td></tr>
         </tbody>
       </table>
     </div>
@@ -302,6 +331,16 @@ $lojas = $stmt_lojas->fetchAll(PDO::FETCH_COLUMN);
           <input type="hidden" name="action" value="save"/>
           <input type="hidden" name="id" id="item-id"/>
           <div class="row g-3">
+            <div class="col-md-6">
+              <label class="form-label fw-semibold">Projeto</label>
+              <select class="select-projeto form-select" name="projeto_id" id="item-projeto" onchange="onChangeSelectProjeto(this)">
+                <option value="">— Sem projeto —</option>
+                <?php foreach ($projetos as $pj): ?>
+                    <option value="<?= (int)$pj['id'] ?>"><?= htmlspecialchars($pj['nome']) ?></option>
+                <?php endforeach; ?>
+                <option value="__novo__">+ Novo projeto...</option>
+              </select>
+            </div>
             <div class="col-md-6">
               <label class="form-label fw-semibold">Categoria <span class="text-danger">*</span></label>
               <select class="form-select" name="categoria" id="item-cat">
@@ -327,7 +366,7 @@ $lojas = $stmt_lojas->fetchAll(PDO::FETCH_COLUMN);
               <input type="month" class="form-control" name="mes_ano" id="item-mes"/>
             </div>
             <div class="col-12">
-              <label class="form-label fw-semibold">Descrição <span class="text-danger">*</span></label>
+              <label class="form-label fw-semibold">Descrição (equipamento/serviço) <span class="text-danger">*</span></label>
               <input type="text" class="form-control" name="descricao" id="item-desc" placeholder="Ex: Compra de nobreaks para loja Centro"/>
             </div>
             <div class="col-md-4">
@@ -385,6 +424,7 @@ let modal;
 let modalConcretizar;
 let modalDetalhesOrc;
 let itens = <?= json_encode($itens) ?>;
+let projetosLista = <?= json_encode($projetos) ?>;
 
 document.addEventListener('DOMContentLoaded', () => {
   modal = new bootstrap.Modal(document.getElementById('modalItem'));
@@ -393,6 +433,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
   // Carregar filtros salvos
   const filtrosSaved = JSON.parse(localStorage.getItem('orc_filtros') || '{}');
+  if (filtrosSaved.projeto) document.getElementById('f-projeto').value = filtrosSaved.projeto;
   if (filtrosSaved.cat)  document.getElementById('f-cat').value   = filtrosSaved.cat;
   if (filtrosSaved.mes)  document.getElementById('f-mes').value   = filtrosSaved.mes;
   if (filtrosSaved.ano)  document.getElementById('f-ano').value   = filtrosSaved.ano;
@@ -441,6 +482,7 @@ function atualizarStats(listaItems = itens) {
 }
 
 function filtrar() {
+  const projeto = document.getElementById('f-projeto').value;
   const cat  = document.getElementById('f-cat').value;
   const mes  = document.getElementById('f-mes').value;
   const ano  = document.getElementById('f-ano').value;
@@ -448,9 +490,10 @@ function filtrar() {
   const loja = document.getElementById('f-loja').value.toLowerCase();
 
   // Salvar estado dos filtros
-  localStorage.setItem('orc_filtros', JSON.stringify({cat, mes, ano, q, loja}));
+  localStorage.setItem('orc_filtros', JSON.stringify({projeto, cat, mes, ano, q, loja}));
 
   const lista = itens.filter(i => {
+    if (projeto && String(i.projeto_id || '') !== String(projeto)) return false;
     if (cat && i.categoria !== cat) return false;
     if (mes && i.mes_ano && i.mes_ano.substring(5, 7) !== mes) return false;
     // Forçar comparação estrita para o ano
@@ -463,27 +506,26 @@ function filtrar() {
   renderTabela(lista);
 }
 
-let modosAgrupamento = {
-  loja: false,
-  categoria: false
-};
+// Ordem da hierarquia de agrupamento: Projeto → Categoria → Loja
+// (Equipamento/Descrição é o nível mais fino, cada linha já é um item).
+const DIMENSOES_AGRUPAMENTO = [
+  { chave: 'projeto',   rotulo: 'Projeto',   icone: 'bi-folder', btn: 'btn-grp-projeto', valor: i => (i.projeto_nome && i.projeto_nome.trim() !== '') ? i.projeto_nome : 'Sem Projeto' },
+  { chave: 'categoria', rotulo: 'Categoria', icone: 'bi-tags',   btn: 'btn-grp-cat',     valor: i => (i.categoria && i.categoria.trim() !== '') ? i.categoria : 'Outros' },
+  { chave: 'loja',      rotulo: 'Loja',      icone: 'bi-shop',   btn: 'btn-grp-loja',    valor: i => (i.loja && i.loja.trim() !== '') ? i.loja : 'Sem Loja Definida' },
+];
+
+let modosAgrupamento = { projeto: false, categoria: false, loja: false };
 
 function toggleAgrupamento(tipo) {
   modosAgrupamento[tipo] = !modosAgrupamento[tipo];
 
-  const btnLoja = document.getElementById('btn-grp-loja');
-  const btnCat  = document.getElementById('btn-grp-cat');
-
-  if (btnLoja) {
-    btnLoja.className = modosAgrupamento.loja
+  DIMENSOES_AGRUPAMENTO.forEach(d => {
+    const btn = document.getElementById(d.btn);
+    if (!btn) return;
+    btn.className = modosAgrupamento[d.chave]
       ? 'btn btn-primary active text-white'
       : 'btn btn-outline-secondary';
-  }
-  if (btnCat) {
-    btnCat.className = modosAgrupamento.categoria
-      ? 'btn btn-primary active text-white'
-      : 'btn btn-outline-secondary';
-  }
+  });
 
   filtrar();
 }
@@ -495,7 +537,7 @@ function renderTabela(lista) {
 
   document.getElementById('tbl-count').textContent = lista.length + ' ite' + (lista.length === 1 ? 'm' : 'ns');
   if (!lista.length) {
-    tbody.innerHTML = '<tr class="empty-row"><td colspan="9"><i class="bi bi-inbox fs-4 d-block mb-2"></i>Nenhum item encontrado.</td></tr>';
+    tbody.innerHTML = '<tr class="empty-row"><td colspan="10"><i class="bi bi-inbox fs-4 d-block mb-2"></i>Nenhum item encontrado.</td></tr>';
     return;
   }
 
@@ -504,25 +546,13 @@ function renderTabela(lista) {
     '07': 'Julho', '08': 'Agosto', '09': 'Setembro', '10': 'Outubro', '11': 'Novembro', '12': 'Dezembro'
   };
 
-  let agrupado = {};
+  // Dimensões ativas, já na ordem fixa da hierarquia (Projeto → Categoria → Loja)
+  const dimensoesAtivas = DIMENSOES_AGRUPAMENTO.filter(d => modosAgrupamento[d.chave]);
 
-  if (modosAgrupamento.loja && modosAgrupamento.categoria) {
+  let agrupado = {};
+  if (dimensoesAtivas.length) {
     agrupado = lista.reduce((acc, i) => {
-      const lojaNome = i.loja && i.loja.trim() !== '' ? i.loja : 'Sem Loja Definida';
-      const catNome = i.categoria && i.categoria.trim() !== '' ? i.categoria : 'Outros';
-      const chave = `Loja: ${lojaNome} | Cat: ${catNome}`;
-      (acc[chave] = acc[chave] || []).push(i);
-      return acc;
-    }, {});
-  } else if (modosAgrupamento.loja) {
-    agrupado = lista.reduce((acc, i) => {
-      const chave = i.loja && i.loja.trim() !== '' ? i.loja : 'Sem Loja Definida';
-      (acc[chave] = acc[chave] || []).push(i);
-      return acc;
-    }, {});
-  } else if (modosAgrupamento.categoria) {
-    agrupado = lista.reduce((acc, i) => {
-      const chave = i.categoria && i.categoria.trim() !== '' ? i.categoria : 'Outros';
+      const chave = dimensoesAtivas.map(d => `${d.rotulo}: ${d.valor(i)}`).join(' | ');
       (acc[chave] = acc[chave] || []).push(i);
       return acc;
     }, {});
@@ -535,32 +565,13 @@ function renderTabela(lista) {
 
   tbody.innerHTML = Object.entries(agrupado).map(([grupo, items]) => {
     let rows = '';
-    if (modosAgrupamento.loja && modosAgrupamento.categoria) {
+    if (dimensoesAtivas.length) {
       const totalPrevGrupo = items.filter(ativoItem).reduce((s, i) => s + Number(i.total_previsto || 0), 0);
       const totalRealGrupo = items.filter(ativoItem).reduce((s, i) => s + Number(i.total_realizado || 0), 0);
+      const icone = dimensoesAtivas.length > 1 ? 'bi-diagram-3-fill' : dimensoesAtivas[0].icone;
       rows += `<tr style="background:#eef2f6; font-weight:bold">
-        <td colspan="9">
-          <i class="bi bi-diagram-3-fill me-1 text-primary"></i> ${esc(grupo)}
-          <span class="badge bg-secondary ms-2">${items.length} ${items.length === 1 ? 'item' : 'itens'}</span>
-          <span class="ms-3 text-muted fw-normal" style="font-size:.8rem">Previsto: <b class="text-primary">${fmt(totalPrevGrupo)}</b> | Realizado: <b class="text-danger">${fmt(totalRealGrupo)}</b></span>
-        </td>
-      </tr>`;
-    } else if (modosAgrupamento.loja) {
-      const totalPrevGrupo = items.filter(ativoItem).reduce((s, i) => s + Number(i.total_previsto || 0), 0);
-      const totalRealGrupo = items.filter(ativoItem).reduce((s, i) => s + Number(i.total_realizado || 0), 0);
-      rows += `<tr style="background:#eef2f6; font-weight:bold">
-        <td colspan="9">
-          <i class="bi bi-shop me-1 text-primary"></i> Loja: ${esc(grupo)}
-          <span class="badge bg-secondary ms-2">${items.length} ${items.length === 1 ? 'item' : 'itens'}</span>
-          <span class="ms-3 text-muted fw-normal" style="font-size:.8rem">Previsto: <b class="text-primary">${fmt(totalPrevGrupo)}</b> | Realizado: <b class="text-danger">${fmt(totalRealGrupo)}</b></span>
-        </td>
-      </tr>`;
-    } else if (modosAgrupamento.categoria) {
-      const totalPrevGrupo = items.filter(ativoItem).reduce((s, i) => s + Number(i.total_previsto || 0), 0);
-      const totalRealGrupo = items.filter(ativoItem).reduce((s, i) => s + Number(i.total_realizado || 0), 0);
-      rows += `<tr style="background:#eef2f6; font-weight:bold">
-        <td colspan="9">
-          <i class="bi bi-tags me-1 text-primary"></i> Categoria: ${esc(grupo)}
+        <td colspan="10">
+          <i class="bi ${icone} me-1 text-primary"></i> ${esc(grupo)}
           <span class="badge bg-secondary ms-2">${items.length} ${items.length === 1 ? 'item' : 'itens'}</span>
           <span class="ms-3 text-muted fw-normal" style="font-size:.8rem">Previsto: <b class="text-primary">${fmt(totalPrevGrupo)}</b> | Realizado: <b class="text-danger">${fmt(totalRealGrupo)}</b></span>
         </td>
@@ -569,7 +580,7 @@ function renderTabela(lista) {
       const split = grupo.split('-');
       const nomeMes = mesesNomes[split[1]] || split[1];
       const tituloMes = `${nomeMes} ${split[0]}`;
-      rows += `<tr style="background:#eef2f6; font-weight:bold"><td colspan="9">${tituloMes}</td></tr>`;
+      rows += `<tr style="background:#eef2f6; font-weight:bold"><td colspan="10">${tituloMes}</td></tr>`;
     }
 
     rows += items.map(i => {
@@ -578,7 +589,9 @@ function renderTabela(lista) {
       const saldo  = plan - real;
       const cls    = CAT_CLASS[i.categoria] || 'cat-outros';
       const susp   = !ativoItem(i);
+      const temProjeto = i.projeto_nome && i.projeto_nome.trim() !== '';
       return `<tr class="${susp ? 'row-suspenso' : ''}">
+        <td><span class="badge-projeto ${temProjeto ? '' : 'sem-projeto'}">${esc(temProjeto ? i.projeto_nome : '— Sem projeto —')}</span></td>
         <td><span class="badge-cat ${cls}">${esc(i.categoria)}</span></td>
         <td>${esc(i.loja || '-')}</td>
         <td style="max-width:220px">${esc(i.descricao)}</td>
@@ -602,8 +615,46 @@ function renderTabela(lista) {
   }).join('');
 }
 
+// Criação rápida de projeto direto do select (opção "+ Novo projeto...")
+function onChangeSelectProjeto(select) {
+  if (select.value !== '__novo__') return;
+  const nome = prompt('Nome do novo projeto:');
+  if (!nome || !nome.trim()) { select.value = ''; return; }
+  criarProjetoRapido(nome.trim(), select);
+}
+
+function criarProjetoRapido(nome, selectOrigem) {
+  const body = new URLSearchParams({ action_projeto: 'add', nome });
+  fetch('orcamento.php', { method: 'POST', body })
+    .then(r => r.json())
+    .then(resp => {
+      if (!resp.ok) {
+        alert('Não foi possível criar o projeto: ' + (resp.erro || ''));
+        if (selectOrigem) selectOrigem.value = '';
+        return;
+      }
+      projetosLista.push({ id: resp.id, nome: resp.nome });
+      projetosLista.sort((a, b) => a.nome.localeCompare(b.nome, 'pt-BR'));
+      // Replica a opção nova em todo select de projeto da página (filtro + modal)
+      document.querySelectorAll('.select-projeto').forEach(sel => {
+        if (Array.from(sel.options).some(o => o.value === String(resp.id))) return;
+        const opt = document.createElement('option');
+        opt.value = resp.id;
+        opt.textContent = resp.nome;
+        const optNovo = Array.from(sel.options).find(o => o.value === '__novo__');
+        if (optNovo) sel.insertBefore(opt, optNovo); else sel.appendChild(opt);
+      });
+      if (selectOrigem) selectOrigem.value = resp.id;
+    })
+    .catch(() => {
+      alert('Erro de rede ao criar o projeto.');
+      if (selectOrigem) selectOrigem.value = '';
+    });
+}
+
 function abrirModal() {
   document.getElementById('item-id').value   = '';
+  document.getElementById('item-projeto').value = '';
   document.getElementById('item-cat').value  = 'Hardware';
   document.getElementById('item-desc').value = '';
   document.getElementById('item-loja').value = '';
@@ -624,6 +675,7 @@ function editarItem(id) {
   const i = itens.find(x => String(x.id) === String(id));
   if (!i) return;
   document.getElementById('item-id').value   = i.id;
+  document.getElementById('item-projeto').value = i.projeto_id || '';
   document.getElementById('item-cat').value  = i.categoria;
   document.getElementById('item-desc').value = i.descricao;
   document.getElementById('item-loja').value = i.loja || '';
@@ -674,6 +726,7 @@ function verDetalhesOrc(id) {
   const corpo = document.getElementById('detalhes-orc-corpo');
   corpo.innerHTML = `
     <dl class="row mb-0">
+      <dt class="col-sm-4">Projeto</dt><dd class="col-sm-8">${esc(i.projeto_nome || '— Sem projeto —')}</dd>
       <dt class="col-sm-4">Categoria</dt><dd class="col-sm-8">${esc(i.categoria)}</dd>
       <dt class="col-sm-4">Loja</dt><dd class="col-sm-8">${esc(i.loja || '-')}</dd>
       <dt class="col-sm-4">Mês/Ano</dt><dd class="col-sm-8">${esc(i.mes_ano || '-')}</dd>
@@ -694,6 +747,7 @@ function abrirModalConcretizar(id) {
   document.getElementById('conc-orc-id').value = i.id;
   document.getElementById('conc-desc').value   = i.descricao;
   document.getElementById('conc-valor').value  = i.total_realizado || 0;
+  document.getElementById('conc-projeto-id').value = i.projeto_id || '';
   modalConcretizar.show();
 }
 
@@ -716,10 +770,11 @@ function exportarPDF(tipo) {
 
     doc.text(titulo, 14, 15);
 
-    const columns = ['Categoria', 'Loja', 'Descrição', 'Mês', 'Qtd Prev','Vl Unit Prev','Total Prev','Qtd Real','Vl Unit Real','Total Real'];
+    const columns = ['Projeto', 'Categoria', 'Loja', 'Descrição', 'Mês', 'Qtd Prev','Vl Unit Prev','Total Prev','Qtd Real','Vl Unit Real','Total Real'];
     const rows = itens
         .filter(i => (tipo === 'mes' ? (i.mes_ano === document.getElementById('f-mes').value) : (i.mes_ano.startsWith(document.getElementById('f-ano').value))))
         .map(i => [
+            i.projeto_nome || '-',
             i.categoria,
             i.loja || '-',
             i.descricao,
@@ -756,6 +811,7 @@ function esc(s) {
           <input type="hidden" name="orcamento_id" id="conc-orc-id"/>
           <input type="hidden" name="descricao" id="conc-desc"/>
           <input type="hidden" name="valor_pago" id="conc-valor"/>
+          <input type="hidden" name="projeto_id" id="conc-projeto-id"/>
 
           <div class="mb-3">
               <label class="form-label">Fornecedor <span class="text-danger">*</span></label>
