@@ -48,6 +48,12 @@ Bem-vindo ao vault de documentação do Portal GLPI.
 - [[Logs/2026-06-06-sessao-pfsense-central|06/06 — Central pfSense com lojas]]
 - [[Logs/2026-06-07-sessao-pfsense-proxy-fix|07/06 — Fix proxy pfSense]]
 - [[Logs/2026-06-07-sessao-rdp-central|07/06 — Central RDP]]
+- [[Logs/2026-07-18-sessao-docker-migracao|18/07 — Migração Docker]]
+- [[Logs/2026-10-19-sessao-sincronizacao-architecture-backlog|19/10 — Sincronização ARCHITECTURE + backlog]]
+
+> ⚠️ Entre 18/07 e 19/10 houve ~3 meses de trabalho sem log de sessão nesta vault
+> (Monitor de Rede, Central de Alertas, Orçamento/Despesas BI, SEFAZ, Sólides, pfSense).
+> Histórico confiável desse período: `git log` + [[Arquitetura/ARCHITECTURE|ARCHITECTURE.md → Roadmap]].
 
 ---
 
