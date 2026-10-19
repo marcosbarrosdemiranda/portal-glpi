@@ -3864,7 +3864,18 @@ function converterEmChamado() {
       }),
     })
     .then(r => r.json())
-    .then(() => {
+    .then(res2 => {
+      // âš ï¸ O chamado já foi criado no GLPI nesse ponto (fetch anterior) — se o save
+      // do evento falhar, NÃO finge sucesso: avisa e deixa o pré-chamado como estava,
+      // em vez de fechar o modal e tocar o toast de conversão concluída.
+      if (!res2 || !res2.ok) {
+        alert(`Chamado #${res.ticket_id} foi criado no GLPI, mas falhou ao atualizar o evento na agenda` +
+              (res2 && res2.error ? `: ${res2.error}` : '.') +
+              ` O pré-chamado continua pendente — vincule o #${res.ticket_id} manualmente.`);
+        calendar.refetchEvents();
+        carregarTickets();
+        return;
+      }
       modalEvento.hide();
       calendar.refetchEvents();
       carregarTickets();
