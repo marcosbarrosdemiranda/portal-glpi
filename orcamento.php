@@ -164,7 +164,7 @@ $lojas = $stmt_lojas->fetchAll(PDO::FETCH_COLUMN);
       font-size: .78rem; text-transform: uppercase; letter-spacing: .04em;
       white-space: nowrap;
     }
-    thead th:nth-child(1)  { width: 150px; }  /* Projeto   */
+    thead th:nth-child(1)  { width: 100px; }  /* Projeto   */
     thead th:nth-child(2)  { width: 130px; }  /* Categoria */
     thead th:nth-child(3)  { width: 140px; }  /* Loja      */
     thead th:nth-child(4)  { width: auto;  }  /* Descrição — ocupa o resto */
