@@ -218,7 +218,7 @@ try {
     $placeholders_criados = 0;
     try {
         $defs = $pdo->query("
-            SELECT id, name, begin_date, periodicity
+            SELECT id, name, begin_date, periodicity, tickettemplates_id
             FROM glpi_ticketrecurrents
             WHERE is_active = 1 AND entities_id = 0
         ")->fetchAll();
@@ -238,15 +238,80 @@ try {
         $janelaInicio = new DateTime($hoje . ' 00:00:00');
         $janelaFim    = (clone $janelaInicio)->modify('+30 days');
 
+        // glpi_ticketrecurrents não tem campo de técnico responsável direto,
+        // mas o template do chamado (glpi_tickettemplates_id) que ela usa
+        // pode ter um técnico PRÉ-DEFINIDO (glpi_tickettemplatepredefinedfields,
+        // num=5 = _users_id_assign) — confirmado em produção 2026-10-19: bate
+        // com o técnico real do último chamado em 22 das 27 definições com
+        // chamado real; as divergências são reatribuição manual posterior,
+        // não erro de leitura do campo. Essa é a fonte PRIMÁRIA (reflete a
+        // intenção cadastrada, não só "quem fez por último").
+        $predefUserPorTemplate = [];
+        $stmt_predef = $pdo->query("
+            SELECT tickettemplates_id, value
+            FROM glpi_tickettemplatepredefinedfields
+            WHERE num = 5 AND value IS NOT NULL AND value != ''
+        ");
+        foreach ($stmt_predef->fetchAll() as $p) {
+            $predefUserPorTemplate[$p['tickettemplates_id']] = (int)$p['value'];
+        }
+        $usuariosPredef = [];
+        if ($predefUserPorTemplate) {
+            $ids = array_values(array_unique(array_values($predefUserPorTemplate)));
+            $in  = implode(',', array_fill(0, count($ids), '?'));
+            $stmt_u = $pdo->prepare("SELECT id, realname, firstname, name FROM glpi_users WHERE id IN ($in)");
+            $stmt_u->execute($ids);
+            foreach ($stmt_u->fetchAll() as $u) {
+                $nome = trim(($u['realname'] ?? '') . ' ' . ($u['firstname'] ?? ''));
+                if (!$nome) $nome = $u['name'] ?? '';
+                $usuariosPredef[$u['id']] = $nome;
+            }
+        }
+
+        // Fallback (quando o template não tem técnico pré-definido): herda
+        // do ÚLTIMO chamado real já mirrorado dessa mesma definição. Sem
+        // algum atendente, o filtro "por atendente" da Agenda (que casa por
+        // nome exato) nunca mostra o pré-chamado pra ninguém específico —
+        // só em "Todos os atendentes".
+        $ultimoAtendentePorDef = [];
+        $stmt_ult = $pdo->query("
+            SELECT ticketrecurrents_id, atendente, atendente_id, atendente_cor, start
+            FROM glpi_plugin_agenda_events
+            WHERE tipo = 'chamado' AND ticketrecurrents_id IS NOT NULL AND atendente_id IS NOT NULL
+            ORDER BY start DESC
+        ");
+        foreach ($stmt_ult->fetchAll() as $u) {
+            if (!isset($ultimoAtendentePorDef[$u['ticketrecurrents_id']])) {
+                $ultimoAtendentePorDef[$u['ticketrecurrents_id']] = $u;
+            }
+        }
+
         $ins_ph = $pdo->prepare("
             INSERT INTO glpi_plugin_agenda_events
-                (id, titulo, descricao, start, end, ticket_id, ticketrecurrents_id, tipo, concluido)
+                (id, titulo, descricao, start, end, atendente, atendente_id, atendente_cor,
+                 ticket_id, ticketrecurrents_id, tipo, concluido)
             VALUES
-                (:id, :titulo, :desc, :start, :end, NULL, :trid, 'pre_chamado', 0)
+                (:id, :titulo, :desc, :start, :end, :atendente, :atendente_id, :cor,
+                 NULL, :trid, 'pre_chamado', 0)
         ");
 
         foreach ($defs as $def) {
             $ocorrencias = preChamadoProximasOcorrencias($def['begin_date'], $def['periodicity'], $janelaInicio, $janelaFim);
+
+            // Fonte primária: técnico pré-definido no template da rotina.
+            // Fallback: último chamado real dessa definição.
+            $predefId = $predefUserPorTemplate[$def['tickettemplates_id']] ?? null;
+            if ($predefId && isset($usuariosPredef[$predefId])) {
+                $atendente_nome = $usuariosPredef[$predefId];
+                $atendente_id   = $predefId;
+                $atendente_cor  = $cores[abs(crc32($atendente_nome)) % count($cores)];
+            } else {
+                $ult = $ultimoAtendentePorDef[$def['id']] ?? null;
+                $atendente_nome = $ult['atendente']     ?? null;
+                $atendente_id   = $ult['atendente_id']  ?? null;
+                $atendente_cor  = $ult['atendente_cor'] ?? null;
+            }
+
             foreach ($ocorrencias as $dt) {
                 $dia = $dt->format('Y-m-d');
                 $key = $def['id'] . '|' . $dia;
@@ -256,12 +321,15 @@ try {
                 $end_dt   = date('Y-m-d H:i:s', strtotime($start_dt . ' +15 minutes'));
 
                 $ins_ph->execute([
-                    ':id'    => uniqid('pre_', true),
-                    ':titulo'=> $def['name'],
-                    ':desc'  => 'Pré-chamado — rotina automática (GLPI)',
-                    ':start' => $start_dt,
-                    ':end'   => $end_dt,
-                    ':trid'  => $def['id'],
+                    ':id'           => uniqid('pre_', true),
+                    ':titulo'       => $def['name'],
+                    ':desc'         => 'Pré-chamado — rotina automática (GLPI)',
+                    ':start'        => $start_dt,
+                    ':end'          => $end_dt,
+                    ':atendente'    => $atendente_nome,
+                    ':atendente_id' => $atendente_id,
+                    ':cor'          => $atendente_cor,
+                    ':trid'         => $def['id'],
                 ]);
                 $ocupadas[$key] = true; // defensivo: evita duplicar na mesma passada
                 $placeholders_criados++;
