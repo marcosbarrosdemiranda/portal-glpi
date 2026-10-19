@@ -1691,6 +1691,9 @@ function eventosFiltrados() {
       if (e.extendedProps.atendente === filtroAtendente) return true;
       // Verifica co_atendentes (reunião/evento compartilhado)
       if (e.extendedProps.co_atendentes && e.extendedProps.co_atendentes.some(c => c.nome === filtroAtendente)) return true;
+      // Pré-chamado sem técnico pré-definido = rotina em equipe (sem "dono"
+      // único) — aparece pra qualquer técnico selecionado, não só em "Todos".
+      if (e.extendedProps.tipo === 'pre_chamado' && !e.extendedProps.atendente) return true;
       if (e.extendedProps.concluido && !e.extendedProps.atendente) {
         return filtroAtendente === USUARIO_LOGADO_NOME;
       }
