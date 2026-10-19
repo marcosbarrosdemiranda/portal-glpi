@@ -24,6 +24,8 @@ Bem-vindo ao vault de documentação do Portal GLPI.
 - [[Decisões/ADR-002-integracao-glpi-obrigatoria|ADR-002]] — Integração GLPI obrigatória
 - [[Decisões/ADR-003-atualizacao-prd-automatica|ADR-003a]] — Atualização automática do PRD
 - [[Decisões/ADR-003-filtro-tipo-menu-tres-pontos|ADR-003b]] — Filtro tipo + menu ⋮ na Agenda
+- [[Decisões/ADR-004-estrategia-mobile-pwa-primeiro|ADR-004]] — Estratégia mobile: PWA primeiro
+- [[Decisões/ADR-005-architecture-sync-2026-10|ADR-005]] — Sincronização do ARCHITECTURE.md com o estado real
 
 ---
 
