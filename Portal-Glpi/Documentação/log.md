@@ -1,5 +1,27 @@
 ﻿# Timeline de Atividades Macro
 
+## [2026-10-19] — Agenda: Pré-chamado como placeholder de rotinas GLPI
+- **Tipo:** feat
+- **Arquivos novos:** `agenda/pre_chamado_lib.php`, `Decisões/ADR-006-agenda-pre-chamado-ticketrecurrents.md`,
+  `Logs/2026-10-19-sessao-agenda-pre-chamado.md`
+- **Arquivos alterados:** `agenda/sync_rotinas_ajax.php`, `agenda/eventos.php`, `agenda/index.php`,
+  `Tarefas/backlog.md`
+- **Contexto:** Agenda só mostrava chamado de rotina no dia em que o GLPI de fato criava — zero
+  visibilidade das ocorrências futuras das 32 definições ativas de `glpi_ticketrecurrents`.
+- **feat:** novo tipo de evento "Pré-chamado" (cor cinza claro) — placeholder gerado automaticamente
+  pros próximos 30 dias de cada rotina GLPI nativa; converte sozinho quando o chamado real aparece,
+  ou manualmente via botão "Converter em chamado" pra pré-chamados sem vínculo de recorrência.
+- **fix (achado durante a validação):** match de chamado↔definição por igualdade exata de nome
+  falhava silenciosamente pra 2 das 32 definições (nome do chamado real com sufixo/espaço extra
+  em relação ao nome da definição) — gerava placeholder duplicado a cada rodada de sync. Corrigido
+  com match por prefixo + `TRIM()`.
+- Validado em produção: 334 placeholders sem duplicata, conversão simulada sem duplicar linha,
+  3 rodadas de sync consecutivas idempotentes depois do fix.
+- Ver [[../Decisões/ADR-006-agenda-pre-chamado-ticketrecurrents|ADR-006]]
+- **PR #7** aberto (base `feat/orcamento-projeto`), sem merge — falta validação visual do usuário
+
+---
+
 ## [2026-10-19] — Sincronização do ARCHITECTURE.md com o estado real (cronograma)
 - **Tipo:** docs
 - **Arquivos alterados:** `Arquitetura/ARCHITECTURE.md`, `Documentação/CRITICAL_FACTS.md`, `Documentação/log.md`

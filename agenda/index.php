@@ -629,6 +629,7 @@ $libera_data_passada = ($cards_portal === null) || (($cards_portal['agenda_data_
               <option value="reuniao">👥 Reunião</option>
               <option value="evento">📅 Evento</option>
               <option value="projeto">📁 Projeto</option>
+              <option value="pre_chamado">🕓 Pré-chamado</option>
             </select>
           </div>
           <!-- Banner modo leitura — mesma linha que Tipo -->
@@ -860,6 +861,9 @@ $libera_data_passada = ($cards_portal === null) || (($cards_portal['agenda_data_
         </div>
         <button class="btn btn-outline-danger" id="btnResponder" onclick="abrirModalResposta()" style="display:none">
           <i class="bi bi-reply-fill me-1"></i>Responder Chamado
+        </button>
+        <button class="btn btn-outline-success" id="btnConverterChamado" onclick="converterEmChamado()" style="display:none">
+          <i class="bi bi-arrow-up-circle me-1"></i>Converter em chamado
         </button>
         <button class="btn btn-outline-primary" id="btnNovoPeriodo" onclick="novoPeriodo()" style="display:none">
           <i class="bi bi-plus-circle me-1"></i>Novo período
@@ -1164,6 +1168,7 @@ const COR_TIPO = {
   reuniao:    { bg: '#7b1fa2', border: '#4a148c' }, // Roxo
   chamado:    { bg: '#d93025', border: '#a52218' }, // Vermelho
   projeto:    { bg: '#00897b', border: '#00695c' }, // Verde-azulado
+  pre_chamado:{ bg: '#bdbdbd', border: '#9e9e9e' }, // Cinza claro — reserva, ainda nao e chamado real
   concluido:  { bg: '#1e8e3e', border: '#155a2e' }, // Verde
   pendente:   { bg: '#f9a825', border: '#c6790a' }, // Ambar — chamado/requisicao ainda no prazo
   atrasado:   { bg: '#d93025', border: '#a52218' }, // Vermelho — vencido e nao concluido
@@ -1609,6 +1614,7 @@ function carregarEventos(info, success) {
             setor:        e.setor,
             projeto:      e.projeto,
             ticket_id:    e.ticket_id,
+            ticketrecurrents_id: e.ticketrecurrents_id || null,
             tipo:         e.tipo,
             concluido,
             atrasado,
@@ -1685,6 +1691,9 @@ function eventosFiltrados() {
       if (e.extendedProps.atendente === filtroAtendente) return true;
       // Verifica co_atendentes (reunião/evento compartilhado)
       if (e.extendedProps.co_atendentes && e.extendedProps.co_atendentes.some(c => c.nome === filtroAtendente)) return true;
+      // Pré-chamado sem técnico pré-definido = rotina em equipe (sem "dono"
+      // único) — aparece pra qualquer técnico selecionado, não só em "Todos".
+      if (e.extendedProps.tipo === 'pre_chamado' && !e.extendedProps.atendente) return true;
       if (e.extendedProps.concluido && !e.extendedProps.atendente) {
         return filtroAtendente === USUARIO_LOGADO_NOME;
       }
@@ -2142,6 +2151,7 @@ function verDetalhesSidebar() {
   document.getElementById('btnExcluirGlpi').style.display = 'none';
   document.getElementById('btnResponder').style.display   = (!MODO_OUVINTE && id) ? 'inline-block' : 'none';
   document.getElementById('btnNovoPeriodo').style.display = (!MODO_OUVINTE && id) ? 'inline-block' : 'none';
+  document.getElementById('btnConverterChamado').style.display = 'none';
   document.getElementById('modalTitulo').innerHTML = '<i class="bi bi-eye me-2"></i>Detalhes do Evento';
 
   modalEvento.show();
@@ -2529,6 +2539,7 @@ function abrirModalEvento(dataStr) {
   document.getElementById('btnExcluirGlpi').style.display = 'none';
   document.getElementById('btnResponder').style.display   = 'none';
   document.getElementById('btnNovoPeriodo').style.display = 'none';
+  document.getElementById('btnConverterChamado').style.display = 'none';
   document.getElementById('banner-readonly').style.display = 'none';
   document.getElementById('modalTitulo').innerHTML = '<i class="bi bi-calendar-plus me-2"></i>Novo Evento';
   ajustarCamposPorTipo();
@@ -2784,7 +2795,9 @@ function ajustarCamposPorTipo() {
   const reuniao   = tipo === 'reuniao';
   const evento    = tipo === 'evento';
   const projeto   = tipo === 'projeto';
-  const isChamado = tipo === 'chamado' || tipo === 'requisicao';
+  // Pré-chamado entra junto de chamado/requisição: precisa dos mesmos campos
+  // preenchidos pra poder virar um chamado real depois (automático ou pelo botão)
+  const isChamado = tipo === 'chamado' || tipo === 'requisicao' || tipo === 'pre_chamado';
 
   // Prioridade: oculta em reunião, evento e projeto
   document.getElementById('campo-prioridade').style.display  = (reuniao || evento || projeto) ? 'none' : '';
@@ -2806,9 +2819,10 @@ function ajustarCamposPorTipo() {
   document.getElementById('campo-projeto').style.display = projeto ? '' : 'none';
   document.getElementById('campo-titulo').style.display  = projeto ? 'none' : '';
   if (projeto) carregarListaProjetos(_dadosModal?.projeto);
-  // Asterisco de Descrição: obrigatório apenas em chamado/requisição
+  // Asterisco de Descrição: obrigatório apenas em chamado/requisição de verdade —
+  // pré-chamado mostra os campos pra pré-preencher, mas só exige no "Converter em chamado"
   const starDesc = document.getElementById('star-descricao');
-  if (starDesc) starDesc.style.display = isChamado ? '' : 'none';
+  if (starDesc) starDesc.style.display = (tipo === 'chamado' || tipo === 'requisicao') ? '' : 'none';
 
   // Recorrência: apenas para Evento
   const campoRec = document.getElementById('campo-recorrencia');
@@ -3520,6 +3534,7 @@ function novoPeriodo() {
     document.getElementById('btnExcluirGlpi').style.display = 'none';
     document.getElementById('btnResponder').style.display   = 'none';
     document.getElementById('btnNovoPeriodo').style.display = 'none';
+    document.getElementById('btnConverterChamado').style.display = 'none';
     document.getElementById('banner-readonly').style.display = 'none';
     document.getElementById('modalTitulo').innerHTML =
       `<i class="bi bi-clock-history me-2"></i>Novo período — #${tid}`;
@@ -3535,6 +3550,7 @@ function abrirModalSemLimpar() {
   document.getElementById('btnDeletar').style.display     = 'none';
   document.getElementById('btnResponder').style.display   = 'none';
   document.getElementById('btnNovoPeriodo').style.display = 'none';
+  document.getElementById('btnConverterChamado').style.display = 'none';
   document.getElementById('modalTitulo').innerHTML = '<i class="bi bi-calendar-plus me-2"></i>Agendar Chamado';
   document.getElementById('lista-arquivos-criar').innerHTML = '';
   arquivosAnexosCriar = [];
@@ -3637,6 +3653,7 @@ function editarEvento(ev) {
     document.getElementById('btnExcluirGlpi').style.display = 'none';
     document.getElementById('btnResponder').style.display   = 'none';
     document.getElementById('btnNovoPeriodo').style.display = 'none';
+    document.getElementById('btnConverterChamado').style.display = 'none';
     document.querySelector('#modalEvento .btn-secondary')?.style.setProperty('display', 'none');
     document.querySelector('#modalEvento .btn-primary')?.style.setProperty('display', 'none');
 
@@ -3651,6 +3668,7 @@ function editarEvento(ev) {
       document.getElementById('btnExcluirGlpi').style.display = 'none';
       document.getElementById('btnResponder').style.display   = 'none';
       document.getElementById('btnNovoPeriodo').style.display = 'none';
+      document.getElementById('btnConverterChamado').style.display = 'none';
     } else {
       const _tid   = ev.extendedProps.ticket_id || c.ticket_id || '';
       const _tipo  = ev.extendedProps.tipo || c.tipo || '';
@@ -3660,6 +3678,13 @@ function editarEvento(ev) {
       document.getElementById('btnExcluirGlpi').dataset.ticketId = _tid;
       document.getElementById('btnResponder').style.display   = (_tid && !concluido) ? 'inline-block' : 'none';
       document.getElementById('btnNovoPeriodo').style.display = (_tid && !concluido) ? 'inline-block' : 'none';
+      // Pré-chamado manual (sem recorrência GLPI vinculada) ainda sem ticket real
+      // → mostra o botão de conversão. Pré-chamado de uma glpi_ticketrecurrents
+      // (ticketrecurrents_id setado) converte sozinho quando o GLPI criar o ticket
+      // real — oferecer o botão aí geraria chamado duplicado.
+      const _trid = ev.extendedProps.ticketrecurrents_id || c.ticketrecurrents_id || null;
+      document.getElementById('btnConverterChamado').style.display =
+        (_tipo === 'pre_chamado' && !_tid && !_trid && !concluido) ? 'inline-block' : 'none';
     }
     document.getElementById('modalTitulo').innerHTML = '<i class="bi bi-eye me-2"></i>Detalhes do Evento';
   }
@@ -3754,6 +3779,117 @@ function mostrarErroModal(erros) {
   banner.className = 'alert alert-danger py-2 px-3 mb-0 mt-1';
   banner.innerHTML = '<i class="bi bi-exclamation-triangle-fill me-1"></i>'
     + '<strong>Campos obrigatórios:</strong> ' + erros.join(' · ');
+}
+
+// Converte manualmente um pré-chamado em chamado real no GLPI. Só aparece pra
+// pré-chamado SEM ticketrecurrents_id (o automático converte sozinho via
+// sync_rotinas_ajax.php quando o GLPI criar o ticket da recorrência).
+function converterEmChamado() {
+  const evId = document.getElementById('ev-id').value.trim();
+  if (!evId) { alert('Salve o pré-chamado antes de converter em chamado.'); return; }
+
+  limparValidacao();
+  const errosVal  = [];
+  const titulo    = document.getElementById('ev-titulo').value.trim();
+  const descricao = document.getElementById('ev-descricao').value.trim();
+  const entEl     = document.getElementById('ev-entidade');
+  const entId     = entEl.selectedOptions[0]?.dataset?.id || '';
+  const reqEl     = document.getElementById('ev-requerente');
+  const reqId     = reqEl.selectedOptions[0]?.dataset?.id || '';
+  const multiSel  = getAtendentesMultiSelecionados();
+
+  if (!titulo)        { errosVal.push('Título');     marcarInvalido('ev-titulo'); }
+  if (!descricao)      { errosVal.push('Descrição');  marcarInvalido('ev-descricao'); }
+  if (!entId)          { errosVal.push('Entidade');   marcarInvalido('ev-entidade'); }
+  if (!reqId)          { errosVal.push('Requerente'); marcarInvalido('ev-requerente'); }
+  if (!multiSel.length) { errosVal.push('Atendente'); marcarInvalido('lista-atendentes-multi'); }
+  if (errosVal.length > 0) { mostrarErroModal(errosVal); return; }
+
+  aoMudarInicio();
+  const start = document.getElementById('ev-start').value;
+  const end   = document.getElementById('ev-end').value;
+  const catId = parseInt(document.getElementById('ev-categoria').value) || null;
+  const orgId = parseInt(document.getElementById('ev-origem').value) || null;
+  const primeiro = multiSel[0];
+
+  const btn = document.getElementById('btnConverterChamado');
+  const btnHtmlOrig = btn.innerHTML;
+  btn.disabled = true;
+  btn.innerHTML = '<span class="spinner-border spinner-border-sm me-2"></span>Convertendo...';
+  const reativar = () => { btn.disabled = false; btn.innerHTML = btnHtmlOrig; };
+
+  fetch('criar_ticket.php', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      titulo, descricao,
+      tipo:           'chamado',
+      prioridade:     document.getElementById('ev-prioridade').value,
+      atendente_id:   primeiro.id,
+      atendentes_ids: multiSel.map(a => a.id),
+      categoria_id:   catId,
+      entidade_id:    parseInt(entId),
+      requerente_id:  parseInt(reqId),
+      origem_id:      orgId,
+    }),
+  })
+  .then(r => r.json())
+  .then(res => {
+    if (!res.ok) {
+      alert('Erro ao criar chamado no GLPI: ' + (res.msg || 'Falha desconhecida'));
+      reativar();
+      return;
+    }
+    return fetch('eventos.php?action=save', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        id: evId,
+        titulo: `#${res.ticket_id} – ${titulo}`,
+        start, end,
+        atendente:      primeiro.nome,
+        atendente_id:   primeiro.id,
+        atendente_cor:  primeiro.cor,
+        prioridade:     document.getElementById('ev-prioridade').value,
+        setor:          document.getElementById('ev-setor').value,
+        descricao,
+        ticket_id:      res.ticket_id,
+        tipo:           'chamado',
+        concluido:      0,
+        categoria_id:   catId,
+        entidade_id:    parseInt(entId),
+        requerente_id:  parseInt(reqId),
+        origem_id:      orgId,
+        _skipGlpi:      true,
+      }),
+    })
+    .then(r => r.json())
+    .then(res2 => {
+      // âš ï¸ O chamado já foi criado no GLPI nesse ponto (fetch anterior) — se o save
+      // do evento falhar, NÃO finge sucesso: avisa e deixa o pré-chamado como estava,
+      // em vez de fechar o modal e tocar o toast de conversão concluída.
+      if (!res2 || !res2.ok) {
+        alert(`Chamado #${res.ticket_id} foi criado no GLPI, mas falhou ao atualizar o evento na agenda` +
+              (res2 && res2.error ? `: ${res2.error}` : '.') +
+              ` O pré-chamado continua pendente — vincule o #${res.ticket_id} manualmente.`);
+        calendar.refetchEvents();
+        carregarTickets();
+        return;
+      }
+      modalEvento.hide();
+      calendar.refetchEvents();
+      carregarTickets();
+      toast(`🎫 Pré-chamado convertido em chamado #${res.ticket_id}!`);
+    })
+    .catch(() => {
+      alert(`Chamado #${res.ticket_id} criado no GLPI, mas falhou ao atualizar o evento na agenda.`);
+    })
+    .finally(reativar);
+  })
+  .catch(() => {
+    alert('Erro de conexão ao criar chamado.');
+    reativar();
+  });
 }
 
 function salvarEvento() {
