@@ -194,6 +194,8 @@ $lojas = $stmt_lojas->fetchAll(PDO::FETCH_COLUMN);
     .badge-projeto {
       font-size: .7rem; padding: .2rem .55rem; border-radius: 8px; font-weight: 600;
       white-space: nowrap; background: #eef2ff; color: #4338ca;
+      display: inline-block; max-width: 72px; overflow: hidden; text-overflow: ellipsis;
+      vertical-align: middle;
     }
     .badge-projeto.sem-projeto { background: #f3f4f6; color: #9ca3af; font-weight: 500; }
 
@@ -673,7 +675,7 @@ function renderTabela(lista) {
       const susp   = !ativoItem(i);
       const temProjeto = i.projeto_nome && i.projeto_nome.trim() !== '';
       return `<tr class="${susp ? 'row-suspenso' : ''}">
-        <td><span class="badge-projeto ${temProjeto ? '' : 'sem-projeto'}">${esc(temProjeto ? i.projeto_nome : '— Sem projeto —')}</span></td>
+        <td><span class="badge-projeto ${temProjeto ? '' : 'sem-projeto'}" title="${esc(temProjeto ? i.projeto_nome : '— Sem projeto —')}">${esc(temProjeto ? i.projeto_nome : '— Sem projeto —')}</span></td>
         <td><span class="badge-cat ${cls}">${esc(i.categoria)}</span></td>
         <td>${esc(i.loja || '-')}</td>
         <td>${esc(i.descricao)}</td>
