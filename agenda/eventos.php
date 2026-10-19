@@ -30,6 +30,12 @@ try { $pdo->exec("ALTER TABLE glpi_plugin_agenda_events ADD COLUMN recorrencia_i
 try { $pdo->exec("ALTER TABLE glpi_plugin_agenda_events ADD COLUMN co_atendentes TEXT DEFAULT NULL AFTER atendente_cor"); } catch (Exception $e) {}
 // Tipo 'projeto' + coluna com o nome do projeto selecionado (pasta em Docs/wiki/projects)
 try { $pdo->exec("ALTER TABLE glpi_plugin_agenda_events MODIFY tipo ENUM('evento','chamado','requisicao','reuniao','projeto') NOT NULL DEFAULT 'evento'"); } catch (Exception $e) {}
+// Tipo 'pre_chamado' — reserva de agenda que ainda não é um chamado GLPI real;
+// vira 'chamado' automaticamente (recorrência) ou manualmente (botão "Converter em chamado")
+try { $pdo->exec("ALTER TABLE glpi_plugin_agenda_events MODIFY tipo ENUM('evento','chamado','requisicao','reuniao','projeto','pre_chamado') NOT NULL DEFAULT 'evento'"); } catch (Exception $e) {}
+// Amarra um pré-chamado (ou o chamado já convertido) à definição de glpi_ticketrecurrents
+// que o originou — NULL = pré-chamado manual, nunca converte sozinho por tempo.
+try { $pdo->exec("ALTER TABLE glpi_plugin_agenda_events ADD COLUMN ticketrecurrents_id INT DEFAULT NULL AFTER ticket_id"); } catch (Exception $e) {}
 try { $pdo->exec("ALTER TABLE glpi_plugin_agenda_events ADD COLUMN projeto VARCHAR(255) DEFAULT NULL AFTER setor"); } catch (Exception $e) {}
 // Anexos de eventos "puros" (sem chamado GLPI) — guardados no próprio banco
 try { $pdo->exec("CREATE TABLE IF NOT EXISTS portal_agenda_event_anexos (
@@ -292,7 +298,7 @@ try {
                         ? $body['prioridade'] : 'media';
         $setor        = $body['setor']        ?? null;
         $projeto      = $body['projeto']      ?? null;
-        $tipo         = in_array($body['tipo'] ?? '', ['evento','chamado','requisicao','reuniao','projeto'])
+        $tipo         = in_array($body['tipo'] ?? '', ['evento','chamado','requisicao','reuniao','projeto','pre_chamado'])
                         ? $body['tipo'] : 'evento';
         // Mantém compatibilidade com o comportamento existente: eventos 'requisicao' seguem
         // sendo salvos como 'chamado' (fora do escopo desta mudança mexer nisso)
