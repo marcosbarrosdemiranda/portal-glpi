@@ -2824,10 +2824,12 @@ function ajustarCamposPorTipo() {
   const starDesc = document.getElementById('star-descricao');
   if (starDesc) starDesc.style.display = (tipo === 'chamado' || tipo === 'requisicao') ? '' : 'none';
 
-  // Recorrência: apenas para Evento
+  // Recorrência: Evento e Projeto (pré-projeto — ocorrências futuras já nascem
+  // como marcação de Projeto real, sem estado "pendente" intermediário)
+  const podeRecorrer = evento || projeto;
   const campoRec = document.getElementById('campo-recorrencia');
-  if (campoRec) campoRec.style.display = evento ? '' : 'none';
-  if (!evento) {
+  if (campoRec) campoRec.style.display = podeRecorrer ? '' : 'none';
+  if (!podeRecorrer) {
     // Desmarca recorrência ao trocar para outro tipo
     document.getElementById('ev-recorrencia-ativa').checked = false;
     document.getElementById('ev-recorrencia-opcoes').style.display = 'none';

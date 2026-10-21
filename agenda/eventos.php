@@ -479,7 +479,7 @@ try {
         $recurrences = $pdo->query("
             SELECT r.*, e.titulo, e.descricao, e.start, e.end,
                    e.atendente, e.atendente_id, e.atendente_cor, e.prioridade, e.setor,
-                   e.ticket_id, e.tipo
+                   e.ticket_id, e.tipo, e.projeto, e.co_atendentes
             FROM agenda_recorrencias r
             JOIN glpi_plugin_agenda_events e ON r.evento_id COLLATE utf8mb4_unicode_ci = e.id
             WHERE r.ativo = 1
@@ -520,7 +520,7 @@ function gerarInstanciasRecorrencia($pdo, $rec = null, $recId = null, $semanas =
         $st = $pdo->prepare("
             SELECT r.*, e.titulo, e.descricao, e.start, e.end,
                    e.atendente, e.atendente_id, e.atendente_cor, e.prioridade, e.setor,
-                   e.ticket_id, e.tipo
+                   e.ticket_id, e.tipo, e.projeto, e.co_atendentes
             FROM agenda_recorrencias r
             JOIN glpi_plugin_agenda_events e ON r.evento_id COLLATE utf8mb4_unicode_ci = e.id
             WHERE r.id = ? AND r.ativo = 1
@@ -574,14 +574,16 @@ function gerarInstanciasRecorrencia($pdo, $rec = null, $recId = null, $semanas =
                 $pdo->prepare("
                     INSERT INTO glpi_plugin_agenda_events
                         (id, titulo, descricao, start, end, atendente, atendente_id,
-                         atendente_cor, prioridade, setor, ticket_id, tipo, concluido, recorrencia_id)
-                    VALUES (?,?,?,?,?,?,?,?,?,?,?,?,0,?)
+                         atendente_cor, prioridade, setor, ticket_id, tipo, projeto,
+                         co_atendentes, concluido, recorrencia_id)
+                    VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,0,?)
                 ")->execute([
                     $evId, $rec['titulo'], $rec['descricao'],
                     $startDt, $endDt,
                     $rec['atendente'], $rec['atendente_id'], $rec['atendente_cor'],
                     $rec['prioridade'], $rec['setor'],
                     $rec['ticket_id'], $rec['tipo'],
+                    $rec['projeto'], $rec['co_atendentes'],
                     $recDbId,
                 ]);
                 $criados++;
