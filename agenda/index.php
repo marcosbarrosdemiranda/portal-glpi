@@ -693,9 +693,6 @@ $libera_data_passada = ($cards_portal === null) || (($cards_portal['agenda_data_
           </div>
           <div class="col-md-6" id="campo-projeto" style="display:none">
             <label class="form-label">Projeto <span class="text-danger">*</span></label>
-            <select class="form-select" id="ev-projeto" style="display:none">
-              <option value="">Carregando...</option>
-            </select>
             <div id="lista-projetos-multi" class="atendentes-multi-wrap"></div>
           </div>
           <div class="col-md-6" id="campo-categoria">
@@ -2517,7 +2514,6 @@ function abrirModalEvento(dataStr) {
   document.getElementById('ev-atendente').value = '';
   document.getElementById('ev-prioridade').value = 'media';
   document.getElementById('ev-setor').value = '';
-  document.getElementById('ev-projeto').innerHTML = '<option value="">Selecione o projeto...</option>';
   document.getElementById('lista-projetos-multi').innerHTML = '';
   document.getElementById('campo-projeto').style.display = 'none';
   document.getElementById('ev-tipo').value = 'chamado';
@@ -2910,7 +2906,10 @@ function toggleChip(el) {
 }
 
 function getAtendentesMultiSelecionados() {
-  return [...document.querySelectorAll('.atendente-multi-chip.selected')].map(el => ({
+  // Escopado a #lista-atendentes-multi — projeto usa a mesma classe de chip
+  // (.atendente-multi-chip) dentro de #lista-projetos-multi; sem o escopo,
+  // um chip de projeto selecionado vazaria pra lista de atendentes.
+  return [...document.querySelectorAll('#lista-atendentes-multi .atendente-multi-chip.selected')].map(el => ({
     nome: el.dataset.nome,
     id:   parseInt(el.dataset.id),
     cor:  el.dataset.cor,
