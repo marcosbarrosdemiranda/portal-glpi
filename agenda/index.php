@@ -3996,7 +3996,7 @@ function salvarEvento() {
     origem_id:     origemId,
     // Campos adicionais de impressão (categoria 181)
     campos_impressao: _getCamposImpressao(),
-    // Recorrência semanal (apenas para Evento)
+    // Recorrência semanal (Evento e Projeto)
     recorrencia_id:         _dadosModal?.recorrencia_id || null,
     recorrencia_ativa:      document.getElementById('ev-recorrencia-ativa').checked ? 1 : 0,
     recorrencia_dias:       Array.from(document.querySelectorAll('#ev-recorrencia-dias input:checked')).map(cb => cb.value).join(','),
