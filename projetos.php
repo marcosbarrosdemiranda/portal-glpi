@@ -312,106 +312,8 @@ if ($uid) {
 }
 
 // ── Parser de projeto Markdown ─────────────────────────────────────────────
-function parseProjeto(string $filepath): ?array {
-    $content = @file_get_contents($filepath);
-    if (!$content) return null;
-
-    $lines  = explode("\n", str_replace("\r", '', $content));
-    $proj   = [
-        'titulo'    => '',
-        'objetivo'  => '',
-        'equipe'    => '',
-        'prazo'     => '',
-        'repo'      => '',
-        'modulos'   => [],
-        'cronograma'=> [],
-    ];
-
-    $modo        = 'header';
-    $moduloAtual = null;
-    $subSecao    = null;
-    $inCodeBlock = false;
-
-    foreach ($lines as $line) {
-        $l = rtrim($line);
-
-        if (preg_match('/^```/', $l)) { $inCodeBlock = !$inCodeBlock; continue; }
-
-        if ($inCodeBlock) {
-            if ($modo === 'cronograma' &&
-                preg_match('/Semana\s*(\d+)\s*\(([^)]+)\)\s*[→\-]+\s*(.+)/u', $l, $m)) {
-                $proj['cronograma'][] = [
-                    'semana'   => 'S'.$m[1],
-                    'periodo'  => trim($m[2]),
-                    'descricao'=> trim($m[3]),
-                ];
-            }
-            continue;
-        }
-
-        if (preg_match('/^# (.+)$/u', $l, $m)) {
-            $proj['titulo'] = trim($m[1]); $modo = 'header'; continue;
-        }
-        if ($modo === 'header' && preg_match('/^> \*\*(.+?):\*\*\s*(.+)/u', $l, $m)) {
-            $k = mb_strtolower($m[1]);
-            if (str_contains($k,'objetivo'))    $proj['objetivo'] = $m[2];
-            elseif (str_contains($k,'equipe'))  $proj['equipe']   = $m[2];
-            elseif (str_contains($k,'prazo'))   $proj['prazo']    = $m[2];
-            elseif (str_contains($k,'reposit')) $proj['repo']     = $m[2];
-            continue;
-        }
-        if (preg_match('/^## (.+)$/u', $l, $m)) {
-            if ($moduloAtual !== null) $proj['modulos'][] = $moduloAtual;
-            $nome = trim($m[1]);
-            if (preg_match('/cronograma/iu', $nome))      { $modo='cronograma'; $moduloAtual=null; }
-            elseif (preg_match('/progresso/iu', $nome))   { $modo='tabprog';    $moduloAtual=null; }
-            else {
-                $modo = 'modulo';
-                $moduloAtual = ['nome'=>$nome,'descricao'=>'','prazo'=>'','tarefas'=>[]];
-                $subSecao = null;
-            }
-            continue;
-        }
-        if ($modo === 'modulo' && preg_match('/^### (.+)$/u', $l, $m)) {
-            $subSecao = trim($m[1]); continue;
-        }
-        if ($modo === 'modulo' && $moduloAtual !== null) {
-            if (preg_match('/^- \[x\] (.+)/iu', $l, $m))
-                $moduloAtual['tarefas'][] = ['done'=>true,  'texto'=>$m[1], 'sub'=>$subSecao];
-            elseif (preg_match('/^- \[ \] (.+)/u', $l, $m))
-                $moduloAtual['tarefas'][] = ['done'=>false, 'texto'=>$m[1], 'sub'=>$subSecao];
-            elseif (preg_match('/^> \*\*Prazo:\*\*\s*(.+)/ui', $l, $m)) {
-                $v = trim($m[1]);
-                // 4+ barras = duas datas = prazo do projeto; 2 barras = prazo do módulo
-                if (!$proj['prazo'] && substr_count($v, '/') >= 4)
-                    $proj['prazo'] = $v;
-                else
-                    $moduloAtual['prazo'] = $v;
-            }
-            elseif (preg_match('/^> (.+)/u', $l, $m) && !count($moduloAtual['tarefas']))
-                $moduloAtual['descricao'] = trim($m[1]);
-        }
-    }
-    if ($moduloAtual !== null) $proj['modulos'][] = $moduloAtual;
-
-    $tot = $done = 0;
-    foreach ($proj['modulos'] as &$mod) {
-        $mt = count($mod['tarefas']);
-        $md = count(array_filter($mod['tarefas'], fn($t) => $t['done']));
-        $mod['pct']  = $mt > 0 ? round($md / $mt * 100) : 0;
-        $mod['done'] = $md;
-        $mod['tot']  = $mt;
-        $tot  += $mt;
-        $done += $md;
-    }
-    unset($mod);
-
-    $proj['pct']   = $tot > 0 ? round($done / $tot * 100) : 0;
-    $proj['done']  = $done;
-    $proj['total'] = $tot;
-
-    return $proj['titulo'] ? $proj : null;
-}
+// parseProjeto() movida pra github_cache.php (fix/projetos-github-cache-worker) —
+// dependência de docPrdDoProjeto(), que o worker precisa chamar standalone.
 
 function parsePeriodo(string $periodo, int $ano = 2026): array {
     $p = trim($periodo);
@@ -423,20 +325,10 @@ function parsePeriodo(string $periodo, int $ano = 2026): array {
     return [0, 0];
 }
 
-function parseDataBR(string $d): int {
-    if (preg_match('/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/', trim($d), $m))
-        return mktime(0,0,0,(int)$m[2],(int)$m[1],(int)$m[3]);
-    return 0;
-}
-
-function parsePrazoRange(string $prazo): array {
-    // Duas datas separadas por qualquer coisa não-numérica (→, —, >, espaço, etc.)
-    if (preg_match('/(\d{1,2}\/\d{1,2}\/\d{4})\D+(\d{1,2}\/\d{1,2}\/\d{4})/', $prazo, $m))
-        return [parseDataBR($m[1]), parseDataBR($m[2])];
-    if (preg_match('/(\d{1,2}\/\d{1,2}\/\d{4})/', $prazo, $m))
-        return [0, parseDataBR($m[1])];
-    return [0, 0];
-}
+// parseDataBR() e parsePrazoRange() movidas pra github_cache.php
+// (fix/projetos-github-cache-worker) — github_cache_worker.php precisa
+// delas pra replicar a lógica de "milestone só se não há previsão manual
+// nem prazo no doc" sem dar require no projetos.php inteiro.
 
 function corPct(int $pct): string {
     if ($pct >= 80) return '#1e8e3e';
@@ -536,43 +428,9 @@ $projetos  = [];
  * Todos os .md dentro de uma subpasta são mesclados em um único projeto
  * Pastas iniciadas com _ (underscore) são ignoradas (ex: _Documentação)
  */
-/**
- * Retorna o PRD parseado de um projeto (pasta = nome do repo), SÓ o PRD —
- * sem mesclar logs de sessão / ADRs. Fonte pro card e pra Apresentação.
- */
-function docPrdDoProjeto(string $repoNome): ?array {
-    static $cache = [];
-    $chave = mb_strtolower($repoNome);
-    if (array_key_exists($chave, $cache)) return $cache[$chave];
-
-    $base = __DIR__ . '/Docs/wiki/projects';
-    $cfg  = __DIR__ . '/config_projetos.local.php';
-    if (file_exists($cfg)) { require_once $cfg; if (defined('ORIGEM_PROJETOS') && is_dir(ORIGEM_PROJETOS)) $base = ORIGEM_PROJETOS; }
-
-    $sub = null;
-    foreach (glob($base . '/*', GLOB_ONLYDIR) ?: [] as $sp) {
-        if (strcasecmp(basename($sp), $repoNome) === 0) { $sub = $sp; break; }
-    }
-    if (!$sub) return $cache[$chave] = null;
-
-    $cands = glob($sub . '/*.md') ?: [];
-    $norm  = fn($s) => mb_strtolower(str_replace(['-', '_', ' '], '', $s));
-    $pn    = $norm($repoNome);
-    $main  = null;
-    // 1) "<repo>-prd.md"  2) qualquer "*-prd.md" que contenha o nome do repo
-    // 3) "prd.md" / "PRD-<algo>.md"  4) arquivo com o nome do repo  5) README/index
-    foreach ($cands as $md) if ($norm(basename($md, '.md')) === $pn . 'prd') { $main = $md; break; }
-    if (!$main) foreach ($cands as $md) { $nb = $norm(basename($md, '.md'));
-        if (str_ends_with($nb, 'prd') && str_contains($nb, $pn)) { $main = $md; break; } }
-    if (!$main) foreach ($cands as $md) { $nb = $norm(basename($md, '.md'));
-        if ($nb === 'prd' || str_starts_with($nb, 'prd')) { $main = $md; break; } }
-    if (!$main) foreach ($cands as $md) if (str_contains($norm(basename($md, '.md')), $pn)) { $main = $md; break; }
-    if (!$main) foreach ($cands as $md) { $b = mb_strtolower(basename($md, '.md')); if ($b === 'readme' || $b === 'index') { $main = $md; break; } }
-    if (!$main) $main = $cands[0] ?? null;
-    if (!$main) return $cache[$chave] = null;
-
-    return $cache[$chave] = parseProjeto($main);
-}
+// docPrdDoProjeto() movida pra github_cache.php (fix/projetos-github-cache-worker) —
+// github_cache_worker.php (CLI, sem a guarda de sessão HTTP deste arquivo)
+// precisa chamá-la sem dar require no projetos.php inteiro.
 
 function carregarProjetosDaPasta(string $pasta): array {
     $result = [];
@@ -1230,7 +1088,7 @@ body  { background:#f0f4f9; font-family:'Segoe UI',sans-serif; font-size:.9rem; 
       foreach ($minhasContas as $conta) {
           if (!$conta['ativo']) continue;
           $token      = vault_decrypt($conta['token_enc']);
-          $resultado  = gh_cached($pdo, "repos:{$conta['id']}", 300, fn() => github_listar_repos($token));
+          $resultado  = gh_cached($pdo, "repos:{$conta['id']}", TTL_REPOS, fn() => github_listar_repos($token));
           if (isset($resultado['erro'])) {
               $errosContas[] = ['apelido' => $conta['apelido'], 'msg' => $resultado['erro']];
               $pdo->prepare("UPDATE portal_github_contas SET ultimo_teste_ok=0, ultima_verificacao=NOW() WHERE id=?")
@@ -1250,11 +1108,11 @@ body  { background:#f0f4f9; font-family:'Segoe UI',sans-serif; font-size:.9rem; 
               $ghUser = $conta['usuario_github'];
               $ck = "{$conta['id']}:{$repo['nome']}";
 
-              $analiseReadme = gh_cached($pdo, "readme:$ck", 600, fn() => github_analisar_readme($token, $ghUser, $repo['nome']));
+              $analiseReadme = gh_cached($pdo, "readme:$ck", TTL_DETALHE, fn() => github_analisar_readme($token, $ghUser, $repo['nome']));
               $repo['descricao'] = $analiseReadme['descricao'] !== '' ? $analiseReadme['descricao'] : $repo['descricao'];
 
-              $issues  = gh_cached($pdo, "issues:$ck",  600, fn() => github_issues($token, $ghUser, $repo['nome']));
-              $commits = gh_cached($pdo, "commits:$ck", 600, fn() => github_commits_recentes($token, $ghUser, $repo['nome'], 8));
+              $issues  = gh_cached($pdo, "issues:$ck",  TTL_DETALHE, fn() => github_issues($token, $ghUser, $repo['nome']));
+              $commits = gh_cached($pdo, "commits:$ck", TTL_DETALHE, fn() => github_commits_recentes($token, $ghUser, $repo['nome'], 8));
               $repo['issues_data'] = $issues;
               $repo['commits']     = $commits;
 
@@ -1282,7 +1140,7 @@ body  { background:#f0f4f9; font-family:'Segoe UI',sans-serif; font-size:.9rem; 
                   [$pi, $pf] = parsePrazoRange($doc['prazo']);
                   $repo['previsao_txt'] = $pf ? date('d/m/Y', $pf) : ($doc['prazo'] ?: '');
               } else {
-                  $ms = gh_cached($pdo, "milestone:$ck", 600, fn() => github_obter_previsao($token, $ghUser, $repo['nome']));
+                  $ms = gh_cached($pdo, "milestone:$ck", TTL_DETALHE, fn() => github_obter_previsao($token, $ghUser, $repo['nome']));
                   $repo['previsao_txt'] = $ms ? date('d/m/Y', strtotime($ms)) : '';
               }
               $repo['previsao'] = null; // legado, não usar mais
