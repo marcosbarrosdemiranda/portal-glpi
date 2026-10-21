@@ -693,9 +693,10 @@ $libera_data_passada = ($cards_portal === null) || (($cards_portal['agenda_data_
           </div>
           <div class="col-md-6" id="campo-projeto" style="display:none">
             <label class="form-label">Projeto <span class="text-danger">*</span></label>
-            <select class="form-select" id="ev-projeto" onchange="document.getElementById('ev-titulo').value = this.value;">
+            <select class="form-select" id="ev-projeto" style="display:none">
               <option value="">Carregando...</option>
             </select>
+            <div id="lista-projetos-multi" class="atendentes-multi-wrap"></div>
           </div>
           <div class="col-md-6" id="campo-categoria">
             <label class="form-label">Categoria</label>
@@ -1589,6 +1590,11 @@ function carregarEventos(info, success) {
         if (e.co_atendentes) {
           try { coList = JSON.parse(e.co_atendentes); } catch(_) {}
         }
+        // Parse co_projetos da marcação de projeto (lista de nomes, sem id/cor)
+        let coProjList = [];
+        if (e.co_projetos) {
+          try { coProjList = JSON.parse(e.co_projetos); } catch(_) {}
+        }
         // FullCalendar 6 exige formato ISO 8601 com 'T' para interpretar como
         // horário LOCAL. Sem o 'T', o parser trata como UTC → end fica errado
         // e o evento colapsa para a altura mínima do slot (parecendo 30 min).
@@ -1610,6 +1616,7 @@ function carregarEventos(info, success) {
             atendente_id: e.atendente_id,
             atendente_cor:e.atendente_cor,
             co_atendentes:coList,
+            co_projetos:  coProjList,
             prioridade:   e.prioridade,
             setor:        e.setor,
             projeto:      e.projeto,
@@ -2511,6 +2518,7 @@ function abrirModalEvento(dataStr) {
   document.getElementById('ev-prioridade').value = 'media';
   document.getElementById('ev-setor').value = '';
   document.getElementById('ev-projeto').innerHTML = '<option value="">Selecione o projeto...</option>';
+  document.getElementById('lista-projetos-multi').innerHTML = '';
   document.getElementById('campo-projeto').style.display = 'none';
   document.getElementById('ev-tipo').value = 'chamado';
   if (tsEntidade)   tsEntidade.setValue('', true);   else document.getElementById('ev-entidade').value   = '';
@@ -2768,26 +2776,34 @@ function preencherModal(dados) {
 
 // ── Lista de projetos (tipo=projeto) ────────────────────────────────────────
 let _listaProjetosCache = null;
-function carregarListaProjetos(valorSelecionado) {
-  const sel = document.getElementById('ev-projeto');
+function carregarListaProjetos(selecionados) {
+  selecionados = selecionados || [];
   if (_listaProjetosCache) {
-    _popularSelectProjetos(sel, _listaProjetosCache, valorSelecionado);
+    renderProjetosMulti(selecionados);
     return;
   }
   fetch('projetos_lista.php')
     .then(r => r.json())
     .then(data => {
       _listaProjetosCache = (data.ok && data.projetos) ? data.projetos : [];
-      _popularSelectProjetos(sel, _listaProjetosCache, valorSelecionado);
+      renderProjetosMulti(selecionados);
     })
     .catch(() => {
-      sel.innerHTML = '<option value="">Erro ao carregar projetos</option>';
+      document.getElementById('lista-projetos-multi').innerHTML = '<span class="text-danger small">Erro ao carregar projetos</span>';
     });
 }
-function _popularSelectProjetos(sel, lista, valorSelecionado) {
-  sel.innerHTML = '<option value="">Selecione o projeto...</option>' +
-    lista.map(p => `<option value="${escHtml(p)}">${escHtml(p)}</option>`).join('');
-  if (valorSelecionado) sel.value = valorSelecionado;
+function renderProjetosMulti(selecionados) {
+  const wrap = document.getElementById('lista-projetos-multi');
+  wrap.innerHTML = (_listaProjetosCache || []).map(p => {
+    const sel = selecionados.includes(p);
+    return `<div class="atendente-multi-chip ${sel ? 'selected' : ''}"
+                 data-nome="${escHtml(p)}" title="${escHtml(p)}"
+                 onclick="toggleChip(this)">${escHtml(p)}</div>`;
+  }).join('');
+}
+function getProjetosMultiSelecionados() {
+  return [...document.querySelectorAll('#lista-projetos-multi .atendente-multi-chip.selected')]
+    .map(el => el.dataset.nome);
 }
 
 function ajustarCamposPorTipo() {
@@ -2818,7 +2834,7 @@ function ajustarCamposPorTipo() {
   // Projeto: apenas no tipo projeto — título vira o nome do projeto (campo some, sem digitação duplicada)
   document.getElementById('campo-projeto').style.display = projeto ? '' : 'none';
   document.getElementById('campo-titulo').style.display  = projeto ? 'none' : '';
-  if (projeto) carregarListaProjetos(_dadosModal?.projeto);
+  if (projeto) carregarListaProjetos(_dadosModal?.projetos_lista || (_dadosModal?.projeto ? [_dadosModal.projeto] : []));
   // Asterisco de Descrição: obrigatório apenas em chamado/requisição de verdade —
   // pré-chamado mostra os campos pra pré-preencher, mas só exige no "Converter em chamado"
   const starDesc = document.getElementById('star-descricao');
@@ -3578,6 +3594,9 @@ function editarEvento(ev) {
   const co = ev.extendedProps.co_atendentes || c.co_atendentes || [];
   const coNomes = co.map(x => x.nome).filter(Boolean);
   const atdName = ev.extendedProps.atendente || c.atendente;
+  // co_projetos: lista de nomes (string) — projeto não tem id/cor
+  const coProj = ev.extendedProps.co_projetos || c.co_projetos || [];
+  const projetoNome = ev.extendedProps.projeto || c.projeto;
   preencherModal({
     id:        ev.id,
     titulo:    ev.title.replace(/^#\d+\s*[-–]\s*/, '').trim(),
@@ -3586,7 +3605,9 @@ function editarEvento(ev) {
     prioridade:ev.extendedProps.prioridade || c.prioridade,
     tipo:      ev.extendedProps.tipo       || c.tipo || 'chamado',
     setor:     ev.extendedProps.setor      || c.setor,
-    projeto:   ev.extendedProps.projeto    || c.projeto,
+    projeto:   projetoNome,
+    // Lista com todos os projetos (primário + co)
+    projetos_lista: projetoNome ? [projetoNome, ...coProj] : [...coProj],
     descricao: ev.extendedProps.descricao  || c.descricao,
     atendente: atdName,
     ticket_id: ev.extendedProps.ticket_id  || c.ticket_id,
@@ -3895,13 +3916,14 @@ function converterEmChamado() {
 }
 
 function salvarEvento() {
-  const start    = document.getElementById('ev-start').value;
-  const tipo     = document.getElementById('ev-tipo').value;
-  const multiSel = getAtendentesMultiSelecionados();
+  const start       = document.getElementById('ev-start').value;
+  const tipo        = document.getElementById('ev-tipo').value;
+  const multiSel    = getAtendentesMultiSelecionados();
+  const projetosSel = getProjetosMultiSelecionados();
 
-  // Projeto: título é o próprio nome do projeto (campo fica oculto)
+  // Projeto: título é a junção dos projetos selecionados (campo fica oculto)
   if (tipo === 'projeto') {
-    document.getElementById('ev-titulo').value = document.getElementById('ev-projeto').value;
+    document.getElementById('ev-titulo').value = projetosSel.join(', ');
   }
   const titulo = document.getElementById('ev-titulo').value.trim();
 
@@ -3931,9 +3953,8 @@ function salvarEvento() {
   }
 
   if (tipo === 'projeto') {
-    const _projeto  = document.getElementById('ev-projeto').value;
     const _temAtend = multiSel.length > 0;
-    if (!_projeto)  { errosVal.push('Projeto');   marcarInvalido('ev-projeto'); }
+    if (!projetosSel.length) { errosVal.push('Projeto'); marcarInvalido('lista-projetos-multi'); }
     if (!_temAtend) { errosVal.push('Atendente'); marcarInvalido('lista-atendentes-multi'); }
   }
 
@@ -3982,7 +4003,8 @@ function salvarEvento() {
     atendente_cor: primeiroChip ? primeiroChip.cor  : cor,
     prioridade:    document.getElementById('ev-prioridade').value,
     setor:         document.getElementById('ev-setor').value,
-    projeto:       document.getElementById('ev-projeto').value || null,
+    projeto:       projetosSel[0] || null,
+    co_projetos:   projetosSel.length > 1 ? projetosSel.slice(1) : null,
     descricao:     document.getElementById('ev-descricao').value,
     ticket_id:     document.getElementById('ev-ticket-id').value.trim() || null,
     orig_start:    document.getElementById('ev-orig-start').value || '',
