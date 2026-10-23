@@ -17,6 +17,7 @@ if (!$is_sync_remoto) {
 }
 
 require_once __DIR__ . '/agenda/db.php';
+require_once __DIR__ . '/balancas_fields_sync.php';
 
 header('Content-Type: application/json; charset=utf-8');
 
@@ -202,6 +203,7 @@ if ($action === 'salvar_balanca') {
         $pdo->prepare("INSERT INTO portal_balancas (servidor_id, identificacao, modelo, serie, loja, departamento, ip, versao_firmware, carga_atual, carga_programada, ultima_comunicacao, lote_fabricacao, observacao) VALUES (:servidor_id, :identificacao, :modelo, :serie, :loja, :departamento, :ip, :versao_firmware, :carga_atual, :carga_programada, :ultima_comunicacao, :lote_fabricacao, :observacao)")->execute($dados);
         $id = $pdo->lastInsertId();
     }
+    balanca_fields_sync_upsert($pdo, (int)$id, $dados['identificacao']);
     echo json_encode(['ok' => true, 'id' => $id]);
     exit;
 }
@@ -210,6 +212,7 @@ if ($action === 'excluir_balanca') {
     $id = (int)($_POST['id'] ?? 0);
     if ($id) {
         $pdo->prepare("DELETE FROM portal_balancas WHERE id=?")->execute([$id]);
+        balanca_fields_sync_delete($pdo, $id);
     }
     echo json_encode(['ok' => true]);
     exit;
@@ -332,10 +335,12 @@ if ($action === 'sync_mgv') {
                 $pdo->prepare("UPDATE portal_balancas SET modelo=?, serie=?, loja=?, departamento=?, ip=?, versao_firmware=?, carga_atual=?, carga_programada=?, ultima_comunicacao=?, lote_fabricacao=? WHERE id=?")
                     ->execute([$modelo, $serie, $loja, $departamento, $ip, $versao_firmware, $carga_atual, $carga_programada, $ultima_cx, $lote, $existing['id']]);
                 $atualizados++;
+                balanca_fields_sync_upsert($pdo, (int)$existing['id'], $ident);
             } else {
                 $pdo->prepare("INSERT INTO portal_balancas (servidor_id, identificacao, modelo, serie, loja, departamento, ip, versao_firmware, carga_atual, carga_programada, ultima_comunicacao, lote_fabricacao) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)")
                     ->execute([$servidor_id, $ident, $modelo, $serie, $loja, $departamento, $ip, $versao_firmware, $carga_atual, $carga_programada, $ultima_cx, $lote]);
                 $importados++;
+                balanca_fields_sync_upsert($pdo, (int)$pdo->lastInsertId(), $ident);
             }
         }
 
@@ -466,10 +471,12 @@ if ($action === 'sync_mgv') {
             $pdo->prepare("UPDATE portal_balancas SET modelo=?, serie=?, loja=?, departamento=?, ip=?, versao_firmware=?, carga_atual=?, carga_programada=?, ultima_comunicacao=?, lote_fabricacao=? WHERE id=?")
                 ->execute([$modelo, $serie, $loja, $departamento, $ip, $versao_firmware, $carga_atual, $carga_programada, $ultima_cx, $lote, $existing['id']]);
             $atualizados++;
+            balanca_fields_sync_upsert($pdo, (int)$existing['id'], $ident);
         } else {
             $pdo->prepare("INSERT INTO portal_balancas (servidor_id, identificacao, modelo, serie, loja, departamento, ip, versao_firmware, carga_atual, carga_programada, ultima_comunicacao, lote_fabricacao) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)")
                 ->execute([$servidor_id, $ident, $modelo, $serie, $loja, $departamento, $ip, $versao_firmware, $carga_atual, $carga_programada, $ultima_cx, $lote]);
             $importados++;
+            balanca_fields_sync_upsert($pdo, (int)$pdo->lastInsertId(), $ident);
         }
     }
 
@@ -551,10 +558,12 @@ if ($action === 'sync_remoto') {
             $pdo->prepare("UPDATE portal_balancas SET modelo=?, serie=?, loja=?, departamento=?, ip=?, versao_firmware=?, carga_atual=?, carga_programada=?, ultima_comunicacao=?, lote_fabricacao=? WHERE id=?")
                 ->execute([$modelo, $serie, $loja, $departamento, $ip, $versao_firmware, $carga_atual, $carga_programada, $ultima_cx, $lote, $existing['id']]);
             $atualizados++;
+            balanca_fields_sync_upsert($pdo, (int)$existing['id'], $ident);
         } else {
             $pdo->prepare("INSERT INTO portal_balancas (servidor_id, identificacao, modelo, serie, loja, departamento, ip, versao_firmware, carga_atual, carga_programada, ultima_comunicacao, lote_fabricacao) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)")
                 ->execute([$servidor_id, $ident, $modelo, $serie, $loja, $departamento, $ip, $versao_firmware, $carga_atual, $carga_programada, $ultima_cx, $lote]);
             $importados++;
+            balanca_fields_sync_upsert($pdo, (int)$pdo->lastInsertId(), $ident);
         }
     }
 

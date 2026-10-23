@@ -1,7 +1,26 @@
 # Chamado de Balanças: campos extras + vínculo no Inventário + BI
 
-**Data:** 2026-10-22 · **Status:** 🟢 Fase 1 IMPLEMENTADA (campos no chamado) ·
-Fases 1b/2/3 pendentes
+**Data:** 2026-10-22 · **Status:** 🟢 Fases 1 e 1b IMPLEMENTADAS (campos no
+chamado + sync contínuo) · Fases 2/3 pendentes
+
+## Fase 1b — IMPLEMENTADO (2026-10-22)
+
+- Nova lib `balancas_fields_sync.php` com `balanca_fields_sync_upsert()` e
+  `balanca_fields_sync_delete()`, usando o mesmo `$pdo` (banco `glpi2`,
+  sem cross-database) — INSERT ... ON DUPLICATE KEY UPDATE pro upsert,
+  mantendo o id do catálogo sempre igual ao id de `portal_balancas`.
+- Hook chamado em **5 pontos** de `inventario_balancas.php` que gravam em
+  `portal_balancas`: `salvar_balanca` (manual, insert+edit),
+  `excluir_balanca` (delete), e os 3 caminhos de sync automático
+  (`sync_mgv` SQL Server, `sync_mgv` Firebird, `sync_remoto`).
+- Falhas de sync só vão pro `error_log`, nunca quebram o CRUD principal de
+  balança.
+- Deploy via `.new` → `php -l` → `Move-Item` nos 2 arquivos.
+- **Teste manual end-to-end confirmado em produção:** criada balança
+  "TESTE-SYNC-99" pela UI do portal → refletiu no catálogo do GLPI com o
+  mesmo id (14), sem passo manual; renomeada pra
+  "TESTE-SYNC-99-RENAMED" → catálogo atualizou junto; excluída → removida
+  dos dois lados. Sem erros no log do container durante o teste.
 
 ## Fase 1 — IMPLEMENTADO (2026-10-22)
 
