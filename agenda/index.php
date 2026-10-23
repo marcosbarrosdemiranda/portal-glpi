@@ -629,6 +629,7 @@ $libera_data_passada = ($cards_portal === null) || (($cards_portal['agenda_data_
               <option value="reuniao">👥 Reunião</option>
               <option value="evento">📅 Evento</option>
               <option value="projeto">📁 Projeto</option>
+              <option value="pre_chamado">🕓 Pré-chamado</option>
             </select>
           </div>
           <!-- Banner modo leitura — mesma linha que Tipo -->
@@ -861,6 +862,9 @@ $libera_data_passada = ($cards_portal === null) || (($cards_portal['agenda_data_
         <button class="btn btn-outline-danger" id="btnResponder" onclick="abrirModalResposta()" style="display:none">
           <i class="bi bi-reply-fill me-1"></i>Responder Chamado
         </button>
+        <button class="btn btn-outline-success" id="btnConverterChamado" onclick="converterEmChamado()" style="display:none">
+          <i class="bi bi-arrow-up-circle me-1"></i>Converter em chamado
+        </button>
         <button class="btn btn-outline-primary" id="btnNovoPeriodo" onclick="novoPeriodo()" style="display:none">
           <i class="bi bi-plus-circle me-1"></i>Novo período
         </button>
@@ -930,6 +934,13 @@ $libera_data_passada = ($cards_portal === null) || (($cards_portal['agenda_data_
           <div id="resp-firewall" style="display:none" class="col-12 mb-3">
             <label class="form-label fw-semibold">🌐 Latência Comunicação Lojas (pfSense)</label>
             <div id="resp-firewall-texto" class="p-3 border rounded" style="background:#f8fafc;white-space:pre-wrap;font-family:monospace;font-size:.72rem"></div>
+          </div>
+
+          <!-- Status atual das antenas UniFi (mesma rotina diária, "...Unifi..." no título) —
+               informativo, não editável; entra junto na resposta final do chamado. -->
+          <div id="resp-antenas" style="display:none" class="col-12 mb-3">
+            <label class="form-label fw-semibold">📡 Antenas UniFi (status atual)</label>
+            <div id="resp-antenas-texto" class="p-3 border rounded" style="background:#f8fafc;white-space:pre-wrap;font-family:monospace;font-size:.72rem"></div>
           </div>
         </div>
 
@@ -1165,6 +1176,7 @@ const COR_TIPO = {
   reuniao:    { bg: '#7b1fa2', border: '#4a148c' }, // Roxo
   chamado:    { bg: '#d93025', border: '#a52218' }, // Vermelho
   projeto:    { bg: '#00897b', border: '#00695c' }, // Verde-azulado
+  pre_chamado:{ bg: '#bdbdbd', border: '#9e9e9e' }, // Cinza claro — reserva, ainda nao e chamado real
   concluido:  { bg: '#1e8e3e', border: '#155a2e' }, // Verde
   pendente:   { bg: '#f9a825', border: '#c6790a' }, // Ambar — chamado/requisicao ainda no prazo
   atrasado:   { bg: '#d93025', border: '#a52218' }, // Vermelho — vencido e nao concluido
@@ -1585,6 +1597,11 @@ function carregarEventos(info, success) {
         if (e.co_atendentes) {
           try { coList = JSON.parse(e.co_atendentes); } catch(_) {}
         }
+        // Parse co_projetos da marcação de projeto (lista de nomes, sem id/cor)
+        let coProjList = [];
+        if (e.co_projetos) {
+          try { coProjList = JSON.parse(e.co_projetos); } catch(_) {}
+        }
         // FullCalendar 6 exige formato ISO 8601 com 'T' para interpretar como
         // horário LOCAL. Sem o 'T', o parser trata como UTC → end fica errado
         // e o evento colapsa para a altura mínima do slot (parecendo 30 min).
@@ -1606,10 +1623,12 @@ function carregarEventos(info, success) {
             atendente_id: e.atendente_id,
             atendente_cor:e.atendente_cor,
             co_atendentes:coList,
+            co_projetos:  coProjList,
             prioridade:   e.prioridade,
             setor:        e.setor,
             projeto:      e.projeto,
             ticket_id:    e.ticket_id,
+            ticketrecurrents_id: e.ticketrecurrents_id || null,
             tipo:         e.tipo,
             concluido,
             atrasado,
@@ -1686,6 +1705,9 @@ function eventosFiltrados() {
       if (e.extendedProps.atendente === filtroAtendente) return true;
       // Verifica co_atendentes (reunião/evento compartilhado)
       if (e.extendedProps.co_atendentes && e.extendedProps.co_atendentes.some(c => c.nome === filtroAtendente)) return true;
+      // Pré-chamado sem técnico pré-definido = rotina em equipe (sem "dono"
+      // único) — aparece pra qualquer técnico selecionado, não só em "Todos".
+      if (e.extendedProps.tipo === 'pre_chamado' && !e.extendedProps.atendente) return true;
       if (e.extendedProps.concluido && !e.extendedProps.atendente) {
         return filtroAtendente === USUARIO_LOGADO_NOME;
       }
@@ -2143,6 +2165,7 @@ function verDetalhesSidebar() {
   document.getElementById('btnExcluirGlpi').style.display = 'none';
   document.getElementById('btnResponder').style.display   = (!MODO_OUVINTE && id) ? 'inline-block' : 'none';
   document.getElementById('btnNovoPeriodo').style.display = (!MODO_OUVINTE && id) ? 'inline-block' : 'none';
+  document.getElementById('btnConverterChamado').style.display = 'none';
   document.getElementById('modalTitulo').innerHTML = '<i class="bi bi-eye me-2"></i>Detalhes do Evento';
 
   modalEvento.show();
@@ -2501,7 +2524,7 @@ function abrirModalEvento(dataStr) {
   document.getElementById('ev-atendente').value = '';
   document.getElementById('ev-prioridade').value = 'media';
   document.getElementById('ev-setor').value = '';
-  document.getElementById('ev-projeto').innerHTML = '<option value="">Selecione o projeto...</option>';
+  document.getElementById('lista-projetos-multi').innerHTML = '';
   document.getElementById('campo-projeto').style.display = 'none';
   document.getElementById('ev-tipo').value = 'chamado';
   if (tsEntidade)   tsEntidade.setValue('', true);   else document.getElementById('ev-entidade').value   = '';
@@ -2530,6 +2553,7 @@ function abrirModalEvento(dataStr) {
   document.getElementById('btnExcluirGlpi').style.display = 'none';
   document.getElementById('btnResponder').style.display   = 'none';
   document.getElementById('btnNovoPeriodo').style.display = 'none';
+  document.getElementById('btnConverterChamado').style.display = 'none';
   document.getElementById('banner-readonly').style.display = 'none';
   document.getElementById('modalTitulo').innerHTML = '<i class="bi bi-calendar-plus me-2"></i>Novo Evento';
   ajustarCamposPorTipo();
@@ -2799,7 +2823,9 @@ function ajustarCamposPorTipo() {
   const reuniao   = tipo === 'reuniao';
   const evento    = tipo === 'evento';
   const projeto   = tipo === 'projeto';
-  const isChamado = tipo === 'chamado' || tipo === 'requisicao';
+  // Pré-chamado entra junto de chamado/requisição: precisa dos mesmos campos
+  // preenchidos pra poder virar um chamado real depois (automático ou pelo botão)
+  const isChamado = tipo === 'chamado' || tipo === 'requisicao' || tipo === 'pre_chamado';
 
   // Prioridade: oculta em reunião, evento e projeto
   document.getElementById('campo-prioridade').style.display  = (reuniao || evento || projeto) ? 'none' : '';
@@ -2837,12 +2863,14 @@ function ajustarCamposPorTipo() {
   }
   // Asterisco de Descrição: obrigatório apenas em chamado/requisição
   const starDesc = document.getElementById('star-descricao');
-  if (starDesc) starDesc.style.display = isChamado ? '' : 'none';
+  if (starDesc) starDesc.style.display = (tipo === 'chamado' || tipo === 'requisicao') ? '' : 'none';
 
-  // Recorrência: apenas para Evento
+  // Recorrência: Evento e Projeto (pré-projeto — ocorrências futuras já nascem
+  // como marcação de Projeto real, sem estado "pendente" intermediário)
+  const podeRecorrer = evento || projeto;
   const campoRec = document.getElementById('campo-recorrencia');
-  if (campoRec) campoRec.style.display = evento ? '' : 'none';
-  if (!evento) {
+  if (campoRec) campoRec.style.display = podeRecorrer ? '' : 'none';
+  if (!podeRecorrer) {
     // Desmarca recorrência ao trocar para outro tipo
     document.getElementById('ev-recorrencia-ativa').checked = false;
     document.getElementById('ev-recorrencia-opcoes').style.display = 'none';
@@ -2907,7 +2935,10 @@ function toggleChip(el) {
 }
 
 function getAtendentesMultiSelecionados() {
-  return [...document.querySelectorAll('.atendente-multi-chip.selected')].map(el => ({
+  // Escopado a #lista-atendentes-multi — projeto usa a mesma classe de chip
+  // (.atendente-multi-chip) dentro de #lista-projetos-multi; sem o escopo,
+  // um chip de projeto selecionado vazaria pra lista de atendentes.
+  return [...document.querySelectorAll('#lista-atendentes-multi .atendente-multi-chip.selected')].map(el => ({
     nome: el.dataset.nome,
     id:   parseInt(el.dataset.id),
     cor:  el.dataset.cor,
@@ -3156,6 +3187,20 @@ function abrirModalResposta() {
       });
   }
 
+  // Mesma rotina (Unifi): status atual das antenas (último estado conhecido).
+  const boxAntenas = document.getElementById('resp-antenas');
+  const textoAntenas = document.getElementById('resp-antenas-texto');
+  if (boxAntenas) boxAntenas.style.display = 'none';
+  if (textoAntenas) textoAntenas.textContent = '';
+  if (mostrarFirewall && boxAntenas && textoAntenas) {
+    boxAntenas.style.display = '';
+    textoAntenas.textContent = 'Carregando status atual das antenas…';
+    fetch('../antena_resumo_ajax.php')
+      .then(r => r.json())
+      .then(d => { textoAntenas.textContent = d.ok ? d.texto : 'Falha ao carregar status das antenas — preencha manualmente.'; })
+      .catch(() => { textoAntenas.textContent = 'Falha ao carregar status das antenas — preencha manualmente.'; });
+  }
+
   // Checklist para chamados recorrentes
   const tituloLimpo = titulo.replace(/^#\d+\s*[-–]\s*/, '').trim();
   const checklist = Object.entries(ROTINA_CHECKLISTS).find(([k]) => tituloLimpo.includes(k));
@@ -3394,6 +3439,12 @@ async function enviarResposta() {
     if (textoFirewall) blocos.push(textoFirewall);
   }
 
+  const boxAntenas = document.getElementById('resp-antenas');
+  if (boxAntenas && boxAntenas.style.display !== 'none') {
+    const textoAntenas = document.getElementById('resp-antenas-texto').textContent.trim();
+    if (textoAntenas) blocos.push(textoAntenas);
+  }
+
   const boxSolides = document.getElementById('resp-solides');
   if (boxSolides && boxSolides.style.display !== 'none') {
     const textoSolides = document.getElementById('resp-solides-texto').textContent.trim();
@@ -3626,6 +3677,7 @@ function novoPeriodo() {
     document.getElementById('btnExcluirGlpi').style.display = 'none';
     document.getElementById('btnResponder').style.display   = 'none';
     document.getElementById('btnNovoPeriodo').style.display = 'none';
+    document.getElementById('btnConverterChamado').style.display = 'none';
     document.getElementById('banner-readonly').style.display = 'none';
     document.getElementById('modalTitulo').innerHTML =
       `<i class="bi bi-clock-history me-2"></i>Novo período — #${tid}`;
@@ -3641,6 +3693,7 @@ function abrirModalSemLimpar() {
   document.getElementById('btnDeletar').style.display     = 'none';
   document.getElementById('btnResponder').style.display   = 'none';
   document.getElementById('btnNovoPeriodo').style.display = 'none';
+  document.getElementById('btnConverterChamado').style.display = 'none';
   document.getElementById('modalTitulo').innerHTML = '<i class="bi bi-calendar-plus me-2"></i>Agendar Chamado';
   document.getElementById('lista-arquivos-criar').innerHTML = '';
   arquivosAnexosCriar = [];
@@ -3666,6 +3719,9 @@ function editarEvento(ev) {
   const co = ev.extendedProps.co_atendentes || c.co_atendentes || [];
   const coNomes = co.map(x => x.nome).filter(Boolean);
   const atdName = ev.extendedProps.atendente || c.atendente;
+  // co_projetos: lista de nomes (string) — projeto não tem id/cor
+  const coProj = ev.extendedProps.co_projetos || c.co_projetos || [];
+  const projetoNome = ev.extendedProps.projeto || c.projeto;
   preencherModal({
     id:        ev.id,
     titulo:    ev.title.replace(/^#\d+\s*[-–]\s*/, '').trim(),
@@ -3674,7 +3730,9 @@ function editarEvento(ev) {
     prioridade:ev.extendedProps.prioridade || c.prioridade,
     tipo:      ev.extendedProps.tipo       || c.tipo || 'chamado',
     setor:     ev.extendedProps.setor      || c.setor,
-    projeto:   ev.extendedProps.projeto    || c.projeto,
+    projeto:   projetoNome,
+    // Lista com todos os projetos (primário + co)
+    projetos_lista: projetoNome ? [projetoNome, ...coProj] : [...coProj],
     descricao: ev.extendedProps.descricao  || c.descricao,
     atendente: atdName,
     ticket_id: ev.extendedProps.ticket_id  || c.ticket_id,
@@ -3743,6 +3801,7 @@ function editarEvento(ev) {
     document.getElementById('btnExcluirGlpi').style.display = 'none';
     document.getElementById('btnResponder').style.display   = 'none';
     document.getElementById('btnNovoPeriodo').style.display = 'none';
+    document.getElementById('btnConverterChamado').style.display = 'none';
     document.querySelector('#modalEvento .btn-secondary')?.style.setProperty('display', 'none');
     document.querySelector('#modalEvento .btn-primary')?.style.setProperty('display', 'none');
 
@@ -3757,6 +3816,7 @@ function editarEvento(ev) {
       document.getElementById('btnExcluirGlpi').style.display = 'none';
       document.getElementById('btnResponder').style.display   = 'none';
       document.getElementById('btnNovoPeriodo').style.display = 'none';
+      document.getElementById('btnConverterChamado').style.display = 'none';
     } else {
       const _tid   = ev.extendedProps.ticket_id || c.ticket_id || '';
       const _tipo  = ev.extendedProps.tipo || c.tipo || '';
@@ -3766,6 +3826,13 @@ function editarEvento(ev) {
       document.getElementById('btnExcluirGlpi').dataset.ticketId = _tid;
       document.getElementById('btnResponder').style.display   = (_tid && !concluido) ? 'inline-block' : 'none';
       document.getElementById('btnNovoPeriodo').style.display = (_tid && !concluido) ? 'inline-block' : 'none';
+      // Pré-chamado manual (sem recorrência GLPI vinculada) ainda sem ticket real
+      // → mostra o botão de conversão. Pré-chamado de uma glpi_ticketrecurrents
+      // (ticketrecurrents_id setado) converte sozinho quando o GLPI criar o ticket
+      // real — oferecer o botão aí geraria chamado duplicado.
+      const _trid = ev.extendedProps.ticketrecurrents_id || c.ticketrecurrents_id || null;
+      document.getElementById('btnConverterChamado').style.display =
+        (_tipo === 'pre_chamado' && !_tid && !_trid && !concluido) ? 'inline-block' : 'none';
     }
     document.getElementById('modalTitulo').innerHTML = '<i class="bi bi-eye me-2"></i>Detalhes do Evento';
   }
@@ -3860,6 +3927,117 @@ function mostrarErroModal(erros) {
   banner.className = 'alert alert-danger py-2 px-3 mb-0 mt-1';
   banner.innerHTML = '<i class="bi bi-exclamation-triangle-fill me-1"></i>'
     + '<strong>Campos obrigatórios:</strong> ' + erros.join(' · ');
+}
+
+// Converte manualmente um pré-chamado em chamado real no GLPI. Só aparece pra
+// pré-chamado SEM ticketrecurrents_id (o automático converte sozinho via
+// sync_rotinas_ajax.php quando o GLPI criar o ticket da recorrência).
+function converterEmChamado() {
+  const evId = document.getElementById('ev-id').value.trim();
+  if (!evId) { alert('Salve o pré-chamado antes de converter em chamado.'); return; }
+
+  limparValidacao();
+  const errosVal  = [];
+  const titulo    = document.getElementById('ev-titulo').value.trim();
+  const descricao = document.getElementById('ev-descricao').value.trim();
+  const entEl     = document.getElementById('ev-entidade');
+  const entId     = entEl.selectedOptions[0]?.dataset?.id || '';
+  const reqEl     = document.getElementById('ev-requerente');
+  const reqId     = reqEl.selectedOptions[0]?.dataset?.id || '';
+  const multiSel  = getAtendentesMultiSelecionados();
+
+  if (!titulo)        { errosVal.push('Título');     marcarInvalido('ev-titulo'); }
+  if (!descricao)      { errosVal.push('Descrição');  marcarInvalido('ev-descricao'); }
+  if (!entId)          { errosVal.push('Entidade');   marcarInvalido('ev-entidade'); }
+  if (!reqId)          { errosVal.push('Requerente'); marcarInvalido('ev-requerente'); }
+  if (!multiSel.length) { errosVal.push('Atendente'); marcarInvalido('lista-atendentes-multi'); }
+  if (errosVal.length > 0) { mostrarErroModal(errosVal); return; }
+
+  aoMudarInicio();
+  const start = document.getElementById('ev-start').value;
+  const end   = document.getElementById('ev-end').value;
+  const catId = parseInt(document.getElementById('ev-categoria').value) || null;
+  const orgId = parseInt(document.getElementById('ev-origem').value) || null;
+  const primeiro = multiSel[0];
+
+  const btn = document.getElementById('btnConverterChamado');
+  const btnHtmlOrig = btn.innerHTML;
+  btn.disabled = true;
+  btn.innerHTML = '<span class="spinner-border spinner-border-sm me-2"></span>Convertendo...';
+  const reativar = () => { btn.disabled = false; btn.innerHTML = btnHtmlOrig; };
+
+  fetch('criar_ticket.php', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      titulo, descricao,
+      tipo:           'chamado',
+      prioridade:     document.getElementById('ev-prioridade').value,
+      atendente_id:   primeiro.id,
+      atendentes_ids: multiSel.map(a => a.id),
+      categoria_id:   catId,
+      entidade_id:    parseInt(entId),
+      requerente_id:  parseInt(reqId),
+      origem_id:      orgId,
+    }),
+  })
+  .then(r => r.json())
+  .then(res => {
+    if (!res.ok) {
+      alert('Erro ao criar chamado no GLPI: ' + (res.msg || 'Falha desconhecida'));
+      reativar();
+      return;
+    }
+    return fetch('eventos.php?action=save', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        id: evId,
+        titulo: `#${res.ticket_id} – ${titulo}`,
+        start, end,
+        atendente:      primeiro.nome,
+        atendente_id:   primeiro.id,
+        atendente_cor:  primeiro.cor,
+        prioridade:     document.getElementById('ev-prioridade').value,
+        setor:          document.getElementById('ev-setor').value,
+        descricao,
+        ticket_id:      res.ticket_id,
+        tipo:           'chamado',
+        concluido:      0,
+        categoria_id:   catId,
+        entidade_id:    parseInt(entId),
+        requerente_id:  parseInt(reqId),
+        origem_id:      orgId,
+        _skipGlpi:      true,
+      }),
+    })
+    .then(r => r.json())
+    .then(res2 => {
+      // âš ï¸ O chamado já foi criado no GLPI nesse ponto (fetch anterior) — se o save
+      // do evento falhar, NÃO finge sucesso: avisa e deixa o pré-chamado como estava,
+      // em vez de fechar o modal e tocar o toast de conversão concluída.
+      if (!res2 || !res2.ok) {
+        alert(`Chamado #${res.ticket_id} foi criado no GLPI, mas falhou ao atualizar o evento na agenda` +
+              (res2 && res2.error ? `: ${res2.error}` : '.') +
+              ` O pré-chamado continua pendente — vincule o #${res.ticket_id} manualmente.`);
+        calendar.refetchEvents();
+        carregarTickets();
+        return;
+      }
+      modalEvento.hide();
+      calendar.refetchEvents();
+      carregarTickets();
+      toast(`🎫 Pré-chamado convertido em chamado #${res.ticket_id}!`);
+    })
+    .catch(() => {
+      alert(`Chamado #${res.ticket_id} criado no GLPI, mas falhou ao atualizar o evento na agenda.`);
+    })
+    .finally(reativar);
+  })
+  .catch(() => {
+    alert('Erro de conexão ao criar chamado.');
+    reativar();
+  });
 }
 
 function salvarEvento() {
@@ -3967,7 +4145,7 @@ function salvarEvento() {
     origem_id:     origemId,
     // Campos adicionais de impressão (categoria 181)
     campos_impressao: _getCamposImpressao(),
-    // Recorrência semanal (apenas para Evento)
+    // Recorrência semanal (Evento e Projeto)
     recorrencia_id:         _dadosModal?.recorrencia_id || null,
     recorrencia_ativa:      document.getElementById('ev-recorrencia-ativa').checked ? 1 : 0,
     recorrencia_dias:       Array.from(document.querySelectorAll('#ev-recorrencia-dias input:checked')).map(cb => cb.value).join(','),
