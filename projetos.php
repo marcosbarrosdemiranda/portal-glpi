@@ -48,6 +48,32 @@ $pdo->exec("ALTER TABLE portal_projetos_status ADD COLUMN IF NOT EXISTS previsao
 $pdo->exec("ALTER TABLE portal_projetos_status ADD COLUMN IF NOT EXISTS horas_media_item DECIMAL(6,2) NULL");
 $pdo->exec("ALTER TABLE portal_projetos_status ADD COLUMN IF NOT EXISTS horas_por_dia DECIMAL(6,2) NULL");
 
+// ── Tabelas de projetos manuais (sem conta GitHub) ──────────────
+$pdo->exec("
+    CREATE TABLE IF NOT EXISTS portal_projetos_manuais (
+        id            INT AUTO_INCREMENT PRIMARY KEY,
+        titulo        VARCHAR(255) NOT NULL,
+        descricao     TEXT NULL,
+        status        ENUM('futuro','em_execucao','concluido') NOT NULL DEFAULT 'em_execucao',
+        previsao      DATE NULL,
+        responsaveis  TEXT NULL,
+        criado_por    INT NULL,
+        criado_em     TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        atualizado_em TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+");
+$pdo->exec("
+    CREATE TABLE IF NOT EXISTS portal_projetos_manuais_itens (
+        id         INT AUTO_INCREMENT PRIMARY KEY,
+        projeto_id INT NOT NULL,
+        texto      VARCHAR(500) NOT NULL,
+        concluido  TINYINT(1) NOT NULL DEFAULT 0,
+        ordem      INT NOT NULL DEFAULT 0,
+        criado_em  TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY (projeto_id) REFERENCES portal_projetos_manuais(id) ON DELETE CASCADE
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+");
+
 // ── AJAX: contas GitHub (cada usuário só mexe nas próprias) ────
 $ghAction = $_GET['gh_action'] ?? '';
 if ($ghAction) {
@@ -333,6 +359,167 @@ if ($ghAction) {
         $body = json_decode(file_get_contents('php://input'), true) ?? [];
         $id   = (int)($body['id'] ?? 0);
         $pdo->prepare("DELETE FROM portal_github_contas WHERE id=? AND user_id=?")->execute([$id, $uid]);
+        echo json_encode(['ok'=>true]);
+        exit;
+    }
+
+    echo json_encode(['ok'=>false,'msg'=>'Ação inválida']);
+    exit;
+}
+
+// ── AJAX: projetos manuais (sem conta GitHub) ──────────────────
+// Qualquer técnico autenticado (perfil não-self-service, já garantido no
+// topo do arquivo) pode criar/editar/excluir/marcar item de QUALQUER
+// projeto manual — sem ownership check, decisão confirmada na spec.
+$pmAction = $_GET['pm_action'] ?? '';
+if ($pmAction) {
+    header('Content-Type: application/json');
+    if (stripos($_SERVER['CONTENT_TYPE'] ?? '', 'application/json') !== 0) {
+        echo json_encode(['ok'=>false,'msg'=>'Requisição inválida']); exit;
+    }
+    if (!$uid) { echo json_encode(['ok'=>false,'msg'=>'Sessão inválida']); exit; }
+
+    // Progresso calculado on-the-fly a partir dos itens do projeto —
+    // mesmo padrão progresso{feitas,total,pct} dos cards GitHub.
+    function pmProgresso(PDO $pdo, int $projetoId): array {
+        $st = $pdo->prepare("SELECT COUNT(*) total, SUM(concluido) feitas FROM portal_projetos_manuais_itens WHERE projeto_id=?");
+        $st->execute([$projetoId]);
+        $r = $st->fetch(PDO::FETCH_ASSOC);
+        $total  = (int)($r['total'] ?? 0);
+        $feitas = (int)($r['feitas'] ?? 0);
+        return ['feitas' => $feitas, 'total' => $total, 'pct' => $total > 0 ? (int)round($feitas / $total * 100) : 0];
+    }
+
+    if ($pmAction === 'criar' || $pmAction === 'salvar') {
+        $body     = json_decode(file_get_contents('php://input'), true) ?? [];
+        $id       = (int)($body['id'] ?? 0);
+        $titulo   = trim($body['titulo'] ?? '');
+        $descricao = trim($body['descricao'] ?? '');
+        $status   = $body['status'] ?? 'em_execucao';
+        if (!in_array($status, ['futuro','em_execucao','concluido'], true)) $status = 'em_execucao';
+        $previsao = trim($body['previsao'] ?? '');
+        $previsaoSql = ($previsao !== '' && preg_match('/^\d{4}-\d{2}-\d{2}$/', $previsao)) ? $previsao : null;
+        $responsaveis = $body['responsaveis'] ?? [];
+        $responsaveisJson = is_array($responsaveis) ? json_encode($responsaveis, JSON_UNESCAPED_UNICODE) : null;
+        $itens = is_array($body['itens'] ?? null) ? $body['itens'] : [];
+
+        if (!$titulo) { echo json_encode(['ok'=>false,'msg'=>'Título é obrigatório']); exit; }
+
+        if ($pmAction === 'criar') {
+            $st = $pdo->prepare("INSERT INTO portal_projetos_manuais (titulo, descricao, status, previsao, responsaveis, criado_por) VALUES (?,?,?,?,?,?)");
+            $st->execute([$titulo, $descricao, $status, $previsaoSql, $responsaveisJson, $uid]);
+            $id = (int)$pdo->lastInsertId();
+        } else {
+            if (!$id) { echo json_encode(['ok'=>false,'msg'=>'Projeto não encontrado']); exit; }
+            $st = $pdo->prepare("SELECT id FROM portal_projetos_manuais WHERE id=?");
+            $st->execute([$id]);
+            if (!$st->fetch()) { echo json_encode(['ok'=>false,'msg'=>'Projeto não encontrado']); exit; }
+            $pdo->prepare("UPDATE portal_projetos_manuais SET titulo=?, descricao=?, status=?, previsao=?, responsaveis=? WHERE id=?")
+                ->execute([$titulo, $descricao, $status, $previsaoSql, $responsaveisJson, $id]);
+        }
+
+        // Resync dos itens: apaga os que não vieram no payload, upsert dos
+        // presentes (por id, quando houver), insere os novos sem id.
+        $idsPayload = [];
+        foreach ($itens as $ordem => $it) {
+            $itemId = (int)($it['id'] ?? 0);
+            $texto  = trim($it['texto'] ?? '');
+            if ($texto === '') continue;
+            $concluido = !empty($it['concluido']) ? 1 : 0;
+            if ($itemId) {
+                $pdo->prepare("UPDATE portal_projetos_manuais_itens SET texto=?, concluido=?, ordem=? WHERE id=? AND projeto_id=?")
+                    ->execute([$texto, $concluido, $ordem, $itemId, $id]);
+                $idsPayload[] = $itemId;
+            } else {
+                $pdo->prepare("INSERT INTO portal_projetos_manuais_itens (projeto_id, texto, concluido, ordem) VALUES (?,?,?,?)")
+                    ->execute([$id, $texto, $concluido, $ordem]);
+                $idsPayload[] = (int)$pdo->lastInsertId();
+            }
+        }
+        if ($idsPayload) {
+            $ph = implode(',', array_fill(0, count($idsPayload), '?'));
+            $pdo->prepare("DELETE FROM portal_projetos_manuais_itens WHERE projeto_id=? AND id NOT IN ($ph)")
+                ->execute(array_merge([$id], $idsPayload));
+        } elseif ($pmAction === 'salvar') {
+            // payload sem itens = lista toda apagada intencionalmente
+            $pdo->prepare("DELETE FROM portal_projetos_manuais_itens WHERE projeto_id=?")->execute([$id]);
+        }
+
+        echo json_encode(['ok'=>true,'id'=>$id,'progresso'=>pmProgresso($pdo,$id)]);
+        exit;
+    }
+
+    if ($pmAction === 'excluir') {
+        $body = json_decode(file_get_contents('php://input'), true) ?? [];
+        $id   = (int)($body['id'] ?? 0);
+        if (!$id) { echo json_encode(['ok'=>false,'msg'=>'Projeto não encontrado']); exit; }
+        $pdo->prepare("DELETE FROM portal_projetos_manuais WHERE id=?")->execute([$id]);
+        echo json_encode(['ok'=>true]);
+        exit;
+    }
+
+    if ($pmAction === 'status_set') {
+        $body   = json_decode(file_get_contents('php://input'), true) ?? [];
+        $id     = (int)($body['id'] ?? 0);
+        $status = $body['status'] ?? '';
+        if (!in_array($status, ['futuro','em_execucao','concluido'], true)) {
+            echo json_encode(['ok'=>false,'msg'=>'Status inválido']); exit;
+        }
+        if (!$id) { echo json_encode(['ok'=>false,'msg'=>'Projeto não encontrado']); exit; }
+        $pdo->prepare("UPDATE portal_projetos_manuais SET status=? WHERE id=?")->execute([$status, $id]);
+        echo json_encode(['ok'=>true]);
+        exit;
+    }
+
+    if ($pmAction === 'item_add') {
+        $body      = json_decode(file_get_contents('php://input'), true) ?? [];
+        $projetoId = (int)($body['projeto_id'] ?? 0);
+        $texto     = trim($body['texto'] ?? '');
+        if (!$projetoId || !$texto) { echo json_encode(['ok'=>false,'msg'=>'Dados inválidos']); exit; }
+        $st = $pdo->prepare("SELECT id FROM portal_projetos_manuais WHERE id=?");
+        $st->execute([$projetoId]);
+        if (!$st->fetch()) { echo json_encode(['ok'=>false,'msg'=>'Projeto não encontrado']); exit; }
+        $st = $pdo->prepare("SELECT COALESCE(MAX(ordem),-1)+1 FROM portal_projetos_manuais_itens WHERE projeto_id=?");
+        $st->execute([$projetoId]);
+        $ordem = (int)$st->fetchColumn();
+        $pdo->prepare("INSERT INTO portal_projetos_manuais_itens (projeto_id, texto, ordem) VALUES (?,?,?)")
+            ->execute([$projetoId, $texto, $ordem]);
+        echo json_encode(['ok'=>true,'id'=>(int)$pdo->lastInsertId(),'progresso'=>pmProgresso($pdo,$projetoId)]);
+        exit;
+    }
+
+    if ($pmAction === 'item_toggle') {
+        $body   = json_decode(file_get_contents('php://input'), true) ?? [];
+        $itemId = (int)($body['id'] ?? 0);
+        if (!$itemId) { echo json_encode(['ok'=>false,'msg'=>'Item não encontrado']); exit; }
+        $st = $pdo->prepare("SELECT projeto_id FROM portal_projetos_manuais_itens WHERE id=?");
+        $st->execute([$itemId]);
+        $projetoId = $st->fetchColumn();
+        if (!$projetoId) { echo json_encode(['ok'=>false,'msg'=>'Item não encontrado']); exit; }
+        $pdo->prepare("UPDATE portal_projetos_manuais_itens SET concluido = 1 - concluido WHERE id=?")->execute([$itemId]);
+        echo json_encode(['ok'=>true,'progresso'=>pmProgresso($pdo,(int)$projetoId)]);
+        exit;
+    }
+
+    if ($pmAction === 'item_delete') {
+        $body   = json_decode(file_get_contents('php://input'), true) ?? [];
+        $itemId = (int)($body['id'] ?? 0);
+        if (!$itemId) { echo json_encode(['ok'=>false,'msg'=>'Item não encontrado']); exit; }
+        $st = $pdo->prepare("SELECT projeto_id FROM portal_projetos_manuais_itens WHERE id=?");
+        $st->execute([$itemId]);
+        $projetoId = $st->fetchColumn();
+        if (!$projetoId) { echo json_encode(['ok'=>false,'msg'=>'Item não encontrado']); exit; }
+        $pdo->prepare("DELETE FROM portal_projetos_manuais_itens WHERE id=?")->execute([$itemId]);
+        echo json_encode(['ok'=>true,'progresso'=>pmProgresso($pdo,(int)$projetoId)]);
+        exit;
+    }
+
+    if ($pmAction === 'item_editar') {
+        $body   = json_decode(file_get_contents('php://input'), true) ?? [];
+        $itemId = (int)($body['id'] ?? 0);
+        $texto  = trim($body['texto'] ?? '');
+        if (!$itemId || !$texto) { echo json_encode(['ok'=>false,'msg'=>'Dados inválidos']); exit; }
+        $pdo->prepare("UPDATE portal_projetos_manuais_itens SET texto=? WHERE id=?")->execute([$texto, $itemId]);
         echo json_encode(['ok'=>true]);
         exit;
     }
