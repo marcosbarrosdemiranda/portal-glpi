@@ -17,6 +17,7 @@ if (!$is_sync_remoto) {
 }
 
 require_once __DIR__ . '/agenda/db.php';
+require_once __DIR__ . '/balancas_fields_sync.php';
 
 header('Content-Type: application/json; charset=utf-8');
 
@@ -202,6 +203,7 @@ if ($action === 'salvar_balanca') {
         $pdo->prepare("INSERT INTO portal_balancas (servidor_id, identificacao, modelo, serie, loja, departamento, ip, versao_firmware, carga_atual, carga_programada, ultima_comunicacao, lote_fabricacao, observacao) VALUES (:servidor_id, :identificacao, :modelo, :serie, :loja, :departamento, :ip, :versao_firmware, :carga_atual, :carga_programada, :ultima_comunicacao, :lote_fabricacao, :observacao)")->execute($dados);
         $id = $pdo->lastInsertId();
     }
+    balanca_fields_sync_upsert($pdo, (int)$id, $dados['identificacao']);
     echo json_encode(['ok' => true, 'id' => $id]);
     exit;
 }
@@ -210,8 +212,63 @@ if ($action === 'excluir_balanca') {
     $id = (int)($_POST['id'] ?? 0);
     if ($id) {
         $pdo->prepare("DELETE FROM portal_balancas WHERE id=?")->execute([$id]);
+        balanca_fields_sync_delete($pdo, $id);
     }
     echo json_encode(['ok' => true]);
+    exit;
+}
+
+// ── Chamados vinculados a uma balança (Fase 2) ─────────────────
+// Vínculo vem do campo "Equipamento (Balança)" do container 7 (plugin
+// Fields), não de glpi_items_tickets (balança não é itemtype nativo —
+// ver achado técnico na spec). plugin_fields_equipamentobalanafielddropdowns_id
+// guarda o id direto (int) porque é dropdown single; o id é sempre igual
+// ao id de portal_balancas (ver balancas_fields_sync.php).
+if ($action === 'chamados_balanca') {
+    $balanca_id = (int)($_GET['balanca_id'] ?? 0);
+    if (!$balanca_id) { echo json_encode(['ok' => false, 'erro' => 'Balança não informada.']); exit; }
+
+    $STATUS = [1 => 'Novo', 2 => 'Em atendimento', 3 => 'Planejado', 4 => 'Pendente', 5 => 'Solucionado', 6 => 'Fechado'];
+    $DEFEITOS = [];
+    try {
+        $r = $pdo->query("SELECT id, name FROM glpi_plugin_fields_tipodedefeitofielddropdowns");
+        while ($row = $r->fetch(PDO::FETCH_ASSOC)) { $DEFEITOS[(int)$row['id']] = $row['name']; }
+    } catch (Throwable $e) { /* catálogo de defeito indisponível não deve quebrar a lista de chamados */ }
+
+    $chamados = [];
+    try {
+        $stmt = $pdo->prepare("
+            SELECT t.id, t.name, t.date, t.status, r.plugin_fields_tipodedefeitofielddropdowns_id AS defeitos_raw
+            FROM glpi_plugin_fields_ticketreparoequipamentos r
+            JOIN glpi_tickets t ON t.id = r.items_id AND r.itemtype = 'Ticket'
+            WHERE r.plugin_fields_equipamentobalanafielddropdowns_id = ?
+              AND t.is_deleted = 0
+            ORDER BY t.date DESC
+        ");
+        $stmt->execute([$balanca_id]);
+        while ($row = $stmt->fetch(PDO::FETCH_ASSOC)) {
+            $ids_defeito = json_decode($row['defeitos_raw'] ?? '', true);
+            if (!is_array($ids_defeito)) { $ids_defeito = $row['defeitos_raw'] ? [$row['defeitos_raw']] : []; }
+            $nomes_defeito = array_values(array_filter(array_map(
+                fn($id) => $DEFEITOS[(int)$id] ?? null,
+                $ids_defeito
+            )));
+            $chamados[] = [
+                'id'          => (int)$row['id'],
+                'titulo'      => $row['name'],
+                'data'        => $row['date'],
+                'status'      => (int)$row['status'],
+                'status_nome' => $STATUS[(int)$row['status']] ?? '?',
+                'defeitos'    => $nomes_defeito,
+            ];
+        }
+    } catch (Throwable $e) {
+        error_log('[inventario_balancas] chamados_balanca falhou (balanca_id=' . $balanca_id . '): ' . $e->getMessage());
+        echo json_encode(['ok' => false, 'erro' => 'Falha ao consultar chamados vinculados.']);
+        exit;
+    }
+
+    echo json_encode(['ok' => true, 'chamados' => $chamados]);
     exit;
 }
 
@@ -332,10 +389,12 @@ if ($action === 'sync_mgv') {
                 $pdo->prepare("UPDATE portal_balancas SET modelo=?, serie=?, loja=?, departamento=?, ip=?, versao_firmware=?, carga_atual=?, carga_programada=?, ultima_comunicacao=?, lote_fabricacao=? WHERE id=?")
                     ->execute([$modelo, $serie, $loja, $departamento, $ip, $versao_firmware, $carga_atual, $carga_programada, $ultima_cx, $lote, $existing['id']]);
                 $atualizados++;
+                balanca_fields_sync_upsert($pdo, (int)$existing['id'], $ident);
             } else {
                 $pdo->prepare("INSERT INTO portal_balancas (servidor_id, identificacao, modelo, serie, loja, departamento, ip, versao_firmware, carga_atual, carga_programada, ultima_comunicacao, lote_fabricacao) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)")
                     ->execute([$servidor_id, $ident, $modelo, $serie, $loja, $departamento, $ip, $versao_firmware, $carga_atual, $carga_programada, $ultima_cx, $lote]);
                 $importados++;
+                balanca_fields_sync_upsert($pdo, (int)$pdo->lastInsertId(), $ident);
             }
         }
 
@@ -466,10 +525,12 @@ if ($action === 'sync_mgv') {
             $pdo->prepare("UPDATE portal_balancas SET modelo=?, serie=?, loja=?, departamento=?, ip=?, versao_firmware=?, carga_atual=?, carga_programada=?, ultima_comunicacao=?, lote_fabricacao=? WHERE id=?")
                 ->execute([$modelo, $serie, $loja, $departamento, $ip, $versao_firmware, $carga_atual, $carga_programada, $ultima_cx, $lote, $existing['id']]);
             $atualizados++;
+            balanca_fields_sync_upsert($pdo, (int)$existing['id'], $ident);
         } else {
             $pdo->prepare("INSERT INTO portal_balancas (servidor_id, identificacao, modelo, serie, loja, departamento, ip, versao_firmware, carga_atual, carga_programada, ultima_comunicacao, lote_fabricacao) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)")
                 ->execute([$servidor_id, $ident, $modelo, $serie, $loja, $departamento, $ip, $versao_firmware, $carga_atual, $carga_programada, $ultima_cx, $lote]);
             $importados++;
+            balanca_fields_sync_upsert($pdo, (int)$pdo->lastInsertId(), $ident);
         }
     }
 
@@ -551,10 +612,12 @@ if ($action === 'sync_remoto') {
             $pdo->prepare("UPDATE portal_balancas SET modelo=?, serie=?, loja=?, departamento=?, ip=?, versao_firmware=?, carga_atual=?, carga_programada=?, ultima_comunicacao=?, lote_fabricacao=? WHERE id=?")
                 ->execute([$modelo, $serie, $loja, $departamento, $ip, $versao_firmware, $carga_atual, $carga_programada, $ultima_cx, $lote, $existing['id']]);
             $atualizados++;
+            balanca_fields_sync_upsert($pdo, (int)$existing['id'], $ident);
         } else {
             $pdo->prepare("INSERT INTO portal_balancas (servidor_id, identificacao, modelo, serie, loja, departamento, ip, versao_firmware, carga_atual, carga_programada, ultima_comunicacao, lote_fabricacao) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)")
                 ->execute([$servidor_id, $ident, $modelo, $serie, $loja, $departamento, $ip, $versao_firmware, $carga_atual, $carga_programada, $ultima_cx, $lote]);
             $importados++;
+            balanca_fields_sync_upsert($pdo, (int)$pdo->lastInsertId(), $ident);
         }
     }
 
@@ -1008,6 +1071,12 @@ foreach ($servidores as $sv) $total_balancas += (int)$sv['total_balancas'];
             <div class="spec-val" id="det-lote">—</div>
           </div>
         </div>
+
+        <hr class="my-3">
+        <h6 class="mb-2"><i class="bi bi-ticket-detailed me-1"></i>Chamados vinculados</h6>
+        <div id="det-chamados">
+          <div class="text-muted small">Carregando...</div>
+        </div>
       </div>
       <div class="modal-footer justify-content-between">
         <button class="btn btn-sm btn-outline-danger" onclick="excluirBalanca(balancaAtual.dataset.id); modalDetalhes.hide();"><i class="bi bi-trash"></i> Excluir</button>
@@ -1276,8 +1345,48 @@ function abrirDetalhes(card) {
     badge.innerHTML = '<i class="bi bi-hourglass-split"></i> Verificando...';
   }
 
+  carregarChamadosBalanca(d.id);
+
   if (!modalDetalhes) modalDetalhes = new bootstrap.Modal(document.getElementById('modalDetalhes'));
   modalDetalhes.show();
+}
+
+function escapeHtmlChamado(str) {
+  const d = document.createElement('div');
+  d.textContent = str == null ? '' : str;
+  return d.innerHTML;
+}
+
+const CHAMADO_STATUS_CLASSE = {
+  1: 'bg-info text-white', 2: 'bg-primary text-white', 3: 'bg-primary text-white',
+  4: 'bg-warning text-dark', 5: 'bg-success text-white', 6: 'bg-secondary text-white',
+};
+
+function carregarChamadosBalanca(balancaId) {
+  const box = document.getElementById('det-chamados');
+  box.innerHTML = '<div class="text-muted small">Carregando...</div>';
+  if (!balancaId) { box.innerHTML = '<div class="text-muted small">—</div>'; return; }
+
+  fetch('inventario_balancas.php?action=chamados_balanca&balanca_id=' + encodeURIComponent(balancaId))
+    .then(r => r.json())
+    .then(d => {
+      if (!d.ok) { box.innerHTML = '<div class="text-danger small">Erro ao carregar chamados vinculados.</div>'; return; }
+      if (!d.chamados.length) { box.innerHTML = '<div class="text-muted small">Nenhum chamado vinculado.</div>'; return; }
+      box.innerHTML = d.chamados.map(c => {
+        const dataFmt = c.data ? new Date(c.data).toLocaleDateString('pt-BR') : '—';
+        const classe = CHAMADO_STATUS_CLASSE[c.status] || 'bg-secondary text-white';
+        const defeitos = c.defeitos.length ? escapeHtmlChamado(c.defeitos.join(', ')) : '—';
+        const titulo = escapeHtmlChamado(c.titulo);
+        return `<div class="d-flex justify-content-between align-items-start border-bottom py-2">
+          <div>
+            <a href="/front/ticket.form.php?id=${c.id}" target="_blank" class="fw-semibold text-decoration-none">#${c.id} — ${titulo}</a>
+            <div class="small text-muted">${dataFmt} · Defeito: ${defeitos}</div>
+          </div>
+          <span class="badge ${classe}">${escapeHtmlChamado(c.status_nome)}</span>
+        </div>`;
+      }).join('');
+    })
+    .catch(() => { box.innerHTML = '<div class="text-danger small">Erro ao carregar chamados vinculados.</div>'; });
 }
 
 function pingBalancaModal() {

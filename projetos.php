@@ -45,6 +45,8 @@ $pdo->exec("
 ");
 $pdo->exec("ALTER TABLE portal_projetos_status ADD COLUMN IF NOT EXISTS visivel TINYINT(1) NOT NULL DEFAULT 1");
 $pdo->exec("ALTER TABLE portal_projetos_status ADD COLUMN IF NOT EXISTS previsao DATE NULL");
+$pdo->exec("ALTER TABLE portal_projetos_status ADD COLUMN IF NOT EXISTS horas_media_item DECIMAL(6,2) NULL");
+$pdo->exec("ALTER TABLE portal_projetos_status ADD COLUMN IF NOT EXISTS horas_por_dia DECIMAL(6,2) NULL");
 
 // ── AJAX: contas GitHub (cada usuário só mexe nas próprias) ────
 $ghAction = $_GET['gh_action'] ?? '';
@@ -144,6 +146,23 @@ if ($ghAction) {
         exit;
     }
 
+    if ($ghAction === 'set_estimativa') {
+        $body      = json_decode(file_get_contents('php://input'), true) ?? [];
+        $contaId   = (int)($body['conta_id'] ?? 0);
+        $repoNome  = trim($body['repo_nome'] ?? '');
+        $horasDia  = ($body['horas_por_dia']   ?? '') !== '' ? (float)$body['horas_por_dia']   : null;
+        $horasItem = ($body['horas_media_item'] ?? '') !== '' ? (float)$body['horas_media_item'] : null;
+        if (!$repoNome) { echo json_encode(['ok'=>false,'msg'=>'Repositório inválido']); exit; }
+        $st = $pdo->prepare("SELECT id FROM portal_github_contas WHERE id=? AND user_id=?");
+        $st->execute([$contaId, $uid]);
+        if (!$st->fetch()) { echo json_encode(['ok'=>false,'msg'=>'Conta não encontrada']); exit; }
+        $pdo->prepare("INSERT INTO portal_projetos_status (conta_id, repo_nome, horas_por_dia, horas_media_item) VALUES (?,?,?,?)
+                       ON DUPLICATE KEY UPDATE horas_por_dia = VALUES(horas_por_dia), horas_media_item = VALUES(horas_media_item)")
+            ->execute([$contaId, $repoNome, $horasDia, $horasItem]);
+        echo json_encode(['ok'=>true]);
+        exit;
+    }
+
     if ($ghAction === 'apresentacao') {
         $body     = json_decode(file_get_contents('php://input'), true) ?? [];
         $contaId  = (int)($body['conta_id'] ?? 0);
@@ -165,6 +184,24 @@ if ($ghAction) {
         } elseif (!empty($doc['prazo'])) {
             [$ini, $fim] = parsePrazoRange($doc['prazo']);
             if ($fim) $previsao = date('d/m/Y', $fim);
+        }
+
+        // estimativa por horas/dia (config opcional, independente da previsão acima)
+        $st = $pdo->prepare("SELECT horas_por_dia, horas_media_item FROM portal_projetos_status ps
+                             JOIN portal_github_contas c ON c.id = ps.conta_id
+                             WHERE ps.repo_nome = ? AND c.user_id = ? AND ps.horas_por_dia IS NOT NULL LIMIT 1");
+        $st->execute([$repoNome, $uid]);
+        $cfgHoras = $st->fetch(PDO::FETCH_ASSOC);
+        $estimativaHoras = null;
+        if ($cfgHoras && (float)$cfgHoras['horas_por_dia'] > 0) {
+            $pendentes = max(0, (int)($doc['total'] ?? 0) - (int)($doc['done'] ?? 0));
+            $horasItem = (float)($cfgHoras['horas_media_item'] ?? 0) ?: 2.0;
+            $calc = calcularEstimativaPorHoras($pendentes, $horasItem, (float)$cfgHoras['horas_por_dia']);
+            $estimativaHoras = [
+                'data' => $calc['data'], 'dias' => $calc['dias'],
+                'horas_restantes' => $calc['horas_restantes'],
+                'horas_por_dia' => (float)$cfgHoras['horas_por_dia'], 'horas_media_item' => $horasItem,
+            ];
         }
 
         // agrupa por módulo → implementadas x futuras
@@ -189,6 +226,7 @@ if ($ghAction) {
             'done'      => (int)($doc['done'] ?? 0),
             'total'     => (int)($doc['total'] ?? 0),
             'previsao'  => $previsao,
+            'estimativa_horas' => $estimativaHoras,
             'implementadas' => $impl,
             'futuras'   => $fut,
         ], JSON_UNESCAPED_UNICODE);
@@ -311,107 +349,26 @@ if ($uid) {
     $minhasContas = $st->fetchAll(PDO::FETCH_ASSOC);
 }
 
-// ── Parser de projeto Markdown ─────────────────────────────────────────────
-function parseProjeto(string $filepath): ?array {
-    $content = @file_get_contents($filepath);
-    if (!$content) return null;
-
-    $lines  = explode("\n", str_replace("\r", '', $content));
-    $proj   = [
-        'titulo'    => '',
-        'objetivo'  => '',
-        'equipe'    => '',
-        'prazo'     => '',
-        'repo'      => '',
-        'modulos'   => [],
-        'cronograma'=> [],
-    ];
-
-    $modo        = 'header';
-    $moduloAtual = null;
-    $subSecao    = null;
-    $inCodeBlock = false;
-
-    foreach ($lines as $line) {
-        $l = rtrim($line);
-
-        if (preg_match('/^```/', $l)) { $inCodeBlock = !$inCodeBlock; continue; }
-
-        if ($inCodeBlock) {
-            if ($modo === 'cronograma' &&
-                preg_match('/Semana\s*(\d+)\s*\(([^)]+)\)\s*[→\-]+\s*(.+)/u', $l, $m)) {
-                $proj['cronograma'][] = [
-                    'semana'   => 'S'.$m[1],
-                    'periodo'  => trim($m[2]),
-                    'descricao'=> trim($m[3]),
-                ];
-            }
-            continue;
-        }
-
-        if (preg_match('/^# (.+)$/u', $l, $m)) {
-            $proj['titulo'] = trim($m[1]); $modo = 'header'; continue;
-        }
-        if ($modo === 'header' && preg_match('/^> \*\*(.+?):\*\*\s*(.+)/u', $l, $m)) {
-            $k = mb_strtolower($m[1]);
-            if (str_contains($k,'objetivo'))    $proj['objetivo'] = $m[2];
-            elseif (str_contains($k,'equipe'))  $proj['equipe']   = $m[2];
-            elseif (str_contains($k,'prazo'))   $proj['prazo']    = $m[2];
-            elseif (str_contains($k,'reposit')) $proj['repo']     = $m[2];
-            continue;
-        }
-        if (preg_match('/^## (.+)$/u', $l, $m)) {
-            if ($moduloAtual !== null) $proj['modulos'][] = $moduloAtual;
-            $nome = trim($m[1]);
-            if (preg_match('/cronograma/iu', $nome))      { $modo='cronograma'; $moduloAtual=null; }
-            elseif (preg_match('/progresso/iu', $nome))   { $modo='tabprog';    $moduloAtual=null; }
-            else {
-                $modo = 'modulo';
-                $moduloAtual = ['nome'=>$nome,'descricao'=>'','prazo'=>'','tarefas'=>[]];
-                $subSecao = null;
-            }
-            continue;
-        }
-        if ($modo === 'modulo' && preg_match('/^### (.+)$/u', $l, $m)) {
-            $subSecao = trim($m[1]); continue;
-        }
-        if ($modo === 'modulo' && $moduloAtual !== null) {
-            if (preg_match('/^- \[x\] (.+)/iu', $l, $m))
-                $moduloAtual['tarefas'][] = ['done'=>true,  'texto'=>$m[1], 'sub'=>$subSecao];
-            elseif (preg_match('/^- \[ \] (.+)/u', $l, $m))
-                $moduloAtual['tarefas'][] = ['done'=>false, 'texto'=>$m[1], 'sub'=>$subSecao];
-            elseif (preg_match('/^> \*\*Prazo:\*\*\s*(.+)/ui', $l, $m)) {
-                $v = trim($m[1]);
-                // 4+ barras = duas datas = prazo do projeto; 2 barras = prazo do módulo
-                if (!$proj['prazo'] && substr_count($v, '/') >= 4)
-                    $proj['prazo'] = $v;
-                else
-                    $moduloAtual['prazo'] = $v;
-            }
-            elseif (preg_match('/^> (.+)/u', $l, $m) && !count($moduloAtual['tarefas']))
-                $moduloAtual['descricao'] = trim($m[1]);
-        }
+/**
+ * Estimativa de término por horas trabalhadas/dia (alternativa à previsão
+ * por extrapolação de ritmo passado) — pendentes × horas médias por
+ * funcionalidade ÷ horas/dia dedicadas, contando dias úteis (pula domingo).
+ */
+function calcularEstimativaPorHoras(int $pendentes, float $horasPorItem, float $horasPorDia): array {
+    $horasRestantes = $pendentes * $horasPorItem;
+    $diasUteis = (int)ceil($horasRestantes / $horasPorDia);
+    $data = new DateTime('today');
+    $contados = 0;
+    while ($contados < $diasUteis) {
+        $data->modify('+1 day');
+        if ((int)$data->format('w') !== 0) $contados++; // pula domingo (w=0)
     }
-    if ($moduloAtual !== null) $proj['modulos'][] = $moduloAtual;
-
-    $tot = $done = 0;
-    foreach ($proj['modulos'] as &$mod) {
-        $mt = count($mod['tarefas']);
-        $md = count(array_filter($mod['tarefas'], fn($t) => $t['done']));
-        $mod['pct']  = $mt > 0 ? round($md / $mt * 100) : 0;
-        $mod['done'] = $md;
-        $mod['tot']  = $mt;
-        $tot  += $mt;
-        $done += $md;
-    }
-    unset($mod);
-
-    $proj['pct']   = $tot > 0 ? round($done / $tot * 100) : 0;
-    $proj['done']  = $done;
-    $proj['total'] = $tot;
-
-    return $proj['titulo'] ? $proj : null;
+    return ['data' => $data->format('d/m/Y'), 'dias' => $diasUteis, 'horas_restantes' => $horasRestantes];
 }
+
+// ── Parser de projeto Markdown ─────────────────────────────────────────────
+// parseProjeto() movida pra github_cache.php (fix/projetos-github-cache-worker) —
+// dependência de docPrdDoProjeto(), que o worker precisa chamar standalone.
 
 function parsePeriodo(string $periodo, int $ano = 2026): array {
     $p = trim($periodo);
@@ -423,20 +380,10 @@ function parsePeriodo(string $periodo, int $ano = 2026): array {
     return [0, 0];
 }
 
-function parseDataBR(string $d): int {
-    if (preg_match('/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/', trim($d), $m))
-        return mktime(0,0,0,(int)$m[2],(int)$m[1],(int)$m[3]);
-    return 0;
-}
-
-function parsePrazoRange(string $prazo): array {
-    // Duas datas separadas por qualquer coisa não-numérica (→, —, >, espaço, etc.)
-    if (preg_match('/(\d{1,2}\/\d{1,2}\/\d{4})\D+(\d{1,2}\/\d{1,2}\/\d{4})/', $prazo, $m))
-        return [parseDataBR($m[1]), parseDataBR($m[2])];
-    if (preg_match('/(\d{1,2}\/\d{1,2}\/\d{4})/', $prazo, $m))
-        return [0, parseDataBR($m[1])];
-    return [0, 0];
-}
+// parseDataBR() e parsePrazoRange() movidas pra github_cache.php
+// (fix/projetos-github-cache-worker) — github_cache_worker.php precisa
+// delas pra replicar a lógica de "milestone só se não há previsão manual
+// nem prazo no doc" sem dar require no projetos.php inteiro.
 
 function corPct(int $pct): string {
     if ($pct >= 80) return '#1e8e3e';
@@ -536,43 +483,9 @@ $projetos  = [];
  * Todos os .md dentro de uma subpasta são mesclados em um único projeto
  * Pastas iniciadas com _ (underscore) são ignoradas (ex: _Documentação)
  */
-/**
- * Retorna o PRD parseado de um projeto (pasta = nome do repo), SÓ o PRD —
- * sem mesclar logs de sessão / ADRs. Fonte pro card e pra Apresentação.
- */
-function docPrdDoProjeto(string $repoNome): ?array {
-    static $cache = [];
-    $chave = mb_strtolower($repoNome);
-    if (array_key_exists($chave, $cache)) return $cache[$chave];
-
-    $base = __DIR__ . '/Docs/wiki/projects';
-    $cfg  = __DIR__ . '/config_projetos.local.php';
-    if (file_exists($cfg)) { require_once $cfg; if (defined('ORIGEM_PROJETOS') && is_dir(ORIGEM_PROJETOS)) $base = ORIGEM_PROJETOS; }
-
-    $sub = null;
-    foreach (glob($base . '/*', GLOB_ONLYDIR) ?: [] as $sp) {
-        if (strcasecmp(basename($sp), $repoNome) === 0) { $sub = $sp; break; }
-    }
-    if (!$sub) return $cache[$chave] = null;
-
-    $cands = glob($sub . '/*.md') ?: [];
-    $norm  = fn($s) => mb_strtolower(str_replace(['-', '_', ' '], '', $s));
-    $pn    = $norm($repoNome);
-    $main  = null;
-    // 1) "<repo>-prd.md"  2) qualquer "*-prd.md" que contenha o nome do repo
-    // 3) "prd.md" / "PRD-<algo>.md"  4) arquivo com o nome do repo  5) README/index
-    foreach ($cands as $md) if ($norm(basename($md, '.md')) === $pn . 'prd') { $main = $md; break; }
-    if (!$main) foreach ($cands as $md) { $nb = $norm(basename($md, '.md'));
-        if (str_ends_with($nb, 'prd') && str_contains($nb, $pn)) { $main = $md; break; } }
-    if (!$main) foreach ($cands as $md) { $nb = $norm(basename($md, '.md'));
-        if ($nb === 'prd' || str_starts_with($nb, 'prd')) { $main = $md; break; } }
-    if (!$main) foreach ($cands as $md) if (str_contains($norm(basename($md, '.md')), $pn)) { $main = $md; break; }
-    if (!$main) foreach ($cands as $md) { $b = mb_strtolower(basename($md, '.md')); if ($b === 'readme' || $b === 'index') { $main = $md; break; } }
-    if (!$main) $main = $cands[0] ?? null;
-    if (!$main) return $cache[$chave] = null;
-
-    return $cache[$chave] = parseProjeto($main);
-}
+// docPrdDoProjeto() movida pra github_cache.php (fix/projetos-github-cache-worker) —
+// github_cache_worker.php (CLI, sem a guarda de sessão HTTP deste arquivo)
+// precisa chamá-la sem dar require no projetos.php inteiro.
 
 function carregarProjetosDaPasta(string $pasta): array {
     $result = [];
@@ -1230,7 +1143,7 @@ body  { background:#f0f4f9; font-family:'Segoe UI',sans-serif; font-size:.9rem; 
       foreach ($minhasContas as $conta) {
           if (!$conta['ativo']) continue;
           $token      = vault_decrypt($conta['token_enc']);
-          $resultado  = gh_cached($pdo, "repos:{$conta['id']}", 300, fn() => github_listar_repos($token));
+          $resultado  = gh_cached($pdo, "repos:{$conta['id']}", TTL_REPOS, fn() => github_listar_repos($token));
           if (isset($resultado['erro'])) {
               $errosContas[] = ['apelido' => $conta['apelido'], 'msg' => $resultado['erro']];
               $pdo->prepare("UPDATE portal_github_contas SET ultimo_teste_ok=0, ultima_verificacao=NOW() WHERE id=?")
@@ -1250,11 +1163,11 @@ body  { background:#f0f4f9; font-family:'Segoe UI',sans-serif; font-size:.9rem; 
               $ghUser = $conta['usuario_github'];
               $ck = "{$conta['id']}:{$repo['nome']}";
 
-              $analiseReadme = gh_cached($pdo, "readme:$ck", 600, fn() => github_analisar_readme($token, $ghUser, $repo['nome']));
+              $analiseReadme = gh_cached($pdo, "readme:$ck", TTL_DETALHE, fn() => github_analisar_readme($token, $ghUser, $repo['nome']));
               $repo['descricao'] = $analiseReadme['descricao'] !== '' ? $analiseReadme['descricao'] : $repo['descricao'];
 
-              $issues  = gh_cached($pdo, "issues:$ck",  600, fn() => github_issues($token, $ghUser, $repo['nome']));
-              $commits = gh_cached($pdo, "commits:$ck", 600, fn() => github_commits_recentes($token, $ghUser, $repo['nome'], 8));
+              $issues  = gh_cached($pdo, "issues:$ck",  TTL_DETALHE, fn() => github_issues($token, $ghUser, $repo['nome']));
+              $commits = gh_cached($pdo, "commits:$ck", TTL_DETALHE, fn() => github_commits_recentes($token, $ghUser, $repo['nome'], 8));
               $repo['issues_data'] = $issues;
               $repo['commits']     = $commits;
 
@@ -1282,7 +1195,7 @@ body  { background:#f0f4f9; font-family:'Segoe UI',sans-serif; font-size:.9rem; 
                   [$pi, $pf] = parsePrazoRange($doc['prazo']);
                   $repo['previsao_txt'] = $pf ? date('d/m/Y', $pf) : ($doc['prazo'] ?: '');
               } else {
-                  $ms = gh_cached($pdo, "milestone:$ck", 600, fn() => github_obter_previsao($token, $ghUser, $repo['nome']));
+                  $ms = gh_cached($pdo, "milestone:$ck", TTL_DETALHE, fn() => github_obter_previsao($token, $ghUser, $repo['nome']));
                   $repo['previsao_txt'] = $ms ? date('d/m/Y', strtotime($ms)) : '';
               }
               $repo['previsao'] = null; // legado, não usar mais
@@ -1342,6 +1255,7 @@ body  { background:#f0f4f9; font-family:'Segoe UI',sans-serif; font-size:.9rem; 
                         <button type="button" class="gh-proj-menu" data-bs-toggle="dropdown" aria-expanded="false"><i class="bi bi-three-dots-vertical"></i></button>
                         <ul class="dropdown-menu dropdown-menu-end">
                           <li><a class="dropdown-item" href="#" onclick="definirPrevisao(event,<?= (int)$repo['conta_id'] ?>,'<?= esc($repo['nome']) ?>')"><i class="bi bi-calendar-event me-2"></i>Definir previsão de término</a></li>
+                          <li><a class="dropdown-item" href="#" onclick="configurarEstimativa(event,<?= (int)$repo['conta_id'] ?>,'<?= esc($repo['nome']) ?>')"><i class="bi bi-clock-history me-2"></i>Configurar estimativa (horas)</a></li>
                           <li><hr class="dropdown-divider"></li>
                           <?php foreach ($secoesInfo as $optKey => $optInfo): ?>
                             <li><a class="dropdown-item" href="#" onclick="mudarStatus(event,<?= (int)$repo['conta_id'] ?>,'<?= esc($repo['nome']) ?>','<?= $optKey ?>')"><i class="bi <?= $optInfo['icon'] ?> me-2"></i><?= $optInfo['label'] ?></a></li>
@@ -1991,6 +1905,9 @@ async function abrirApresentacao(contaId, repoNome) {
           '<div class="apres-prog-txt"><strong>' + d.pct + '%</strong> concluído · ' + d.done + ' de ' + d.total + ' funcionalidades</div>' +
         '</div>' +
         (d.previsao ? '<div class="apres-prev"><i class="bi bi-calendar-event me-1"></i>Previsão de término<br><strong>' + _escA(d.previsao) + '</strong></div>' : '') +
+        (d.estimativa_horas ? '<div class="apres-prev apres-estimativa"><i class="bi bi-clock-history me-1"></i>Estimativa (horas/dia)<br><strong>' +
+          _escA(d.estimativa_horas.data) + '</strong><div class="small text-muted">' +
+          d.estimativa_horas.horas_restantes + 'h restantes ÷ ' + d.estimativa_horas.horas_por_dia + 'h/dia</div></div>' : '') +
       '</div>' +
       '<div class="apres-cols">' +
         '<div class="apres-col">' +
@@ -2021,6 +1938,28 @@ async function definirPrevisao(ev, contaId, repoNome) {
   const r = await fetch('projetos.php?gh_action=set_previsao', {
     method: 'POST', headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ conta_id: contaId, repo_nome: repoNome, previsao: iso }),
+  });
+  const d = await r.json();
+  if (d.ok) location.reload(); else alert(d.msg || 'Erro ao salvar');
+}
+
+async function configurarEstimativa(ev, contaId, repoNome) {
+  ev.preventDefault();
+  const dia = prompt('Horas por dia dedicadas a este projeto (vazio = remover estimativa):', '');
+  if (dia === null) return;
+  const diaNorm = dia.trim().replace(',', '.');
+  if (diaNorm !== '' && isNaN(parseFloat(diaNorm))) {
+    alert('Formato inválido. Use um número (ex.: 2 ou 2,5).'); return;
+  }
+  const item = prompt('Horas médias por funcionalidade (vazio = usar padrão de 2h):', '');
+  if (item === null) return;
+  const itemNorm = item.trim().replace(',', '.');
+  if (itemNorm !== '' && isNaN(parseFloat(itemNorm))) {
+    alert('Formato inválido. Use um número (ex.: 2 ou 2,5).'); return;
+  }
+  const r = await fetch('projetos.php?gh_action=set_estimativa', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ conta_id: contaId, repo_nome: repoNome, horas_por_dia: diaNorm, horas_media_item: itemNorm }),
   });
   const d = await r.json();
   if (d.ok) location.reload(); else alert(d.msg || 'Erro ao salvar');

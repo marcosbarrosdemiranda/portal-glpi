@@ -378,6 +378,7 @@ body {
   <button class="tab-btn" data-tab="projetos"><i class="bi bi-folder"></i> Projetos</button>
   <button class="tab-btn" data-tab="impressoes"><i class="bi bi-printer"></i> Impressões</button>
   <button class="tab-btn" data-tab="equipamentos"><i class="bi bi-hdd-network"></i> Equipamentos</button>
+  <button class="tab-btn" data-tab="balancas"><i class="bi bi-calculator"></i> Balanças</button>
 </div>
 
 <!-- ═══════════════════ Content ══════════════════════════ -->
@@ -644,6 +645,37 @@ body {
       <div id="eq-vazio" style="text-align:center;padding:2rem;color:var(--text-dim);display:none">
         <i class="bi bi-inbox" style="font-size:2rem;display:block;margin-bottom:.5rem"></i>
         Nenhum equipamento com chamado vinculado no período. Vincule equipamentos nos chamados ou no Inventário.
+      </div>
+    </div>
+  </div>
+
+  <!-- ════════════════════════════════════════════════════ -->
+  <!-- PAINEL: BALANÇAS — defeitos e balança/loja            -->
+  <!-- ════════════════════════════════════════════════════ -->
+  <div class="painel" id="painel-balancas">
+    <div class="painel-title"><i class="bi bi-calculator"></i>Chamados de Balanças</div>
+
+    <div class="kpi-row">
+      <div class="kpi-card accent-cyan"><div class="kpi-label">🧾 Chamados</div><div class="kpi-val" id="bal-kpi-total">—</div><div class="kpi-sub">no período filtrado</div></div>
+      <div class="kpi-card accent-gold"><div class="kpi-label">⚖️ Balanças afetadas</div><div class="kpi-val" id="bal-kpi-balancas">—</div><div class="kpi-sub">com pelo menos 1 chamado</div></div>
+      <div class="kpi-card accent-red"><div class="kpi-label">🔥 Balança mais problemática</div><div class="kpi-val" id="bal-kpi-top-balanca" style="font-size:1.1rem">—</div><div class="kpi-sub" id="bal-kpi-top-balanca-sub">—</div></div>
+      <div class="kpi-card accent-purple"><div class="kpi-label">🔧 Defeito mais comum</div><div class="kpi-val" id="bal-kpi-top-defeito" style="font-size:1.1rem">—</div><div class="kpi-sub" id="bal-kpi-top-defeito-sub">—</div></div>
+    </div>
+
+    <div class="chart-grid-2" style="margin-bottom:1rem">
+      <div class="chart-card"><h3>Frequência por Tipo de Defeito</h3><div class="chart-wrap" id="bal-chart-defeito"></div></div>
+      <div class="chart-card"><h3>Chamados por Balança/Loja</h3><div class="chart-wrap" id="bal-chart-balanca"></div></div>
+    </div>
+
+    <div class="chart-card full-width">
+      <h3>📋 Chamados <span id="bal-tabela-count" style="color:var(--text-dim)"></span></h3>
+      <div style="overflow-x:auto"><table class="tabela-bi" id="bal-tabela">
+        <thead><tr><th>#</th><th>Título</th><th>Balança</th><th>Loja</th><th>Defeito(s)</th><th>Data</th></tr></thead>
+        <tbody id="bal-tbody"></tbody>
+      </table></div>
+      <div id="bal-vazio" style="text-align:center;padding:2rem;color:var(--text-dim);display:none">
+        <i class="bi bi-inbox" style="font-size:2rem;display:block;margin-bottom:.5rem"></i>
+        Nenhum chamado de Balanças com o campo "Equipamento" preenchido no período.
       </div>
     </div>
   </div>
@@ -1386,6 +1418,7 @@ async function carregarDados() {
     carregarProjetos();
     carregarImpressoes();
     carregarEquipamentos();
+    carregarBalancas();
   } catch (err) {
     document.getElementById('loading-state').style.display = 'none';
     document.getElementById('painel-erro').classList.add('active');
@@ -1538,6 +1571,90 @@ function toggleEquipDet(i, tr) {
   dets.forEach(d => d.style.display = abrir ? 'table-row' : 'none');
   const chev = document.querySelector('.eq-chev-' + i);
   if (chev) chev.style.transform = abrir ? 'rotate(90deg)' : '';
+}
+
+// ══════════════════════════════════════════════════════════════
+// BALANÇAS — defeitos e balança/loja (Fase 3)
+// ══════════════════════════════════════════════════════════════
+const BAL_STATUS_NOME = { 1:'Novo', 2:'Em atendimento', 3:'Planejado', 4:'Pendente', 5:'Solucionado', 6:'Fechado' };
+const BAL_STATUS_COR  = { 1:'#06b6d4', 2:'#f97316', 3:'#8b5cf6', 4:'#ef4444', 5:'#22c55e', 6:'#7a8aaa' };
+
+async function carregarBalancas() {
+  try {
+    const res = await fetch('relatorios_balancas.php?' + getParams());
+    if (!res.ok) throw new Error('HTTP ' + res.status);
+    const d = await res.json();
+    if (!d.ok) throw new Error(d.error || 'falha');
+
+    animarKPI(document.getElementById('bal-kpi-total'), d.kpis.total_chamados);
+    animarKPI(document.getElementById('bal-kpi-balancas'), d.kpis.balancas_afetadas);
+    document.getElementById('bal-kpi-top-balanca').textContent = d.kpis.top_balanca_qtd > 0 ? d.kpis.top_balanca : '—';
+    document.getElementById('bal-kpi-top-balanca-sub').textContent = d.kpis.top_balanca_qtd > 0 ? d.kpis.top_balanca_qtd + ' chamado(s)' : '—';
+    document.getElementById('bal-kpi-top-defeito').textContent = d.kpis.top_defeito_qtd > 0 ? d.kpis.top_defeito : '—';
+    document.getElementById('bal-kpi-top-defeito-sub').textContent = d.kpis.top_defeito_qtd > 0 ? d.kpis.top_defeito_qtd + ' ocorrência(s)' : '—';
+
+    // Gráfico: frequência por tipo de defeito
+    const pd = d.por_defeito || [];
+    if (charts.balDefeito) { charts.balDefeito.destroy(); charts.balDefeito = null; }
+    if (pd.length) {
+      charts.balDefeito = new ApexCharts(document.getElementById('bal-chart-defeito'), {
+        ...APEX_DARK,
+        chart: { ...APEX_DARK.chart, type: 'bar', height: 300 },
+        series: [{ name: 'Ocorrências', data: pd.map(x => x.qtd) }],
+        colors: ['#8b5cf6'],
+        xaxis: { categories: pd.map(x => x.defeito) },
+        plotOptions: { bar: { borderRadius: 4, horizontal: true, barHeight: '65%' } },
+        dataLabels: { enabled: true, style: { colors: ['#fff'], fontWeight: 700 } },
+        tooltip: { ...APEX_DARK.tooltip, y: { formatter: v => v + ' ocorrência(s)' } },
+      });
+      charts.balDefeito.render();
+    } else {
+      document.getElementById('bal-chart-defeito').innerHTML = '<p style="color:var(--text-dim);text-align:center;padding:2rem">Sem dados</p>';
+    }
+
+    // Gráfico: chamados por balança/loja
+    const pb = d.por_balanca || [];
+    if (charts.balBalanca) { charts.balBalanca.destroy(); charts.balBalanca = null; }
+    if (pb.length) {
+      charts.balBalanca = new ApexCharts(document.getElementById('bal-chart-balanca'), {
+        ...APEX_DARK,
+        chart: { ...APEX_DARK.chart, type: 'bar', height: 300 },
+        series: [{ name: 'Chamados', data: pb.map(x => x.chamados) }],
+        colors: ['#06b6d4'],
+        xaxis: { categories: pb.map(x => `${x.identificacao} (${x.loja})`) },
+        plotOptions: { bar: { borderRadius: 4, horizontal: true, barHeight: '65%' } },
+        dataLabels: { enabled: true, style: { colors: ['#fff'], fontWeight: 700 } },
+        tooltip: { ...APEX_DARK.tooltip, y: { formatter: v => v + ' chamado(s)' } },
+      });
+      charts.balBalanca.render();
+    } else {
+      document.getElementById('bal-chart-balanca').innerHTML = '<p style="color:var(--text-dim);text-align:center;padding:2rem">Sem dados</p>';
+    }
+
+    // Tabela de chamados
+    const rows = d.chamados || [];
+    document.getElementById('bal-tabela-count').textContent = rows.length ? `(${rows.length})` : '';
+    const tbody = document.getElementById('bal-tbody');
+    const vazio = document.getElementById('bal-vazio');
+    if (!rows.length) {
+      tbody.innerHTML = '';
+      vazio.style.display = 'block';
+    } else {
+      vazio.style.display = 'none';
+      tbody.innerHTML = rows.map(c => `
+        <tr>
+          <td><a href="/front/ticket.form.php?id=${c.id}" target="_blank" style="color:var(--cyan);text-decoration:none;font-weight:700">#${c.id}</a></td>
+          <td>${escHtml(c.titulo)}</td>
+          <td style="font-weight:600;color:var(--text-bright)">${escHtml(c.balanca)}</td>
+          <td>${escHtml(c.loja)}</td>
+          <td>${c.defeitos.length ? escHtml(c.defeitos.join(', ')) : '—'}</td>
+          <td style="color:var(--text-dim)">${c.data}</td>
+        </tr>`).join('');
+    }
+  } catch (err) {
+    document.getElementById('bal-tbody').innerHTML =
+      `<tr><td colspan="6" style="color:var(--red)">Erro: ${escHtml(err.message)}</td></tr>`;
+  }
 }
 
 // ══════════════════════════════════════════════════════════════
