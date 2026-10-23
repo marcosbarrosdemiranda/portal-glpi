@@ -2968,6 +2968,29 @@ function abrirModalResposta() {
   document.getElementById('resp-concluido').checked   = true;  // padrão: responder ja conclui
   arquivosAnexos = [];
 
+  // Se for evento do tipo projeto, busca commits do dia automaticamente
+  if (_eventoParaResponder.tipo === 'projeto' && _eventoParaResponder.titulo) {
+    const projRepo = _eventoParaResponder.titulo.trim();
+    const dataIso  = _eventoParaResponder.start ? _eventoParaResponder.start.substring(0, 10) : new Date().toISOString().substring(0, 10);
+    document.getElementById('resp-texto').value = `Carregando commits de ${projRepo} em ${dataIso}…`;
+    fetch(`projeto_commits_dia.php?repo=${encodeURIComponent(projRepo)}&data=${encodeURIComponent(dataIso)}`)
+      .then(r => r.json())
+      .then(d => {
+        if (d.ok && d.commits && d.commits.length > 0) {
+          let resumo = `Trabalhos realizados no projeto ${projRepo} em ${dataIso}:\n`;
+          d.commits.forEach(c => {
+            resumo += `- ${c.msg} (${c.sha})\n`;
+          });
+          document.getElementById('resp-texto').value = resumo;
+        } else {
+          document.getElementById('resp-texto').value = `Nenhum commit encontrado para ${projRepo} em ${dataIso}. (Projeto manual ou sem commits na data)`;
+        }
+      })
+      .catch(() => {
+        document.getElementById('resp-texto').value = '';
+      });
+  }
+
   // Rotina diária de verificação de backup: mostra o resumo de ontem
   // (arquivos/tamanho por servidor) numa caixa própria, separada da
   // "Observações adicionais" — pra não precisar abrir outra tela pra
