@@ -1,8 +1,35 @@
 # Chamado de Balanças: campos extras + vínculo no Inventário + BI
 
-**Data:** 2026-10-22 · **Status:** 🟢 Fases 1, 1b e 2 IMPLEMENTADAS (campos no
-chamado + sync contínuo + chamados vinculados no Inventário) · Fase 3
-pendente
+**Data:** 2026-10-22 · **Status:** 🟢 Fases 1, 1b, 2 e 3 IMPLEMENTADAS (campos
+no chamado + sync contínuo + chamados vinculados no Inventário + BI em
+Relatórios) — feature completa, PR #12 pronto pra review/merge
+
+## Fase 3 — IMPLEMENTADO (2026-10-22)
+
+- Novo endpoint `relatorios_balancas.php`: mesmo `JOIN` da Fase 2
+  (`glpi_plugin_fields_ticketreparoequipamentos` ↔ `glpi_tickets`, vínculo
+  pelo campo "Equipamento (Balança)", não `glpi_items_tickets`), com
+  `LEFT JOIN` em `portal_balancas` via explicit-id mirroring (id do catálogo
+  "Equipamento" = id de `portal_balancas`), filtrado por período
+  (`dt_ini`/`dt_fim`) e entidade (`entidade_id`) já existentes na página.
+  Agrega `por_defeito` (nome → contagem, um chamado com 2+ defeitos conta em
+  cada um), `por_balanca` (balança/loja → contagem), lista de `chamados`
+  (detalhe) e `kpis` (total, balanças afetadas, top balança, top defeito).
+- Nova aba "Balanças" em `relatorios.php`: KPIs, 2 gráficos ApexCharts
+  horizontais (frequência por tipo de defeito; chamados por balança/loja) e
+  tabela de detalhe (#chamado com link, título, balança, loja, defeito(s),
+  data) — mesmo padrão visual das abas Impressões/Equipamentos.
+- Deploy via `.new` → `php -l` → `Move-Item` nos 2 arquivos.
+- **Teste manual end-to-end confirmado em produção:** chamado real
+  `#11892` criado (categoria Balanças, balança catálogo id=6/identificação
+  "12", defeito "Teclado") — confirmado via SQL direto
+  (`plugin_fields_equipamentobalanafielddropdowns_id=6`,
+  `plugin_fields_tipodedefeitofielddropdowns_id=["1"]`) e via UI real da
+  aba "Balanças" em Relatórios: KPIs (1 chamado, 1 balança afetada, top
+  balança "12", top defeito "Teclado") e ambos os gráficos populados
+  corretamente, tabela de detalhe mostrando a linha do chamado com todos os
+  campos certos. Chamado de teste movido pra lixeira (soft-delete) após a
+  confirmação.
 
 ## Fase 2 — IMPLEMENTADO (2026-10-22)
 
