@@ -45,6 +45,34 @@ $pdo->exec("
 ");
 $pdo->exec("ALTER TABLE portal_projetos_status ADD COLUMN IF NOT EXISTS visivel TINYINT(1) NOT NULL DEFAULT 1");
 $pdo->exec("ALTER TABLE portal_projetos_status ADD COLUMN IF NOT EXISTS previsao DATE NULL");
+$pdo->exec("ALTER TABLE portal_projetos_status ADD COLUMN IF NOT EXISTS horas_media_item DECIMAL(6,2) NULL");
+$pdo->exec("ALTER TABLE portal_projetos_status ADD COLUMN IF NOT EXISTS horas_por_dia DECIMAL(6,2) NULL");
+
+// ── Tabelas de projetos manuais (sem conta GitHub) ──────────────
+$pdo->exec("
+    CREATE TABLE IF NOT EXISTS portal_projetos_manuais (
+        id            INT AUTO_INCREMENT PRIMARY KEY,
+        titulo        VARCHAR(255) NOT NULL,
+        descricao     TEXT NULL,
+        status        ENUM('futuro','em_execucao','concluido') NOT NULL DEFAULT 'em_execucao',
+        previsao      DATE NULL,
+        responsaveis  TEXT NULL,
+        criado_por    INT NULL,
+        criado_em     TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        atualizado_em TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+");
+$pdo->exec("
+    CREATE TABLE IF NOT EXISTS portal_projetos_manuais_itens (
+        id         INT AUTO_INCREMENT PRIMARY KEY,
+        projeto_id INT NOT NULL,
+        texto      VARCHAR(500) NOT NULL,
+        concluido  TINYINT(1) NOT NULL DEFAULT 0,
+        ordem      INT NOT NULL DEFAULT 0,
+        criado_em  TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY (projeto_id) REFERENCES portal_projetos_manuais(id) ON DELETE CASCADE
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+");
 
 // ── AJAX: contas GitHub (cada usuário só mexe nas próprias) ────
 $ghAction = $_GET['gh_action'] ?? '';
@@ -144,6 +172,23 @@ if ($ghAction) {
         exit;
     }
 
+    if ($ghAction === 'set_estimativa') {
+        $body      = json_decode(file_get_contents('php://input'), true) ?? [];
+        $contaId   = (int)($body['conta_id'] ?? 0);
+        $repoNome  = trim($body['repo_nome'] ?? '');
+        $horasDia  = ($body['horas_por_dia']   ?? '') !== '' ? (float)$body['horas_por_dia']   : null;
+        $horasItem = ($body['horas_media_item'] ?? '') !== '' ? (float)$body['horas_media_item'] : null;
+        if (!$repoNome) { echo json_encode(['ok'=>false,'msg'=>'Repositório inválido']); exit; }
+        $st = $pdo->prepare("SELECT id FROM portal_github_contas WHERE id=? AND user_id=?");
+        $st->execute([$contaId, $uid]);
+        if (!$st->fetch()) { echo json_encode(['ok'=>false,'msg'=>'Conta não encontrada']); exit; }
+        $pdo->prepare("INSERT INTO portal_projetos_status (conta_id, repo_nome, horas_por_dia, horas_media_item) VALUES (?,?,?,?)
+                       ON DUPLICATE KEY UPDATE horas_por_dia = VALUES(horas_por_dia), horas_media_item = VALUES(horas_media_item)")
+            ->execute([$contaId, $repoNome, $horasDia, $horasItem]);
+        echo json_encode(['ok'=>true]);
+        exit;
+    }
+
     if ($ghAction === 'apresentacao') {
         $body     = json_decode(file_get_contents('php://input'), true) ?? [];
         $contaId  = (int)($body['conta_id'] ?? 0);
@@ -165,6 +210,24 @@ if ($ghAction) {
         } elseif (!empty($doc['prazo'])) {
             [$ini, $fim] = parsePrazoRange($doc['prazo']);
             if ($fim) $previsao = date('d/m/Y', $fim);
+        }
+
+        // estimativa por horas/dia (config opcional, independente da previsão acima)
+        $st = $pdo->prepare("SELECT horas_por_dia, horas_media_item FROM portal_projetos_status ps
+                             JOIN portal_github_contas c ON c.id = ps.conta_id
+                             WHERE ps.repo_nome = ? AND c.user_id = ? AND ps.horas_por_dia IS NOT NULL LIMIT 1");
+        $st->execute([$repoNome, $uid]);
+        $cfgHoras = $st->fetch(PDO::FETCH_ASSOC);
+        $estimativaHoras = null;
+        if ($cfgHoras && (float)$cfgHoras['horas_por_dia'] > 0) {
+            $pendentes = max(0, (int)($doc['total'] ?? 0) - (int)($doc['done'] ?? 0));
+            $horasItem = (float)($cfgHoras['horas_media_item'] ?? 0) ?: 2.0;
+            $calc = calcularEstimativaPorHoras($pendentes, $horasItem, (float)$cfgHoras['horas_por_dia']);
+            $estimativaHoras = [
+                'data' => $calc['data'], 'dias' => $calc['dias'],
+                'horas_restantes' => $calc['horas_restantes'],
+                'horas_por_dia' => (float)$cfgHoras['horas_por_dia'], 'horas_media_item' => $horasItem,
+            ];
         }
 
         // agrupa por módulo → implementadas x futuras
@@ -189,6 +252,7 @@ if ($ghAction) {
             'done'      => (int)($doc['done'] ?? 0),
             'total'     => (int)($doc['total'] ?? 0),
             'previsao'  => $previsao,
+            'estimativa_horas' => $estimativaHoras,
             'implementadas' => $impl,
             'futuras'   => $fut,
         ], JSON_UNESCAPED_UNICODE);
@@ -303,6 +367,167 @@ if ($ghAction) {
     exit;
 }
 
+// ── AJAX: projetos manuais (sem conta GitHub) ──────────────────
+// Qualquer técnico autenticado (perfil não-self-service, já garantido no
+// topo do arquivo) pode criar/editar/excluir/marcar item de QUALQUER
+// projeto manual — sem ownership check, decisão confirmada na spec.
+$pmAction = $_GET['pm_action'] ?? '';
+if ($pmAction) {
+    header('Content-Type: application/json');
+    if (stripos($_SERVER['CONTENT_TYPE'] ?? '', 'application/json') !== 0) {
+        echo json_encode(['ok'=>false,'msg'=>'Requisição inválida']); exit;
+    }
+    if (!$uid) { echo json_encode(['ok'=>false,'msg'=>'Sessão inválida']); exit; }
+
+    // Progresso calculado on-the-fly a partir dos itens do projeto —
+    // mesmo padrão progresso{feitas,total,pct} dos cards GitHub.
+    function pmProgresso(PDO $pdo, int $projetoId): array {
+        $st = $pdo->prepare("SELECT COUNT(*) total, SUM(concluido) feitas FROM portal_projetos_manuais_itens WHERE projeto_id=?");
+        $st->execute([$projetoId]);
+        $r = $st->fetch(PDO::FETCH_ASSOC);
+        $total  = (int)($r['total'] ?? 0);
+        $feitas = (int)($r['feitas'] ?? 0);
+        return ['feitas' => $feitas, 'total' => $total, 'pct' => $total > 0 ? (int)round($feitas / $total * 100) : 0];
+    }
+
+    if ($pmAction === 'criar' || $pmAction === 'salvar') {
+        $body     = json_decode(file_get_contents('php://input'), true) ?? [];
+        $id       = (int)($body['id'] ?? 0);
+        $titulo   = trim($body['titulo'] ?? '');
+        $descricao = trim($body['descricao'] ?? '');
+        $status   = $body['status'] ?? 'em_execucao';
+        if (!in_array($status, ['futuro','em_execucao','concluido'], true)) $status = 'em_execucao';
+        $previsao = trim($body['previsao'] ?? '');
+        $previsaoSql = ($previsao !== '' && preg_match('/^\d{4}-\d{2}-\d{2}$/', $previsao)) ? $previsao : null;
+        $responsaveis = $body['responsaveis'] ?? [];
+        $responsaveisJson = is_array($responsaveis) ? json_encode($responsaveis, JSON_UNESCAPED_UNICODE) : null;
+        $itens = is_array($body['itens'] ?? null) ? $body['itens'] : [];
+
+        if (!$titulo) { echo json_encode(['ok'=>false,'msg'=>'Título é obrigatório']); exit; }
+
+        if ($pmAction === 'criar') {
+            $st = $pdo->prepare("INSERT INTO portal_projetos_manuais (titulo, descricao, status, previsao, responsaveis, criado_por) VALUES (?,?,?,?,?,?)");
+            $st->execute([$titulo, $descricao, $status, $previsaoSql, $responsaveisJson, $uid]);
+            $id = (int)$pdo->lastInsertId();
+        } else {
+            if (!$id) { echo json_encode(['ok'=>false,'msg'=>'Projeto não encontrado']); exit; }
+            $st = $pdo->prepare("SELECT id FROM portal_projetos_manuais WHERE id=?");
+            $st->execute([$id]);
+            if (!$st->fetch()) { echo json_encode(['ok'=>false,'msg'=>'Projeto não encontrado']); exit; }
+            $pdo->prepare("UPDATE portal_projetos_manuais SET titulo=?, descricao=?, status=?, previsao=?, responsaveis=? WHERE id=?")
+                ->execute([$titulo, $descricao, $status, $previsaoSql, $responsaveisJson, $id]);
+        }
+
+        // Resync dos itens: apaga os que não vieram no payload, upsert dos
+        // presentes (por id, quando houver), insere os novos sem id.
+        $idsPayload = [];
+        foreach ($itens as $ordem => $it) {
+            $itemId = (int)($it['id'] ?? 0);
+            $texto  = trim($it['texto'] ?? '');
+            if ($texto === '') continue;
+            $concluido = !empty($it['concluido']) ? 1 : 0;
+            if ($itemId) {
+                $pdo->prepare("UPDATE portal_projetos_manuais_itens SET texto=?, concluido=?, ordem=? WHERE id=? AND projeto_id=?")
+                    ->execute([$texto, $concluido, $ordem, $itemId, $id]);
+                $idsPayload[] = $itemId;
+            } else {
+                $pdo->prepare("INSERT INTO portal_projetos_manuais_itens (projeto_id, texto, concluido, ordem) VALUES (?,?,?,?)")
+                    ->execute([$id, $texto, $concluido, $ordem]);
+                $idsPayload[] = (int)$pdo->lastInsertId();
+            }
+        }
+        if ($idsPayload) {
+            $ph = implode(',', array_fill(0, count($idsPayload), '?'));
+            $pdo->prepare("DELETE FROM portal_projetos_manuais_itens WHERE projeto_id=? AND id NOT IN ($ph)")
+                ->execute(array_merge([$id], $idsPayload));
+        } elseif ($pmAction === 'salvar') {
+            // payload sem itens = lista toda apagada intencionalmente
+            $pdo->prepare("DELETE FROM portal_projetos_manuais_itens WHERE projeto_id=?")->execute([$id]);
+        }
+
+        echo json_encode(['ok'=>true,'id'=>$id,'progresso'=>pmProgresso($pdo,$id)]);
+        exit;
+    }
+
+    if ($pmAction === 'excluir') {
+        $body = json_decode(file_get_contents('php://input'), true) ?? [];
+        $id   = (int)($body['id'] ?? 0);
+        if (!$id) { echo json_encode(['ok'=>false,'msg'=>'Projeto não encontrado']); exit; }
+        $pdo->prepare("DELETE FROM portal_projetos_manuais WHERE id=?")->execute([$id]);
+        echo json_encode(['ok'=>true]);
+        exit;
+    }
+
+    if ($pmAction === 'status_set') {
+        $body   = json_decode(file_get_contents('php://input'), true) ?? [];
+        $id     = (int)($body['id'] ?? 0);
+        $status = $body['status'] ?? '';
+        if (!in_array($status, ['futuro','em_execucao','concluido'], true)) {
+            echo json_encode(['ok'=>false,'msg'=>'Status inválido']); exit;
+        }
+        if (!$id) { echo json_encode(['ok'=>false,'msg'=>'Projeto não encontrado']); exit; }
+        $pdo->prepare("UPDATE portal_projetos_manuais SET status=? WHERE id=?")->execute([$status, $id]);
+        echo json_encode(['ok'=>true]);
+        exit;
+    }
+
+    if ($pmAction === 'item_add') {
+        $body      = json_decode(file_get_contents('php://input'), true) ?? [];
+        $projetoId = (int)($body['projeto_id'] ?? 0);
+        $texto     = trim($body['texto'] ?? '');
+        if (!$projetoId || !$texto) { echo json_encode(['ok'=>false,'msg'=>'Dados inválidos']); exit; }
+        $st = $pdo->prepare("SELECT id FROM portal_projetos_manuais WHERE id=?");
+        $st->execute([$projetoId]);
+        if (!$st->fetch()) { echo json_encode(['ok'=>false,'msg'=>'Projeto não encontrado']); exit; }
+        $st = $pdo->prepare("SELECT COALESCE(MAX(ordem),-1)+1 FROM portal_projetos_manuais_itens WHERE projeto_id=?");
+        $st->execute([$projetoId]);
+        $ordem = (int)$st->fetchColumn();
+        $pdo->prepare("INSERT INTO portal_projetos_manuais_itens (projeto_id, texto, ordem) VALUES (?,?,?)")
+            ->execute([$projetoId, $texto, $ordem]);
+        echo json_encode(['ok'=>true,'id'=>(int)$pdo->lastInsertId(),'progresso'=>pmProgresso($pdo,$projetoId)]);
+        exit;
+    }
+
+    if ($pmAction === 'item_toggle') {
+        $body   = json_decode(file_get_contents('php://input'), true) ?? [];
+        $itemId = (int)($body['id'] ?? 0);
+        if (!$itemId) { echo json_encode(['ok'=>false,'msg'=>'Item não encontrado']); exit; }
+        $st = $pdo->prepare("SELECT projeto_id FROM portal_projetos_manuais_itens WHERE id=?");
+        $st->execute([$itemId]);
+        $projetoId = $st->fetchColumn();
+        if (!$projetoId) { echo json_encode(['ok'=>false,'msg'=>'Item não encontrado']); exit; }
+        $pdo->prepare("UPDATE portal_projetos_manuais_itens SET concluido = 1 - concluido WHERE id=?")->execute([$itemId]);
+        echo json_encode(['ok'=>true,'progresso'=>pmProgresso($pdo,(int)$projetoId)]);
+        exit;
+    }
+
+    if ($pmAction === 'item_delete') {
+        $body   = json_decode(file_get_contents('php://input'), true) ?? [];
+        $itemId = (int)($body['id'] ?? 0);
+        if (!$itemId) { echo json_encode(['ok'=>false,'msg'=>'Item não encontrado']); exit; }
+        $st = $pdo->prepare("SELECT projeto_id FROM portal_projetos_manuais_itens WHERE id=?");
+        $st->execute([$itemId]);
+        $projetoId = $st->fetchColumn();
+        if (!$projetoId) { echo json_encode(['ok'=>false,'msg'=>'Item não encontrado']); exit; }
+        $pdo->prepare("DELETE FROM portal_projetos_manuais_itens WHERE id=?")->execute([$itemId]);
+        echo json_encode(['ok'=>true,'progresso'=>pmProgresso($pdo,(int)$projetoId)]);
+        exit;
+    }
+
+    if ($pmAction === 'item_editar') {
+        $body   = json_decode(file_get_contents('php://input'), true) ?? [];
+        $itemId = (int)($body['id'] ?? 0);
+        $texto  = trim($body['texto'] ?? '');
+        if (!$itemId || !$texto) { echo json_encode(['ok'=>false,'msg'=>'Dados inválidos']); exit; }
+        $pdo->prepare("UPDATE portal_projetos_manuais_itens SET texto=? WHERE id=?")->execute([$texto, $itemId]);
+        echo json_encode(['ok'=>true]);
+        exit;
+    }
+
+    echo json_encode(['ok'=>false,'msg'=>'Ação inválida']);
+    exit;
+}
+
 // ── Minhas contas GitHub (para o painel e, na próxima etapa, a listagem) ──
 $minhasContas = [];
 if ($uid) {
@@ -311,107 +536,26 @@ if ($uid) {
     $minhasContas = $st->fetchAll(PDO::FETCH_ASSOC);
 }
 
-// ── Parser de projeto Markdown ─────────────────────────────────────────────
-function parseProjeto(string $filepath): ?array {
-    $content = @file_get_contents($filepath);
-    if (!$content) return null;
-
-    $lines  = explode("\n", str_replace("\r", '', $content));
-    $proj   = [
-        'titulo'    => '',
-        'objetivo'  => '',
-        'equipe'    => '',
-        'prazo'     => '',
-        'repo'      => '',
-        'modulos'   => [],
-        'cronograma'=> [],
-    ];
-
-    $modo        = 'header';
-    $moduloAtual = null;
-    $subSecao    = null;
-    $inCodeBlock = false;
-
-    foreach ($lines as $line) {
-        $l = rtrim($line);
-
-        if (preg_match('/^```/', $l)) { $inCodeBlock = !$inCodeBlock; continue; }
-
-        if ($inCodeBlock) {
-            if ($modo === 'cronograma' &&
-                preg_match('/Semana\s*(\d+)\s*\(([^)]+)\)\s*[→\-]+\s*(.+)/u', $l, $m)) {
-                $proj['cronograma'][] = [
-                    'semana'   => 'S'.$m[1],
-                    'periodo'  => trim($m[2]),
-                    'descricao'=> trim($m[3]),
-                ];
-            }
-            continue;
-        }
-
-        if (preg_match('/^# (.+)$/u', $l, $m)) {
-            $proj['titulo'] = trim($m[1]); $modo = 'header'; continue;
-        }
-        if ($modo === 'header' && preg_match('/^> \*\*(.+?):\*\*\s*(.+)/u', $l, $m)) {
-            $k = mb_strtolower($m[1]);
-            if (str_contains($k,'objetivo'))    $proj['objetivo'] = $m[2];
-            elseif (str_contains($k,'equipe'))  $proj['equipe']   = $m[2];
-            elseif (str_contains($k,'prazo'))   $proj['prazo']    = $m[2];
-            elseif (str_contains($k,'reposit')) $proj['repo']     = $m[2];
-            continue;
-        }
-        if (preg_match('/^## (.+)$/u', $l, $m)) {
-            if ($moduloAtual !== null) $proj['modulos'][] = $moduloAtual;
-            $nome = trim($m[1]);
-            if (preg_match('/cronograma/iu', $nome))      { $modo='cronograma'; $moduloAtual=null; }
-            elseif (preg_match('/progresso/iu', $nome))   { $modo='tabprog';    $moduloAtual=null; }
-            else {
-                $modo = 'modulo';
-                $moduloAtual = ['nome'=>$nome,'descricao'=>'','prazo'=>'','tarefas'=>[]];
-                $subSecao = null;
-            }
-            continue;
-        }
-        if ($modo === 'modulo' && preg_match('/^### (.+)$/u', $l, $m)) {
-            $subSecao = trim($m[1]); continue;
-        }
-        if ($modo === 'modulo' && $moduloAtual !== null) {
-            if (preg_match('/^- \[x\] (.+)/iu', $l, $m))
-                $moduloAtual['tarefas'][] = ['done'=>true,  'texto'=>$m[1], 'sub'=>$subSecao];
-            elseif (preg_match('/^- \[ \] (.+)/u', $l, $m))
-                $moduloAtual['tarefas'][] = ['done'=>false, 'texto'=>$m[1], 'sub'=>$subSecao];
-            elseif (preg_match('/^> \*\*Prazo:\*\*\s*(.+)/ui', $l, $m)) {
-                $v = trim($m[1]);
-                // 4+ barras = duas datas = prazo do projeto; 2 barras = prazo do módulo
-                if (!$proj['prazo'] && substr_count($v, '/') >= 4)
-                    $proj['prazo'] = $v;
-                else
-                    $moduloAtual['prazo'] = $v;
-            }
-            elseif (preg_match('/^> (.+)/u', $l, $m) && !count($moduloAtual['tarefas']))
-                $moduloAtual['descricao'] = trim($m[1]);
-        }
+/**
+ * Estimativa de término por horas trabalhadas/dia (alternativa à previsão
+ * por extrapolação de ritmo passado) — pendentes × horas médias por
+ * funcionalidade ÷ horas/dia dedicadas, contando dias úteis (pula domingo).
+ */
+function calcularEstimativaPorHoras(int $pendentes, float $horasPorItem, float $horasPorDia): array {
+    $horasRestantes = $pendentes * $horasPorItem;
+    $diasUteis = (int)ceil($horasRestantes / $horasPorDia);
+    $data = new DateTime('today');
+    $contados = 0;
+    while ($contados < $diasUteis) {
+        $data->modify('+1 day');
+        if ((int)$data->format('w') !== 0) $contados++; // pula domingo (w=0)
     }
-    if ($moduloAtual !== null) $proj['modulos'][] = $moduloAtual;
-
-    $tot = $done = 0;
-    foreach ($proj['modulos'] as &$mod) {
-        $mt = count($mod['tarefas']);
-        $md = count(array_filter($mod['tarefas'], fn($t) => $t['done']));
-        $mod['pct']  = $mt > 0 ? round($md / $mt * 100) : 0;
-        $mod['done'] = $md;
-        $mod['tot']  = $mt;
-        $tot  += $mt;
-        $done += $md;
-    }
-    unset($mod);
-
-    $proj['pct']   = $tot > 0 ? round($done / $tot * 100) : 0;
-    $proj['done']  = $done;
-    $proj['total'] = $tot;
-
-    return $proj['titulo'] ? $proj : null;
+    return ['data' => $data->format('d/m/Y'), 'dias' => $diasUteis, 'horas_restantes' => $horasRestantes];
 }
+
+// ── Parser de projeto Markdown ─────────────────────────────────────────────
+// parseProjeto() movida pra github_cache.php (fix/projetos-github-cache-worker) —
+// dependência de docPrdDoProjeto(), que o worker precisa chamar standalone.
 
 function parsePeriodo(string $periodo, int $ano = 2026): array {
     $p = trim($periodo);
@@ -423,20 +567,10 @@ function parsePeriodo(string $periodo, int $ano = 2026): array {
     return [0, 0];
 }
 
-function parseDataBR(string $d): int {
-    if (preg_match('/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/', trim($d), $m))
-        return mktime(0,0,0,(int)$m[2],(int)$m[1],(int)$m[3]);
-    return 0;
-}
-
-function parsePrazoRange(string $prazo): array {
-    // Duas datas separadas por qualquer coisa não-numérica (→, —, >, espaço, etc.)
-    if (preg_match('/(\d{1,2}\/\d{1,2}\/\d{4})\D+(\d{1,2}\/\d{1,2}\/\d{4})/', $prazo, $m))
-        return [parseDataBR($m[1]), parseDataBR($m[2])];
-    if (preg_match('/(\d{1,2}\/\d{1,2}\/\d{4})/', $prazo, $m))
-        return [0, parseDataBR($m[1])];
-    return [0, 0];
-}
+// parseDataBR() e parsePrazoRange() movidas pra github_cache.php
+// (fix/projetos-github-cache-worker) — github_cache_worker.php precisa
+// delas pra replicar a lógica de "milestone só se não há previsão manual
+// nem prazo no doc" sem dar require no projetos.php inteiro.
 
 function corPct(int $pct): string {
     if ($pct >= 80) return '#1e8e3e';
@@ -536,43 +670,9 @@ $projetos  = [];
  * Todos os .md dentro de uma subpasta são mesclados em um único projeto
  * Pastas iniciadas com _ (underscore) são ignoradas (ex: _Documentação)
  */
-/**
- * Retorna o PRD parseado de um projeto (pasta = nome do repo), SÓ o PRD —
- * sem mesclar logs de sessão / ADRs. Fonte pro card e pra Apresentação.
- */
-function docPrdDoProjeto(string $repoNome): ?array {
-    static $cache = [];
-    $chave = mb_strtolower($repoNome);
-    if (array_key_exists($chave, $cache)) return $cache[$chave];
-
-    $base = __DIR__ . '/Docs/wiki/projects';
-    $cfg  = __DIR__ . '/config_projetos.local.php';
-    if (file_exists($cfg)) { require_once $cfg; if (defined('ORIGEM_PROJETOS') && is_dir(ORIGEM_PROJETOS)) $base = ORIGEM_PROJETOS; }
-
-    $sub = null;
-    foreach (glob($base . '/*', GLOB_ONLYDIR) ?: [] as $sp) {
-        if (strcasecmp(basename($sp), $repoNome) === 0) { $sub = $sp; break; }
-    }
-    if (!$sub) return $cache[$chave] = null;
-
-    $cands = glob($sub . '/*.md') ?: [];
-    $norm  = fn($s) => mb_strtolower(str_replace(['-', '_', ' '], '', $s));
-    $pn    = $norm($repoNome);
-    $main  = null;
-    // 1) "<repo>-prd.md"  2) qualquer "*-prd.md" que contenha o nome do repo
-    // 3) "prd.md" / "PRD-<algo>.md"  4) arquivo com o nome do repo  5) README/index
-    foreach ($cands as $md) if ($norm(basename($md, '.md')) === $pn . 'prd') { $main = $md; break; }
-    if (!$main) foreach ($cands as $md) { $nb = $norm(basename($md, '.md'));
-        if (str_ends_with($nb, 'prd') && str_contains($nb, $pn)) { $main = $md; break; } }
-    if (!$main) foreach ($cands as $md) { $nb = $norm(basename($md, '.md'));
-        if ($nb === 'prd' || str_starts_with($nb, 'prd')) { $main = $md; break; } }
-    if (!$main) foreach ($cands as $md) if (str_contains($norm(basename($md, '.md')), $pn)) { $main = $md; break; }
-    if (!$main) foreach ($cands as $md) { $b = mb_strtolower(basename($md, '.md')); if ($b === 'readme' || $b === 'index') { $main = $md; break; } }
-    if (!$main) $main = $cands[0] ?? null;
-    if (!$main) return $cache[$chave] = null;
-
-    return $cache[$chave] = parseProjeto($main);
-}
+// docPrdDoProjeto() movida pra github_cache.php (fix/projetos-github-cache-worker) —
+// github_cache_worker.php (CLI, sem a guarda de sessão HTTP deste arquivo)
+// precisa chamá-la sem dar require no projetos.php inteiro.
 
 function carregarProjetosDaPasta(string $pasta): array {
     $result = [];
@@ -1034,6 +1134,34 @@ body  { background:#f0f4f9; font-family:'Segoe UI',sans-serif; font-size:.9rem; 
 .gh-lbl { display:inline-block; background:#eef2ff; color:#3730a3; border-radius:8px;
           padding:0 .4rem; font-size:.62rem; font-weight:600; margin-left:.25rem; }
 
+/* ── Projetos manuais (sem conta GitHub) ── */
+.pm-resp-wrap { display:flex; flex-wrap:wrap; gap:.3rem; margin-bottom:.1rem; }
+.pm-resp-chip {
+  display:inline-flex; align-items:center; gap:.3rem;
+  padding:.18rem .55rem; border-radius:14px;
+  border:1.5px solid #dee2e6; cursor:pointer;
+  font-size:.76rem; transition:all .12s; user-select:none; white-space:nowrap;
+}
+.pm-resp-chip:hover { border-color:#1a73e8; background:#f0f4ff; }
+.pm-resp-chip.selected { border-color:#1a73e8; background:#e8f0fe; font-weight:700; }
+.pm-resp-chip.pm-resp-chip-readonly { cursor:default; }
+.pm-resp-chip.pm-resp-chip-readonly:hover { border-color:#dee2e6; background:none; }
+.pm-resp-chip .dot { width:8px; height:8px; border-radius:50%; flex-shrink:0; }
+.manual-proj-card { border-color:#7c3aed33; }
+.manual-proj-card:hover { border-color:#7c3aed; }
+.pm-badge-manual { display:inline-flex; align-items:center; gap:.25rem; background:#f5f3ff; color:#6d28d9;
+                    border-radius:8px; padding:.08rem .45rem; font-size:.62rem; font-weight:700;
+                    text-transform:uppercase; letter-spacing:.03em; margin-bottom:.35rem; }
+.pm-item-row { display:flex; align-items:center; gap:.4rem; padding:.2rem 0; font-size:.78rem; }
+.pm-item-row input[type=checkbox] { flex-shrink:0; cursor:pointer; }
+.pm-item-row .pm-item-texto { flex:1; }
+.pm-item-row.concluido .pm-item-texto { text-decoration:line-through; color:#9ca3af; }
+.pm-item-row .pm-item-del { background:none; border:none; color:#dc3545; cursor:pointer; padding:0 .25rem;
+                             font-size:.8rem; opacity:0; transition:opacity .12s; }
+.pm-item-row:hover .pm-item-del { opacity:1; }
+.pm-item-add { display:flex; align-items:center; gap:.4rem; margin-top:.4rem; }
+.pm-item-add input { flex:1; font-size:.78rem; }
+
 /* ── Apresentação do projeto (modal, pronto pra reunião) ── */
 .gh-btn-apres { color:#1a73e8 !important; }
 .apres-obj { font-size:1rem; color:#374151; margin:0 0 1.25rem; line-height:1.5; }
@@ -1206,6 +1334,13 @@ body  { background:#f0f4f9; font-family:'Segoe UI',sans-serif; font-size:.9rem; 
     </div>
   </div>
 
+  <!-- ═══════════════ PROJETO MANUAL (sem conta GitHub) ═══════════════ -->
+  <div class="d-flex justify-content-end mb-3">
+    <button type="button" class="btn btn-sm btn-outline-primary" style="border-color:#7c3aed;color:#7c3aed" onclick="abrirModalProjetoManualCriar()">
+      <i class="bi bi-plus-circle me-1"></i>Novo projeto manual
+    </button>
+  </div>
+
   <!-- ═══════════════ PROJETOS (GitHub, 3 seções) ═══════════════ -->
 
   <?php
@@ -1230,7 +1365,7 @@ body  { background:#f0f4f9; font-family:'Segoe UI',sans-serif; font-size:.9rem; 
       foreach ($minhasContas as $conta) {
           if (!$conta['ativo']) continue;
           $token      = vault_decrypt($conta['token_enc']);
-          $resultado  = gh_cached($pdo, "repos:{$conta['id']}", 300, fn() => github_listar_repos($token));
+          $resultado  = gh_cached($pdo, "repos:{$conta['id']}", TTL_REPOS, fn() => github_listar_repos($token));
           if (isset($resultado['erro'])) {
               $errosContas[] = ['apelido' => $conta['apelido'], 'msg' => $resultado['erro']];
               $pdo->prepare("UPDATE portal_github_contas SET ultimo_teste_ok=0, ultima_verificacao=NOW() WHERE id=?")
@@ -1246,15 +1381,16 @@ body  { background:#f0f4f9; font-family:'Segoe UI',sans-serif; font-size:.9rem; 
 
               $repo['conta_id']      = $conta['id'];
               $repo['conta_apelido'] = $conta['apelido'];
+              $repo['_tipo']         = 'github';
 
               $ghUser = $conta['usuario_github'];
               $ck = "{$conta['id']}:{$repo['nome']}";
 
-              $analiseReadme = gh_cached($pdo, "readme:$ck", 600, fn() => github_analisar_readme($token, $ghUser, $repo['nome']));
+              $analiseReadme = gh_cached($pdo, "readme:$ck", TTL_DETALHE, fn() => github_analisar_readme($token, $ghUser, $repo['nome']));
               $repo['descricao'] = $analiseReadme['descricao'] !== '' ? $analiseReadme['descricao'] : $repo['descricao'];
 
-              $issues  = gh_cached($pdo, "issues:$ck",  600, fn() => github_issues($token, $ghUser, $repo['nome']));
-              $commits = gh_cached($pdo, "commits:$ck", 600, fn() => github_commits_recentes($token, $ghUser, $repo['nome'], 8));
+              $issues  = gh_cached($pdo, "issues:$ck",  TTL_DETALHE, fn() => github_issues($token, $ghUser, $repo['nome']));
+              $commits = gh_cached($pdo, "commits:$ck", TTL_DETALHE, fn() => github_commits_recentes($token, $ghUser, $repo['nome'], 8));
               $repo['issues_data'] = $issues;
               $repo['commits']     = $commits;
 
@@ -1282,7 +1418,7 @@ body  { background:#f0f4f9; font-family:'Segoe UI',sans-serif; font-size:.9rem; 
                   [$pi, $pf] = parsePrazoRange($doc['prazo']);
                   $repo['previsao_txt'] = $pf ? date('d/m/Y', $pf) : ($doc['prazo'] ?: '');
               } else {
-                  $ms = gh_cached($pdo, "milestone:$ck", 600, fn() => github_obter_previsao($token, $ghUser, $repo['nome']));
+                  $ms = gh_cached($pdo, "milestone:$ck", TTL_DETALHE, fn() => github_obter_previsao($token, $ghUser, $repo['nome']));
                   $repo['previsao_txt'] = $ms ? date('d/m/Y', strtotime($ms)) : '';
               }
               $repo['previsao'] = null; // legado, não usar mais
@@ -1291,6 +1427,45 @@ body  { background:#f0f4f9; font-family:'Segoe UI',sans-serif; font-size:.9rem; 
           }
       }
   }
+
+  // ── Projetos manuais (sem conta GitHub) — progresso calculado on-the-fly ──
+  $pmRows = $pdo->query("
+      SELECT pm.id, pm.titulo, pm.descricao, pm.status, pm.previsao, pm.responsaveis,
+             COUNT(i.id) AS total_itens, COALESCE(SUM(i.concluido),0) AS feitas_itens
+      FROM portal_projetos_manuais pm
+      LEFT JOIN portal_projetos_manuais_itens i ON i.projeto_id = pm.id
+      GROUP BY pm.id
+      ORDER BY pm.criado_em DESC
+  ")->fetchAll(PDO::FETCH_ASSOC);
+
+  $pmItensPorProjeto = [];
+  if ($pmRows) {
+      $pmIds = array_column($pmRows, 'id');
+      $ph    = implode(',', array_fill(0, count($pmIds), '?'));
+      $stI   = $pdo->prepare("SELECT id, projeto_id, texto, concluido, ordem FROM portal_projetos_manuais_itens WHERE projeto_id IN ($ph) ORDER BY ordem ASC");
+      $stI->execute($pmIds);
+      foreach ($stI->fetchAll(PDO::FETCH_ASSOC) as $it) {
+          $pmItensPorProjeto[$it['projeto_id']][] = $it;
+      }
+  }
+
+  foreach ($pmRows as $pmRow) {
+      $total  = (int)$pmRow['total_itens'];
+      $feitas = (int)$pmRow['feitas_itens'];
+      $pct    = $total > 0 ? (int)round($feitas / $total * 100) : 0;
+      $reposPorSecao[$pmRow['status']][] = [
+          '_tipo'        => 'manual',
+          'id'           => (int)$pmRow['id'],
+          'titulo'       => $pmRow['titulo'],
+          'descricao'    => $pmRow['descricao'],
+          'previsao'     => $pmRow['previsao'],
+          'previsao_txt' => $pmRow['previsao'] ? date('d/m/Y', strtotime($pmRow['previsao'])) : '',
+          'responsaveis' => json_decode($pmRow['responsaveis'] ?? '', true) ?: [],
+          'progresso'    => ['feitas' => $feitas, 'total' => $total, 'pct' => $pct],
+          'itens'        => $pmItensPorProjeto[$pmRow['id']] ?? [],
+      ];
+  }
+  $projetosManuais = !empty($pmRows);
 
   $secoesInfo = [
       'futuro'      => ['label' => 'Futuros',     'icon' => 'bi-lightbulb-fill',    'cor' => '#7c3aed'],
@@ -1306,14 +1481,16 @@ body  { background:#f0f4f9; font-family:'Segoe UI',sans-serif; font-size:.9rem; 
     </div>
   <?php endforeach; ?>
 
-  <?php if (!$minhasContas): ?>
-    <div class="text-muted small mt-4">Cadastre uma conta GitHub acima para ver seus projetos aqui.</div>
+  <?php if (!$minhasContas && !$projetosManuais): ?>
+    <div class="text-muted small mt-4">Cadastre uma conta GitHub ou crie um projeto manual acima para ver seus projetos aqui.</div>
   <?php else: ?>
+    <?php if ($minhasContas): ?>
     <div class="d-flex justify-content-end mb-2">
       <a href="projetos.php?gh_refresh=1" class="btn btn-sm btn-outline-secondary" style="font-size:.72rem">
         <i class="bi bi-arrow-clockwise me-1"></i>Atualizar do GitHub
       </a>
     </div>
+    <?php endif; ?>
     <?php foreach ($secoesInfo as $chaveSecao => $info):
       $abertoPorPadrao = ($chaveSecao === 'em_execucao');
     ?>
@@ -1328,7 +1505,7 @@ body  { background:#f0f4f9; font-family:'Segoe UI',sans-serif; font-size:.9rem; 
         <div class="gh-grupo-body" id="grupoBody-<?= $chaveSecao ?>" style="<?= $abertoPorPadrao ? '' : 'display:none' ?>">
           <?php if ($reposPorSecao[$chaveSecao]): ?>
             <div class="gh-proj-grid">
-              <?php foreach ($reposPorSecao[$chaveSecao] as $repo): ?>
+              <?php foreach (array_filter($reposPorSecao[$chaveSecao], fn($r) => ($r['_tipo'] ?? 'github') === 'github') as $repo): ?>
                 <div class="gh-proj-card" data-conta="<?= esc($repo['conta_apelido']) ?>">
                   <div class="gh-proj-topo">
                     <a href="#" onclick="abrirDocumentacao(event,<?= (int)$repo['conta_id'] ?>,'<?= esc($repo['nome']) ?>')" class="gh-proj-nome">
@@ -1342,6 +1519,7 @@ body  { background:#f0f4f9; font-family:'Segoe UI',sans-serif; font-size:.9rem; 
                         <button type="button" class="gh-proj-menu" data-bs-toggle="dropdown" aria-expanded="false"><i class="bi bi-three-dots-vertical"></i></button>
                         <ul class="dropdown-menu dropdown-menu-end">
                           <li><a class="dropdown-item" href="#" onclick="definirPrevisao(event,<?= (int)$repo['conta_id'] ?>,'<?= esc($repo['nome']) ?>')"><i class="bi bi-calendar-event me-2"></i>Definir previsão de término</a></li>
+                          <li><a class="dropdown-item" href="#" onclick="configurarEstimativa(event,<?= (int)$repo['conta_id'] ?>,'<?= esc($repo['nome']) ?>')"><i class="bi bi-clock-history me-2"></i>Configurar estimativa (horas)</a></li>
                           <li><hr class="dropdown-divider"></li>
                           <?php foreach ($secoesInfo as $optKey => $optInfo): ?>
                             <li><a class="dropdown-item" href="#" onclick="mudarStatus(event,<?= (int)$repo['conta_id'] ?>,'<?= esc($repo['nome']) ?>','<?= $optKey ?>')"><i class="bi <?= $optInfo['icon'] ?> me-2"></i><?= $optInfo['label'] ?></a></li>
@@ -1407,6 +1585,63 @@ body  { background:#f0f4f9; font-family:'Segoe UI',sans-serif; font-size:.9rem; 
                     <span class="meta-pill"><i class="bi bi-exclamation-circle"></i><?= (int)$repo['issues_abertas'] ?> issues</span>
                     <span class="meta-pill"><i class="bi bi-clock-history"></i><?= esc(dataRelativa($repo['ultimo_push'])) ?></span>
                     <span class="meta-pill"><i class="bi bi-person"></i><?= esc($repo['conta_apelido']) ?></span>
+                  </div>
+                </div>
+              <?php endforeach; ?>
+              <?php foreach (array_filter($reposPorSecao[$chaveSecao], fn($r) => ($r['_tipo'] ?? '') === 'manual') as $pmProj): ?>
+                <div class="gh-proj-card manual-proj-card" data-pm-id="<?= (int)$pmProj['id'] ?>">
+                  <div class="pm-badge-manual"><i class="bi bi-pencil-square"></i>Manual</div>
+                  <div class="gh-proj-topo">
+                    <span class="gh-proj-nome"><i class="bi bi-journal-text me-1"></i><?= esc($pmProj['titulo']) ?></span>
+                    <div class="gh-proj-acoes">
+                      <div class="dropdown">
+                        <button type="button" class="gh-proj-menu" data-bs-toggle="dropdown" aria-expanded="false"><i class="bi bi-three-dots-vertical"></i></button>
+                        <ul class="dropdown-menu dropdown-menu-end">
+                          <li><a class="dropdown-item" href="#" onclick="abrirModalProjetoManualEditar(<?= esc(json_encode($pmProj)) ?>)"><i class="bi bi-pencil me-2"></i>Editar</a></li>
+                          <li><hr class="dropdown-divider"></li>
+                          <?php foreach ($secoesInfo as $optKey => $optInfo): ?>
+                            <li><a class="dropdown-item" href="#" onclick="mudarStatusPm(<?= (int)$pmProj['id'] ?>,'<?= $optKey ?>')"><i class="bi <?= $optInfo['icon'] ?> me-2"></i><?= $optInfo['label'] ?></a></li>
+                          <?php endforeach; ?>
+                          <li><hr class="dropdown-divider"></li>
+                          <li><a class="dropdown-item text-danger" href="#" onclick="excluirProjetoManualCard(<?= (int)$pmProj['id'] ?>)"><i class="bi bi-trash me-2"></i>Excluir</a></li>
+                        </ul>
+                      </div>
+                    </div>
+                  </div>
+                  <?php if ($pmProj['descricao']): ?>
+                    <div class="gh-proj-desc"><?= esc($pmProj['descricao']) ?></div>
+                  <?php endif; ?>
+                  <div class="gh-proj-progress" id="pm-progress-<?= (int)$pmProj['id'] ?>">
+                    <div class="gh-proj-progress-bar"><div class="gh-proj-progress-fill" id="pm-progress-fill-<?= (int)$pmProj['id'] ?>" style="width:<?= (int)$pmProj['progresso']['pct'] ?>%"></div></div>
+                    <span class="gh-proj-progress-label" id="pm-progress-label-<?= (int)$pmProj['id'] ?>">
+                      <strong><?= (int)$pmProj['progresso']['pct'] ?>%</strong> · Checklist manual: <?= (int)$pmProj['progresso']['feitas'] ?>/<?= (int)$pmProj['progresso']['total'] ?> concluídas
+                    </span>
+                  </div>
+                  <?php if (!empty($pmProj['previsao_txt'])): ?>
+                    <div class="gh-proj-previsao"><i class="bi bi-calendar-event me-1"></i>Previsão de término: <strong><?= esc($pmProj['previsao_txt']) ?></strong></div>
+                  <?php endif; ?>
+                  <?php if ($pmProj['responsaveis']): ?>
+                    <div class="pm-resp-wrap mt-1 mb-1">
+                      <?php foreach ($pmProj['responsaveis'] as $r): ?>
+                        <div class="pm-resp-chip pm-resp-chip-readonly" title="<?= esc($r['nome']) ?>">
+                          <span class="dot" style="background:<?= esc($r['cor']) ?>"></span><?= esc($r['nome']) ?>
+                        </div>
+                      <?php endforeach; ?>
+                    </div>
+                  <?php endif; ?>
+                  <div id="pm-itens-card-<?= (int)$pmProj['id'] ?>">
+                    <?php foreach ($pmProj['itens'] as $it): ?>
+                      <div class="pm-item-row <?= $it['concluido'] ? 'concluido' : '' ?>" data-item-id="<?= (int)$it['id'] ?>">
+                        <input type="checkbox" <?= $it['concluido'] ? 'checked' : '' ?> onchange="toggleItemPm(<?= (int)$pmProj['id'] ?>,<?= (int)$it['id'] ?>,this)"/>
+                        <span class="pm-item-texto"><?= esc($it['texto']) ?></span>
+                      </div>
+                    <?php endforeach; ?>
+                  </div>
+                  <div class="pm-item-add">
+                    <input type="text" class="form-control form-control-sm" placeholder="+ adicionar item..." onkeydown="if(event.key==='Enter'){event.preventDefault();adicionarItemPmCard(<?= (int)$pmProj['id'] ?>,this);}"/>
+                  </div>
+                  <div class="gh-proj-meta">
+                    <span class="meta-pill"><i class="bi bi-list-check"></i><?= (int)$pmProj['progresso']['total'] ?> itens</span>
                   </div>
                 </div>
               <?php endforeach; ?>
@@ -1876,6 +2111,61 @@ document.getElementById('filtroConta')?.addEventListener('change', aplicarFiltro
   </div>
 </div>
 
+<!-- Modal: criar/editar projeto manual (sem conta GitHub) -->
+<div class="modal fade" id="modalProjetoManual" tabindex="-1">
+  <div class="modal-dialog modal-dialog-centered modal-lg modal-dialog-scrollable">
+    <div class="modal-content">
+      <div class="modal-header" style="background:linear-gradient(135deg,#6d28d9,#7c3aed);color:white">
+        <h5 class="modal-title fw-bold" id="pmModalTitulo"><i class="bi bi-journal-check me-2"></i>Novo Projeto Manual</h5>
+        <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <input type="hidden" id="pm-id"/>
+        <div class="mb-3">
+          <label class="form-label fw-semibold">Título</label>
+          <input type="text" class="form-control" id="pm-titulo" placeholder="Ex: Migração de impressoras"/>
+        </div>
+        <div class="mb-3">
+          <label class="form-label fw-semibold">Descrição</label>
+          <textarea class="form-control" id="pm-descricao" rows="2" placeholder="Opcional"></textarea>
+        </div>
+        <div class="row mb-3">
+          <div class="col-md-6 mb-2">
+            <label class="form-label fw-semibold">Status</label>
+            <select class="form-select" id="pm-status">
+              <option value="futuro">Futuro</option>
+              <option value="em_execucao" selected>Em Execução</option>
+              <option value="concluido">Concluído</option>
+            </select>
+          </div>
+          <div class="col-md-6 mb-2">
+            <label class="form-label fw-semibold">Previsão de término</label>
+            <input type="date" class="form-control" id="pm-previsao"/>
+          </div>
+        </div>
+        <div class="mb-3">
+          <label class="form-label fw-semibold">Responsáveis</label>
+          <div class="pm-resp-wrap" id="pm-resp-lista"><div class="text-muted small">Carregando...</div></div>
+        </div>
+        <div class="mb-2">
+          <label class="form-label fw-semibold">Itens / funcionalidades</label>
+          <div id="pm-itens-lista"></div>
+          <div class="pm-item-add">
+            <input type="text" class="form-control form-control-sm" id="pm-item-novo" placeholder="Novo item..." onkeydown="if(event.key==='Enter'){event.preventDefault();pmAdicionarItemModal();}"/>
+            <button type="button" class="btn btn-sm btn-outline-secondary" onclick="pmAdicionarItemModal()"><i class="bi bi-plus-lg"></i></button>
+          </div>
+        </div>
+        <div id="pm-erro" class="text-danger small" style="display:none"></div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-outline-danger me-auto" id="btn-excluir-pm" style="display:none" onclick="excluirProjetoManual()"><i class="bi bi-trash me-1"></i>Excluir</button>
+        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
+        <button type="button" class="btn btn-primary" onclick="salvarProjetoManual()" style="background:#6d28d9;border-color:#6d28d9"><i class="bi bi-check-lg me-1"></i>Salvar</button>
+      </div>
+    </div>
+  </div>
+</div>
+
 <!-- Modal: documentação do projeto (README renderizado do GitHub) -->
 <div class="modal fade" id="modalDoc" tabindex="-1">
   <div class="modal-dialog modal-dialog-centered modal-lg modal-dialog-scrollable">
@@ -1942,6 +2232,7 @@ let modalConta;
 let modalDoc;
 let modalCommits;
 let modalApres;
+let modalProjetoManual;
 let _commitsCache = [];
 document.addEventListener('DOMContentLoaded', () => {
   const elConta = document.getElementById('modalConta');
@@ -1952,6 +2243,9 @@ document.addEventListener('DOMContentLoaded', () => {
   if (elCommits) modalCommits = new bootstrap.Modal(elCommits);
   const elApres = document.getElementById('modalApres');
   if (elApres) modalApres = new bootstrap.Modal(elApres);
+  const elPm = document.getElementById('modalProjetoManual');
+  if (elPm) modalProjetoManual = new bootstrap.Modal(elPm);
+  carregarTecnicosPm();
 });
 
 function _escA(s) { const d = document.createElement('div'); d.textContent = s == null ? '' : String(s); return d.innerHTML; }
@@ -1991,6 +2285,9 @@ async function abrirApresentacao(contaId, repoNome) {
           '<div class="apres-prog-txt"><strong>' + d.pct + '%</strong> concluído · ' + d.done + ' de ' + d.total + ' funcionalidades</div>' +
         '</div>' +
         (d.previsao ? '<div class="apres-prev"><i class="bi bi-calendar-event me-1"></i>Previsão de término<br><strong>' + _escA(d.previsao) + '</strong></div>' : '') +
+        (d.estimativa_horas ? '<div class="apres-prev apres-estimativa"><i class="bi bi-clock-history me-1"></i>Estimativa (horas/dia)<br><strong>' +
+          _escA(d.estimativa_horas.data) + '</strong><div class="small text-muted">' +
+          d.estimativa_horas.horas_restantes + 'h restantes ÷ ' + d.estimativa_horas.horas_por_dia + 'h/dia</div></div>' : '') +
       '</div>' +
       '<div class="apres-cols">' +
         '<div class="apres-col">' +
@@ -2021,6 +2318,28 @@ async function definirPrevisao(ev, contaId, repoNome) {
   const r = await fetch('projetos.php?gh_action=set_previsao', {
     method: 'POST', headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ conta_id: contaId, repo_nome: repoNome, previsao: iso }),
+  });
+  const d = await r.json();
+  if (d.ok) location.reload(); else alert(d.msg || 'Erro ao salvar');
+}
+
+async function configurarEstimativa(ev, contaId, repoNome) {
+  ev.preventDefault();
+  const dia = prompt('Horas por dia dedicadas a este projeto (vazio = remover estimativa):', '');
+  if (dia === null) return;
+  const diaNorm = dia.trim().replace(',', '.');
+  if (diaNorm !== '' && isNaN(parseFloat(diaNorm))) {
+    alert('Formato inválido. Use um número (ex.: 2 ou 2,5).'); return;
+  }
+  const item = prompt('Horas médias por funcionalidade (vazio = usar padrão de 2h):', '');
+  if (item === null) return;
+  const itemNorm = item.trim().replace(',', '.');
+  if (itemNorm !== '' && isNaN(parseFloat(itemNorm))) {
+    alert('Formato inválido. Use um número (ex.: 2 ou 2,5).'); return;
+  }
+  const r = await fetch('projetos.php?gh_action=set_estimativa', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ conta_id: contaId, repo_nome: repoNome, horas_por_dia: diaNorm, horas_media_item: itemNorm }),
   });
   const d = await r.json();
   if (d.ok) location.reload(); else alert(d.msg || 'Erro ao salvar');
@@ -2289,6 +2608,214 @@ async function excluirConta() {
   const d = await r.json();
   if (d.ok) { modalConta.hide(); location.reload(); }
   else alert(d.msg || 'Erro ao excluir');
+}
+
+// ── Projetos manuais: chips de responsáveis + modal de criação/edição ──
+// (réplica direta do padrão de atendentes da Agenda, com classe própria
+// .pm-resp-chip pra não colidir com .atendente-multi-chip de agenda/index.php)
+let tecnicosPm = [];
+let pmItensModal = [];
+
+function carregarTecnicosPm() {
+  fetch('agenda/users.php')
+    .then(r => r.json())
+    .then(data => { tecnicosPm = data; })
+    .catch(() => { tecnicosPm = []; });
+}
+
+function renderRespChipsPm(selecionadosIds) {
+  const wrap = document.getElementById('pm-resp-lista');
+  if (!wrap) return;
+  if (!tecnicosPm.length) { wrap.innerHTML = '<div class="text-muted small">Nenhum técnico encontrado.</div>'; return; }
+  wrap.innerHTML = tecnicosPm.map(t => {
+    const sel = selecionadosIds.includes(t.id);
+    return `<div class="pm-resp-chip ${sel ? 'selected' : ''}"
+                 data-nome="${_escA(t.nome)}" data-id="${t.id}" data-cor="${t.cor}"
+                 title="${_escA(t.nome)}"
+                 onclick="toggleChip(this)">
+              <span class="dot" style="background:${t.cor}"></span>
+              ${_escA(t.nome)}
+            </div>`;
+  }).join('');
+}
+
+function toggleChip(el) {
+  el.classList.toggle('selected');
+}
+
+function getRespSelecionadosPm() {
+  return [...document.querySelectorAll('#pm-resp-lista .pm-resp-chip.selected')].map(el => ({
+    id:   parseInt(el.dataset.id),
+    nome: el.dataset.nome,
+    cor:  el.dataset.cor,
+  })).filter(r => r.id && !isNaN(r.id));
+}
+
+function pmRenderItensModal() {
+  const wrap = document.getElementById('pm-itens-lista');
+  if (!wrap) return;
+  wrap.innerHTML = pmItensModal.map((it, idx) => `
+    <div class="pm-item-row ${it.concluido ? 'concluido' : ''}">
+      <input type="checkbox" ${it.concluido ? 'checked' : ''} onchange="pmToggleItemModal(${idx})"/>
+      <span class="pm-item-texto">${_escA(it.texto)}</span>
+      <button type="button" class="pm-item-del" onclick="pmRemoverItemModal(${idx})" title="Remover"><i class="bi bi-x-lg"></i></button>
+    </div>
+  `).join('') || '<div class="text-muted small">Nenhum item ainda.</div>';
+}
+
+function pmToggleItemModal(idx) {
+  pmItensModal[idx].concluido = !pmItensModal[idx].concluido;
+  pmRenderItensModal();
+}
+
+function pmRemoverItemModal(idx) {
+  pmItensModal.splice(idx, 1);
+  pmRenderItensModal();
+}
+
+function pmAdicionarItemModal() {
+  const input = document.getElementById('pm-item-novo');
+  const texto = input.value.trim();
+  if (!texto) return;
+  pmItensModal.push({ texto, concluido: false });
+  input.value = '';
+  pmRenderItensModal();
+}
+
+function abrirModalProjetoManualCriar() {
+  document.getElementById('pm-id').value = '';
+  document.getElementById('pm-titulo').value = '';
+  document.getElementById('pm-descricao').value = '';
+  document.getElementById('pm-status').value = 'em_execucao';
+  document.getElementById('pm-previsao').value = '';
+  document.getElementById('pm-erro').style.display = 'none';
+  document.getElementById('pmModalTitulo').innerHTML = '<i class="bi bi-journal-check me-2"></i>Novo Projeto Manual';
+  document.getElementById('btn-excluir-pm').style.display = 'none';
+  pmItensModal = [];
+  pmRenderItensModal();
+  renderRespChipsPm([]);
+  modalProjetoManual.show();
+}
+
+function abrirModalProjetoManualEditar(pm) {
+  document.getElementById('pm-id').value = pm.id;
+  document.getElementById('pm-titulo').value = pm.titulo || '';
+  document.getElementById('pm-descricao').value = pm.descricao || '';
+  document.getElementById('pm-status').value = pm.status || 'em_execucao';
+  document.getElementById('pm-previsao').value = pm.previsao || '';
+  document.getElementById('pm-erro').style.display = 'none';
+  document.getElementById('pmModalTitulo').textContent = pm.titulo || 'Editar Projeto Manual';
+  document.getElementById('btn-excluir-pm').style.display = 'inline-block';
+  pmItensModal = (pm.itens || []).map(it => ({ id: it.id, texto: it.texto, concluido: !!it.concluido }));
+  pmRenderItensModal();
+  renderRespChipsPm((pm.responsaveis || []).map(r => r.id));
+  modalProjetoManual.show();
+}
+
+async function salvarProjetoManual() {
+  const id        = document.getElementById('pm-id').value;
+  const titulo    = document.getElementById('pm-titulo').value.trim();
+  const descricao = document.getElementById('pm-descricao').value.trim();
+  const status    = document.getElementById('pm-status').value;
+  const previsao  = document.getElementById('pm-previsao').value;
+  const erroEl    = document.getElementById('pm-erro');
+  erroEl.style.display = 'none';
+
+  if (!titulo) {
+    erroEl.textContent = 'Preencha o título.';
+    erroEl.style.display = '';
+    return;
+  }
+
+  const action = id ? 'salvar' : 'criar';
+  const r = await fetch(`projetos.php?pm_action=${action}`, {
+    method: 'POST', headers: {'Content-Type':'application/json'},
+    body: JSON.stringify({
+      id, titulo, descricao, status, previsao,
+      responsaveis: getRespSelecionadosPm(),
+      itens: pmItensModal,
+    }),
+  });
+  const d = await r.json();
+  if (!d.ok) { erroEl.textContent = d.msg || 'Erro ao salvar'; erroEl.style.display = ''; return; }
+  modalProjetoManual.hide();
+  location.reload();
+}
+
+async function excluirProjetoManual() {
+  const id = document.getElementById('pm-id').value;
+  if (!id || !confirm('Excluir este projeto manual? Os itens dele também serão apagados.')) return;
+  const r = await fetch('projetos.php?pm_action=excluir', {
+    method: 'POST', headers: {'Content-Type':'application/json'},
+    body: JSON.stringify({id}),
+  });
+  const d = await r.json();
+  if (d.ok) { modalProjetoManual.hide(); location.reload(); }
+  else alert(d.msg || 'Erro ao excluir');
+}
+
+// ── Projetos manuais: ações direto no card (sem abrir o modal) ──
+async function mudarStatusPm(id, status) {
+  const r = await fetch('projetos.php?pm_action=status_set', {
+    method: 'POST', headers: {'Content-Type':'application/json'},
+    body: JSON.stringify({id, status}),
+  });
+  const d = await r.json();
+  if (d.ok) location.reload();
+  else alert(d.msg || 'Erro ao mudar status');
+}
+
+async function excluirProjetoManualCard(id) {
+  if (!confirm('Excluir este projeto manual? Os itens dele também serão apagados.')) return;
+  const r = await fetch('projetos.php?pm_action=excluir', {
+    method: 'POST', headers: {'Content-Type':'application/json'},
+    body: JSON.stringify({id}),
+  });
+  const d = await r.json();
+  if (d.ok) location.reload();
+  else alert(d.msg || 'Erro ao excluir');
+}
+
+function _pmAtualizarProgresso(id, feitas, total) {
+  const pct   = total > 0 ? Math.round(feitas / total * 100) : 0;
+  const fill  = document.getElementById(`pm-progress-fill-${id}`);
+  const label = document.getElementById(`pm-progress-label-${id}`);
+  if (fill)  fill.style.width = pct + '%';
+  if (label) label.innerHTML = `<strong>${pct}%</strong> · Checklist manual: ${feitas}/${total} concluídas`;
+}
+
+async function toggleItemPm(projetoId, itemId, checkboxEl) {
+  const r = await fetch('projetos.php?pm_action=item_toggle', {
+    method: 'POST', headers: {'Content-Type':'application/json'},
+    body: JSON.stringify({id: itemId}),
+  });
+  const d = await r.json();
+  if (!d.ok) { checkboxEl.checked = !checkboxEl.checked; alert(d.msg || 'Erro ao marcar item'); return; }
+  const row = checkboxEl.closest('.pm-item-row');
+  if (row) row.classList.toggle('concluido', checkboxEl.checked);
+  if (d.progresso) _pmAtualizarProgresso(projetoId, d.progresso.feitas, d.progresso.total);
+}
+
+async function adicionarItemPmCard(projetoId, inputEl) {
+  const texto = inputEl.value.trim();
+  if (!texto) return;
+  const r = await fetch('projetos.php?pm_action=item_add', {
+    method: 'POST', headers: {'Content-Type':'application/json'},
+    body: JSON.stringify({projeto_id: projetoId, texto}),
+  });
+  const d = await r.json();
+  if (!d.ok) { alert(d.msg || 'Erro ao adicionar item'); return; }
+  const wrap = document.getElementById(`pm-itens-card-${projetoId}`);
+  if (wrap && d.id) {
+    const row = document.createElement('div');
+    row.className = 'pm-item-row';
+    row.dataset.itemId = d.id;
+    row.innerHTML = `<input type="checkbox" onchange="toggleItemPm(${projetoId},${d.id},this)"/><span class="pm-item-texto"></span>`;
+    row.querySelector('.pm-item-texto').textContent = texto;
+    wrap.appendChild(row);
+  }
+  inputEl.value = '';
+  if (d.progresso) _pmAtualizarProgresso(projetoId, d.progresso.feitas, d.progresso.total);
 }
 </script>
 

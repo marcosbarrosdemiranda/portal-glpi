@@ -691,10 +691,10 @@ $libera_data_passada = ($cards_portal === null) || (($cards_portal['agenda_data_
             </select>
           </div>
           <div class="col-md-6" id="campo-projeto" style="display:none">
-            <label class="form-label">Projeto <span class="text-danger">*</span></label>
-            <select class="form-select" id="ev-projeto" onchange="document.getElementById('ev-titulo').value = this.value;">
-              <option value="">Carregando...</option>
-            </select>
+            <label class="form-label mb-0">Projetos <span class="text-danger">*</span></label>
+            <div id="ev-projetos-multi">
+              <div id="lista-projetos-multi" class="atendentes-multi-wrap"></div>
+            </div>
           </div>
           <div class="col-md-6" id="campo-categoria">
             <label class="form-label">Categoria</label>
@@ -930,6 +930,14 @@ $libera_data_passada = ($cards_portal === null) || (($cards_portal['agenda_data_
           <div id="resp-firewall" style="display:none" class="col-12 mb-3">
             <label class="form-label fw-semibold">🌐 Latência Comunicação Lojas (pfSense)</label>
             <div id="resp-firewall-texto" class="p-3 border rounded" style="background:#f8fafc;white-space:pre-wrap;font-family:monospace;font-size:.72rem"></div>
+          </div>
+        </div>
+
+        <!-- Itens de projeto manual (se houver) -->
+        <div id="resp-manual-proj-container" class="card border-0 shadow-sm mb-3" style="display:none; background:#f8f9fa;">
+          <div class="card-body py-2">
+            <h6 class="fw-bold mb-2 text-primary"><i class="bi bi-kanban me-1"></i>Itens do Projeto Manual: <span id="resp-manual-proj-titulo"></span></h6>
+            <div id="resp-manual-proj-itens" class="d-flex flex-column gap-1"></div>
           </div>
         </div>
 
@@ -2748,28 +2756,42 @@ function preencherModal(dados) {
   renderAtendentesMulti(selecionados);
 }
 
-// ── Lista de projetos (tipo=projeto) ────────────────────────────────────────
+// ── Lista de projetos (tipo=projeto) com multi-select por chips ────────────────
 let _listaProjetosCache = null;
-function carregarListaProjetos(valorSelecionado) {
-  const sel = document.getElementById('ev-projeto');
+function carregarListaProjetos(selecionados) {
+  const wrap = document.getElementById('lista-projetos-multi');
   if (_listaProjetosCache) {
-    _popularSelectProjetos(sel, _listaProjetosCache, valorSelecionado);
+    _renderProjetosMulti(_listaProjetosCache, selecionados);
     return;
   }
   fetch('projetos_lista.php')
     .then(r => r.json())
     .then(data => {
       _listaProjetosCache = (data.ok && data.projetos) ? data.projetos : [];
-      _popularSelectProjetos(sel, _listaProjetosCache, valorSelecionado);
+      _renderProjetosMulti(_listaProjetosCache, selecionados);
     })
     .catch(() => {
-      sel.innerHTML = '<option value="">Erro ao carregar projetos</option>';
+      wrap.innerHTML = '<span class="text-danger">Erro ao carregar projetos</span>';
     });
 }
-function _popularSelectProjetos(sel, lista, valorSelecionado) {
-  sel.innerHTML = '<option value="">Selecione o projeto...</option>' +
-    lista.map(p => `<option value="${escHtml(p)}">${escHtml(p)}</option>`).join('');
-  if (valorSelecionado) sel.value = valorSelecionado;
+function _renderProjetosMulti(lista, selecionados) {
+  const wrap = document.getElementById('lista-projetos-multi');
+  if (!Array.isArray(selecionados)) {
+    selecionados = selecionados ? [selecionados] : [];
+  }
+  wrap.innerHTML = lista.map(p => {
+    const sel = selecionados.includes(p);
+    return `<div class="atendente-multi-chip ${sel ? 'selected' : ''}"
+                 data-projeto="${escHtml(p)}"
+                 onclick="toggleChip(this)">
+              <i class="bi bi-kanban me-1"></i>
+              ${escHtml(p)}
+            </div>`;
+  }).join('');
+}
+function getProjetosMultiSelecionados() {
+  const chips = document.querySelectorAll('#lista-projetos-multi .atendente-multi-chip.selected');
+  return Array.from(chips).map(c => c.getAttribute('data-projeto'));
 }
 
 function ajustarCamposPorTipo() {
@@ -2798,7 +2820,21 @@ function ajustarCamposPorTipo() {
   // Projeto: apenas no tipo projeto — título vira o nome do projeto (campo some, sem digitação duplicada)
   document.getElementById('campo-projeto').style.display = projeto ? '' : 'none';
   document.getElementById('campo-titulo').style.display  = projeto ? 'none' : '';
-  if (projeto) carregarListaProjetos(_dadosModal?.projeto);
+  if (projeto) {
+    let projsSel = [];
+    try {
+      if (_dadosModal?.co_projetos) {
+        projsSel = JSON.parse(_dadosModal.co_projetos);
+      }
+    } catch(e){}
+    if (!projsSel.length && _dadosModal?.projeto) {
+      projsSel = [_dadosModal.projeto];
+    }
+    if (!projsSel.length && _dadosModal?.titulo) {
+      projsSel = _dadosModal.titulo.split(',').map(s => s.trim()).filter(Boolean);
+    }
+    carregarListaProjetos(projsSel);
+  }
   // Asterisco de Descrição: obrigatório apenas em chamado/requisição
   const starDesc = document.getElementById('star-descricao');
   if (starDesc) starDesc.style.display = isChamado ? '' : 'none';
@@ -2958,6 +2994,8 @@ function abrirModalResposta() {
     atendente_id:  evCal?.extendedProps.atendente_id  ?? cache.atendente_id  ?? null,
     atendente_cor: evCal?.extendedProps.atendente_cor || cache.atendente_cor || '#1a73e8',
     ticket_id: evCal?.extendedProps.ticket_id  || cache.ticket_id  || modal.ticket_id  || null,
+    projeto:   evCal?.extendedProps.projeto    || cache.projeto    || modal.projeto    || '',
+    co_projetos: evCal?.extendedProps.co_projetos || cache.co_projetos || modal.co_projetos || '',
   };
 
   document.getElementById('resp-ticket-id').value   = ticketId;
@@ -2967,6 +3005,91 @@ function abrirModalResposta() {
   document.getElementById('lista-arquivos').innerHTML = '';
   document.getElementById('resp-concluido').checked   = true;  // padrão: responder ja conclui
   arquivosAnexos = [];
+
+  // Se for evento do tipo projeto, busca commits (GitHub) e/ou itens (manual) para todos os projetos do evento
+  const respManualContainer = document.getElementById('resp-manual-proj-container');
+  const respManualItens = document.getElementById('resp-manual-proj-itens');
+  const respManualTitulo = document.getElementById('resp-manual-proj-titulo');
+  if (respManualContainer) respManualContainer.style.display = 'none';
+  if (respManualItens) respManualItens.innerHTML = '';
+
+  if (_eventoParaResponder.tipo === 'projeto' && (_eventoParaResponder.titulo || _eventoParaResponder.projeto)) {
+    let listaProjs = [];
+    try {
+      if (_eventoParaResponder.co_projetos) {
+        const parsed = JSON.parse(_eventoParaResponder.co_projetos);
+        if (Array.isArray(parsed)) listaProjs = parsed;
+      }
+    } catch(e) {}
+    if (!listaProjs.length && _eventoParaResponder.projeto) {
+      listaProjs = [_eventoParaResponder.projeto];
+    }
+    if (!listaProjs.length && _eventoParaResponder.titulo) {
+      _eventoParaResponder.titulo.split(',').forEach(p => {
+        const trimmed = p.trim();
+        if (trimmed) listaProjs.push(trimmed);
+      });
+    }
+
+    const dataIso = _eventoParaResponder.start ? _eventoParaResponder.start.substring(0, 10) : new Date().toISOString().substring(0, 10);
+    document.getElementById('resp-texto').value = `Carregando informações do(s) projeto(s)...`;
+
+    Promise.all(listaProjs.map(projNome => {
+      return fetch(`projeto_itens.php?titulo=${encodeURIComponent(projNome)}`)
+        .then(r => r.json())
+        .then(res => {
+          if (res.ok && res.encontrado && res.itens && res.itens.length > 0) {
+            return { tipo: 'manual', nome: projNome, itens: res.itens };
+          } else {
+            return fetch(`projeto_commits_dia.php?repo=${encodeURIComponent(projNome)}&data=${encodeURIComponent(dataIso)}`)
+              .then(r => r.json())
+              .then(dCommits => {
+                return { tipo: 'github', nome: projNome, commits: (dCommits.ok && dCommits.commits) ? dCommits.commits : [] };
+              })
+              .catch(() => ({ tipo: 'github', nome: projNome, commits: [] }));
+          }
+        })
+        .catch(() => ({ tipo: 'github', nome: projNome, commits: [] }));
+    })).then(resultados => {
+      let textoFinal = '';
+      let manualEncontrado = false;
+      let todosItensManuaisHtml = '';
+
+      resultados.forEach(r => {
+        if (r.tipo === 'manual') {
+          manualEncontrado = true;
+          respManualTitulo.textContent = r.nome;
+          r.itens.forEach(item => {
+            const checked = item.concluido ? 'checked' : '';
+            const disabled = item.concluido ? 'disabled' : '';
+            todosItensManuaisHtml += `
+              <div class="form-check">
+                <input class="form-check-input resp-manual-item-cb" type="checkbox" value="${item.id}" id="man-item-${item.id}" ${checked} ${disabled}>
+                <label class="form-check-label ${item.concluido ? 'text-decoration-line-through text-muted' : ''}" for="man-item-${item.id}">
+                  ${escHtml(item.texto)}
+                </label>
+              </div>`;
+          });
+        } else if (r.tipo === 'github') {
+          if (r.commits.length > 0) {
+            textoFinal += `Trabalhos realizados no projeto ${r.nome} em ${dataIso}:\n`;
+            r.commits.forEach(c => {
+              textoFinal += `- ${c.msg} (${c.sha})\n`;
+            });
+            textoFinal += '\n';
+          } else {
+            textoFinal += `Nenhum commit recente encontrado para o repositório ${r.nome} em ${dataIso}.\n\n`;
+          }
+        }
+      });
+
+      if (manualEncontrado && respManualContainer) {
+        respManualContainer.style.display = '';
+        respManualItens.innerHTML = todosItensManuaisHtml;
+      }
+      document.getElementById('resp-texto').value = textoFinal.trim();
+    });
+  }
 
   // Rotina diária de verificação de backup: mostra o resumo de ontem
   // (arquivos/tamanho por servidor) numa caixa própria, separada da
@@ -3292,6 +3415,16 @@ async function enviarResposta() {
   const btn = document.getElementById('btnEnviarResposta');
   btn.disabled = true;
   btn.innerHTML = '<span class="spinner-border spinner-border-sm me-2"></span>Enviando...';
+
+  // Salva itens de projetos manuais marcados como concluídos, se houver
+  const concluidosManuais = Array.from(document.querySelectorAll('.resp-manual-item-cb:checked:not(:disabled)')).map(cb => cb.value);
+  if (concluidosManuais.length > 0) {
+    await fetch('projeto_itens.php', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ concluidos: concluidosManuais })
+    }).catch(err => console.warn('Erro ao atualizar itens manuais:', err));
+  }
 
   const form = new FormData();
   form.append('ticket_id', ticketId);
@@ -3733,10 +3866,12 @@ function salvarEvento() {
   const start    = document.getElementById('ev-start').value;
   const tipo     = document.getElementById('ev-tipo').value;
   const multiSel = getAtendentesMultiSelecionados();
+  let multiProjs = [];
 
-  // Projeto: título é o próprio nome do projeto (campo fica oculto)
+  // Projeto: título é a lista de projetos selecionados (campo fica oculto)
   if (tipo === 'projeto') {
-    document.getElementById('ev-titulo').value = document.getElementById('ev-projeto').value;
+    multiProjs = getProjetosMultiSelecionados();
+    document.getElementById('ev-titulo').value = multiProjs.join(', ');
   }
   const titulo = document.getElementById('ev-titulo').value.trim();
 
@@ -3766,9 +3901,9 @@ function salvarEvento() {
   }
 
   if (tipo === 'projeto') {
-    const _projeto  = document.getElementById('ev-projeto').value;
+    const _temProj  = multiProjs.length > 0;
     const _temAtend = multiSel.length > 0;
-    if (!_projeto)  { errosVal.push('Projeto');   marcarInvalido('ev-projeto'); }
+    if (!_temProj)  { errosVal.push('Projeto');   marcarInvalido('lista-projetos-multi'); }
     if (!_temAtend) { errosVal.push('Atendente'); marcarInvalido('lista-atendentes-multi'); }
   }
 
@@ -3817,7 +3952,8 @@ function salvarEvento() {
     atendente_cor: primeiroChip ? primeiroChip.cor  : cor,
     prioridade:    document.getElementById('ev-prioridade').value,
     setor:         document.getElementById('ev-setor').value,
-    projeto:       document.getElementById('ev-projeto').value || null,
+    projeto:       multiProjs[0] || null,
+    co_projetos:   multiProjs,
     descricao:     document.getElementById('ev-descricao').value,
     ticket_id:     document.getElementById('ev-ticket-id').value.trim() || null,
     orig_start:    document.getElementById('ev-orig-start').value || '',
