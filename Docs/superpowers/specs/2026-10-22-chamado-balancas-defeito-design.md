@@ -1,7 +1,35 @@
 # Chamado de Balanças: campos extras + vínculo no Inventário + BI
 
-**Data:** 2026-10-22 · **Status:** 🟢 Fases 1 e 1b IMPLEMENTADAS (campos no
-chamado + sync contínuo) · Fases 2/3 pendentes
+**Data:** 2026-10-22 · **Status:** 🟢 Fases 1, 1b e 2 IMPLEMENTADAS (campos no
+chamado + sync contínuo + chamados vinculados no Inventário) · Fase 3
+pendente
+
+## Fase 2 — IMPLEMENTADO (2026-10-22)
+
+- Novo endpoint `inventario_balancas.php?action=chamados_balanca&balanca_id=N`
+  — `JOIN` entre `glpi_plugin_fields_ticketreparoequipamentos` (vínculo pelo
+  campo "Equipamento (Balança)", não `glpi_items_tickets`) e `glpi_tickets`,
+  filtrando por `items_id`/`itemtype='Ticket'` e `is_deleted=0`. Decodifica o
+  JSON de ids de "Tipo de Defeito" e resolve os nomes via o catálogo fixo.
+  Falhas vão só pro `error_log`, resposta JSON de erro controlada (fail-soft,
+  mesmo padrão da Fase 1b).
+- Seção "Chamados vinculados" no modal de detalhes (`abrirDetalhes()`) de
+  `inventario_balancas.php`: lista data, título (link pro chamado), badge de
+  status e tipo(s) de defeito; XSS-escaping reaproveitado do padrão de
+  `logs_portal.php`.
+- Deploy via `.new` → `php -l` → `Move-Item`.
+- **Teste manual end-to-end confirmado em produção:** chamado real `#11891`
+  criado (categoria Balanças, balança catálogo id=4/identificação "5",
+  defeitos "Célula de Carga"+"Placa Principal") — confirmado via SQL direto
+  (`plugin_fields_equipamentobalanafielddropdowns_id=4`,
+  `plugin_fields_tipodedefeitofielddropdowns_id=["4","2"]`), via fetch direto
+  do endpoint (`{"ok":true,"chamados":[{"id":11891,...}]}`) e via UI real do
+  modal de detalhes da balança "5" no Inventário (seção "Chamados
+  vinculados" mostrou o chamado, data, defeitos e badge "Em atendimento"
+  corretamente). Também confirmado o caso negativo: balança id=4 com só o
+  chamado de teste trashado da Fase 1 (`#11890`) retornava lista vazia antes
+  de `#11891` existir, provando que o filtro `is_deleted=0` funciona. Chamado
+  de teste `#11891` movido pra lixeira (soft-delete) após a confirmação.
 
 ## Fase 1b — IMPLEMENTADO (2026-10-22)
 
