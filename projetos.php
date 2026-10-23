@@ -1381,6 +1381,7 @@ body  { background:#f0f4f9; font-family:'Segoe UI',sans-serif; font-size:.9rem; 
 
               $repo['conta_id']      = $conta['id'];
               $repo['conta_apelido'] = $conta['apelido'];
+              $repo['_tipo']         = 'github';
 
               $ghUser = $conta['usuario_github'];
               $ck = "{$conta['id']}:{$repo['nome']}";
@@ -1427,6 +1428,45 @@ body  { background:#f0f4f9; font-family:'Segoe UI',sans-serif; font-size:.9rem; 
       }
   }
 
+  // ── Projetos manuais (sem conta GitHub) — progresso calculado on-the-fly ──
+  $pmRows = $pdo->query("
+      SELECT pm.id, pm.titulo, pm.descricao, pm.status, pm.previsao, pm.responsaveis,
+             COUNT(i.id) AS total_itens, COALESCE(SUM(i.concluido),0) AS feitas_itens
+      FROM portal_projetos_manuais pm
+      LEFT JOIN portal_projetos_manuais_itens i ON i.projeto_id = pm.id
+      GROUP BY pm.id
+      ORDER BY pm.criado_em DESC
+  ")->fetchAll(PDO::FETCH_ASSOC);
+
+  $pmItensPorProjeto = [];
+  if ($pmRows) {
+      $pmIds = array_column($pmRows, 'id');
+      $ph    = implode(',', array_fill(0, count($pmIds), '?'));
+      $stI   = $pdo->prepare("SELECT id, projeto_id, texto, concluido, ordem FROM portal_projetos_manuais_itens WHERE projeto_id IN ($ph) ORDER BY ordem ASC");
+      $stI->execute($pmIds);
+      foreach ($stI->fetchAll(PDO::FETCH_ASSOC) as $it) {
+          $pmItensPorProjeto[$it['projeto_id']][] = $it;
+      }
+  }
+
+  foreach ($pmRows as $pmRow) {
+      $total  = (int)$pmRow['total_itens'];
+      $feitas = (int)$pmRow['feitas_itens'];
+      $pct    = $total > 0 ? (int)round($feitas / $total * 100) : 0;
+      $reposPorSecao[$pmRow['status']][] = [
+          '_tipo'        => 'manual',
+          'id'           => (int)$pmRow['id'],
+          'titulo'       => $pmRow['titulo'],
+          'descricao'    => $pmRow['descricao'],
+          'previsao'     => $pmRow['previsao'],
+          'previsao_txt' => $pmRow['previsao'] ? date('d/m/Y', strtotime($pmRow['previsao'])) : '',
+          'responsaveis' => json_decode($pmRow['responsaveis'] ?? '', true) ?: [],
+          'progresso'    => ['feitas' => $feitas, 'total' => $total, 'pct' => $pct],
+          'itens'        => $pmItensPorProjeto[$pmRow['id']] ?? [],
+      ];
+  }
+  $projetosManuais = !empty($pmRows);
+
   $secoesInfo = [
       'futuro'      => ['label' => 'Futuros',     'icon' => 'bi-lightbulb-fill',    'cor' => '#7c3aed'],
       'em_execucao' => ['label' => 'Em Execução', 'icon' => 'bi-hourglass-split',   'cor' => '#1a237e'],
@@ -1441,14 +1481,16 @@ body  { background:#f0f4f9; font-family:'Segoe UI',sans-serif; font-size:.9rem; 
     </div>
   <?php endforeach; ?>
 
-  <?php if (!$minhasContas): ?>
-    <div class="text-muted small mt-4">Cadastre uma conta GitHub acima para ver seus projetos aqui.</div>
+  <?php if (!$minhasContas && !$projetosManuais): ?>
+    <div class="text-muted small mt-4">Cadastre uma conta GitHub ou crie um projeto manual acima para ver seus projetos aqui.</div>
   <?php else: ?>
+    <?php if ($minhasContas): ?>
     <div class="d-flex justify-content-end mb-2">
       <a href="projetos.php?gh_refresh=1" class="btn btn-sm btn-outline-secondary" style="font-size:.72rem">
         <i class="bi bi-arrow-clockwise me-1"></i>Atualizar do GitHub
       </a>
     </div>
+    <?php endif; ?>
     <?php foreach ($secoesInfo as $chaveSecao => $info):
       $abertoPorPadrao = ($chaveSecao === 'em_execucao');
     ?>
@@ -1463,7 +1505,7 @@ body  { background:#f0f4f9; font-family:'Segoe UI',sans-serif; font-size:.9rem; 
         <div class="gh-grupo-body" id="grupoBody-<?= $chaveSecao ?>" style="<?= $abertoPorPadrao ? '' : 'display:none' ?>">
           <?php if ($reposPorSecao[$chaveSecao]): ?>
             <div class="gh-proj-grid">
-              <?php foreach ($reposPorSecao[$chaveSecao] as $repo): ?>
+              <?php foreach (array_filter($reposPorSecao[$chaveSecao], fn($r) => ($r['_tipo'] ?? 'github') === 'github') as $repo): ?>
                 <div class="gh-proj-card" data-conta="<?= esc($repo['conta_apelido']) ?>">
                   <div class="gh-proj-topo">
                     <a href="#" onclick="abrirDocumentacao(event,<?= (int)$repo['conta_id'] ?>,'<?= esc($repo['nome']) ?>')" class="gh-proj-nome">
@@ -1543,6 +1585,63 @@ body  { background:#f0f4f9; font-family:'Segoe UI',sans-serif; font-size:.9rem; 
                     <span class="meta-pill"><i class="bi bi-exclamation-circle"></i><?= (int)$repo['issues_abertas'] ?> issues</span>
                     <span class="meta-pill"><i class="bi bi-clock-history"></i><?= esc(dataRelativa($repo['ultimo_push'])) ?></span>
                     <span class="meta-pill"><i class="bi bi-person"></i><?= esc($repo['conta_apelido']) ?></span>
+                  </div>
+                </div>
+              <?php endforeach; ?>
+              <?php foreach (array_filter($reposPorSecao[$chaveSecao], fn($r) => ($r['_tipo'] ?? '') === 'manual') as $pmProj): ?>
+                <div class="gh-proj-card manual-proj-card" data-pm-id="<?= (int)$pmProj['id'] ?>">
+                  <div class="pm-badge-manual"><i class="bi bi-pencil-square"></i>Manual</div>
+                  <div class="gh-proj-topo">
+                    <span class="gh-proj-nome"><i class="bi bi-journal-text me-1"></i><?= esc($pmProj['titulo']) ?></span>
+                    <div class="gh-proj-acoes">
+                      <div class="dropdown">
+                        <button type="button" class="gh-proj-menu" data-bs-toggle="dropdown" aria-expanded="false"><i class="bi bi-three-dots-vertical"></i></button>
+                        <ul class="dropdown-menu dropdown-menu-end">
+                          <li><a class="dropdown-item" href="#" onclick="abrirModalProjetoManualEditar(<?= esc(json_encode($pmProj)) ?>)"><i class="bi bi-pencil me-2"></i>Editar</a></li>
+                          <li><hr class="dropdown-divider"></li>
+                          <?php foreach ($secoesInfo as $optKey => $optInfo): ?>
+                            <li><a class="dropdown-item" href="#" onclick="mudarStatusPm(<?= (int)$pmProj['id'] ?>,'<?= $optKey ?>')"><i class="bi <?= $optInfo['icon'] ?> me-2"></i><?= $optInfo['label'] ?></a></li>
+                          <?php endforeach; ?>
+                          <li><hr class="dropdown-divider"></li>
+                          <li><a class="dropdown-item text-danger" href="#" onclick="excluirProjetoManualCard(<?= (int)$pmProj['id'] ?>)"><i class="bi bi-trash me-2"></i>Excluir</a></li>
+                        </ul>
+                      </div>
+                    </div>
+                  </div>
+                  <?php if ($pmProj['descricao']): ?>
+                    <div class="gh-proj-desc"><?= esc($pmProj['descricao']) ?></div>
+                  <?php endif; ?>
+                  <div class="gh-proj-progress" id="pm-progress-<?= (int)$pmProj['id'] ?>">
+                    <div class="gh-proj-progress-bar"><div class="gh-proj-progress-fill" id="pm-progress-fill-<?= (int)$pmProj['id'] ?>" style="width:<?= (int)$pmProj['progresso']['pct'] ?>%"></div></div>
+                    <span class="gh-proj-progress-label" id="pm-progress-label-<?= (int)$pmProj['id'] ?>">
+                      <strong><?= (int)$pmProj['progresso']['pct'] ?>%</strong> · Checklist manual: <?= (int)$pmProj['progresso']['feitas'] ?>/<?= (int)$pmProj['progresso']['total'] ?> concluídas
+                    </span>
+                  </div>
+                  <?php if (!empty($pmProj['previsao_txt'])): ?>
+                    <div class="gh-proj-previsao"><i class="bi bi-calendar-event me-1"></i>Previsão de término: <strong><?= esc($pmProj['previsao_txt']) ?></strong></div>
+                  <?php endif; ?>
+                  <?php if ($pmProj['responsaveis']): ?>
+                    <div class="pm-resp-wrap mt-1 mb-1">
+                      <?php foreach ($pmProj['responsaveis'] as $r): ?>
+                        <div class="pm-resp-chip pm-resp-chip-readonly" title="<?= esc($r['nome']) ?>">
+                          <span class="dot" style="background:<?= esc($r['cor']) ?>"></span><?= esc($r['nome']) ?>
+                        </div>
+                      <?php endforeach; ?>
+                    </div>
+                  <?php endif; ?>
+                  <div id="pm-itens-card-<?= (int)$pmProj['id'] ?>">
+                    <?php foreach ($pmProj['itens'] as $it): ?>
+                      <div class="pm-item-row <?= $it['concluido'] ? 'concluido' : '' ?>" data-item-id="<?= (int)$it['id'] ?>">
+                        <input type="checkbox" <?= $it['concluido'] ? 'checked' : '' ?> onchange="toggleItemPm(<?= (int)$pmProj['id'] ?>,<?= (int)$it['id'] ?>,this)"/>
+                        <span class="pm-item-texto"><?= esc($it['texto']) ?></span>
+                      </div>
+                    <?php endforeach; ?>
+                  </div>
+                  <div class="pm-item-add">
+                    <input type="text" class="form-control form-control-sm" placeholder="+ adicionar item..." onkeydown="if(event.key==='Enter'){event.preventDefault();adicionarItemPmCard(<?= (int)$pmProj['id'] ?>,this);}"/>
+                  </div>
+                  <div class="gh-proj-meta">
+                    <span class="meta-pill"><i class="bi bi-list-check"></i><?= (int)$pmProj['progresso']['total'] ?> itens</span>
                   </div>
                 </div>
               <?php endforeach; ?>
@@ -2653,6 +2752,70 @@ async function excluirProjetoManual() {
   const d = await r.json();
   if (d.ok) { modalProjetoManual.hide(); location.reload(); }
   else alert(d.msg || 'Erro ao excluir');
+}
+
+// ── Projetos manuais: ações direto no card (sem abrir o modal) ──
+async function mudarStatusPm(id, status) {
+  const r = await fetch('projetos.php?pm_action=status_set', {
+    method: 'POST', headers: {'Content-Type':'application/json'},
+    body: JSON.stringify({id, status}),
+  });
+  const d = await r.json();
+  if (d.ok) location.reload();
+  else alert(d.msg || 'Erro ao mudar status');
+}
+
+async function excluirProjetoManualCard(id) {
+  if (!confirm('Excluir este projeto manual? Os itens dele também serão apagados.')) return;
+  const r = await fetch('projetos.php?pm_action=excluir', {
+    method: 'POST', headers: {'Content-Type':'application/json'},
+    body: JSON.stringify({id}),
+  });
+  const d = await r.json();
+  if (d.ok) location.reload();
+  else alert(d.msg || 'Erro ao excluir');
+}
+
+function _pmAtualizarProgresso(id, feitas, total) {
+  const pct   = total > 0 ? Math.round(feitas / total * 100) : 0;
+  const fill  = document.getElementById(`pm-progress-fill-${id}`);
+  const label = document.getElementById(`pm-progress-label-${id}`);
+  if (fill)  fill.style.width = pct + '%';
+  if (label) label.innerHTML = `<strong>${pct}%</strong> · Checklist manual: ${feitas}/${total} concluídas`;
+}
+
+async function toggleItemPm(projetoId, itemId, checkboxEl) {
+  const r = await fetch('projetos.php?pm_action=item_toggle', {
+    method: 'POST', headers: {'Content-Type':'application/json'},
+    body: JSON.stringify({id: itemId}),
+  });
+  const d = await r.json();
+  if (!d.ok) { checkboxEl.checked = !checkboxEl.checked; alert(d.msg || 'Erro ao marcar item'); return; }
+  const row = checkboxEl.closest('.pm-item-row');
+  if (row) row.classList.toggle('concluido', checkboxEl.checked);
+  if (d.progresso) _pmAtualizarProgresso(projetoId, d.progresso.feitas, d.progresso.total);
+}
+
+async function adicionarItemPmCard(projetoId, inputEl) {
+  const texto = inputEl.value.trim();
+  if (!texto) return;
+  const r = await fetch('projetos.php?pm_action=item_add', {
+    method: 'POST', headers: {'Content-Type':'application/json'},
+    body: JSON.stringify({projeto_id: projetoId, texto}),
+  });
+  const d = await r.json();
+  if (!d.ok) { alert(d.msg || 'Erro ao adicionar item'); return; }
+  const wrap = document.getElementById(`pm-itens-card-${projetoId}`);
+  if (wrap && d.id) {
+    const row = document.createElement('div');
+    row.className = 'pm-item-row';
+    row.dataset.itemId = d.id;
+    row.innerHTML = `<input type="checkbox" onchange="toggleItemPm(${projetoId},${d.id},this)"/><span class="pm-item-texto"></span>`;
+    row.querySelector('.pm-item-texto').textContent = texto;
+    wrap.appendChild(row);
+  }
+  inputEl.value = '';
+  if (d.progresso) _pmAtualizarProgresso(projetoId, d.progresso.feitas, d.progresso.total);
 }
 </script>
 
