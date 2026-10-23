@@ -1,6 +1,29 @@
 # Chamado de Balanças: campos extras + vínculo no Inventário + BI
 
-**Data:** 2026-10-22 · **Status:** 🟡 SPEC APROVADA — PLAN ainda não escrito
+**Data:** 2026-10-22 · **Status:** 🟢 Fase 1 IMPLEMENTADA (campos no chamado) ·
+Fases 1b/2/3 pendentes
+
+## Fase 1 — IMPLEMENTADO (2026-10-22)
+
+- Container `id=7` ("Reparo Equipamentos") recebeu os 2 campos pela UI admin
+  do GLPI: "Equipamento (Balança)" (`dropdown`, single) e "Tipo de Defeito"
+  (`dropdown`, multi-select, 8 valores fixos).
+- Condição de exibição criada em
+  `glpi_plugin_fields_containerdisplayconditions` (`itemtype=Ticket,
+  search_option=7, condition=2, value=162`) — réplica do padrão Tabloides.
+- Catálogo "Equipamento" semeado com as 12 balanças já cadastradas em
+  `portal_balancas` na data; catálogo "Tipo de Defeito" semeado com os 8
+  valores fixos.
+- **Teste manual end-to-end confirmado em produção:** chamado real
+  (`#11890`, categoria Hardware > Balanças) criado, aba "Reparo
+  Equipamentos" apareceu corretamente, os 2 campos renderizaram com as
+  opções semeadas, valores selecionados e salvos (single="5" balança;
+  multi=["Célula de Carga","Placa Principal"]) — confirmado via SQL direto
+  na tabela gerada `glpi_plugin_fields_ticketreparoequipamentos`:
+  `plugin_fields_equipamentobalanafielddropdowns_id=4` (int) e
+  `plugin_fields_tipodedefeitofielddropdowns_id=["4","2"]` (JSON array),
+  exatamente como previsto pelo mecanismo do plugin Fields. Chamado de
+  teste movido pra lixeira (soft-delete reversível) após a confirmação.
 
 ## Problema
 
