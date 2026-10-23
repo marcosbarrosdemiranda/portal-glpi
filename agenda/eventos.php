@@ -31,6 +31,7 @@ try { $pdo->exec("ALTER TABLE glpi_plugin_agenda_events ADD COLUMN co_atendentes
 // Tipo 'projeto' + coluna com o nome do projeto selecionado (pasta em Docs/wiki/projects)
 try { $pdo->exec("ALTER TABLE glpi_plugin_agenda_events MODIFY tipo ENUM('evento','chamado','requisicao','reuniao','projeto') NOT NULL DEFAULT 'evento'"); } catch (Exception $e) {}
 try { $pdo->exec("ALTER TABLE glpi_plugin_agenda_events ADD COLUMN projeto VARCHAR(255) DEFAULT NULL AFTER setor"); } catch (Exception $e) {}
+try { $pdo->exec("ALTER TABLE glpi_plugin_agenda_events ADD COLUMN co_projetos TEXT DEFAULT NULL AFTER projeto"); } catch (Exception $e) {}
 // Anexos de eventos "puros" (sem chamado GLPI) — guardados no próprio banco
 try { $pdo->exec("CREATE TABLE IF NOT EXISTS portal_agenda_event_anexos (
     id        INT AUTO_INCREMENT PRIMARY KEY,
@@ -292,6 +293,8 @@ try {
                         ? $body['prioridade'] : 'media';
         $setor        = $body['setor']        ?? null;
         $projeto      = $body['projeto']      ?? null;
+        $co_projetos  = $body['co_projetos']  ?? null;
+        if ($co_projetos && is_array($co_projetos)) $co_projetos = json_encode($co_projetos);
         $tipo         = in_array($body['tipo'] ?? '', ['evento','chamado','requisicao','reuniao','projeto'])
                         ? $body['tipo'] : 'evento';
         // Mantém compatibilidade com o comportamento existente: eventos 'requisicao' seguem
@@ -317,6 +320,7 @@ try {
             ':prioridade'   => $prioridade,
             ':setor'        => $setor,
             ':projeto'      => $projeto,
+            ':co_projetos'  => $co_projetos,
             ':ticket_id'    => $ticket_id,
             ':tipo'         => $tipo,
             ':concluido'    => $concluido,
@@ -324,9 +328,9 @@ try {
 
         $insert_sql = "
             INSERT INTO glpi_plugin_agenda_events
-                (id, titulo, descricao, start, end, atendente, atendente_id, atendente_cor, co_atendentes, prioridade, setor, projeto, ticket_id, tipo, concluido)
+                (id, titulo, descricao, start, end, atendente, atendente_id, atendente_cor, co_atendentes, prioridade, setor, projeto, co_projetos, ticket_id, tipo, concluido)
             VALUES
-                (:id,:titulo,:descricao,:start,:end,:atendente,:atendente_id,:atendente_cor,:co_atendentes,:prioridade,:setor,:projeto,:ticket_id,:tipo,:concluido)
+                (:id,:titulo,:descricao,:start,:end,:atendente,:atendente_id,:atendente_cor,:co_atendentes,:prioridade,:setor,:projeto,:co_projetos,:ticket_id,:tipo,:concluido)
         ";
 
         if ($is_edit) {
@@ -336,7 +340,7 @@ try {
                     titulo=:titulo, descricao=:descricao, start=:start, end=:end,
                     atendente=:atendente, atendente_id=:atendente_id, atendente_cor=:atendente_cor,
                     co_atendentes=:co_atendentes,
-                    prioridade=:prioridade, setor=:setor, projeto=:projeto, ticket_id=:ticket_id,
+                    prioridade=:prioridade, setor=:setor, projeto=:projeto, co_projetos=:co_projetos, ticket_id=:ticket_id,
                     tipo=:tipo, concluido=:concluido
                 WHERE id = :id
             ");
