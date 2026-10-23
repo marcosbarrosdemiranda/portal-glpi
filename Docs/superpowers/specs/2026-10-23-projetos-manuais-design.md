@@ -1,10 +1,60 @@
 # Projetos Manuais — cadastro direto no portal (sem GitHub)
 
-**Data:** 2026-10-23 · **Status:** 🟡 SPEC em aprovação
-**Branch planejada:** `feat/projetos-manuais` (base `feat/projetos-estimativa-horas` →
+**Data:** 2026-10-23 · **Status:** ✅ IMPLEMENTADO — Fases 1, 2 e 3 todas
+concluídas e testadas em produção
+**Branch:** `feat/projetos-manuais` (base `feat/projetos-estimativa-horas` →
 `fix/projetos-github-cache-worker` → `infra/migracao-docker-glpi` — PRs #10/#11
 ainda não mergeados na branch de integração, mas já estão em produção via scp;
 basear direto em `infra/migracao-docker-glpi` reverteria essas 2 features)
+
+## Resumo da implementação
+
+**Fase 1 IMPLEMENTADA e testada em produção (2026-10-22):** as 2 tabelas
+(`portal_projetos_manuais`, `portal_projetos_manuais_itens`) e os 8 endpoints
+`pm_action=criar|salvar|excluir|status_set|item_add|item_toggle|item_delete|item_editar`
+foram criados em `projetos.php`. Testado via requisição direta nos 8
+endpoints (sessão PHP sintética, sem UI): criar projeto com 3 itens, marcar 1
+item, confirmar progresso 33%, editar, excluir — tudo confirmado no banco via
+SQL direto. Commit `1a879a4`, push feito.
+
+**Fase 2 IMPLEMENTADA e testada em produção (2026-10-22):** componente de
+chips de responsáveis (`carregarTecnicosPm`/`renderRespChipsPm`/`toggleChip`/
+`getRespSelecionadosPm`, réplica do padrão já usado na Agenda) + modal
+`#modalProjetoManual` de criação/edição. Teste end-to-end via UI real:
+criado "Teste PM Fase2" com status `futuro`, 2 responsáveis (Agnelo Felix +
+Barros de Miranda Marcos) e 3 itens (1 via botão, 2 via Enter) — confirmado
+no banco via SQL direto (`responsaveis` JSON correto, `criado_por` correto,
+itens com `ordem` 0/1/2). Projeto de teste excluído e cascade confirmado
+(0 linhas nas 2 tabelas) ao final. Commit `771497d`, push feito.
+
+**Fase 3 IMPLEMENTADA e testada em produção (2026-10-22):** card
+`.manual-proj-card` integrado aos 3 buckets existentes
+(`$reposPorSecao['futuro'|'em_execucao'|'concluido']`), com discriminador
+`_tipo` (`github`/`manual`) separando os cards em 2 `foreach` via
+`array_filter` — o card GitHub ficou com o markup 100% intacto, só o
+iterável ganhou o filtro. Gate "cadastre uma conta" passou a considerar
+também a existência de projeto manual (`!$minhasContas && !$projetosManuais`).
+Teste end-to-end via UI real, em produção, confirmado em cada etapa:
+- Snapshot inicial: os 21 cards GitHub existentes (10 Em Execução + 11
+  Concluídos) renderizaram idênticos ao estado pré-Fase 3 — sem regressão.
+- Criado "Teste PM" em status Futuro via modal (título + status + 1
+  responsável + 3 itens) → card apareceu na seção Futuros com badge
+  "Manual", 0% / 0 de 3 concluídas.
+- Marcados 2 de 3 itens pelo checkbox inline → barra foi a 67% e o texto
+  "2/3 concluídas" atualizou **sem reload de página** (fetch
+  `pm_action=item_toggle` + atualização client-side).
+- Mudança de status pra "Em Execução" via menu "⋮" → card migrou de seção
+  (Futuros 1→0, Em Execução 10→11), progresso 67% preservado.
+- Edição via modal (título "Teste PM" → "Teste PM editado" + segundo
+  responsável adicionado) → card atualizado com os 2 responsáveis, itens e
+  progresso preservados.
+- Exclusão via menu "⋮" (com confirm()) → card e os 3 itens desapareceram
+  da UI; confirmado via SQL direto que as 2 tabelas (`portal_projetos_manuais`,
+  `portal_projetos_manuais_itens`) ficaram com 0 linhas (cascade funcionando).
+- Nenhum erro de JS no console do navegador durante todo o fluxo (só avisos
+  inofensivos de autofill de senha do navegador).
+`php -l` limpo em `projetos.php` completo antes e depois do deploy final.
+Commit `04a927f`, push feito.
 
 ## Problema
 
