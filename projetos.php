@@ -1165,6 +1165,34 @@ body  { background:#f0f4f9; font-family:'Segoe UI',sans-serif; font-size:.9rem; 
 .gh-lbl { display:inline-block; background:#eef2ff; color:#3730a3; border-radius:8px;
           padding:0 .4rem; font-size:.62rem; font-weight:600; margin-left:.25rem; }
 
+/* ── Projetos manuais (sem conta GitHub) ── */
+.pm-resp-wrap { display:flex; flex-wrap:wrap; gap:.3rem; margin-bottom:.1rem; }
+.pm-resp-chip {
+  display:inline-flex; align-items:center; gap:.3rem;
+  padding:.18rem .55rem; border-radius:14px;
+  border:1.5px solid #dee2e6; cursor:pointer;
+  font-size:.76rem; transition:all .12s; user-select:none; white-space:nowrap;
+}
+.pm-resp-chip:hover { border-color:#1a73e8; background:#f0f4ff; }
+.pm-resp-chip.selected { border-color:#1a73e8; background:#e8f0fe; font-weight:700; }
+.pm-resp-chip.pm-resp-chip-readonly { cursor:default; }
+.pm-resp-chip.pm-resp-chip-readonly:hover { border-color:#dee2e6; background:none; }
+.pm-resp-chip .dot { width:8px; height:8px; border-radius:50%; flex-shrink:0; }
+.manual-proj-card { border-color:#7c3aed33; }
+.manual-proj-card:hover { border-color:#7c3aed; }
+.pm-badge-manual { display:inline-flex; align-items:center; gap:.25rem; background:#f5f3ff; color:#6d28d9;
+                    border-radius:8px; padding:.08rem .45rem; font-size:.62rem; font-weight:700;
+                    text-transform:uppercase; letter-spacing:.03em; margin-bottom:.35rem; }
+.pm-item-row { display:flex; align-items:center; gap:.4rem; padding:.2rem 0; font-size:.78rem; }
+.pm-item-row input[type=checkbox] { flex-shrink:0; cursor:pointer; }
+.pm-item-row .pm-item-texto { flex:1; }
+.pm-item-row.concluido .pm-item-texto { text-decoration:line-through; color:#9ca3af; }
+.pm-item-row .pm-item-del { background:none; border:none; color:#dc3545; cursor:pointer; padding:0 .25rem;
+                             font-size:.8rem; opacity:0; transition:opacity .12s; }
+.pm-item-row:hover .pm-item-del { opacity:1; }
+.pm-item-add { display:flex; align-items:center; gap:.4rem; margin-top:.4rem; }
+.pm-item-add input { flex:1; font-size:.78rem; }
+
 /* ── Apresentação do projeto (modal, pronto pra reunião) ── */
 .gh-btn-apres { color:#1a73e8 !important; }
 .apres-obj { font-size:1rem; color:#374151; margin:0 0 1.25rem; line-height:1.5; }
@@ -1339,6 +1367,13 @@ body  { background:#f0f4f9; font-family:'Segoe UI',sans-serif; font-size:.9rem; 
       </div>
       <?php endif; ?>
     </div>
+  </div>
+
+  <!-- ═══════════════ PROJETO MANUAL (sem conta GitHub) ═══════════════ -->
+  <div class="d-flex justify-content-end mb-3">
+    <button type="button" class="btn btn-sm btn-outline-primary" style="border-color:#7c3aed;color:#7c3aed" onclick="abrirModalProjetoManualCriar()">
+      <i class="bi bi-plus-circle me-1"></i>Novo projeto manual
+    </button>
   </div>
 
   <!-- ═══════════════ PROJETOS (GitHub, 3 seções) ═══════════════ -->
@@ -2020,6 +2055,61 @@ document.getElementById('filtroConta')?.addEventListener('change', aplicarFiltro
   </div>
 </div>
 
+<!-- Modal: criar/editar projeto manual (sem conta GitHub) -->
+<div class="modal fade" id="modalProjetoManual" tabindex="-1">
+  <div class="modal-dialog modal-dialog-centered modal-lg modal-dialog-scrollable">
+    <div class="modal-content">
+      <div class="modal-header" style="background:linear-gradient(135deg,#6d28d9,#7c3aed);color:white">
+        <h5 class="modal-title fw-bold" id="pmModalTitulo"><i class="bi bi-journal-check me-2"></i>Novo Projeto Manual</h5>
+        <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <input type="hidden" id="pm-id"/>
+        <div class="mb-3">
+          <label class="form-label fw-semibold">Título</label>
+          <input type="text" class="form-control" id="pm-titulo" placeholder="Ex: Migração de impressoras"/>
+        </div>
+        <div class="mb-3">
+          <label class="form-label fw-semibold">Descrição</label>
+          <textarea class="form-control" id="pm-descricao" rows="2" placeholder="Opcional"></textarea>
+        </div>
+        <div class="row mb-3">
+          <div class="col-md-6 mb-2">
+            <label class="form-label fw-semibold">Status</label>
+            <select class="form-select" id="pm-status">
+              <option value="futuro">Futuro</option>
+              <option value="em_execucao" selected>Em Execução</option>
+              <option value="concluido">Concluído</option>
+            </select>
+          </div>
+          <div class="col-md-6 mb-2">
+            <label class="form-label fw-semibold">Previsão de término</label>
+            <input type="date" class="form-control" id="pm-previsao"/>
+          </div>
+        </div>
+        <div class="mb-3">
+          <label class="form-label fw-semibold">Responsáveis</label>
+          <div class="pm-resp-wrap" id="pm-resp-lista"><div class="text-muted small">Carregando...</div></div>
+        </div>
+        <div class="mb-2">
+          <label class="form-label fw-semibold">Itens / funcionalidades</label>
+          <div id="pm-itens-lista"></div>
+          <div class="pm-item-add">
+            <input type="text" class="form-control form-control-sm" id="pm-item-novo" placeholder="Novo item..." onkeydown="if(event.key==='Enter'){event.preventDefault();pmAdicionarItemModal();}"/>
+            <button type="button" class="btn btn-sm btn-outline-secondary" onclick="pmAdicionarItemModal()"><i class="bi bi-plus-lg"></i></button>
+          </div>
+        </div>
+        <div id="pm-erro" class="text-danger small" style="display:none"></div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-outline-danger me-auto" id="btn-excluir-pm" style="display:none" onclick="excluirProjetoManual()"><i class="bi bi-trash me-1"></i>Excluir</button>
+        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
+        <button type="button" class="btn btn-primary" onclick="salvarProjetoManual()" style="background:#6d28d9;border-color:#6d28d9"><i class="bi bi-check-lg me-1"></i>Salvar</button>
+      </div>
+    </div>
+  </div>
+</div>
+
 <!-- Modal: documentação do projeto (README renderizado do GitHub) -->
 <div class="modal fade" id="modalDoc" tabindex="-1">
   <div class="modal-dialog modal-dialog-centered modal-lg modal-dialog-scrollable">
@@ -2086,6 +2176,7 @@ let modalConta;
 let modalDoc;
 let modalCommits;
 let modalApres;
+let modalProjetoManual;
 let _commitsCache = [];
 document.addEventListener('DOMContentLoaded', () => {
   const elConta = document.getElementById('modalConta');
@@ -2096,6 +2187,9 @@ document.addEventListener('DOMContentLoaded', () => {
   if (elCommits) modalCommits = new bootstrap.Modal(elCommits);
   const elApres = document.getElementById('modalApres');
   if (elApres) modalApres = new bootstrap.Modal(elApres);
+  const elPm = document.getElementById('modalProjetoManual');
+  if (elPm) modalProjetoManual = new bootstrap.Modal(elPm);
+  carregarTecnicosPm();
 });
 
 function _escA(s) { const d = document.createElement('div'); d.textContent = s == null ? '' : String(s); return d.innerHTML; }
@@ -2457,6 +2551,150 @@ async function excluirConta() {
   });
   const d = await r.json();
   if (d.ok) { modalConta.hide(); location.reload(); }
+  else alert(d.msg || 'Erro ao excluir');
+}
+
+// ── Projetos manuais: chips de responsáveis + modal de criação/edição ──
+// (réplica direta do padrão de atendentes da Agenda, com classe própria
+// .pm-resp-chip pra não colidir com .atendente-multi-chip de agenda/index.php)
+let tecnicosPm = [];
+let pmItensModal = [];
+
+function carregarTecnicosPm() {
+  fetch('agenda/users.php')
+    .then(r => r.json())
+    .then(data => { tecnicosPm = data; })
+    .catch(() => { tecnicosPm = []; });
+}
+
+function renderRespChipsPm(selecionadosIds) {
+  const wrap = document.getElementById('pm-resp-lista');
+  if (!wrap) return;
+  if (!tecnicosPm.length) { wrap.innerHTML = '<div class="text-muted small">Nenhum técnico encontrado.</div>'; return; }
+  wrap.innerHTML = tecnicosPm.map(t => {
+    const sel = selecionadosIds.includes(t.id);
+    return `<div class="pm-resp-chip ${sel ? 'selected' : ''}"
+                 data-nome="${_escA(t.nome)}" data-id="${t.id}" data-cor="${t.cor}"
+                 title="${_escA(t.nome)}"
+                 onclick="toggleChip(this)">
+              <span class="dot" style="background:${t.cor}"></span>
+              ${_escA(t.nome)}
+            </div>`;
+  }).join('');
+}
+
+function toggleChip(el) {
+  el.classList.toggle('selected');
+}
+
+function getRespSelecionadosPm() {
+  return [...document.querySelectorAll('#pm-resp-lista .pm-resp-chip.selected')].map(el => ({
+    id:   parseInt(el.dataset.id),
+    nome: el.dataset.nome,
+    cor:  el.dataset.cor,
+  })).filter(r => r.id && !isNaN(r.id));
+}
+
+function pmRenderItensModal() {
+  const wrap = document.getElementById('pm-itens-lista');
+  if (!wrap) return;
+  wrap.innerHTML = pmItensModal.map((it, idx) => `
+    <div class="pm-item-row ${it.concluido ? 'concluido' : ''}">
+      <input type="checkbox" ${it.concluido ? 'checked' : ''} onchange="pmToggleItemModal(${idx})"/>
+      <span class="pm-item-texto">${_escA(it.texto)}</span>
+      <button type="button" class="pm-item-del" onclick="pmRemoverItemModal(${idx})" title="Remover"><i class="bi bi-x-lg"></i></button>
+    </div>
+  `).join('') || '<div class="text-muted small">Nenhum item ainda.</div>';
+}
+
+function pmToggleItemModal(idx) {
+  pmItensModal[idx].concluido = !pmItensModal[idx].concluido;
+  pmRenderItensModal();
+}
+
+function pmRemoverItemModal(idx) {
+  pmItensModal.splice(idx, 1);
+  pmRenderItensModal();
+}
+
+function pmAdicionarItemModal() {
+  const input = document.getElementById('pm-item-novo');
+  const texto = input.value.trim();
+  if (!texto) return;
+  pmItensModal.push({ texto, concluido: false });
+  input.value = '';
+  pmRenderItensModal();
+}
+
+function abrirModalProjetoManualCriar() {
+  document.getElementById('pm-id').value = '';
+  document.getElementById('pm-titulo').value = '';
+  document.getElementById('pm-descricao').value = '';
+  document.getElementById('pm-status').value = 'em_execucao';
+  document.getElementById('pm-previsao').value = '';
+  document.getElementById('pm-erro').style.display = 'none';
+  document.getElementById('pmModalTitulo').innerHTML = '<i class="bi bi-journal-check me-2"></i>Novo Projeto Manual';
+  document.getElementById('btn-excluir-pm').style.display = 'none';
+  pmItensModal = [];
+  pmRenderItensModal();
+  renderRespChipsPm([]);
+  modalProjetoManual.show();
+}
+
+function abrirModalProjetoManualEditar(pm) {
+  document.getElementById('pm-id').value = pm.id;
+  document.getElementById('pm-titulo').value = pm.titulo || '';
+  document.getElementById('pm-descricao').value = pm.descricao || '';
+  document.getElementById('pm-status').value = pm.status || 'em_execucao';
+  document.getElementById('pm-previsao').value = pm.previsao || '';
+  document.getElementById('pm-erro').style.display = 'none';
+  document.getElementById('pmModalTitulo').textContent = pm.titulo || 'Editar Projeto Manual';
+  document.getElementById('btn-excluir-pm').style.display = 'inline-block';
+  pmItensModal = (pm.itens || []).map(it => ({ id: it.id, texto: it.texto, concluido: !!it.concluido }));
+  pmRenderItensModal();
+  renderRespChipsPm((pm.responsaveis || []).map(r => r.id));
+  modalProjetoManual.show();
+}
+
+async function salvarProjetoManual() {
+  const id        = document.getElementById('pm-id').value;
+  const titulo    = document.getElementById('pm-titulo').value.trim();
+  const descricao = document.getElementById('pm-descricao').value.trim();
+  const status    = document.getElementById('pm-status').value;
+  const previsao  = document.getElementById('pm-previsao').value;
+  const erroEl    = document.getElementById('pm-erro');
+  erroEl.style.display = 'none';
+
+  if (!titulo) {
+    erroEl.textContent = 'Preencha o título.';
+    erroEl.style.display = '';
+    return;
+  }
+
+  const action = id ? 'salvar' : 'criar';
+  const r = await fetch(`projetos.php?pm_action=${action}`, {
+    method: 'POST', headers: {'Content-Type':'application/json'},
+    body: JSON.stringify({
+      id, titulo, descricao, status, previsao,
+      responsaveis: getRespSelecionadosPm(),
+      itens: pmItensModal,
+    }),
+  });
+  const d = await r.json();
+  if (!d.ok) { erroEl.textContent = d.msg || 'Erro ao salvar'; erroEl.style.display = ''; return; }
+  modalProjetoManual.hide();
+  location.reload();
+}
+
+async function excluirProjetoManual() {
+  const id = document.getElementById('pm-id').value;
+  if (!id || !confirm('Excluir este projeto manual? Os itens dele também serão apagados.')) return;
+  const r = await fetch('projetos.php?pm_action=excluir', {
+    method: 'POST', headers: {'Content-Type':'application/json'},
+    body: JSON.stringify({id}),
+  });
+  const d = await r.json();
+  if (d.ok) { modalProjetoManual.hide(); location.reload(); }
   else alert(d.msg || 'Erro ao excluir');
 }
 </script>
