@@ -1,5 +1,23 @@
 ﻿# Timeline de Atividades Macro
 
+## [2026-10-19] — Sincronização do ARCHITECTURE.md com o estado real (cronograma)
+- **Tipo:** docs
+- **Arquivos alterados:** `Arquitetura/ARCHITECTURE.md`, `Documentação/CRITICAL_FACTS.md`, `Documentação/log.md`
+- **Arquivo novo:** `Decisões/ADR-005-architecture-sync-2026-10.md`
+- **Contexto:** doc estava congelado em junho/2026 (MVP Agenda); meses de trabalho real (Monitor de
+  Rede, Central de Alertas, Orçamento/Despesas, WhatsApp, SEFAZ, Sólides, pfSense, etc.) só existiam
+  em commits git, não documentados aqui.
+- **feat (docs):** Tech Stack corrigida; seção "Domain Modules" nova com inventário completo;
+  Roadmap reescrito (Fase 0 histórico preservada + Fases 1-4 com o estado real: concluído,
+  em validação — PR #6 orçamento/projeto — em andamento, backlog)
+- **fix (docs):** `CRITICAL_FACTS.md` tinha o boilerplate genérico do instalador `claude-init`
+  (manager/stack errados, nunca preenchidos) — corrigido pros fatos reais do portal-glpi
+- Ver [[../Decisões/ADR-005-architecture-sync-2026-10|ADR-005]]
+- **⚠️ Pendência separada:** `Tarefas/backlog.md` e `Logs/` da vault continuam desatualizados
+  desde set/2026 — fora do escopo desta sessão
+
+---
+
 ## [2026-06-07] — Sessão — VNC + Grupos Dinâmicos + Central AnyDesk
 - **Tipo:** feat + fix
 - **Arquivos alterados/novos:** `vnc_central.php`, `rdp_central.php`, `vnc.php`, `anydesk_central.php` (novo), `acessos.php`, `Docs/wiki/projects/portal-glpi-prd.md`
