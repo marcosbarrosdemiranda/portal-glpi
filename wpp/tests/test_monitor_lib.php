@@ -71,7 +71,7 @@ t_eq($g['falhas_para_cair'], 1, 'grupo_normalizar: falhas mínimo 1');
 t_eq($g['sucessos_para_voltar'], 10, 'grupo_normalizar: sucessos máximo 10');
 t_eq($g['queda_curta'], 'registro', 'grupo_normalizar: queda_curta inválida -> registro');
 t_eq($g['monitorar_novos'], 1, 'grupo_normalizar: monitorar_novos vira 0/1');
-t_eq(monitor_grupo_normalizar(['intervalo_seg' => 99999])['intervalo_seg'], 3600, 'grupo_normalizar: intervalo máximo 1h');
+t_eq(monitor_grupo_normalizar(['intervalo_seg' => 99999])['intervalo_seg'], 21600, 'grupo_normalizar: intervalo máximo 6h');
 
 // ---------------------------------------------------------------------------
 // Banco: grupos, manuais, sincronização, chave Monitorar
