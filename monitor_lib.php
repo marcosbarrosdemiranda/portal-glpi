@@ -210,7 +210,7 @@ function monitor_grupo_normalizar(array $p): array
     $int = fn($k, $def, $min, $max) => max($min, min($max, (int) ($p[$k] ?? $def)));
     $q = (string) ($p['queda_curta'] ?? 'registro');
     return [
-        'intervalo_seg'        => $int('intervalo_seg', 60, 30, 3600),
+        'intervalo_seg'        => $int('intervalo_seg', 60, 30, 21600),
         'falhas_para_cair'     => $int('falhas_para_cair', 3, 1, 60),
         'sucessos_para_voltar' => $int('sucessos_para_voltar', 2, 1, 10),
         'pacotes'              => $int('pacotes', 1, 1, 5),

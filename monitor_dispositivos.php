@@ -497,9 +497,15 @@ let GRUPOS = [], DISP = [];
 const H = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const fb = (id, msg, ok) => { const el = document.getElementById(id); el.className = 'small mt-2 ' + (ok ? 'text-success' : 'text-danger'); el.textContent = msg; };
 const post = (action, dados = {}) => fetch('?action=' + action, { method: 'POST', body: new URLSearchParams(dados) }).then(r => r.json());
-const INTERVALOS = [[30,'30 s'],[60,'1 min'],[120,'2 min'],[300,'5 min'],[600,'10 min']];
+const INTERVALOS = [[30,'30 s'],[60,'1 min'],[120,'2 min'],[300,'5 min'],[600,'10 min'],[900,'15 min'],[1800,'30 min'],[3600,'60 min'],[7200,'120 min'],[10800,'180 min'],[21600,'360 min']];
 const QUEDA = [['registro','Só registro'],['resumo_diario','Resumo diário'],['na_hora','Aviso na hora']];
-const fmtMin = seg => seg < 60 ? seg + ' s' : (seg % 60 ? (seg / 60).toFixed(1).replace('.', ',') : seg / 60) + ' min';
+const fmtMin = seg => {
+  if (seg < 60) return seg + ' s';
+  const min = seg / 60;
+  if (min < 60) return (min % 1 ? min.toFixed(1).replace('.', ',') : min) + ' min';
+  const h = min / 60;
+  return (h % 1 ? h.toFixed(1).replace('.', ',') : h) + ' h';
+};
 
 function carregar(bg = false) {
   fetch('?action=listar' + (bg ? '&bg=1' : '')).then(r => r.json()).then(d => {
