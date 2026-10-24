@@ -130,10 +130,11 @@ if ($action) {
     }
 
     if ($action === 'antena_config_salvar') {
-        $body    = json_decode(file_get_contents('php://input'), true) ?? [];
-        $usuario = trim($body['usuario'] ?? '');
-        $senha   = (string)($body['senha'] ?? '');
-        $limite  = (int)($body['limite'] ?? 0);
+        $body        = json_decode(file_get_contents('php://input'), true) ?? [];
+        $usuario     = trim($body['usuario'] ?? '');
+        $senha       = (string)($body['senha'] ?? '');
+        $limite      = (int)($body['limite'] ?? 0);
+        $tolerancia  = (int)($body['tolerancia'] ?? 0);
 
         wpp_cfg_set('antena_ssh_usuario', $usuario);
         if ($senha !== '') {
@@ -141,6 +142,10 @@ if ($action) {
         }
         if ($limite > 0) {
             wpp_cfg_set('antena_limite_clientes', (string)$limite);
+        }
+        if ($tolerancia > 0) {
+            // minutos -> segundos, lido por monitor_antenas_varrer() (ver docblock lá)
+            wpp_cfg_set('antena_tolerancia_offline_seg', (string)($tolerancia * 60));
         }
         echo json_encode(['ok' => true]);
         exit;
@@ -154,8 +159,9 @@ if ($action) {
 // a varredura é feita pelo ciclo da Central de Alertas / worker) ──
 $antenas          = monitor_antena_listar($pdo);
 $entidades        = $pdo->query("SELECT id, completename FROM glpi_entities ORDER BY completename")->fetchAll();
-$antenaUsuarioCfg = (string) wpp_cfg_get('antena_ssh_usuario', '');
-$antenaLimiteCfg  = (int) wpp_cfg_get('antena_limite_clientes', '30');
+$antenaUsuarioCfg    = (string) wpp_cfg_get('antena_ssh_usuario', '');
+$antenaLimiteCfg     = (int) wpp_cfg_get('antena_limite_clientes', '30');
+$antenaToleranciaCfg = (int) round(((int) wpp_cfg_get('antena_tolerancia_offline_seg', '300')) / 60);
 ?>
 <!DOCTYPE html>
 <html lang="pt-BR">
@@ -262,6 +268,10 @@ $antenaLimiteCfg  = (int) wpp_cfg_get('antena_limite_clientes', '30');
     <div>
       <label class="form-label small mb-1">Limite de clientes conectados</label>
       <input type="number" class="form-control" id="cfg-limite" value="<?= (int)$antenaLimiteCfg ?>" min="1"/>
+    </div>
+    <div>
+      <label class="form-label small mb-1" title="Antena UniFi reinicia por rotina (~2min) — abaixo disso evita 🔔 falso no WhatsApp">Tolerância antes de ficar offline (min)</label>
+      <input type="number" class="form-control" id="cfg-tolerancia" value="<?= (int)$antenaToleranciaCfg ?>" min="1" max="60"/>
     </div>
     <button type="button" class="btn btn-primary" onclick="salvarConfigAntenas()" style="background:#1a237e;border-color:#1a237e">
       <i class="bi bi-check-lg me-1"></i>Salvar
@@ -531,14 +541,15 @@ function toggleTodosGrupos() {
 }
 
 async function salvarConfigAntenas() {
-  const usuario = document.getElementById('cfg-usuario').value.trim();
-  const senha   = document.getElementById('cfg-senha').value;
-  const limite  = document.getElementById('cfg-limite').value;
-  const msgEl   = document.getElementById('cfg-msg');
+  const usuario    = document.getElementById('cfg-usuario').value.trim();
+  const senha      = document.getElementById('cfg-senha').value;
+  const limite     = document.getElementById('cfg-limite').value;
+  const tolerancia = document.getElementById('cfg-tolerancia').value;
+  const msgEl      = document.getElementById('cfg-msg');
 
   const r = await fetch('inventario_redes.php?action=antena_config_salvar', {
     method: 'POST', headers: {'Content-Type':'application/json'},
-    body: JSON.stringify({usuario, senha, limite}),
+    body: JSON.stringify({usuario, senha, limite, tolerancia}),
   });
   const d = await r.json();
   msgEl.className = d.ok ? 'text-success small mt-2' : 'text-danger small mt-2';

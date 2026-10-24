@@ -262,15 +262,21 @@ function monitor_antena_reiniciar(string $ip, string $usuario, string $senha): a
  * — não mais na 1ª falha. Antena UniFi reinicia por rotina (~2min) e, sem
  * essa tolerância, cada reinício gerava 🔔+✅ falso no grupo do WhatsApp.
  * `falha_desde` guarda quando a falha atual começou; reseta pra NULL no
- * 1º SSH ok. Default 300s (5min) cobre o reinício de rotina com folga.
+ * 1º SSH ok. $toleranciaOfflineSeg=null (padrão) lê o valor configurável
+ * pelo usuário no card "Credencial SSH padrão e limite de clientes" de
+ * inventario_redes.php (campo "Tolerância antes de ficar offline", salvo
+ * via action=antena_config_salvar em wpp_cfg 'antena_tolerancia_offline_seg'),
+ * com fallback de 300s (5min) se nunca foi configurado.
  *
  * Cada item devolvido inclui 'uptime_anterior' (valor antes do UPDATE),
  * pra alerta_check_antena_reinicio comparar sem precisar de outra leitura.
  *
  * @return array<int,array> snapshot de cada antena ativa
  */
-function monitor_antenas_varrer(PDO $pdo, int $minIntervaloSeg = 90, int $toleranciaOfflineSeg = 300): array
+function monitor_antenas_varrer(PDO $pdo, int $minIntervaloSeg = 90, ?int $toleranciaOfflineSeg = null): array
 {
+    $toleranciaOfflineSeg = $toleranciaOfflineSeg ?? (int) wpp_cfg_get('antena_tolerancia_offline_seg', '300');
+
     // LEFT JOIN glpi_entities (sem FK real, mesmo padrão de inventario_pc.php) só
     // pra resolver o nome curto da loja (apelido_entidade) — entities_id em si
     // já vem na própria tabela via SELECT *.
