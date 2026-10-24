@@ -80,6 +80,7 @@ $pdo->exec("
         FOREIGN KEY (projeto_id) REFERENCES portal_projetos_manuais(id) ON DELETE CASCADE
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
 ");
+$pdo->exec("ALTER TABLE portal_projetos_manuais_itens ADD COLUMN IF NOT EXISTS concluido_em DATE NULL");
 
 // ── AJAX: contas GitHub (cada usuário só mexe nas próprias) ────
 $ghAction = $_GET['gh_action'] ?? '';
@@ -454,13 +455,17 @@ if ($pmAction) {
             $texto  = trim($it['texto'] ?? '');
             if ($texto === '') continue;
             $concluido = !empty($it['concluido']) ? 1 : 0;
+            // concluido_em só é válido junto de concluido=1; vem do modal (que
+            // já seta a data local ao marcar o checkbox) em formato Y-m-d.
+            $concluidoEmRaw = $it['concluido_em'] ?? '';
+            $concluidoEm = ($concluido && preg_match('/^\d{4}-\d{2}-\d{2}$/', $concluidoEmRaw)) ? $concluidoEmRaw : null;
             if ($itemId) {
-                $pdo->prepare("UPDATE portal_projetos_manuais_itens SET texto=?, concluido=?, ordem=? WHERE id=? AND projeto_id=?")
-                    ->execute([$texto, $concluido, $ordem, $itemId, $id]);
+                $pdo->prepare("UPDATE portal_projetos_manuais_itens SET texto=?, concluido=?, concluido_em=?, ordem=? WHERE id=? AND projeto_id=?")
+                    ->execute([$texto, $concluido, $concluidoEm, $ordem, $itemId, $id]);
                 $idsPayload[] = $itemId;
             } else {
-                $pdo->prepare("INSERT INTO portal_projetos_manuais_itens (projeto_id, texto, concluido, ordem) VALUES (?,?,?,?)")
-                    ->execute([$id, $texto, $concluido, $ordem]);
+                $pdo->prepare("INSERT INTO portal_projetos_manuais_itens (projeto_id, texto, concluido, concluido_em, ordem) VALUES (?,?,?,?,?)")
+                    ->execute([$id, $texto, $concluido, $concluidoEm, $ordem]);
                 $idsPayload[] = (int)$pdo->lastInsertId();
             }
         }
@@ -520,12 +525,24 @@ if ($pmAction) {
         $body   = json_decode(file_get_contents('php://input'), true) ?? [];
         $itemId = (int)($body['id'] ?? 0);
         if (!$itemId) { echo json_encode(['ok'=>false,'msg'=>'Item não encontrado']); exit; }
-        $st = $pdo->prepare("SELECT projeto_id FROM portal_projetos_manuais_itens WHERE id=?");
+        $st = $pdo->prepare("SELECT projeto_id, concluido FROM portal_projetos_manuais_itens WHERE id=?");
         $st->execute([$itemId]);
-        $projetoId = $st->fetchColumn();
-        if (!$projetoId) { echo json_encode(['ok'=>false,'msg'=>'Item não encontrado']); exit; }
-        $pdo->prepare("UPDATE portal_projetos_manuais_itens SET concluido = 1 - concluido WHERE id=?")->execute([$itemId]);
-        echo json_encode(['ok'=>true,'progresso'=>pmProgresso($pdo,(int)$projetoId)]);
+        $row = $st->fetch(PDO::FETCH_ASSOC);
+        if (!$row) { echo json_encode(['ok'=>false,'msg'=>'Item não encontrado']); exit; }
+        $projetoId     = (int)$row['projeto_id'];
+        // Novo estado explícito (não CASE no SQL) pra cravar/limpar a data de
+        // conclusão junto, sem depender de ordem de avaliação do UPDATE.
+        $novoConcluido = $row['concluido'] ? 0 : 1;
+        $concluidoEm   = $novoConcluido ? date('Y-m-d') : null;
+        $pdo->prepare("UPDATE portal_projetos_manuais_itens SET concluido=?, concluido_em=? WHERE id=?")
+            ->execute([$novoConcluido, $concluidoEm, $itemId]);
+        echo json_encode([
+            'ok'               => true,
+            'concluido'        => (bool)$novoConcluido,
+            'concluido_em'     => $concluidoEm,
+            'concluido_em_txt' => $concluidoEm ? date('d/m', strtotime($concluidoEm)) : null,
+            'progresso'        => pmProgresso($pdo, $projetoId),
+        ]);
         exit;
     }
 
@@ -1198,6 +1215,9 @@ body  { background:#f0f4f9; font-family:'Segoe UI',sans-serif; font-size:.9rem; 
 .pm-item-row:hover .pm-item-del { opacity:1; }
 .pm-item-edit-input { flex:1; padding:.05rem .3rem; font-size:.78rem; height:auto; }
 .pm-item-oculto-hint { font-size:.72rem; color:#9ca3af; padding:.25rem 0 0; font-style:italic; }
+.pm-item-data-concl { font-size:.72rem; }
+.pm-item-row input[type=checkbox]:disabled { cursor:default; }
+.manual-proj-card { cursor:default; }
 .pm-item-add { display:flex; align-items:center; gap:.4rem; margin-top:.4rem; }
 .pm-item-add input { flex:1; font-size:.78rem; }
 
@@ -1485,7 +1505,7 @@ body  { background:#f0f4f9; font-family:'Segoe UI',sans-serif; font-size:.9rem; 
   if ($pmRows) {
       $pmIds = array_column($pmRows, 'id');
       $ph    = implode(',', array_fill(0, count($pmIds), '?'));
-      $stI   = $pdo->prepare("SELECT id, projeto_id, texto, concluido, ordem FROM portal_projetos_manuais_itens WHERE projeto_id IN ($ph) ORDER BY ordem ASC");
+      $stI   = $pdo->prepare("SELECT id, projeto_id, texto, concluido, concluido_em, ordem FROM portal_projetos_manuais_itens WHERE projeto_id IN ($ph) ORDER BY ordem ASC");
       $stI->execute($pmIds);
       foreach ($stI->fetchAll(PDO::FETCH_ASSOC) as $it) {
           $pmItensPorProjeto[$it['projeto_id']][] = $it;
@@ -1638,7 +1658,7 @@ body  { background:#f0f4f9; font-family:'Segoe UI',sans-serif; font-size:.9rem; 
                 </div>
               <?php endforeach; ?>
               <?php foreach (array_filter($reposPorSecao[$chaveSecao], fn($r) => ($r['_tipo'] ?? '') === 'manual') as $pmProj): ?>
-                <div class="gh-proj-card manual-proj-card" data-pm-id="<?= (int)$pmProj['id'] ?>">
+                <div class="gh-proj-card manual-proj-card" data-pm-id="<?= (int)$pmProj['id'] ?>" ondblclick="abrirVisualizarProjetoManualClick(event,<?= esc(json_encode($pmProj)) ?>)">
                   <div class="pm-badge-manual"><i class="bi bi-pencil-square"></i>Manual</div>
                   <div class="gh-proj-topo">
                     <span class="gh-proj-nome"><i class="bi bi-journal-text me-1"></i><?= esc($pmProj['titulo']) ?></span>
@@ -1688,7 +1708,7 @@ body  { background:#f0f4f9; font-family:'Segoe UI',sans-serif; font-size:.9rem; 
                     <?php foreach ($pmItensVisiveis as $it): ?>
                       <div class="pm-item-row <?= $it['concluido'] ? 'concluido' : '' ?>" data-item-id="<?= (int)$it['id'] ?>">
                         <input type="checkbox" <?= $it['concluido'] ? 'checked' : '' ?> onchange="toggleItemPm(<?= (int)$pmProj['id'] ?>,<?= (int)$it['id'] ?>,this)"/>
-                        <span class="pm-item-texto"><?= esc($it['texto']) ?></span>
+                        <span class="pm-item-texto"><?= esc($it['texto']) ?><?php if ($it['concluido'] && $it['concluido_em']): ?><span class="pm-item-data-concl"> - <?= date('d/m', strtotime($it['concluido_em'])) ?></span><?php endif; ?></span>
                       </div>
                     <?php endforeach; ?>
                     <?php if ($pmItensTotalCard > 10): ?>
@@ -2224,6 +2244,33 @@ document.getElementById('filtroConta')?.addEventListener('change', aplicarFiltro
   </div>
 </div>
 
+<!-- Modal: visualizar itens de projeto manual (somente leitura — abre com
+     duplo-clique no card, sem risco de editar por engano) -->
+<div class="modal fade" id="modalProjetoManualVer" tabindex="-1">
+  <div class="modal-dialog modal-dialog-centered modal-lg modal-dialog-scrollable">
+    <div class="modal-content">
+      <div class="modal-header" style="background:linear-gradient(135deg,#6d28d9,#7c3aed);color:white">
+        <h5 class="modal-title fw-bold" id="pmVerTitulo"><i class="bi bi-journal-text me-2"></i>Projeto</h5>
+        <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <div class="text-muted small mb-2" id="pmVerDescricao" style="display:none"></div>
+        <div class="gh-proj-progress mb-2">
+          <div class="gh-proj-progress-bar"><div class="gh-proj-progress-fill" id="pmVerProgressFill" style="width:0%"></div></div>
+          <span class="gh-proj-progress-label" id="pmVerProgressLabel"></span>
+        </div>
+        <div class="pm-resp-wrap mb-2" id="pmVerResp" style="display:none"></div>
+        <label class="form-label fw-semibold small mb-1">Itens / funcionalidades</label>
+        <div id="pmVerItens"></div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-outline-secondary me-auto" id="btn-editar-do-ver-pm"><i class="bi bi-pencil me-1"></i>Editar</button>
+        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Fechar</button>
+      </div>
+    </div>
+  </div>
+</div>
+
 <!-- Modal: documentação do projeto (README renderizado do GitHub) -->
 <div class="modal fade" id="modalDoc" tabindex="-1">
   <div class="modal-dialog modal-dialog-centered modal-lg modal-dialog-scrollable">
@@ -2291,6 +2338,7 @@ let modalDoc;
 let modalCommits;
 let modalApres;
 let modalProjetoManual;
+let modalProjetoManualVer;
 let _commitsCache = [];
 document.addEventListener('DOMContentLoaded', () => {
   const elConta = document.getElementById('modalConta');
@@ -2303,6 +2351,8 @@ document.addEventListener('DOMContentLoaded', () => {
   if (elApres) modalApres = new bootstrap.Modal(elApres);
   const elPm = document.getElementById('modalProjetoManual');
   if (elPm) modalProjetoManual = new bootstrap.Modal(elPm);
+  const elPmVer = document.getElementById('modalProjetoManualVer');
+  if (elPmVer) modalProjetoManualVer = new bootstrap.Modal(elPmVer);
   carregarTecnicosPm();
 });
 
@@ -2719,7 +2769,7 @@ function pmRenderItensModal() {
          ondrop="pmItemDrop(event,${idx})" ondragend="pmItemDragEnd(event)">
       <i class="bi bi-grip-vertical pm-item-handle" title="Arrastar para reordenar"></i>
       <input type="checkbox" ${it.concluido ? 'checked' : ''} onchange="pmToggleItemModal(${idx})"/>
-      <span class="pm-item-texto" ondblclick="pmEditarItemModal(${idx})">${_escA(it.texto)}</span>
+      <span class="pm-item-texto" ondblclick="pmEditarItemModal(${idx})">${_escA(it.texto)}${it.concluido && it.concluido_em ? `<span class="pm-item-data-concl"> - ${pmFmtDataBr(it.concluido_em)}</span>` : ''}</span>
       <button type="button" class="pm-item-edit" onclick="pmEditarItemModal(${idx})" title="Editar"><i class="bi bi-pencil"></i></button>
       <button type="button" class="pm-item-del" onclick="pmRemoverItemModal(${idx})" title="Remover"><i class="bi bi-x-lg"></i></button>
     </div>
@@ -2727,8 +2777,18 @@ function pmRenderItensModal() {
 }
 
 function pmToggleItemModal(idx) {
-  pmItensModal[idx].concluido = !pmItensModal[idx].concluido;
+  const item = pmItensModal[idx];
+  // Desmarcar também exige o código aleatório aqui — mesma proteção do card.
+  if (item.concluido && !pmConfirmarDesmarcar()) { pmRenderItensModal(); return; }
+  item.concluido = !item.concluido;
+  item.concluido_em = item.concluido ? _pmHojeISO() : null;
   pmRenderItensModal();
+}
+
+function _pmHojeISO() {
+  const d = new Date();
+  const pad = n => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
 }
 
 function pmRemoverItemModal(idx) {
@@ -2829,10 +2889,54 @@ function abrirModalProjetoManualEditar(pm) {
   document.getElementById('pm-erro').style.display = 'none';
   document.getElementById('pmModalTitulo').textContent = pm.titulo || 'Editar Projeto Manual';
   document.getElementById('btn-excluir-pm').style.display = 'inline-block';
-  pmItensModal = (pm.itens || []).map(it => ({ id: it.id, texto: it.texto, concluido: !!it.concluido }));
+  pmItensModal = (pm.itens || []).map(it => ({ id: it.id, texto: it.texto, concluido: !!it.concluido, concluido_em: it.concluido_em || null }));
   pmRenderItensModal();
   renderRespChipsPm((pm.responsaveis || []).map(r => r.id));
   modalProjetoManual.show();
+}
+
+// Duplo-clique no card abre uma janela flutuante só de leitura (sem os
+// botões de editar/arrastar/remover) — ignora clique em controles do
+// próprio card (checkbox, botões, links do menu ⋮) pra não abrir à toa.
+function abrirVisualizarProjetoManualClick(ev, pm) {
+  if (ev.target.closest('input, button, a, .dropdown-menu')) return;
+  abrirVisualizarProjetoManual(pm);
+}
+
+function abrirVisualizarProjetoManual(pm) {
+  document.getElementById('pmVerTitulo').innerHTML = '<i class="bi bi-journal-text me-2"></i>' + _escA(pm.titulo || '');
+
+  const descEl = document.getElementById('pmVerDescricao');
+  if (pm.descricao) { descEl.textContent = pm.descricao; descEl.style.display = ''; }
+  else { descEl.style.display = 'none'; }
+
+  const total  = pm.progresso?.total  || 0;
+  const feitas = pm.progresso?.feitas || 0;
+  const pct    = pm.progresso?.pct    || 0;
+  document.getElementById('pmVerProgressFill').style.width = pct + '%';
+  document.getElementById('pmVerProgressLabel').innerHTML = `<strong>${pct}%</strong> · Checklist manual: ${feitas}/${total} concluídas`;
+
+  const respWrap = document.getElementById('pmVerResp');
+  const resps = pm.responsaveis || [];
+  respWrap.innerHTML = resps.map(r =>
+    `<div class="pm-resp-chip pm-resp-chip-readonly" title="${_escA(r.nome)}"><span class="dot" style="background:${_escA(r.cor)}"></span>${_escA(r.nome)}</div>`
+  ).join('');
+  respWrap.style.display = resps.length ? '' : 'none';
+
+  const itensWrap = document.getElementById('pmVerItens');
+  itensWrap.innerHTML = (pm.itens || []).map(it => `
+    <div class="pm-item-row ${it.concluido ? 'concluido' : ''}">
+      <input type="checkbox" disabled ${it.concluido ? 'checked' : ''}/>
+      <span class="pm-item-texto">${_escA(it.texto)}${it.concluido && it.concluido_em ? `<span class="pm-item-data-concl"> - ${pmFmtDataBr(it.concluido_em)}</span>` : ''}</span>
+    </div>
+  `).join('') || '<div class="text-muted small">Nenhum item ainda.</div>';
+
+  document.getElementById('btn-editar-do-ver-pm').onclick = () => {
+    modalProjetoManualVer.hide();
+    abrirModalProjetoManualEditar(pm);
+  };
+
+  modalProjetoManualVer.show();
 }
 
 async function salvarProjetoManual() {
@@ -2907,7 +3011,43 @@ function _pmAtualizarProgresso(id, feitas, total) {
   if (label) label.innerHTML = `<strong>${pct}%</strong> · Checklist manual: ${feitas}/${total} concluídas`;
 }
 
+// Proteção contra desmarcar item concluído por engano: gera um código
+// aleatório de 4 dígitos e exige digitar de volta antes de desfazer.
+function pmConfirmarDesmarcar() {
+  const codigo = String(Math.floor(1000 + Math.random() * 9000));
+  const digitado = prompt(`Pra desmarcar este item como concluído, digite o código ${codigo} pra confirmar:`);
+  return digitado !== null && digitado.trim() === codigo;
+}
+
+function pmFmtDataBr(iso) {
+  if (!iso) return '';
+  const [y, m, d] = iso.split('-');
+  return `${d}/${m}`;
+}
+
+function _pmAtualizarDataConclusaoRow(row, dataTxt) {
+  const texto = row?.querySelector('.pm-item-texto');
+  if (!texto) return;
+  let dataEl = texto.querySelector('.pm-item-data-concl');
+  if (dataTxt) {
+    if (!dataEl) {
+      dataEl = document.createElement('span');
+      dataEl.className = 'pm-item-data-concl';
+      texto.appendChild(dataEl);
+    }
+    dataEl.textContent = ' - ' + dataTxt;
+  } else if (dataEl) {
+    dataEl.remove();
+  }
+}
+
 async function toggleItemPm(projetoId, itemId, checkboxEl) {
+  // onchange já disparou com o novo estado do checkbox: se ficou desmarcado,
+  // é uma tentativa de desfazer conclusão — exige o código antes de seguir.
+  if (!checkboxEl.checked && !pmConfirmarDesmarcar()) {
+    checkboxEl.checked = true;
+    return;
+  }
   const r = await fetch('projetos.php?pm_action=item_toggle', {
     method: 'POST', headers: {'Content-Type':'application/json'},
     body: JSON.stringify({id: itemId}),
@@ -2915,7 +3055,10 @@ async function toggleItemPm(projetoId, itemId, checkboxEl) {
   const d = await r.json();
   if (!d.ok) { checkboxEl.checked = !checkboxEl.checked; alert(d.msg || 'Erro ao marcar item'); return; }
   const row = checkboxEl.closest('.pm-item-row');
-  if (row) row.classList.toggle('concluido', checkboxEl.checked);
+  if (row) {
+    row.classList.toggle('concluido', checkboxEl.checked);
+    _pmAtualizarDataConclusaoRow(row, d.concluido_em_txt);
+  }
   if (d.progresso) _pmAtualizarProgresso(projetoId, d.progresso.feitas, d.progresso.total);
 }
 
