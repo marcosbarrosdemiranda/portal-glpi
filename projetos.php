@@ -1187,9 +1187,16 @@ body  { background:#f0f4f9; font-family:'Segoe UI',sans-serif; font-size:.9rem; 
 .pm-item-row input[type=checkbox] { flex-shrink:0; cursor:pointer; }
 .pm-item-row .pm-item-texto { flex:1; }
 .pm-item-row.concluido .pm-item-texto { text-decoration:line-through; color:#9ca3af; }
+.pm-item-row .pm-item-handle { flex-shrink:0; cursor:grab; color:#9ca3af; font-size:.8rem; }
+.pm-item-row.pm-item-dragging { opacity:.4; }
+.pm-item-row.pm-item-drag-over { border-top:2px solid #7c3aed; }
+.pm-item-row .pm-item-edit { background:none; border:none; color:#6b7280; cursor:pointer; padding:0 .25rem;
+                              font-size:.8rem; opacity:0; transition:opacity .12s; }
+.pm-item-row:hover .pm-item-edit { opacity:1; }
 .pm-item-row .pm-item-del { background:none; border:none; color:#dc3545; cursor:pointer; padding:0 .25rem;
                              font-size:.8rem; opacity:0; transition:opacity .12s; }
 .pm-item-row:hover .pm-item-del { opacity:1; }
+.pm-item-edit-input { flex:1; padding:.05rem .3rem; font-size:.78rem; height:auto; }
 .pm-item-add { display:flex; align-items:center; gap:.4rem; margin-top:.4rem; }
 .pm-item-add input { flex:1; font-size:.78rem; }
 
@@ -2696,9 +2703,14 @@ function pmRenderItensModal() {
   const wrap = document.getElementById('pm-itens-lista');
   if (!wrap) return;
   wrap.innerHTML = pmItensModal.map((it, idx) => `
-    <div class="pm-item-row ${it.concluido ? 'concluido' : ''}">
+    <div class="pm-item-row ${it.concluido ? 'concluido' : ''}" draggable="true"
+         ondragstart="pmItemDragStart(event,${idx})" ondragover="pmItemDragOver(event)"
+         ondragleave="this.classList.remove('pm-item-drag-over')"
+         ondrop="pmItemDrop(event,${idx})" ondragend="pmItemDragEnd(event)">
+      <i class="bi bi-grip-vertical pm-item-handle" title="Arrastar para reordenar"></i>
       <input type="checkbox" ${it.concluido ? 'checked' : ''} onchange="pmToggleItemModal(${idx})"/>
-      <span class="pm-item-texto">${_escA(it.texto)}</span>
+      <span class="pm-item-texto" ondblclick="pmEditarItemModal(${idx})">${_escA(it.texto)}</span>
+      <button type="button" class="pm-item-edit" onclick="pmEditarItemModal(${idx})" title="Editar"><i class="bi bi-pencil"></i></button>
       <button type="button" class="pm-item-del" onclick="pmRemoverItemModal(${idx})" title="Remover"><i class="bi bi-x-lg"></i></button>
     </div>
   `).join('') || '<div class="text-muted small">Nenhum item ainda.</div>';
@@ -2711,6 +2723,66 @@ function pmToggleItemModal(idx) {
 
 function pmRemoverItemModal(idx) {
   pmItensModal.splice(idx, 1);
+  pmRenderItensModal();
+}
+
+// Edição inline: troca o texto por um input, Enter/blur confirma, Esc cancela.
+function pmEditarItemModal(idx) {
+  const wrap = document.getElementById('pm-itens-lista');
+  const row  = wrap?.children[idx];
+  const span = row?.querySelector('.pm-item-texto');
+  if (!span) return;
+
+  const input = document.createElement('input');
+  input.type = 'text';
+  input.className = 'form-control form-control-sm pm-item-edit-input';
+  input.value = pmItensModal[idx].texto;
+  span.replaceWith(input);
+  input.focus();
+  input.select();
+
+  let done = false;
+  const commit = () => {
+    if (done) return;
+    done = true;
+    const novo = input.value.trim();
+    if (novo) pmItensModal[idx].texto = novo;
+    pmRenderItensModal();
+  };
+  input.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter')  { e.preventDefault(); commit(); }
+    if (e.key === 'Escape') { e.preventDefault(); done = true; pmRenderItensModal(); }
+  });
+  input.addEventListener('blur', commit);
+}
+
+// Reordenação manual via drag-and-drop (HTML5 nativo, sem lib). A ordem final
+// do array pmItensModal é o que vai pro backend como "ordem" ao salvar.
+let _pmDragIdx = null;
+
+function pmItemDragStart(ev, idx) {
+  _pmDragIdx = idx;
+  ev.dataTransfer.effectAllowed = 'move';
+  ev.currentTarget.classList.add('pm-item-dragging');
+}
+
+function pmItemDragOver(ev) {
+  ev.preventDefault();
+  ev.currentTarget.classList.add('pm-item-drag-over');
+}
+
+function pmItemDragEnd(ev) {
+  ev.currentTarget.classList.remove('pm-item-dragging');
+  document.querySelectorAll('.pm-item-drag-over').forEach(el => el.classList.remove('pm-item-drag-over'));
+}
+
+function pmItemDrop(ev, idx) {
+  ev.preventDefault();
+  ev.currentTarget.classList.remove('pm-item-drag-over');
+  if (_pmDragIdx === null || _pmDragIdx === idx) return;
+  const [movido] = pmItensModal.splice(_pmDragIdx, 1);
+  pmItensModal.splice(idx, 0, movido);
+  _pmDragIdx = null;
   pmRenderItensModal();
 }
 
