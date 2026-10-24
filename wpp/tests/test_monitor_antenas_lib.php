@@ -115,6 +115,12 @@ if (isset($pdo) && $pdo instanceof PDO) {
         $pdo->prepare("UPDATE portal_monitor_antenas SET ultima_verificacao = NOW() - INTERVAL 1 HOUR WHERE nome = ?")
             ->execute([$NOME_TESTE]);
     };
+    // simula a falha já estar aberta há $segundos — sem isso, testar a janela
+    // de tolerância exigiria sleep() real no teste
+    $backdatarFalha = function (int $segundos) use ($pdo, $NOME_TESTE) {
+        $pdo->prepare("UPDATE portal_monitor_antenas SET falha_desde = NOW() - INTERVAL $segundos SECOND WHERE nome = ?")
+            ->execute([$NOME_TESTE]);
+    };
 
     try {
         $limpa();
@@ -159,13 +165,15 @@ if (isset($pdo) && $pdo instanceof PDO) {
         t_eq($chamadas, 0, 'varrer: dentro do intervalo de throttle -> NÃO chama SSH de novo');
         t_eq($linha2['status'], 'online', 'varrer: throttle -> mantém o status já persistido');
 
-        // 2ª varredura real: antena caiu (SSH falha) -> offline, uptime_anterior = 5000
+        // 2ª varredura real: antena caiu (SSH falha) -> offline, uptime_anterior = 5000.
+        // Tolerância explicitamente 0 aqui: este teste cobre o próprio mecanismo de
+        // derrubar o status (+ ocorrência), não a janela de tolerância (testada abaixo).
         $backdatar();
         $GLOBALS['__monitor_antena_ssh_fake'] = fn($ip, $u, $s) =>
             ['ok' => false, 'uptime' => null, 'clientes' => null, 'firmware' => null, 'modelo' => null, 'erro' => 'Falha ao conectar via SSH (código 255)'];
-        $snap3 = monitor_antenas_varrer($pdo, 20);
+        $snap3 = monitor_antenas_varrer($pdo, 20, 0);
         $linha3 = current(array_filter($snap3, fn($a) => (int) $a['id'] === $id));
-        t_eq($linha3['status'], 'offline', 'varrer: SSH falhou -> status offline');
+        t_eq($linha3['status'], 'offline', 'varrer: SSH falhou, sem tolerância -> status offline');
         t_eq($linha3['uptime_anterior'], 5000, 'varrer: uptime_anterior guarda o valor de antes do UPDATE');
         $ocorrOffline = antena_ocorrencias_offline([$linha3]);
         t_eq(count($ocorrOffline), 1, 'varrer+offline: antena caiu -> gera 1 ocorrência');
@@ -175,15 +183,56 @@ if (isset($pdo) && $pdo instanceof PDO) {
         $backdatar();
         $GLOBALS['__monitor_antena_ssh_fake'] = fn($ip, $u, $s) =>
             ['ok' => true, 'uptime' => 90, 'clientes' => 3, 'firmware' => '6.1.0', 'modelo' => 'U6-LR', 'erro' => null];
-        $snap4 = monitor_antenas_varrer($pdo, 20);
+        $snap4 = monitor_antenas_varrer($pdo, 20, 0);
         $linha4 = current(array_filter($snap4, fn($a) => (int) $a['id'] === $id));
         t_eq($linha4['status'], 'online', 'varrer: voltou -> status online');
         t_eq($linha4['uptime_anterior'], null, 'varrer: uptime_anterior reflete o valor antes do UPDATE (ficou null na leitura offline)');
+        t_eq($linha4['falha_desde'], null, 'varrer: voltou -> falha_desde resetado pra NULL');
         // uptime_anterior ficou null porque a leitura offline anterior não grava uptime —
         // o sinal de reinício "uptime caiu" só se aplica entre duas leituras ONLINE
         // seguidas; esse caso (offline -> online) já é cobrto pelo próprio antena_offline
         // que resolve sozinho. Testa o caso de reinício "silencioso" (sem passar por offline)
         // isoladamente a seguir.
+
+        // -------------------------------------------------------------------
+        // Janela de tolerância (fix 2026-10-24): reinício de rotina da antena
+        // UniFi (~2min) não pode virar 🔔 falso no WhatsApp. Continua a partir
+        // de $id, que está 'online' (snap4) sem falha_desde.
+        // -------------------------------------------------------------------
+
+        // 1ª falha dentro da tolerância (padrão 300s): NÃO derruba o status,
+        // só abre a janela (falha_desde) — e por isso não gera ocorrência.
+        $backdatar();
+        $GLOBALS['__monitor_antena_ssh_fake'] = fn($ip, $u, $s) =>
+            ['ok' => false, 'uptime' => null, 'clientes' => null, 'firmware' => null, 'modelo' => null, 'erro' => 'timeout'];
+        $snapTol1 = monitor_antenas_varrer($pdo, 20, 300);
+        $linhaTol1 = current(array_filter($snapTol1, fn($a) => (int) $a['id'] === $id));
+        t_eq($linhaTol1['status'], 'online', 'tolerância: 1ª falha dentro da janela -> mantém status anterior (online)');
+        t_ok($linhaTol1['falha_desde'] !== null, 'tolerância: 1ª falha -> abre falha_desde');
+        t_eq(antena_ocorrencias_offline([$linhaTol1]), [], 'tolerância: dentro da janela -> nenhuma ocorrência (sem 🔔 falso)');
+
+        // volta ANTES de a tolerância expirar (igual ao reinício de rotina de ~2min):
+        // falha_desde reseta e a antena nunca passou por 'offline'.
+        $backdatar();
+        $GLOBALS['__monitor_antena_ssh_fake'] = fn($ip, $u, $s) =>
+            ['ok' => true, 'uptime' => 95, 'clientes' => 3, 'firmware' => '6.1.0', 'modelo' => 'U6-LR', 'erro' => null];
+        $snapTol2 = monitor_antenas_varrer($pdo, 20, 300);
+        $linhaTol2 = current(array_filter($snapTol2, fn($a) => (int) $a['id'] === $id));
+        t_eq($linhaTol2['status'], 'online', 'tolerância: voltou antes de expirar -> continua online');
+        t_eq($linhaTol2['falha_desde'], null, 'tolerância: voltou antes de expirar -> falha_desde reseta pra NULL');
+
+        // falha de novo e, desta vez, a janela de tolerância já tinha expirado
+        // (falha_desde forçado pra 400s atrás, > 300s default) -> aí sim derruba.
+        $backdatar();
+        $GLOBALS['__monitor_antena_ssh_fake'] = fn($ip, $u, $s) =>
+            ['ok' => false, 'uptime' => null, 'clientes' => null, 'firmware' => null, 'modelo' => null, 'erro' => 'timeout'];
+        monitor_antenas_varrer($pdo, 20, 300); // abre a janela (falha_desde = agora)
+        $backdatarFalha(400); // simula a falha já durando 400s (> tolerância de 300s)
+        $backdatar();
+        $snapTol3 = monitor_antenas_varrer($pdo, 20, 300);
+        $linhaTol3 = current(array_filter($snapTol3, fn($a) => (int) $a['id'] === $id));
+        t_eq($linhaTol3['status'], 'offline', 'tolerância: falha além da janela -> derruba o status');
+        t_eq(count(antena_ocorrencias_offline([$linhaTol3])), 1, 'tolerância: só agora, além da janela, gera a ocorrência');
 
         // caso isolado: duas leituras online seguidas com uptime caindo (reinício sem detectar offline no meio)
         $limpa();
