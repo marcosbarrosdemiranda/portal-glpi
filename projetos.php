@@ -1658,10 +1658,10 @@ body  { background:#f0f4f9; font-family:'Segoe UI',sans-serif; font-size:.9rem; 
                 </div>
               <?php endforeach; ?>
               <?php foreach (array_filter($reposPorSecao[$chaveSecao], fn($r) => ($r['_tipo'] ?? '') === 'manual') as $pmProj): ?>
-                <div class="gh-proj-card manual-proj-card" data-pm-id="<?= (int)$pmProj['id'] ?>" ondblclick="abrirVisualizarProjetoManualClick(event,<?= esc(json_encode($pmProj)) ?>)">
+                <div class="gh-proj-card manual-proj-card" data-pm-id="<?= (int)$pmProj['id'] ?>">
                   <div class="pm-badge-manual"><i class="bi bi-pencil-square"></i>Manual</div>
                   <div class="gh-proj-topo">
-                    <span class="gh-proj-nome"><i class="bi bi-journal-text me-1"></i><?= esc($pmProj['titulo']) ?></span>
+                    <a href="#" onclick="abrirVisualizarProjetoManual(event,<?= esc(json_encode($pmProj)) ?>)" class="gh-proj-nome"><i class="bi bi-journal-text me-1"></i><?= esc($pmProj['titulo']) ?></a>
                     <div class="gh-proj-acoes">
                       <div class="dropdown">
                         <button type="button" class="gh-proj-menu" data-bs-toggle="dropdown" aria-expanded="false"><i class="bi bi-three-dots-vertical"></i></button>
@@ -1700,10 +1700,11 @@ body  { background:#f0f4f9; font-family:'Segoe UI',sans-serif; font-size:.9rem; 
                   <?php endif; ?>
                   <div id="pm-itens-card-<?= (int)$pmProj['id'] ?>">
                     <?php
-                      // Card mostra só os 10 primeiros itens — lista completa
-                      // (sem limite) fica no modal de editar, já existente.
-                      $pmItensTotalCard = count($pmProj['itens']);
-                      $pmItensVisiveis  = array_slice($pmProj['itens'], 0, 10);
+                      // Card mostra só os 6 primeiros itens — lista completa
+                      // (sem limite) fica no modal de editar/visualizar, já existentes.
+                      $pmItensLimiteCard = 6;
+                      $pmItensTotalCard  = count($pmProj['itens']);
+                      $pmItensVisiveis   = array_slice($pmProj['itens'], 0, $pmItensLimiteCard);
                     ?>
                     <?php foreach ($pmItensVisiveis as $it): ?>
                       <div class="pm-item-row <?= $it['concluido'] ? 'concluido' : '' ?>" data-item-id="<?= (int)$it['id'] ?>">
@@ -1711,8 +1712,8 @@ body  { background:#f0f4f9; font-family:'Segoe UI',sans-serif; font-size:.9rem; 
                         <span class="pm-item-texto"><?= esc($it['texto']) ?><?php if ($it['concluido'] && $it['concluido_em']): ?><span class="pm-item-data-concl"> - <?= date('d/m', strtotime($it['concluido_em'])) ?></span><?php endif; ?></span>
                       </div>
                     <?php endforeach; ?>
-                    <?php if ($pmItensTotalCard > 10): ?>
-                      <div class="pm-item-oculto-hint" id="pm-item-hint-<?= (int)$pmProj['id'] ?>" data-oculto="<?= (int)($pmItensTotalCard - 10) ?>">+<?= (int)($pmItensTotalCard - 10) ?> itens ocultos · abra o projeto (⋮ → Editar) pra ver todos</div>
+                    <?php if ($pmItensTotalCard > $pmItensLimiteCard): ?>
+                      <div class="pm-item-oculto-hint" id="pm-item-hint-<?= (int)$pmProj['id'] ?>" data-oculto="<?= (int)($pmItensTotalCard - $pmItensLimiteCard) ?>">+<?= (int)($pmItensTotalCard - $pmItensLimiteCard) ?> itens ocultos · clique no título do projeto pra ver todos</div>
                     <?php endif; ?>
                   </div>
                   <div class="pm-item-add">
@@ -2895,15 +2896,11 @@ function abrirModalProjetoManualEditar(pm) {
   modalProjetoManual.show();
 }
 
-// Duplo-clique no card abre uma janela flutuante só de leitura (sem os
-// botões de editar/arrastar/remover) — ignora clique em controles do
-// próprio card (checkbox, botões, links do menu ⋮) pra não abrir à toa.
-function abrirVisualizarProjetoManualClick(ev, pm) {
-  if (ev.target.closest('input, button, a, .dropdown-menu')) return;
-  abrirVisualizarProjetoManual(pm);
-}
-
-function abrirVisualizarProjetoManual(pm) {
+// Clique no título do card abre uma janela flutuante só de leitura (sem os
+// botões de editar/arrastar/remover) — mesmo padrão do título dos projetos
+// do GitHub (abrirDocumentacao), que também é um <a href="#"> com preventDefault.
+function abrirVisualizarProjetoManual(ev, pm) {
+  ev.preventDefault();
   document.getElementById('pmVerTitulo').innerHTML = '<i class="bi bi-journal-text me-2"></i>' + _escA(pm.titulo || '');
 
   const descEl = document.getElementById('pmVerDescricao');
@@ -3073,8 +3070,9 @@ async function adicionarItemPmCard(projetoId, inputEl) {
   if (!d.ok) { alert(d.msg || 'Erro ao adicionar item'); return; }
   const wrap = document.getElementById(`pm-itens-card-${projetoId}`);
   if (wrap && d.id) {
+    const LIMITE_VISIVEIS = 6;
     const visiveis = wrap.querySelectorAll('.pm-item-row').length;
-    if (visiveis < 10) {
+    if (visiveis < LIMITE_VISIVEIS) {
       const row = document.createElement('div');
       row.className = 'pm-item-row';
       row.dataset.itemId = d.id;
@@ -3082,7 +3080,7 @@ async function adicionarItemPmCard(projetoId, inputEl) {
       row.querySelector('.pm-item-texto').textContent = texto;
       wrap.appendChild(row);
     } else {
-      // Já no limite de 10 visíveis no card — só atualiza o aviso de ocultos.
+      // Já no limite de itens visíveis no card — só atualiza o aviso de ocultos.
       let hint = document.getElementById(`pm-item-hint-${projetoId}`);
       const n = (hint ? parseInt(hint.dataset.oculto, 10) : 0) + 1;
       if (!hint) {
@@ -3092,7 +3090,7 @@ async function adicionarItemPmCard(projetoId, inputEl) {
         wrap.appendChild(hint);
       }
       hint.dataset.oculto = n;
-      hint.textContent = `+${n} itens ocultos · abra o projeto (⋮ → Editar) pra ver todos`;
+      hint.textContent = `+${n} itens ocultos · clique no título do projeto pra ver todos`;
     }
   }
   inputEl.value = '';
