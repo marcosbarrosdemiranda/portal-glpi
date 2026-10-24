@@ -4,6 +4,8 @@
 # explícita (mesmo princípio da lição #4 do CLAUDE.md, mas pro lado do Dockerfile).
 FROM php:8.2.35-apache
 
+# openssh-client/sshpass: usados pelo check do DB Central (db_central_lib.php)
+# via SSH somente leitura em 192.168.1.10.
 RUN apt-get update && apt-get install -y \
         libzip-dev \
         libpng-dev \
@@ -15,6 +17,8 @@ RUN apt-get update && apt-get install -y \
         libsqlite3-dev \
         libsnmp-dev \
         iputils-ping \
+        openssh-client \
+        sshpass \
     && docker-php-ext-configure gd --with-freetype --with-jpeg \
     && docker-php-ext-install -j$(nproc) \
         gd \
