@@ -1197,6 +1197,7 @@ body  { background:#f0f4f9; font-family:'Segoe UI',sans-serif; font-size:.9rem; 
                              font-size:.8rem; opacity:0; transition:opacity .12s; }
 .pm-item-row:hover .pm-item-del { opacity:1; }
 .pm-item-edit-input { flex:1; padding:.05rem .3rem; font-size:.78rem; height:auto; }
+.pm-item-oculto-hint { font-size:.72rem; color:#9ca3af; padding:.25rem 0 0; font-style:italic; }
 .pm-item-add { display:flex; align-items:center; gap:.4rem; margin-top:.4rem; }
 .pm-item-add input { flex:1; font-size:.78rem; }
 
@@ -1678,12 +1679,21 @@ body  { background:#f0f4f9; font-family:'Segoe UI',sans-serif; font-size:.9rem; 
                     </div>
                   <?php endif; ?>
                   <div id="pm-itens-card-<?= (int)$pmProj['id'] ?>">
-                    <?php foreach ($pmProj['itens'] as $it): ?>
+                    <?php
+                      // Card mostra só os 10 primeiros itens — lista completa
+                      // (sem limite) fica no modal de editar, já existente.
+                      $pmItensTotalCard = count($pmProj['itens']);
+                      $pmItensVisiveis  = array_slice($pmProj['itens'], 0, 10);
+                    ?>
+                    <?php foreach ($pmItensVisiveis as $it): ?>
                       <div class="pm-item-row <?= $it['concluido'] ? 'concluido' : '' ?>" data-item-id="<?= (int)$it['id'] ?>">
                         <input type="checkbox" <?= $it['concluido'] ? 'checked' : '' ?> onchange="toggleItemPm(<?= (int)$pmProj['id'] ?>,<?= (int)$it['id'] ?>,this)"/>
                         <span class="pm-item-texto"><?= esc($it['texto']) ?></span>
                       </div>
                     <?php endforeach; ?>
+                    <?php if ($pmItensTotalCard > 10): ?>
+                      <div class="pm-item-oculto-hint" id="pm-item-hint-<?= (int)$pmProj['id'] ?>" data-oculto="<?= (int)($pmItensTotalCard - 10) ?>">+<?= (int)($pmItensTotalCard - 10) ?> itens ocultos · abra o projeto (⋮ → Editar) pra ver todos</div>
+                    <?php endif; ?>
                   </div>
                   <div class="pm-item-add">
                     <input type="text" class="form-control form-control-sm" placeholder="+ adicionar item..." onkeydown="if(event.key==='Enter'){event.preventDefault();adicionarItemPmCard(<?= (int)$pmProj['id'] ?>,this);}"/>
@@ -2920,12 +2930,27 @@ async function adicionarItemPmCard(projetoId, inputEl) {
   if (!d.ok) { alert(d.msg || 'Erro ao adicionar item'); return; }
   const wrap = document.getElementById(`pm-itens-card-${projetoId}`);
   if (wrap && d.id) {
-    const row = document.createElement('div');
-    row.className = 'pm-item-row';
-    row.dataset.itemId = d.id;
-    row.innerHTML = `<input type="checkbox" onchange="toggleItemPm(${projetoId},${d.id},this)"/><span class="pm-item-texto"></span>`;
-    row.querySelector('.pm-item-texto').textContent = texto;
-    wrap.appendChild(row);
+    const visiveis = wrap.querySelectorAll('.pm-item-row').length;
+    if (visiveis < 10) {
+      const row = document.createElement('div');
+      row.className = 'pm-item-row';
+      row.dataset.itemId = d.id;
+      row.innerHTML = `<input type="checkbox" onchange="toggleItemPm(${projetoId},${d.id},this)"/><span class="pm-item-texto"></span>`;
+      row.querySelector('.pm-item-texto').textContent = texto;
+      wrap.appendChild(row);
+    } else {
+      // Já no limite de 10 visíveis no card — só atualiza o aviso de ocultos.
+      let hint = document.getElementById(`pm-item-hint-${projetoId}`);
+      const n = (hint ? parseInt(hint.dataset.oculto, 10) : 0) + 1;
+      if (!hint) {
+        hint = document.createElement('div');
+        hint.className = 'pm-item-oculto-hint';
+        hint.id = `pm-item-hint-${projetoId}`;
+        wrap.appendChild(hint);
+      }
+      hint.dataset.oculto = n;
+      hint.textContent = `+${n} itens ocultos · abra o projeto (⋮ → Editar) pra ver todos`;
+    }
   }
   inputEl.value = '';
   if (d.progresso) _pmAtualizarProgresso(projetoId, d.progresso.feitas, d.progresso.total);
