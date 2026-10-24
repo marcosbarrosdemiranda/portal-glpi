@@ -1,4 +1,8 @@
-FROM php:8.2-apache
+# Pinado em 8.2.35 (2026-10-24) — corrige CVE-2026-109618/109619 ("PHP2Shell",
+# RCE críticas CVSS 9.2, exploração ativa confirmada). Tag flutuante php:8.2-apache
+# evitada de propósito: rebuild futuro não deve puxar versão nova sem confirmação
+# explícita (mesmo princípio da lição #4 do CLAUDE.md, mas pro lado do Dockerfile).
+FROM php:8.2.35-apache
 
 RUN apt-get update && apt-get install -y \
         libzip-dev \
