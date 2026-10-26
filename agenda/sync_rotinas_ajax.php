@@ -28,6 +28,7 @@ require_once __DIR__ . '/db.php';
 require_once __DIR__ . '/pre_chamado_lib.php';
 
 $hoje        = date('Y-m-d');
+$passado     = date('Y-m-d', strtotime('-7 days'));
 $adicionados = 0;
 $atualizados = 0;
 $convertidos = 0;
@@ -54,7 +55,7 @@ try {
     // já eram uma ambiguidade pré-existente resolvida arbitrariamente pelo
     // LIMIT 1).
     $stmt = $pdo->prepare("
-        SELECT t.id, t.name, t.date,
+        SELECT t.id, t.name, t.date, t.status,
                tu.users_id,
                u.realname, u.firstname, u.name AS username,
                (SELECT tr.id FROM glpi_ticketrecurrents tr
@@ -65,7 +66,6 @@ try {
         JOIN glpi_tickets_users tu ON tu.tickets_id = t.id AND tu.type = 2
         LEFT JOIN glpi_users u ON u.id = tu.users_id AND u.is_active = 1
         WHERE t.is_deleted = 0
-          AND t.status NOT IN (5, 6)  -- Não solucionado/fechado
           AND t.date >= ?
           AND (
             t.entities_id = 0
@@ -78,7 +78,7 @@ try {
           )
         ORDER BY t.date ASC
     ");
-    $stmt->execute([$hoje . ' 00:00:00']);
+    $stmt->execute([$passado . ' 00:00:00']);
     $tickets = $stmt->fetchAll();
 
     // ── 2. Mapas de eventos existentes na agenda ────────────────────────────
@@ -90,7 +90,7 @@ try {
         WHERE (ticket_id IS NOT NULL OR tipo = 'pre_chamado')
           AND DATE(start) >= ?
     ");
-    $stmt_ev->execute([$hoje]);
+    $stmt_ev->execute([$passado]);
     $existentes    = [];
     $placeholders  = [];
     foreach ($stmt_ev->fetchAll() as $ev) {
@@ -125,6 +125,7 @@ try {
 
         $titulo = '#' . $ticket_id . ' – ' . ($t['name'] ?? 'Rotina');
         $cor    = $cores[abs(crc32($atendente_nome)) % count($cores)];
+        $concluido = (in_array((int)$t['status'], [5, 6])) ? 1 : 0;
 
         if (isset($existentes[$ticket_id])) {
             // Evento já existe → atualiza horário
@@ -139,12 +140,13 @@ try {
             if ($start_old !== $start_new || $end_old !== $end_new) {
                 $pdo->prepare("
                     UPDATE glpi_plugin_agenda_events
-                    SET start = :start, end = :end
+                    SET start = :start, end = :end, concluido = :concluido
                     WHERE id = :id
                 ")->execute([
-                    ':start' => $start_dt,
-                    ':end'   => $end_dt,
-                    ':id'    => $existing['id'],
+                    ':start'     => $start_dt,
+                    ':end'       => $end_dt,
+                    ':concluido' => $concluido,
+                    ':id'        => $existing['id'],
                 ]);
                 $atualizados++;
             } else {
@@ -165,7 +167,8 @@ try {
                     UPDATE glpi_plugin_agenda_events
                     SET ticket_id = :ticket_id, tipo = 'chamado', titulo = :titulo,
                         descricao = :desc, start = :start, end = :end,
-                        atendente = :atendente, atendente_id = :atendente_id, atendente_cor = :cor
+                        atendente = :atendente, atendente_id = :atendente_id, atendente_cor = :cor,
+                        concluido = :concluido
                     WHERE id = :id
                 ")->execute([
                     ':ticket_id'    => $ticket_id,
@@ -176,6 +179,7 @@ try {
                     ':atendente'    => $atendente_nome,
                     ':atendente_id' => $atendente_id,
                     ':cor'          => $cor,
+                    ':concluido'    => $concluido,
                     ':id'           => $ph['id'],
                 ]);
                 $convertidos++;
@@ -193,7 +197,7 @@ try {
                      prioridade, setor, ticket_id, ticketrecurrents_id, tipo, concluido)
                 VALUES
                     (:id, :titulo, :desc, :start, :end, :atendente, :atendente_id, :cor,
-                     'media', '', :ticket_id, :trid, 'chamado', 0)
+                     'media', '', :ticket_id, :trid, 'chamado', :concluido)
             ")->execute([
                 ':id'           => uniqid('rot_', true),
                 ':titulo'       => $titulo,
@@ -205,6 +209,7 @@ try {
                 ':cor'          => $cor,
                 ':ticket_id'    => $ticket_id,
                 ':trid'         => $t['ticketrecurrents_id'] ?: null,
+                ':concluido'    => $concluido,
             ]);
             $adicionados++;
             $novos_tickets[] = $ticket_id;
