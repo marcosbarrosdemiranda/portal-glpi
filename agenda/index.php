@@ -3031,7 +3031,7 @@ function abrirModalResposta() {
     textoDb.textContent = 'Carregando status do Banco de Dados Central…';
     fetch('../db_central_resumo_ajax.php')
       .then(r => r.json())
-      .then(d => { textoDb.textContent = d.ok ? d.texto : 'Banco de Dados Central: falha ao carregar o status — preencha manualmente.'; })
+      .then(d => { textoDb.textContent = d.texto || 'Banco de Dados Central: falha ao carregar o status — preencha manualmente.'; })
       .catch(() => { textoDb.textContent = 'Banco de Dados Central: falha ao carregar o status — preencha manualmente.'; });
   }
 
