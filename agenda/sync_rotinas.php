@@ -2,8 +2,14 @@
 /**
  * Sincroniza chamados de rotina (Entidade raiz) para a agenda e converte pre-chamados
  * Usa SQL direto via PDO (ignora REST API com índice desatualizado)
- * Deve rodar via cron às 06:30 todo dia
- * Cron: 30 6 * * * php /var/www/html/glpi/agenda/sync_rotinas.php
+ *
+ * Roda via Tarefa Agendada do Windows no host glpi-server:
+ * \Portal\Agenda-Sync-Rotinas — diária às 06:30, repete a cada 15min por 3h
+ * (até 09:30), usuário SYSTEM. Repetição é necessária porque o motor nativo
+ * do GLPI (glpi_crontasks.RecurrentItems) só cria os chamados reais de
+ * rotina por volta de 07:55 (não 06:30) — ver
+ * Portal-Glpi/Logs/2026-10-27-sessao-prechamado-cron-06h30.md.
+ * Comando: docker.exe exec glpi-web php /var/www/html/glpi2/portal-glpi/agenda/sync_rotinas.php
  */
 
 require_once __DIR__ . '/config.php';
