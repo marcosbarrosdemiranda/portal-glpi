@@ -11,6 +11,13 @@ require_once __DIR__ . '/github_cache.php';
 
 $uid = (int)($_SESSION['user_id'] ?? 0);
 
+// Card "projetos" em modo ouvinte (perfil do portal, ex.: gestor) → vê os
+// projetos GitHub de TODOS os técnicos, somente leitura, sem precisar ter
+// conta própria cadastrada. Mesmo padrão de agenda/index.php.
+$cards_portal  = $_SESSION['portal_perfil_cards'] ?? null;
+$projetos_modo = ($cards_portal !== null) ? ($cards_portal['projetos'] ?? 'interagir') : 'interagir';
+$is_ouvinte    = ($projetos_modo === 'ouvinte');
+
 // Botão "Atualizar" da seção GitHub → zera o cache e recarrega
 if (isset($_GET['gh_refresh'])) {
     gh_cache_limpar($pdo);
@@ -153,11 +160,20 @@ if ($ghAction) {
         if (!$doc) { echo json_encode(['ok'=>false,'msg'=>'Sem documentação (PRD) para o projeto ' . $repoNome . ' em Docs/wiki/projects/']); exit; }
 
         // previsão: manual (portal) tem prioridade; senão a data-fim do "Prazo" do doc
+        // Em modo ouvinte não filtra pelo dono — a previsão definida por quem
+        // cadastrou o repo deve aparecer igual pra quem só visualiza.
         $prevManual = null;
-        $st = $pdo->prepare("SELECT ps.previsao FROM portal_projetos_status ps
-                             JOIN portal_github_contas c ON c.id = ps.conta_id
-                             WHERE ps.repo_nome = ? AND c.user_id = ? AND ps.previsao IS NOT NULL LIMIT 1");
-        $st->execute([$repoNome, $uid]);
+        if ($is_ouvinte) {
+            $st = $pdo->prepare("SELECT ps.previsao FROM portal_projetos_status ps
+                                 JOIN portal_github_contas c ON c.id = ps.conta_id
+                                 WHERE ps.repo_nome = ? AND c.ativo = 1 AND ps.previsao IS NOT NULL LIMIT 1");
+            $st->execute([$repoNome]);
+        } else {
+            $st = $pdo->prepare("SELECT ps.previsao FROM portal_projetos_status ps
+                                 JOIN portal_github_contas c ON c.id = ps.conta_id
+                                 WHERE ps.repo_nome = ? AND c.user_id = ? AND ps.previsao IS NOT NULL LIMIT 1");
+            $st->execute([$repoNome, $uid]);
+        }
         $prevManual = $st->fetchColumn() ?: null;
         $previsao = '';
         if ($prevManual) {
@@ -249,8 +265,14 @@ if ($ghAction) {
         $repoNome = trim($body['repo_nome'] ?? '');
         if (!$repoNome) { echo json_encode(['ok'=>false,'msg'=>'Repositório inválido']); exit; }
 
-        $st = $pdo->prepare("SELECT * FROM portal_github_contas WHERE id=? AND user_id=?");
-        $st->execute([$contaId, $uid]);
+        // Ouvinte (ex.: gestor) pode ler README de qualquer conta ativa, não só a própria
+        if ($is_ouvinte) {
+            $st = $pdo->prepare("SELECT * FROM portal_github_contas WHERE id=? AND ativo=1");
+            $st->execute([$contaId]);
+        } else {
+            $st = $pdo->prepare("SELECT * FROM portal_github_contas WHERE id=? AND user_id=?");
+            $st->execute([$contaId, $uid]);
+        }
         $conta = $st->fetch(PDO::FETCH_ASSOC);
         if (!$conta) { echo json_encode(['ok'=>false,'msg'=>'Conta não encontrada']); exit; }
 
@@ -271,8 +293,14 @@ if ($ghAction) {
         $repoNome = trim($body['repo_nome'] ?? '');
         if (!$repoNome) { echo json_encode(['ok'=>false,'msg'=>'Repositório inválido']); exit; }
 
-        $st = $pdo->prepare("SELECT * FROM portal_github_contas WHERE id=? AND user_id=?");
-        $st->execute([$contaId, $uid]);
+        // Ouvinte (ex.: gestor) pode ler histórico de commits de qualquer conta ativa
+        if ($is_ouvinte) {
+            $st = $pdo->prepare("SELECT * FROM portal_github_contas WHERE id=? AND ativo=1");
+            $st->execute([$contaId]);
+        } else {
+            $st = $pdo->prepare("SELECT * FROM portal_github_contas WHERE id=? AND user_id=?");
+            $st->execute([$contaId, $uid]);
+        }
         $conta = $st->fetch(PDO::FETCH_ASSOC);
         if (!$conta) { echo json_encode(['ok'=>false,'msg'=>'Conta não encontrada']); exit; }
 
@@ -303,9 +331,12 @@ if ($ghAction) {
     exit;
 }
 
-// ── Minhas contas GitHub (para o painel e, na próxima etapa, a listagem) ──
+// ── Contas GitHub exibidas: as próprias, ou — em modo ouvinte — as de toda a equipe ──
 $minhasContas = [];
-if ($uid) {
+if ($is_ouvinte) {
+    $minhasContas = $pdo->query("SELECT * FROM portal_github_contas WHERE ativo=1 ORDER BY apelido, criado_em")
+        ->fetchAll(PDO::FETCH_ASSOC);
+} elseif ($uid) {
     $st = $pdo->prepare("SELECT * FROM portal_github_contas WHERE user_id=? ORDER BY criado_em");
     $st->execute([$uid]);
     $minhasContas = $st->fetchAll(PDO::FETCH_ASSOC);
@@ -1171,7 +1202,7 @@ body  { background:#f0f4f9; font-family:'Segoe UI',sans-serif; font-size:.9rem; 
   <div class="gh-contas-section">
     <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:.5rem;margin-bottom:.5rem">
       <h6 class="fw-bold mb-0" style="color:#374151;cursor:pointer" onclick="toggleContas()">
-        <i class="bi bi-github me-2"></i>Minhas Contas GitHub
+        <i class="bi bi-github me-2"></i><?= $is_ouvinte ? 'Contas GitHub da Equipe' : 'Minhas Contas GitHub' ?>
         <span class="text-muted fw-normal">(<?= count($minhasContas) ?>)</span>
         <i class="bi bi-chevron-down ms-1" id="chvContas" style="font-size:.75rem;transition:transform .2s"></i>
       </h6>
@@ -1191,18 +1222,22 @@ body  { background:#f0f4f9; font-family:'Segoe UI',sans-serif; font-size:.9rem; 
             <span class="gh-conta-badge <?= $c['ultimo_teste_ok'] ? 'ok' : 'erro' ?>">
               <i class="bi <?= $c['ultimo_teste_ok'] ? 'bi-check-circle-fill' : 'bi-exclamation-triangle-fill' ?>"></i>
             </span>
+            <?php if (!$is_ouvinte): ?>
             <button type="button" class="gh-conta-cfg" onclick='editarConta(<?= json_encode(['id'=>$c['id'],'apelido'=>$c['apelido'],'usuario_github'=>$c['usuario_github']], JSON_HEX_APOS | JSON_HEX_QUOT | JSON_HEX_AMP | JSON_HEX_TAG) ?>)' title="Editar">
               <i class="bi bi-gear-fill"></i>
             </button>
+            <?php endif; ?>
           </div>
           <div class="gh-conta-apelido"><?= esc($c['apelido']) ?></div>
           <div class="gh-conta-usuario">@<?= esc($c['usuario_github']) ?></div>
         </div>
       <?php endforeach; ?>
+      <?php if (!$is_ouvinte): ?>
       <div class="gh-conta-card gh-conta-add" onclick="abrirModalConta()">
         <i class="bi bi-plus-circle" style="font-size:1.5rem"></i>
         <div class="gh-conta-apelido">Adicionar</div>
       </div>
+      <?php endif; ?>
     </div>
   </div>
 
@@ -1307,13 +1342,19 @@ body  { background:#f0f4f9; font-family:'Segoe UI',sans-serif; font-size:.9rem; 
   <?php endforeach; ?>
 
   <?php if (!$minhasContas): ?>
-    <div class="text-muted small mt-4">Cadastre uma conta GitHub acima para ver seus projetos aqui.</div>
+    <div class="text-muted small mt-4">
+      <?= $is_ouvinte
+          ? 'Nenhum técnico cadastrou uma conta GitHub ainda.'
+          : 'Cadastre uma conta GitHub acima para ver seus projetos aqui.' ?>
+    </div>
   <?php else: ?>
+    <?php if (!$is_ouvinte): ?>
     <div class="d-flex justify-content-end mb-2">
       <a href="projetos.php?gh_refresh=1" class="btn btn-sm btn-outline-secondary" style="font-size:.72rem">
         <i class="bi bi-arrow-clockwise me-1"></i>Atualizar do GitHub
       </a>
     </div>
+    <?php endif; ?>
     <?php foreach ($secoesInfo as $chaveSecao => $info):
       $abertoPorPadrao = ($chaveSecao === 'em_execucao');
     ?>
@@ -1338,6 +1379,7 @@ body  { background:#f0f4f9; font-family:'Segoe UI',sans-serif; font-size:.9rem; 
                       <button type="button" class="gh-proj-icon-btn gh-btn-apres" title="Apresentação — funcionalidades e previsão" onclick="abrirApresentacao(<?= (int)$repo['conta_id'] ?>,'<?= esc($repo['nome']) ?>')"><i class="bi bi-easel2-fill"></i></button>
                       <button type="button" class="gh-proj-icon-btn" title="Histórico de commits" onclick="abrirCommits(<?= (int)$repo['conta_id'] ?>,'<?= esc($repo['nome']) ?>')"><i class="bi bi-clock-history"></i></button>
                       <a href="<?= esc($repo['url']) ?>" target="_blank" rel="noopener" class="gh-proj-icon-btn" title="Abrir no GitHub"><i class="bi bi-github"></i></a>
+                      <?php if (!$is_ouvinte): ?>
                       <div class="dropdown">
                         <button type="button" class="gh-proj-menu" data-bs-toggle="dropdown" aria-expanded="false"><i class="bi bi-three-dots-vertical"></i></button>
                         <ul class="dropdown-menu dropdown-menu-end">
@@ -1348,6 +1390,7 @@ body  { background:#f0f4f9; font-family:'Segoe UI',sans-serif; font-size:.9rem; 
                           <?php endforeach; ?>
                         </ul>
                       </div>
+                      <?php endif; ?>
                     </div>
                   </div>
                   <?php if ($repo['descricao']): ?>
