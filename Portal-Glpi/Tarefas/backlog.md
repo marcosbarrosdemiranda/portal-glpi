@@ -37,6 +37,10 @@ Roteiro completo: `Docs/superpowers/specs/2026-09-25-monitor-rede-portal-design.
 - [x] Migrado para MySQL (`agenda/orcamento_db.php`, `agenda/despesas_db.php`)
 - [ ] 🔶 **Dimensão Projeto (Projeto→Categoria→Loja→Equipamento)** — deployado, **PR #6 aberto sem merge**, falta só validação visual do usuário no navegador
 
+## 📅 Agenda — Pré-chamado (rotinas GLPI) — 🔶 em validação
+
+- [ ] 🔶 **Novo tipo de evento "Pré-chamado"** — placeholder na grade pra uma ocorrência futura de `glpi_ticketrecurrents` (Opção A nativa do GLPI, não a recorrência interna da Agenda); converte sozinho quando o GLPI cria o chamado real, ou manualmente via botão "Converter em chamado" pra pré-chamados sem vínculo de recorrência — deployado, **PR #7 aberto sem merge**, falta só validação visual do usuário no navegador
+
 ## 🔗 Integrações de monitoramento — concluído
 
 - [x] Backup código+banco GLPI (webhook + card de status)
@@ -94,6 +98,7 @@ Roteiro completo: `Docs/superpowers/specs/2026-09-25-monitor-rede-portal-design.
 - [x] Monitor de Rede próprio (7 etapas) substituindo o The Dude
 - [x] Central de Alertas fundida ao Monitor de Rede
 - [x] Orçamento/Despesas com BI e dimensão Projeto (PR #6, pendente merge)
+- [x] Agenda — Pré-chamado como placeholder de rotinas GLPI (PR #7, pendente merge)
 - [x] SEFAZ, Sólides/Ponto, pfSense, backup — todos via Central de Alertas
 - [x] Grupos dinâmicos RDP/VNC + sync automático Guacamole
 - [x] Logout por inatividade + perfil ouvinte na Agenda
