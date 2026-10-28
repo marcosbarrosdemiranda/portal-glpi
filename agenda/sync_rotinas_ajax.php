@@ -54,13 +54,32 @@ try {
     // de outra definição ativa com nome diferente (só duplicatas exatas, que
     // já eram uma ambiguidade pré-existente resolvida arbitrariamente pelo
     // LIMIT 1).
+    //
+    // Casamento também pelo nome PRÉ-DEFINIDO do template
+    // (glpi_tickettemplatepredefinedfields num=1), não só pela definição
+    // (tr.name): num=1 é o campo que o GLPI de fato copia pro "name" do
+    // chamado real na hora de criar — não é nem sempre igual a tr.name
+    // (nome da definição) nem a tt.name (rótulo administrativo do
+    // template, que não interessa aqui). Bater só por tr.name nunca
+    // converte o pré-chamado quando esses dois nomes divergem de propósito,
+    // não só por sufixo/espaço. Achado em produção (2026-10-28): def #9
+    // "...Rotina Semanal" tem predefinido "...Rotina Diária"; def #19
+    // "...Corretiva..." tem predefinido com typo "...Correitva...". Mesmo
+    // campo que já é fonte de verdade pro técnico pré-definido (num=5) —
+    // ver heurística heuristica-glpi-tickettemplatepredefinedfields-tecnico
+    // na memória.
     $stmt = $pdo->prepare("
         SELECT t.id, t.name, t.date, t.status,
                tu.users_id,
                u.realname, u.firstname, u.name AS username,
                (SELECT tr.id FROM glpi_ticketrecurrents tr
+                 LEFT JOIN glpi_tickettemplatepredefinedfields tpf
+                   ON tpf.tickettemplates_id = tr.tickettemplates_id AND tpf.num = 1
                  WHERE tr.is_active = 1 AND tr.entities_id = 0
-                   AND t.name LIKE CONCAT(TRIM(tr.name), '%')
+                   AND (
+                     (tpf.value IS NOT NULL AND tpf.value <> '' AND t.name LIKE CONCAT(TRIM(tpf.value), '%'))
+                     OR t.name LIKE CONCAT(TRIM(tr.name), '%')
+                   )
                  LIMIT 1) AS ticketrecurrents_id
         FROM glpi_tickets t
         JOIN glpi_tickets_users tu ON tu.tickets_id = t.id AND tu.type = 2
@@ -71,9 +90,14 @@ try {
             t.entities_id = 0
             OR EXISTS (
               SELECT 1 FROM glpi_ticketrecurrents tr
+              LEFT JOIN glpi_tickettemplatepredefinedfields tpf
+                ON tpf.tickettemplates_id = tr.tickettemplates_id AND tpf.num = 1
               WHERE tr.is_active = 1
                 AND tr.entities_id = 0
-                AND t.name LIKE CONCAT(TRIM(tr.name), '%')
+                AND (
+                  (tpf.value IS NOT NULL AND tpf.value <> '' AND t.name LIKE CONCAT(TRIM(tpf.value), '%'))
+                  OR t.name LIKE CONCAT(TRIM(tr.name), '%')
+                )
             )
           )
         ORDER BY t.date ASC
