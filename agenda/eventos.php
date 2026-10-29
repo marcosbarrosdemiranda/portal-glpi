@@ -279,7 +279,13 @@ try {
         $is_edit = isset($body['id']) && $body['id'] !== null && $body['id'] !== '';
         $id = $is_edit ? (string)$body['id'] : uniqid('ev_', true);
 
-        $titulo       = preg_replace('/^#\d+\s*[-–]\s*/', '', $body['titulo'] ?? 'Sem título');
+        // 'u' (PCRE_UTF8) é obrigatório: sem ele, o "–" (en dash, 3 bytes UTF-8)
+        // dentro da classe [-–] é tratado byte a byte, e o match consome só o
+        // primeiro byte (0xE2), deixando os outros dois (0x80 0x93) soltos
+        // colados no restante do título — string UTF-8 inválida que o MySQL
+        // rejeita na escrita (col titulo é utf8mb4). Achado em produção
+        // 2026-10-29: conversão manual de pré-chamado #12049 quebrou assim.
+        $titulo       = preg_replace('/^#\d+\s*[-–]\s*/u', '', $body['titulo'] ?? 'Sem título');
         $descricao    = $body['descricao']    ?? '';
         $start        = $body['start']        ?? '';
         $end          = $body['end']          ?? $start;
