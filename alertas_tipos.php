@@ -366,7 +366,7 @@ function alertas_catalogo(): array
         ],
         'antena_offline' => [
             'nome'      => 'Antena UniFi Offline',
-            'descricao' => 'Antena não respondeu via SSH na última verificação (sem janela de silêncio — antenas ficam ligadas 24/7).',
+            'descricao' => 'Antena não respondeu via SSH por mais de 5min contínuos (tolerância pro reinício de rotina do equipamento — sem janela de silêncio, antenas ficam ligadas 24/7).',
             'params'    => [],
             'check'  => 'alerta_check_antena_offline',
             'render' => 'alerta_render_antena',

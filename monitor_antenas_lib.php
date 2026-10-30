@@ -56,6 +56,14 @@ require_once __DIR__ . '/entidade_alias.php'; // apelido_entidade() — nome cur
     if (in_array('loja', $cols, true)) {
         $pdo->exec("ALTER TABLE portal_monitor_antenas DROP COLUMN loja");
     }
+    // migração leve — marca o início de uma falha de SSH contínua, pra
+    // monitor_antenas_varrer() só derrubar o status depois de
+    // $toleranciaOfflineSeg (ver função abaixo), não na 1ª falha. Pedido do
+    // usuário, 2026-10-24: antena UniFi reinicia por rotina (~2min) e isso
+    // disparava 🔔+✅ falso no grupo do WhatsApp a cada reinício.
+    if (!in_array('falha_desde', $cols, true)) {
+        $pdo->exec("ALTER TABLE portal_monitor_antenas ADD COLUMN falha_desde DATETIME NULL AFTER ultima_verificacao");
+    }
 })();
 
 /**
@@ -249,13 +257,26 @@ function monitor_antena_reiniciar(string $ip, string $usuario, string $senha): a
  * nunca aproveitar o throttle (daí o portal lento continuamente, não só
  * num pico isolado). 90s garante folga sobre o ciclo do worker.
  *
+ * Fix 2026-10-24: status só vira 'offline' (e dispara o 🔔 do alerta
+ * antena_offline) depois de $toleranciaOfflineSeg de falha de SSH CONTÍNUA
+ * — não mais na 1ª falha. Antena UniFi reinicia por rotina (~2min) e, sem
+ * essa tolerância, cada reinício gerava 🔔+✅ falso no grupo do WhatsApp.
+ * `falha_desde` guarda quando a falha atual começou; reseta pra NULL no
+ * 1º SSH ok. $toleranciaOfflineSeg=null (padrão) lê o valor configurável
+ * pelo usuário no card "Credencial SSH padrão e limite de clientes" de
+ * inventario_redes.php (campo "Tolerância antes de ficar offline", salvo
+ * via action=antena_config_salvar em wpp_cfg 'antena_tolerancia_offline_seg'),
+ * com fallback de 300s (5min) se nunca foi configurado.
+ *
  * Cada item devolvido inclui 'uptime_anterior' (valor antes do UPDATE),
  * pra alerta_check_antena_reinicio comparar sem precisar de outra leitura.
  *
  * @return array<int,array> snapshot de cada antena ativa
  */
-function monitor_antenas_varrer(PDO $pdo, int $minIntervaloSeg = 90): array
+function monitor_antenas_varrer(PDO $pdo, int $minIntervaloSeg = 90, ?int $toleranciaOfflineSeg = null): array
 {
+    $toleranciaOfflineSeg = $toleranciaOfflineSeg ?? (int) wpp_cfg_get('antena_tolerancia_offline_seg', '300');
+
     // LEFT JOIN glpi_entities (sem FK real, mesmo padrão de inventario_pc.php) só
     // pra resolver o nome curto da loja (apelido_entidade) — entities_id em si
     // já vem na própria tabela via SELECT *.
@@ -282,11 +303,29 @@ function monitor_antenas_varrer(PDO $pdo, int $minIntervaloSeg = 90): array
 
         $cred = monitor_antena_credencial($antena);
         $check = monitor_antena_ssh_check($antena['ip'], $cred['usuario'], $cred['senha']);
-        $status = $check['ok'] ? 'online' : 'offline';
+
+        $statusAnterior = $antena['status'];
+        $falhaDesde = $antena['falha_desde'];
+
+        if ($check['ok']) {
+            $status = 'online';
+            $falhaDesde = null;
+        } else {
+            // 1ª falha desde o último sucesso: abre a janela de tolerância,
+            // mas mantém o status anterior — só derruba de fato se a falha
+            // persistir por $toleranciaOfflineSeg (ver docblock acima).
+            if ($falhaDesde === null) {
+                $falhaDesde = date('Y-m-d H:i:s');
+            }
+            $falhandoHa = time() - strtotime($falhaDesde);
+            $status = ($statusAnterior === 'offline' || $falhandoHa >= $toleranciaOfflineSeg)
+                ? 'offline'
+                : $statusAnterior;
+        }
 
         $pdo->prepare("UPDATE portal_monitor_antenas SET
                 status = ?, modelo = ?, firmware_versao = ?, clientes_conectados = ?,
-                uptime_segundos = ?, ultima_verificacao = NOW()
+                uptime_segundos = ?, ultima_verificacao = NOW(), falha_desde = ?
             WHERE id = ?")
             ->execute([
                 $status,
@@ -294,6 +333,7 @@ function monitor_antenas_varrer(PDO $pdo, int $minIntervaloSeg = 90): array
                 $check['firmware'],
                 $check['clientes'],
                 $check['uptime'],
+                $falhaDesde,
                 $antena['id'],
             ]);
 
@@ -303,6 +343,7 @@ function monitor_antenas_varrer(PDO $pdo, int $minIntervaloSeg = 90): array
         $antena['clientes_conectados'] = $check['clientes'];
         $antena['uptime_segundos'] = $check['uptime'];
         $antena['ultima_verificacao'] = date('Y-m-d H:i:s');
+        $antena['falha_desde'] = $falhaDesde;
         $antena['uptime_anterior'] = $uptimeAnterior;
 
         $resultado[] = $antena;
