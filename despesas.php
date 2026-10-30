@@ -2,7 +2,9 @@
 require_once __DIR__ . '/auth_guard.php';
 require_once __DIR__ . '/agenda/despesas_db.php';
 require_once __DIR__ . '/agenda/tipos_db.php';
+require_once __DIR__ . '/agenda/projetos_db.php';
 $tipos = listarTipos($pdo);
+$projetos = listarProjetos($pdo);
 
 if (empty($_SESSION['autenticado'])) { header('Location: auth.php'); exit; }
 
@@ -20,7 +22,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             }
         }
 
-        $sql = "INSERT INTO glpi_portal_despesas (orcamento_id, descricao, valor_pago, data_pagamento, numero_nf, fornecedor, metodo_pagamento, observacao, arquivo_nf, qty, unit_price, tipo_despesa_id, loja) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)";
+        $projetoId = !empty($_POST['projeto_id']) ? (int)$_POST['projeto_id'] : null;
+        $sql = "INSERT INTO glpi_portal_despesas (orcamento_id, descricao, valor_pago, data_pagamento, numero_nf, fornecedor, metodo_pagamento, observacao, arquivo_nf, qty, unit_price, tipo_despesa_id, loja, projeto_id) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)";
         $pdo->prepare($sql)->execute([
             !empty($_POST['orcamento_id']) ? (int)$_POST['orcamento_id'] : null,
             $_POST['descricao'],
@@ -34,7 +37,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             (int)$_POST['qty'],
             (float)$_POST['unit_price'],
             (int)$_POST['tipo_despesa_id'],
-            $_POST['loja']
+            $_POST['loja'],
+            $projetoId
         ]);
 
         if (!empty($_POST['orcamento_id'])) {
@@ -64,7 +68,10 @@ if ($f_loja) { $where[] = "loja LIKE ?"; $params[] = "%$f_loja%"; }
 $where_sql = $where ? "WHERE " . implode(" AND ", $where) : "";
 
 // Fetch com filtros
-$sql = "SELECT d.*, t.nome as tipo_nome FROM glpi_portal_despesas d LEFT JOIN glpi_portal_despesas_tipos t ON d.tipo_despesa_id=t.id $where_sql ORDER BY d.data_pagamento ASC";
+$sql = "SELECT d.*, t.nome as tipo_nome, p.nome as projeto_nome FROM glpi_portal_despesas d
+    LEFT JOIN glpi_portal_despesas_tipos t ON d.tipo_despesa_id=t.id
+    LEFT JOIN glpi_portal_projetos p ON d.projeto_id=p.id
+    $where_sql ORDER BY d.data_pagamento ASC";
 $st = $pdo->prepare($sql);
 $st->execute($params);
 $despesas = $st->fetchAll(PDO::FETCH_ASSOC);
@@ -155,6 +162,15 @@ $lojas = $stmt_lojas->fetchAll(PDO::FETCH_COLUMN);
                     <div class="mb-2">
                         <label>Descrição</label>
                         <input type="text" name="descricao" class="form-control" required>
+                    </div>
+                    <div class="mb-2">
+                        <label>Projeto</label>
+                        <select name="projeto_id" class="form-select">
+                            <option value="">— Sem projeto —</option>
+                            <?php foreach ($projetos as $pj): ?>
+                                <option value="<?= $pj['id'] ?>"><?= htmlspecialchars($pj['nome']) ?></option>
+                            <?php endforeach; ?>
+                        </select>
                     </div>
                     <div class="mb-2">
                         <label>Categoria</label>
@@ -367,6 +383,7 @@ $lojas = $stmt_lojas->fetchAll(PDO::FETCH_COLUMN);
         corpo.innerHTML = `
           <dl class="row mb-0">
             <dt class="col-sm-4">Data Pagamento</dt><dd class="col-sm-8">${esc(d.data_pagamento)}</dd>
+            <dt class="col-sm-4">Projeto</dt><dd class="col-sm-8">${esc(d.projeto_nome || '— Sem projeto —')}</dd>
             <dt class="col-sm-4">Categoria</dt><dd class="col-sm-8">${esc(d.tipo_nome || '-')}</dd>
             <dt class="col-sm-4">Loja</dt><dd class="col-sm-8">${esc(d.loja || '-')}</dd>
             <dt class="col-sm-4">Descrição</dt><dd class="col-sm-8">${esc(d.descricao)}</dd>

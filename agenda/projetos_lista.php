@@ -23,15 +23,27 @@ foreach ($contas as $conta) {
     $resultado = github_listar_repos($token);
     if (isset($resultado['erro'])) continue; // token invalido/GitHub indisponivel — pula essa conta
 
-    $st = $pdo->prepare("SELECT repo_nome, visivel FROM portal_projetos_status WHERE conta_id=?");
+    $st = $pdo->prepare("SELECT repo_nome, status, visivel FROM portal_projetos_status WHERE conta_id=?");
     $st->execute([$conta['id']]);
     $visMap = [];
-    foreach ($st->fetchAll(PDO::FETCH_ASSOC) as $row) $visMap[$row['repo_nome']] = (int)$row['visivel'];
+    $statusMap = [];
+    foreach ($st->fetchAll(PDO::FETCH_ASSOC) as $row) {
+        $visMap[$row['repo_nome']] = (int)$row['visivel'];
+        $statusMap[$row['repo_nome']] = $row['status'] ?: 'em_execucao';
+    }
 
     foreach ($resultado as $repo) {
         if (($visMap[$repo['nome']] ?? 1) === 0) continue; // ocultado pelo técnico
+        $repoStatus = $statusMap[$repo['nome']] ?? 'em_execucao';
+        if ($repoStatus !== 'em_execucao') continue; // Apenas em execução
         $nomes[] = $repo['nome'];
     }
+}
+
+// Adiciona também projetos manuais com status em_execucao
+$stPm = $pdo->query("SELECT titulo FROM portal_projetos_manuais WHERE status = 'em_execucao'");
+while ($r = $stPm->fetch(PDO::FETCH_ASSOC)) {
+    $nomes[] = $r['titulo'];
 }
 
 $nomes = array_values(array_unique($nomes));

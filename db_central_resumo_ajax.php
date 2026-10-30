@@ -20,6 +20,15 @@ require_once __DIR__ . '/db_central_lib.php';
 header('Content-Type: application/json');
 
 $status = db_central_status();
+if (isset($status['error'])) {
+    echo json_encode([
+        'ok'    => false,
+        'erro'  => $status['error'],
+        'texto' => 'Banco de Dados Central: ' . $status['error'] . ' (configure em Ponto / Integrações) — preencha manualmente.',
+    ]);
+    exit;
+}
+
 echo json_encode([
     'ok'    => true,
     'texto' => db_central_status_texto($status),
