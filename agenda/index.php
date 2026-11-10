@@ -3959,6 +3959,10 @@ function converterEmChamado() {
   const catId = parseInt(document.getElementById('ev-categoria').value) || null;
   const orgId = parseInt(document.getElementById('ev-origem').value) || null;
   const primeiro = multiSel[0];
+  // Restante dos técnicos selecionados (fora o primeiro) → precisa ir como
+  // co_atendentes pro evento da Agenda não perder os demais na conversão
+  // (o GLPI já recebe todos via atendentes_ids acima; aqui é só o espelho local).
+  const restantes = multiSel.slice(1).map(a => ({ nome: a.nome, id: a.id, cor: a.cor }));
 
   const btn = document.getElementById('btnConverterChamado');
   const btnHtmlOrig = btn.innerHTML;
@@ -3998,6 +4002,7 @@ function converterEmChamado() {
         atendente:      primeiro.nome,
         atendente_id:   primeiro.id,
         atendente_cor:  primeiro.cor,
+        co_atendentes:  restantes,
         prioridade:     document.getElementById('ev-prioridade').value,
         setor:          document.getElementById('ev-setor').value,
         descricao,
