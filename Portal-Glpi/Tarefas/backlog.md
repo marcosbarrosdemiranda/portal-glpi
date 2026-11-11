@@ -58,20 +58,27 @@ Roteiro completo: `Docs/superpowers/specs/2026-09-25-monitor-rede-portal-design.
 > `feat/orcamento-projeto`; **não é exaustiva** (ver "Não revisado
 > ainda" no log).
 
-- [ ] 🔴 **CRÍTICO** — `despesas.php`: upload sem whitelist de
+- [x] 🔴 **CRÍTICO** — `despesas.php`: upload sem whitelist de
   extensão/MIME → `.php` executável dentro de `uploads/despesas/`
-  (RCE). Pronto pra corrigir (fix cirúrgico, só restringe).
+  (RCE). **CORRIGIDO e deployado 2026-11-11** (PR #25): whitelist
+  pdf/jpg/jpeg/png + MIME real via `finfo_file()`.
 - [ ] 🟠 **ALTO** — `api.php`: criação de chamado anônima com
   credencial admin fixa — **precisa confirmação**: é público de
   propósito (integração externa) ou omissão?
 - [ ] 🟠 **ALTO** — `sync.php`: `shell_exec('git pull...')` sem
   autenticação — **precisa confirmação**: como é disparado hoje
   (manual/webhook/nada)?
-- [ ] 🟠 **ALTO** — `anydesk_central.php` / `vnc_central.php`: ações
+- [x] 🟠 **ALTO** — `anydesk_central.php` / `vnc_central.php`: ações
   sensíveis (`get_password`, `bat`, `delete`, `delete_grupo`) sem
   checagem de `$is_admin` no servidor — só escondidas no client.
-  Padrão correto já existe em `rdp_central.php`/`pfsense_proxy.php`.
-  Pronto pra corrigir (replicar padrão existente).
+  **CORRIGIDO e deployado 2026-11-11** (PR #26): gate server-side
+  replicando `rdp_central.php`/`pfsense_proxy.php` em
+  `add`/`edit`/`delete`/`save_grupo`/`delete_grupo` (+ `bat`/
+  `get_password` só no anydesk). Achado lateral: `$is_admin` nunca
+  distinguiu admin de técnico comum — `'admin'`/`'super-admin'` nunca
+  são atribuídos em `$_SESSION['perfil']` em lugar nenhum do código,
+  só `'tecnico'`/`'self-service'` — risco de regressão era menor do
+  que parecia.
 - [ ] 🟠 **ALTO** — `chamado_ajax.php` / `glpi_doc_proxy.php`: IDOR —
   qualquer sessão autenticada (incl. self-service) lê qualquer
   chamado/anexo por ID. Precisa desenho cuidadoso (ownership check),
@@ -80,11 +87,11 @@ Roteiro completo: `Docs/superpowers/specs/2026-09-25-monitor-rede-portal-design.
   (`VAULT_KEY`) reusada/copiada em 3 arquivos, sem HMAC, sem ACL por
   segredo. Rotacionar quebra tudo já guardado sem migração — estrutural,
   sem pressa.
-- [ ] 🟡 Médio — `github_cache_worker.php`: web-reachable sem guarda
+- [x] 🟡 Médio — `github_cache_worker.php`: web-reachable sem guarda
   (decripta todos os tokens do GitHub a cada hit anônimo); PR #10 (que
   adiciona o service CLI correto no docker-compose) ainda aberta.
-  Pronto pra corrigir (guarda CLI-only, já é o comportamento assumido
-  pelos comentários existentes no código).
+  **CORRIGIDO e deployado 2026-11-11** (PR #27): guarda CLI-only,
+  confirmado que o uso real via CLI continua funcionando.
 - [ ] Cobrir lacunas da auditoria: `agenda/*.php` (27 arquivos),
   `relatorios_impressoes.php`, `is_admin` em
   `inventario_redes.php`/`inventario_impressoras.php`/`acessos.php`/

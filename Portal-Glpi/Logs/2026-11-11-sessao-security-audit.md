@@ -215,13 +215,37 @@ credenciais completas de produção e sem identidade por request.
   em `Portal-Glpi/Tarefas/backlog.md`, seção "🔐 Segurança".
 - Este log é a referência de detalhe linkada pelo backlog.
 
+## Atualização 2026-11-11 (mesma sessão) — Achados #1, #4, #7 corrigidos
+
+Os 3 fixes de baixo risco foram implementados, mergeados (PRs #25,
+#26, #27 em `feat/orcamento-projeto`) e deployados em produção
+(`scp` → `.new` → `php -l` no container `glpi-web` → `Move-Item`),
+com verificação pós-deploy (tamanho de arquivo batendo, sem erro novo
+em `docker logs`, `github_cache_worker.php` testado rodando via CLI
+normalmente).
+
+- **#1 `despesas.php`:** whitelist de extensão (`pdf`/`jpg`/`jpeg`/`png`)
+  + MIME real via `finfo_file()` antes de `move_uploaded_file()`.
+- **#4 `anydesk_central.php`/`vnc_central.php`:** gate server-side
+  `if (!$is_admin) { ... exit; }` em `add`/`edit`/`delete`/
+  `save_grupo`/`delete_grupo` (+ `bat`/`get_password` só no anydesk),
+  replicando o padrão de `rdp_central.php`/`pfsense_proxy.php`.
+  **Achado lateral confirmado por grep:** `$_SESSION['perfil']` (via
+  `auth.php::glpi_login()`) só produz `'tecnico'` ou `'self-service'`
+  — `'admin'`/`'super-admin'` nunca são atribuídos em lugar nenhum do
+  código (mesma fórmula de `$is_admin` repetida em 8 arquivos). Ou
+  seja, o gate não distingue "admin" de "técnico comum" — distingue
+  staff real de self-service (cru ou remapeado pra `'portal'`). O
+  risco de regressão pra técnico comum, levantado antes do fix, não se
+  confirmou.
+- **#7 `github_cache_worker.php`:** guarda `php_sapi_name() !== 'cli'`.
+
 ## Próximos Passos
 
 1. Usuário confirma: `api.php` é intencionalmente público? Como
    `sync.php` é disparado hoje? (bloqueia o fix dos achados #2 e #3)
-2. Aplicar os 3 fixes de baixo risco já identificados (achados #1, #4,
-   #7) — ver análise de risco separada apresentada ao usuário no chat
-   desta sessão.
+2. ~~Aplicar os 3 fixes de baixo risco já identificados (achados #1, #4,
+   #7)~~ — **feito, ver "Atualização 2026-11-11" acima.**
 3. Desenhar com cuidado o fix de IDOR (#5) — requer checagem de
    ownership, teste manual (sem rodar a suíte completa contra produção,
    ver `feedback_suite-testes-producao` na memória).
