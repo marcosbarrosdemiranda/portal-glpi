@@ -50,6 +50,51 @@ Roteiro completo: `Docs/superpowers/specs/2026-09-25-monitor-rede-portal-design.
 
 ---
 
+## 🔐 Segurança — Auditoria 2026-11-11
+
+> Detalhe completo (evidência, exploração, fix recomendado) em
+> [[../Logs/2026-11-11-sessao-security-audit|2026-11-11-sessao-security-audit.md]].
+> Revisão de código (modo simples, sem subagentes) do repo em
+> `feat/orcamento-projeto`; **não é exaustiva** (ver "Não revisado
+> ainda" no log).
+
+- [ ] 🔴 **CRÍTICO** — `despesas.php`: upload sem whitelist de
+  extensão/MIME → `.php` executável dentro de `uploads/despesas/`
+  (RCE). Pronto pra corrigir (fix cirúrgico, só restringe).
+- [ ] 🟠 **ALTO** — `api.php`: criação de chamado anônima com
+  credencial admin fixa — **precisa confirmação**: é público de
+  propósito (integração externa) ou omissão?
+- [ ] 🟠 **ALTO** — `sync.php`: `shell_exec('git pull...')` sem
+  autenticação — **precisa confirmação**: como é disparado hoje
+  (manual/webhook/nada)?
+- [ ] 🟠 **ALTO** — `anydesk_central.php` / `vnc_central.php`: ações
+  sensíveis (`get_password`, `bat`, `delete`, `delete_grupo`) sem
+  checagem de `$is_admin` no servidor — só escondidas no client.
+  Padrão correto já existe em `rdp_central.php`/`pfsense_proxy.php`.
+  Pronto pra corrigir (replicar padrão existente).
+- [ ] 🟠 **ALTO** — `chamado_ajax.php` / `glpi_doc_proxy.php`: IDOR —
+  qualquer sessão autenticada (incl. self-service) lê qualquer
+  chamado/anexo por ID. Precisa desenho cuidadoso (ownership check),
+  não é fix de uma linha.
+- [ ] 🟡 Médio — `vault_crypto.php`: chave global não-rotacionável
+  (`VAULT_KEY`) reusada/copiada em 3 arquivos, sem HMAC, sem ACL por
+  segredo. Rotacionar quebra tudo já guardado sem migração — estrutural,
+  sem pressa.
+- [ ] 🟡 Médio — `github_cache_worker.php`: web-reachable sem guarda
+  (decripta todos os tokens do GitHub a cada hit anônimo); PR #10 (que
+  adiciona o service CLI correto no docker-compose) ainda aberta.
+  Pronto pra corrigir (guarda CLI-only, já é o comportamento assumido
+  pelos comentários existentes no código).
+- [ ] Cobrir lacunas da auditoria: `agenda/*.php` (27 arquivos),
+  `relatorios_impressoes.php`, `is_admin` em
+  `inventario_redes.php`/`inventario_impressoras.php`/`acessos.php`/
+  `ferramentas_gmais.php`/`agenda/users.php`, varredura de SQLi
+  repo-wide, `vnc_central.php` completo.
+
+> Já conhecido/adiado por decisão do usuário (não é item novo aqui):
+> senha root do MySQL hardcoded em 5 arquivos — ver memória
+> `backlog_senha-db-exposta-repo-publico`.
+
 ## 🔥 Alta Prioridade
 
 - [ ] WhatsApp — Fluxo B / pendência para número sem vínculo (Fluxo A já em produção)
