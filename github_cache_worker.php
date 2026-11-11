@@ -16,6 +16,14 @@
  * próximo ciclo em vez de morrer pra sempre).
  */
 
+// Guarda CLI-only: este script decripta todos os tokens do GitHub
+// (vault_decrypt) e gasta cota da API a cada execução — nunca deve ser
+// alcançável por request HTTP anônimo (achado #7 da auditoria 2026-11-11).
+if (php_sapi_name() !== 'cli') {
+    http_response_code(403);
+    exit;
+}
+
 $deps = [
     __DIR__ . '/agenda/db.php',
     // config.php só define constantes (GLPI_APP_TOKEN etc.), sem sessão HTTP —
