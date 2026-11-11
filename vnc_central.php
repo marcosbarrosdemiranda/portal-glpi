@@ -74,6 +74,15 @@ if ($action) {
     header('Content-Type: application/json');
     try {
 
+    // Ações sensíveis (alteram cadastro/grupo): só o front-end escondia
+    // o botão disso, servidor nunca checava (achado #4 da auditoria
+    // 2026-11-11).
+    $acoes_admin = ['add', 'edit', 'delete', 'save_grupo', 'delete_grupo'];
+    if (in_array($action, $acoes_admin, true) && !$is_admin) {
+        echo json_encode(['ok' => false, 'msg' => 'Sem permissão']);
+        exit;
+    }
+
     // ── List (só VNC) ──────────────────────────────────────────
     if ($action === 'list') {
         $sql = "SELECT id, nome, ip, descricao, usuario,
