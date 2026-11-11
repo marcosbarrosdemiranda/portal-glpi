@@ -196,6 +196,8 @@ function solides_buscar_relatorio(): array
         CURLOPT_RETURNTRANSFER => true,
         CURLOPT_CONNECTTIMEOUT => 5,
         CURLOPT_TIMEOUT        => 10,
+        CURLOPT_SSL_VERIFYPEER => false,
+        CURLOPT_SSL_VERIFYHOST => 0,
         CURLOPT_HTTPHEADER     => ['X-Token-Saude: ' . $token, 'Accept: application/json'],
     ]);
     $corpo = curl_exec($ch);

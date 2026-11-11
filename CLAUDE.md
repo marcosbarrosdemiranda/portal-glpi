@@ -318,18 +318,7 @@ REGRAS ESPECIAIS:
    2026-10-11 — ver item 9) antes de testar erro de uma integração nova
    com tipo de alerta já existente.
 
-4. [Produção pode ficar vários commits atrás do git HEAD sem ninguém notar
-   — 2026-10-04] Contexto: `alertas.php` deu HTTP 500 porque
-   `monitor_lib.php` em produção era ~8 commits mais antigo que o HEAD
-   local (faltava `alerta_render_monitor()` inteira), enquanto
-   `alertas_tipos.php` — que já chamava essa função — tinha sido deployado.
-   `php -l` não pega isso (sintaxe válida, função só falta em runtime).
-   Antes de caçar bug de lógica num 500/comportamento estranho em
-   produção, baixar a cópia de produção do(s) arquivo(s) envolvidos
-   (`scp glpi-server:<path> /tmp/...`) e `diff` contra o git HEAD local —
-   inclusive arquivos que o suspeito `require`/chama, não só ele mesmo.
-
-5. [Deploy via scp nunca apaga arquivo removido do git — 2026-10-04]
+4. [Deploy via scp nunca apaga arquivo removido do git — 2026-10-04]
    Contexto: `dude_config.php`/`dude_lib.php` foram apagados do git (The
    Dude decomissionado), mas como o fluxo de deploy é scp arquivo-a-arquivo
    (nunca `git pull` no container), os dois ficaram **vivos e funcionais**
@@ -368,19 +357,7 @@ REGRAS ESPECIAIS:
    `docker logs -t <worker>` com o horário aproximado é o primeiro passo,
    não ficar só nos arquivos PHP.
 
-7. [Quoting aninhado quebra em `ssh host "docker exec container <cmd com
-   aspas>"` — 2026-10-11] Contexto: diagnosticar via `grep -n 'padrão'
-   arquivo` ou `php -r "..."` dentro do `glpi-web`, passando pela cadeia
-   PowerShell → ssh → `docker exec` → shell Linux, falhou repetidas vezes
-   com erro de quoting (aspas simples/duplas aninhadas se perdem no
-   caminho). Pra comando simples, envolver em `sh -c \"...\"`; pra
-   qualquer coisa além de uma linha, escrever um `.php` standalone local,
-   subir via `scp` e rodar com `docker exec glpi-web php
-   /caminho/script.php`, apagando o script local e remoto logo depois de
-   usar — virou o padrão pra qualquer inspeção/mutação de banco de
-   produção via terminal nesta sessão.
-
-8. [Resumo "automático" da rotina diária da Agenda não é cron — é fetch
+7. [Resumo "automático" da rotina diária da Agenda não é cron — é fetch
    condicionado ao título do chamado — 2026-10-11] Contexto: ao
    implementar o resumo de quedas de antenas (Fase 3 de
    `2026-10-10-monitor-antenas-unifi-ssh.md`), a suposição inicial era de
@@ -392,7 +369,7 @@ REGRAS ESPECIAIS:
    o chamado em si, nunca o texto do resumo. Antes de assumir "resumo
    automático = cron", confirmar onde o fetch de fato dispara.
 
-9. [Fato técnico específico num memory/backlog pode ficar obsoleto mesmo
+8. [Fato técnico específico num memory/backlog pode ficar obsoleto mesmo
    sem o arquivo inteiro estar errado — 2026-10-11] Contexto: no merge de
    `alertas_config.php` em `monitor_dispositivos.php`, o plano era esconder
    o horário genérico por tipo (`portal_alertas_horario`) dos 3 tipos
@@ -409,19 +386,47 @@ REGRAS ESPECIAIS:
    memory registra o estado de quando foi escrito, não necessariamente o
    de agora.
 
-10. [Tipo de alerta escopado a 1 grupo pode já estar coberto por
-    `monitor_device` (que checa TODOS os grupos) — 2026-10-12] Contexto:
-    2ª ocorrência do mesmo padrão. `monitor_sem_contato` (removido
-    2026-10-11) e `monitor_service` (removido 2026-10-12) rodavam a MESMA
-    query de "equipamento fora do ar" que `monitor_device` já cobre
-    (grupoMap `'device' => null` = sem filtro de grupo), só filtrada a um
-    grupo específico (`pdvs`, depois `servidores-mgv`). Cada dispositivo
-    desses grupos gerava 2 ocorrências independentes pra mesma queda, cada
-    uma com seu próprio 🔔/✅ no WhatsApp. Antes de criar um tipo de alerta
-    novo escopado a um grupo em `monitor_lib.php`/`alertas_tipos.php`,
-    checar se esse grupo já não está implicitamente coberto por `device` —
-    só vale tipo próprio se a condição for *diferente* de "está down", não
-    um subconjunto da mesma query (ver backlog_monitor-sem-contato-duplica-device).
+9. [Tipo de alerta escopado a 1 grupo pode já estar coberto por
+   `monitor_device` (que checa TODOS os grupos) — 2026-10-12] Contexto:
+   2ª ocorrência do mesmo padrão. `monitor_sem_contato` (removido
+   2026-10-11) e `monitor_service` (removido 2026-10-12) rodavam a MESMA
+   query de "equipamento fora do ar" que `monitor_device` já cobre
+   (grupoMap `'device' => null` = sem filtro de grupo), só filtrada a um
+   grupo específico (`pdvs`, depois `servidores-mgv`). Cada dispositivo
+   desses grupos gerava 2 ocorrências independentes pra mesma queda, cada
+   uma com seu próprio 🔔/✅ no WhatsApp. Antes de criar um tipo de alerta
+   novo escopado a um grupo em `monitor_lib.php`/`alertas_tipos.php`,
+   checar se esse grupo já não está implicitamente coberto por `device` —
+   só vale tipo próprio se a condição for *diferente* de "está down", não
+   um subconjunto da mesma query (ver backlog_monitor-sem-contato-duplica-device).
+
+10. [`glpi_tickettemplatepredefinedfields.num=5` é o técnico pré-definido
+    de um template, fonte de verdade acima do histórico — 2026-10-19]
+    Contexto: pré-chamado (placeholder de `glpi_ticketrecurrents`) usava
+    "técnico do último chamado real" como heurística pra "quem é
+    responsável por essa rotina" — o usuário corrigiu: existe um campo
+    oficial, o técnico pré-definido no template do chamado
+    (`glpi_tickettemplatepredefinedfields` com `num=5` = `_users_id_assign`,
+    `value` = `glpi_users.id`). Validado contra produção antes de confiar:
+    bateu com o técnico real do último chamado em 22 de 27 definições
+    (as 5 divergências eram reatribuição manual posterior, não erro de
+    leitura). Pra rotina SEM técnico pré-definido (`value` NULL/vazio) —
+    time inteiro, sem "dono" único — o comportamento correto é aparecer
+    pra QUALQUER técnico no filtro da Agenda, não ficar invisível fora de
+    "Todos os atendentes". Antes de inferir "quem é responsável" só pelo
+    histórico, checar se o template já carrega um valor pré-definido —
+    histórico é fallback, não fonte primária (ver
+    heuristica-glpi-tickettemplatepredefinedfields-tecnico na memória).
+
+11. [`glpi_ticketrecurrents.name` pode não ser igual ao `glpi_tickets.name`
+    do chamado real gerado — 2026-10-19] Contexto: casar um chamado real
+    com a definição de rotina que o gerou (pra pré-chamado saber qual
+    `ticketrecurrents_id` converter) por igualdade exata de nome falhou:
+    o GLPI às vezes grava o nome do chamado real com sufixo extra (def
+    "TVs, Radios e Consulta Preços" gera chamado "TVs, Radios e Consulta
+    Preços - Rotina Diária") ou a própria definição tem espaço sobrando
+    ("Bot Conversa "). Usar `TRIM(definicao.name)` + `LIKE
+    CONCAT(TRIM(definicao.name), '%')` no lado do chamado, não `=`.
 ```
 
 ---

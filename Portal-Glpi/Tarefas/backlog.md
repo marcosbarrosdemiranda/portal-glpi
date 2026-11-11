@@ -1,72 +1,154 @@
 # Backlog Ativo — Portal TI Grupo Gmais
 
 > Tarefas priorizadas para as próximas sprints.
-> Ver projeto completo em: [[../projects/portal-glpi-prd]]
+> Ver cronograma macro em: [[../Arquitetura/ARCHITECTURE|ARCHITECTURE.md → Roadmap]]
+> Sincronizado 2026-10-19 — estava parado desde 24-25/09, faltava ~1 mês de trabalho real.
 
 ---
 
-## 📥 Demandas pendentes (registradas 2026-09-24)
+## 📥 API Sólides (Ponto) — concluído
 
-### API Sólides (Ponto) — as duas demandas são da mesma ferramenta, no estilo back-gmais
+- [x] **1. Central de Alertas — alerta em tempo real da API Sólides** (feito 2026-09-24, `webhook_solides.php` + `solides_config.php`)
+- [x] **2. Chamado diário das 07:00 (#11366) — relatório da API Sólides** (feito 2026-09-24, `solides_resumo_ajax.php` + caixa na Agenda)
 
-Autenticação nas duas chamadas: header `X-Token-Saude: <token>`. O token fica no painel do Ponto → Saúde do sistema → Monitoramento externo (Mostrar/Copiar). Sem token ou token errado → 401. **Token não vai no git.**
-
-O que o Ponto conta como anormalidade: sync com erro · falha parcial na API da Sólides · sync parado além do limite (30 min rápido, 2h horário) · WhatsApp com falha.
-
-- [x] **1. Central de Alertas — alerta em tempo real da API Sólides** (feito 2026-09-24, webhook_solides.php + solides_config.php)
-  - Mesmo padrão de ocorrência do back-gmais (🔔/✅/⏰)
-  - Duas opções (decidir na spec):
-    - Pull: portal consulta `GET https://ponto.grupogmais.com:7413/api/saude` → campos `status` (ok / alerta / falha) e `resumo` (uma linha)
-    - Push: webhook já pronto no painel do Ponto — colar a URL do portal, marcar Ativo; o Ponto faz POST com o mesmo JSON a cada 5 min
-  - Nos primeiros dias: até as 08:00 de 24/09 aparece "Sync horário: ainda sem execuções registradas" (some sozinho)
-  - ⚠️ Tipo novo nasce com WhatsApp ativo — inserir `notif_whatsapp=0` ANTES de testar
-- [x] **2. Chamado diário das 07:00 (#11366) — relatório da API Sólides** (feito 2026-09-24, solides_resumo_ajax.php + caixa na Agenda)
-  - Mesma forma do resumo do back-gmais (base: `backup_lib.php`/`backup_resumo_texto`, `backup_resumo_ajax.php`, `agenda/index.php`/`abrirModalResposta`)
-  - Fonte: `GET https://ponto.grupogmais.com:7413/api/saude/relatorio`
-    - `resumo`: uma linha, ex. "Ontem (23/09): sem anormalidades · Hoje (24/09): 1 anormalidade(s), todas resolvidas"
-    - `dias[]`: ontem e hoje; cada anormalidade tem `titulo`, `inicio`, `fim`, `resolvida` e `texto` pronto (ex. "Sync rápido: erro às 03:00 — resolvido às 03:10 · HTTP 500 em /punch/")
-  - Nos primeiros dias: "ontem" vem como "sem histórico registrado" (registro começou 24/09 07:08); a partir de 25/09 vem completo
-
-### Monitor de rede próprio (substitui o The Dude) — em andamento por etapas
+## 📡 Monitor de rede próprio (substituiu o The Dude) — concluído
 
 Roteiro completo: `Docs/superpowers/specs/2026-09-25-monitor-rede-portal-design.md`
 
-- [x] Etapa 1 — Equipamentos do inventário + chave "Monitorar" + config por grupo (concluída 2026-09-25)
-- [ ] Etapa 2 — Motor de ping em paralelo, modo sombra (sem alertar)
-- [ ] Etapa 3 — Virada: monitor passa a alimentar a Central de Alertas
-- [ ] Etapa 4 — Mapa da rede no Inventário + status ligado/desligado em cada categoria do Inventário
-- [ ] Etapa 5 — Notificação por grupo (WhatsApp, lembrete, aviso de reinício)
-- [ ] Etapa 6 — Latência, renomear "The Dude" → "Monitor de rede"
-- [ ] Etapa 7 — Remover tudo do Dude (portal, nomes internos, container)
+- [x] Etapa 1 — Equipamentos do inventário + chave "Monitorar" + config por grupo
+- [x] Etapa 2 — Motor de ping em paralelo
+- [x] Etapa 3 — Virada: monitor alimenta a Central de Alertas
+- [x] Etapa 4 — Mapa da rede no Inventário (`inventario_mapa_rede.php`, `monitor_mapa_api.php`)
+- [x] Etapa 5 — Notificação por grupo (WhatsApp, lembrete, aviso de reinício)
+- [x] Etapa 6 — Latência; renomeado "The Dude" → "Monitor de rede"
+- [x] Etapa 7 — Removido tudo do Dude (`dude_lib.php`/`dude_config.php` apagados do servidor, sem link morto)
+- [x] Central de Alertas fundida ao Monitor de Rede — catálogo único em `monitor_dispositivos.php`, `alertas_config.php` virou redirect
+- [x] Removidos tipos de alerta duplicados (`monitor_sem_contato`, `monitor_service`) — já cobertos por `monitor_device`
+- [x] Fix de falso-positivo de ✅ ao bater horário de silêncio (PR #5)
 
-## 🔥 Alta Prioridade
+## 💰 Orçamento & Despesas (BI) — concluído / 🔶 em validação
 
-- [ ] VNC funcional — instalar noVNC + websockify no servidor XAMPP
-- [ ] Relatório por técnico (quantidade de chamados, tempo médio)
-- [ ] Filtros avançados no histórico de chamados
-- [ ] Área do Conhecimento — CRUD completo
-- [ ] Migrar Projetos de localStorage para banco MySQL
+- [x] CRUD manual, filtros avançados e export PDF em Despesas
+- [x] Upload de NF com pré-visualização
+- [x] Relatórios BI (Previsto×Realizado, Orçamento, Despesas) em `relatorios.php`
+- [x] Categoria compartilhada bidirecional Orçamento↔Despesas
+- [x] Ver detalhes + suspender item sem sumir da lista
+- [x] Salvar/excluir/suspender item sem reload de página
+- [x] Migrado para MySQL (`agenda/orcamento_db.php`, `agenda/despesas_db.php`)
+- [ ] 🔶 **Dimensão Projeto (Projeto→Categoria→Loja→Equipamento)** — deployado, **PR #6 aberto sem merge**, falta só validação visual do usuário no navegador
 
-## 🟡 Média Prioridade
+## 📅 Agenda — Pré-chamado (rotinas GLPI) — 🔶 em validação
 
-- [ ] Relatório por período e por loja
-- [ ] Alertas de vencimento — contratos e licenças (notificação automática)
-- [ ] Inventário — filtro por loja e tipo de equipamento
-- [ ] Cofre TI — controle de acesso por nível de usuário
-- [ ] Migrar Orçamento e Contratos para banco MySQL
+- [ ] 🔶 **Novo tipo de evento "Pré-chamado"** — placeholder na grade pra uma ocorrência futura de `glpi_ticketrecurrents` (Opção A nativa do GLPI, não a recorrência interna da Agenda); converte sozinho quando o GLPI cria o chamado real, ou manualmente via botão "Converter em chamado" pra pré-chamados sem vínculo de recorrência — deployado, **PR #7 aberto sem merge**, falta só validação visual do usuário no navegador
 
-## 🟢 Baixa Prioridade
+## 🔗 Integrações de monitoramento — concluído
 
-- [ ] Exportação PDF/Excel em todos os módulos
-- [ ] Notificações push de chamados próximos
-- [ ] Sincronização Google Calendar bidirecional
-- [ ] Dashboard de KPIs na tela inicial
-- [ ] SSH via browser (xterm.js)
+- [x] Backup código+banco GLPI (webhook + card de status)
+- [x] SEFAZ MS (CT-e) por serviço — scraping, cache 5min
+- [x] pfSense — saúde (mem/carga, pfBlockerNG, Snort) via HTTPS scraping
+- [x] Agente GLPI cadastrando Docker como PC — corrigido no card "Total de máquinas"
 
 ---
 
-## ✅ Concluído Recentemente
+## 🔐 Segurança — Auditoria 2026-11-11
 
+> Detalhe completo (evidência, exploração, fix recomendado) em
+> [[../Logs/2026-11-11-sessao-security-audit|2026-11-11-sessao-security-audit.md]].
+> Revisão de código (modo simples, sem subagentes) do repo em
+> `feat/orcamento-projeto`; **não é exaustiva** (ver "Não revisado
+> ainda" no log).
+
+- [ ] 🔴 **CRÍTICO** — `despesas.php`: upload sem whitelist de
+  extensão/MIME → `.php` executável dentro de `uploads/despesas/`
+  (RCE). Pronto pra corrigir (fix cirúrgico, só restringe).
+- [ ] 🟠 **ALTO** — `api.php`: criação de chamado anônima com
+  credencial admin fixa — **precisa confirmação**: é público de
+  propósito (integração externa) ou omissão?
+- [ ] 🟠 **ALTO** — `sync.php`: `shell_exec('git pull...')` sem
+  autenticação — **precisa confirmação**: como é disparado hoje
+  (manual/webhook/nada)?
+- [ ] 🟠 **ALTO** — `anydesk_central.php` / `vnc_central.php`: ações
+  sensíveis (`get_password`, `bat`, `delete`, `delete_grupo`) sem
+  checagem de `$is_admin` no servidor — só escondidas no client.
+  Padrão correto já existe em `rdp_central.php`/`pfsense_proxy.php`.
+  Pronto pra corrigir (replicar padrão existente).
+- [ ] 🟠 **ALTO** — `chamado_ajax.php` / `glpi_doc_proxy.php`: IDOR —
+  qualquer sessão autenticada (incl. self-service) lê qualquer
+  chamado/anexo por ID. Precisa desenho cuidadoso (ownership check),
+  não é fix de uma linha.
+- [ ] 🟡 Médio — `vault_crypto.php`: chave global não-rotacionável
+  (`VAULT_KEY`) reusada/copiada em 3 arquivos, sem HMAC, sem ACL por
+  segredo. Rotacionar quebra tudo já guardado sem migração — estrutural,
+  sem pressa.
+- [ ] 🟡 Médio — `github_cache_worker.php`: web-reachable sem guarda
+  (decripta todos os tokens do GitHub a cada hit anônimo); PR #10 (que
+  adiciona o service CLI correto no docker-compose) ainda aberta.
+  Pronto pra corrigir (guarda CLI-only, já é o comportamento assumido
+  pelos comentários existentes no código).
+- [ ] Cobrir lacunas da auditoria: `agenda/*.php` (27 arquivos),
+  `relatorios_impressoes.php`, `is_admin` em
+  `inventario_redes.php`/`inventario_impressoras.php`/`acessos.php`/
+  `ferramentas_gmais.php`/`agenda/users.php`, varredura de SQLi
+  repo-wide, `vnc_central.php` completo.
+
+> Já conhecido/adiado por decisão do usuário (não é item novo aqui):
+> senha root do MySQL hardcoded em 5 arquivos — ver memória
+> `backlog_senha-db-exposta-repo-publico`.
+
+## 🔥 Alta Prioridade
+
+- [ ] WhatsApp — Fluxo B / pendência para número sem vínculo (Fluxo A já em produção)
+- [ ] VNC funcional de verdade — noVNC + websockify ainda não instalados (pendente desde o MVP)
+- [ ] 2FA para acesso externo (login fora da rede local/VPN)
+- [ ] Área do Conhecimento — CRUD completo
+- [ ] Resumo PostgreSQL automático na Agenda (bloqueado — falta credencial SSH)
+
+## 🟡 Média Prioridade
+
+- [ ] Card de Instaladores da Equipe TI (Checklist, Backup, Radio, Sorteador Gmais...)
+- [ ] Obsidian compartilhado em rede pra todos os técnicos (módulo Projetos)
+- [ ] Alerta de banda alta no Monitor de Rede
+- [ ] Alerta de conflito de IP / loop no Monitor de Rede
+- [ ] Alerta de CPU/memória alta via MikroTik no Monitor de Rede
+- [ ] Vincular chamado a uma ocorrência de alerta sem mudar a auto-resolução
+- [ ] Migrar Contratos para banco MySQL (Orçamento já migrado)
+- [ ] Cofre TI — controle de acesso por nível de usuário
+- [ ] Inventário — filtro por loja e tipo de equipamento
+
+## 🟢 Baixa Prioridade
+
+- [ ] Alerta de nota presa no transmissor Flex
+- [ ] Sitef Express (só anotado, sem desenho)
+- [ ] Relatório por técnico (quantidade de chamados, tempo médio)
+- [ ] Notificações push de chamados próximos
+- [ ] Sincronização Google Calendar bidirecional
+- [ ] SSH via browser (xterm.js)
+- [ ] Dashboard de KPIs na tela inicial
+- [ ] Integrar o subsistema de Reconhecimento Facial (hoje standalone, Python + Evolution API) ao Portal TI
+
+## 🧹 Débito técnico conhecido (não bloqueante)
+
+- [ ] `g.max_horas` ausente no monitor — "ligado muito tempo" sempre vazio
+- [ ] `trim(null)` em dispositivo sem IP gera log sujo em `monitor_lib.php:507` (N+1, sem impacto funcional)
+
+## 🚫 Fechado / não investigável
+
+- back-gmais não notifica erro de 2 políticas — causa é no back-gmais (fora do portal), não investigável sem o repo Go
+- Ponto (Sólides) falha de conexão porta 7413 — fechado 2026-10-13 como transitório, sem causa encontrada
+
+---
+
+## ✅ Concluído Recentemente (resumo — ver [[../Arquitetura/ARCHITECTURE|ARCHITECTURE.md → Roadmap]] para o detalhe completo)
+
+- [x] Monitor de Rede próprio (7 etapas) substituindo o The Dude
+- [x] Central de Alertas fundida ao Monitor de Rede
+- [x] Orçamento/Despesas com BI e dimensão Projeto (PR #6, pendente merge)
+- [x] Agenda — Pré-chamado como placeholder de rotinas GLPI (PR #7, pendente merge)
+- [x] SEFAZ, Sólides/Ponto, pfSense, backup — todos via Central de Alertas
+- [x] Grupos dinâmicos RDP/VNC + sync automático Guacamole
+- [x] Logout por inatividade + perfil ouvinte na Agenda
+- [x] Recorrência semanal + reunião com co-atendentes na Agenda
+- [x] Excluir chamado do histórico (lixeira)
 - [x] Duração livre de eventos na agenda (15min → 8h)
 - [x] Visual correto de eventos longos na grade
 - [x] Validação obrigatória no modal (Entidade, Atendente, Requerente, Descrição)

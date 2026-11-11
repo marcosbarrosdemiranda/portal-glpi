@@ -82,6 +82,15 @@ if ($action) {
     header('Content-Type: application/json');
     try {
 
+    // Ações sensíveis (expõem senha em texto puro ou alteram cadastro):
+    // só o front-end escondia o botão disso, servidor nunca checava
+    // (achado #4 da auditoria 2026-11-11).
+    $acoes_admin = ['add', 'edit', 'delete', 'bat', 'get_password', 'save_grupo', 'delete_grupo'];
+    if (in_array($action, $acoes_admin, true) && !$is_admin) {
+        echo json_encode(['ok' => false, 'msg' => 'Sem permissão']);
+        exit;
+    }
+
     // ── List ─────────────────────────────────────────────────
     if ($action === 'list') {
         $categoria = $_GET['categoria'] ?? '';

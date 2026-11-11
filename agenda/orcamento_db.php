@@ -34,4 +34,19 @@ $col_ativo = $pdo->query("SHOW COLUMNS FROM glpi_portal_orcamento LIKE 'ativo'")
 if (!$col_ativo) {
     $pdo->exec("ALTER TABLE glpi_portal_orcamento ADD COLUMN ativo TINYINT(1) DEFAULT 1");
 }
+
+// Catálogo de projetos — agrupamento acima da categoria (ex: "Upgrade do
+// CFTV" reúne itens de categorias diferentes: câmera, DVR, cabo).
+// Ortogonal à categoria, não substitui nem é substituído por ela.
+$pdo->exec("CREATE TABLE IF NOT EXISTS glpi_portal_projetos (
+    id        INT AUTO_INCREMENT PRIMARY KEY,
+    nome      VARCHAR(120) NOT NULL UNIQUE,
+    criado_em TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
+
+// Adiciona a coluna projeto_id se não existir — NULL = item sem projeto
+$col_projeto = $pdo->query("SHOW COLUMNS FROM glpi_portal_orcamento LIKE 'projeto_id'")->fetch();
+if (!$col_projeto) {
+    $pdo->exec("ALTER TABLE glpi_portal_orcamento ADD COLUMN projeto_id INT DEFAULT NULL");
+}
 ?>

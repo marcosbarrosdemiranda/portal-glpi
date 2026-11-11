@@ -27,13 +27,17 @@ if ($action !== '') {
         $token      = solides_webhook_token();
         $tokenSaude = solides_token_saude();
         $ultimo     = solides_ultimo_diagnostico($pdo);
+        $dbUser     = wpp_cfg_get('db_central_user', 'buzaneli');
+        $dbPass     = wpp_cfg_get('db_central_password', '');
         echo json_encode([
-            'ok'          => true,
-            'webhook_url' => $token !== '' ? (SOLIDES_WEBHOOK_BASE . '?token=' . $token) : null,
+            'ok'              => true,
+            'webhook_url'     => $token !== '' ? (SOLIDES_WEBHOOK_BASE . '?token=' . $token) : null,
             // token do Ponto nunca volta inteiro pro navegador — só o final, pra conferir
-            'token_saude' => $tokenSaude !== '' ? ('••••' . substr($tokenSaude, -4)) : null,
-            'base_url'    => solides_base_url(),
-            'ultimo'      => $ultimo ? [
+            'token_saude'     => $tokenSaude !== '' ? ('••••' . substr($tokenSaude, -4)) : null,
+            'base_url'        => solides_base_url(),
+            'db_central_user' => $dbUser,
+            'db_central_pass' => $dbPass !== '' ? true : false,
+            'ultimo'          => $ultimo ? [
                 'status'      => $ultimo['status'],
                 'resumo'      => $ultimo['resumo'],
                 'evento'      => $ultimo['evento'],
@@ -69,11 +73,31 @@ if ($action !== '') {
         exit;
     }
 
+    if ($action === 'salvar_db_central') {
+        $dbUser = trim((string) ($_POST['db_central_user'] ?? 'buzaneli'));
+        $dbPass = trim((string) ($_POST['db_central_password'] ?? ''));
+        wpp_cfg_set('db_central_user', $dbUser !== '' ? $dbUser : 'buzaneli');
+        if ($dbPass !== '') {
+            wpp_cfg_set('db_central_password', $dbPass);
+        }
+        echo json_encode(['ok' => true]);
+        exit;
+    }
+
     if ($action === 'testar_relatorio') {
         $r = solides_buscar_relatorio();
         echo json_encode($r['ok']
             ? ['ok' => true, 'texto' => solides_relatorio_texto($r['relatorio'])]
             : ['ok' => false, 'erro' => $r['erro']]);
+        exit;
+    }
+
+    if ($action === 'testar_db_central') {
+        require_once __DIR__ . '/db_central_lib.php';
+        $st = db_central_status();
+        echo json_encode(isset($st['error'])
+            ? ['ok' => false, 'erro' => $st['error']]
+            : ['ok' => true, 'texto' => db_central_status_texto($st)]);
         exit;
     }
 
@@ -151,6 +175,23 @@ if ($action !== '') {
     <pre id="rel" class="rel d-none"></pre>
   </div>
 
+  <div class="card-box">
+    <h6 class="mb-2">Banco de Dados Central (192.168.1.10 — SSH)</h6>
+    <p class="small text-muted mb-2">Credencial SSH para monitorar conexões, CPU e memória do banco central via <code>buzaneli@192.168.1.10</code>.</p>
+    <div class="d-flex gap-2 flex-wrap align-items-end">
+      <div style="flex:1;min-width:180px"><label class="form-label small mb-0">Usuário SSH</label>
+        <input type="text" id="db-user" class="form-control form-control-sm" value="buzaneli"></div>
+      <div style="flex:1;min-width:220px"><label class="form-label small mb-0">Senha SSH <span id="db-pass-atual" class="text-muted"></span></label>
+        <input type="password" id="db-pass" class="form-control form-control-sm" placeholder="em branco = mantém a atual" autocomplete="off"></div>
+    </div>
+    <div class="d-flex gap-2 mt-3">
+      <button type="button" class="btn btn-primary btn-sm" onclick="salvarDbCentral()"><i class="bi bi-save me-1"></i>Salvar Credencial</button>
+      <button type="button" class="btn btn-outline-secondary btn-sm" onclick="testarDbCentral()"><i class="bi bi-play-circle me-1"></i>Testar Conexão</button>
+    </div>
+    <div id="fb-db" class="small mt-2"></div>
+    <pre id="rel-db" class="rel d-none"></pre>
+  </div>
+
   <div class="card-box runbook">
     <h6 class="mb-2">Onde isso aparece</h6>
     <ol>
@@ -173,6 +214,8 @@ function carregar() {
     if (d.webhook_url) document.getElementById('webhook-url').value = d.webhook_url;
     document.getElementById('base-url').value = d.base_url || '';
     document.getElementById('token-atual').textContent = d.token_saude ? '(atual: ' + d.token_saude + ')' : '(não configurado)';
+    document.getElementById('db-user').value = d.db_central_user || 'buzaneli';
+    document.getElementById('db-pass-atual').textContent = d.db_central_pass ? '(configurada)' : '(não configurada)';
     const u = d.ultimo;
     document.getElementById('ultimo').textContent = u
       ? 'último diagnóstico: ' + u.recebido_em + ' · ' + u.status + (u.evento === 'teste' ? ' (teste)' : '') + ' — ' + u.resumo
@@ -204,6 +247,18 @@ function salvarPonto() {
   });
 }
 
+function salvarDbCentral() {
+  post('salvar_db_central', {
+    db_central_user: document.getElementById('db-user').value,
+    db_central_password: document.getElementById('db-pass').value,
+  }).then(d => {
+    if (!d.ok) return fb('fb-db', d.erro || 'falha', false);
+    document.getElementById('db-pass').value = '';
+    fb('fb-db', 'Credencial do Banco Central salva.', true);
+    carregar();
+  });
+}
+
 function testarRelatorio() {
   const rel = document.getElementById('rel');
   fb('fb-ponto', 'Consultando o Ponto…', true);
@@ -213,6 +268,17 @@ function testarRelatorio() {
     rel.textContent = d.texto;
     rel.classList.remove('d-none');
   }).catch(() => fb('fb-ponto', 'falha de conexão com o portal', false));
+}
+
+function testarDbCentral() {
+  const rel = document.getElementById('rel-db');
+  fb('fb-db', 'Testando SSH no Banco Central…', true);
+  post('testar_db_central').then(d => {
+    if (!d.ok) { rel.classList.add('d-none'); return fb('fb-db', d.erro || 'falha', false); }
+    fb('fb-db', 'Conexão bem-sucedida.', true);
+    rel.textContent = d.texto;
+    rel.classList.remove('d-none');
+  }).catch(() => fb('fb-db', 'falha de conexão com o portal', false));
 }
 
 carregar();

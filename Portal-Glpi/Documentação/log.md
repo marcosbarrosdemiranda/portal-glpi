@@ -1,5 +1,45 @@
 ﻿# Timeline de Atividades Macro
 
+## [2026-10-19] — Agenda: Pré-chamado como placeholder de rotinas GLPI
+- **Tipo:** feat
+- **Arquivos novos:** `agenda/pre_chamado_lib.php`, `Decisões/ADR-006-agenda-pre-chamado-ticketrecurrents.md`,
+  `Logs/2026-10-19-sessao-agenda-pre-chamado.md`
+- **Arquivos alterados:** `agenda/sync_rotinas_ajax.php`, `agenda/eventos.php`, `agenda/index.php`,
+  `Tarefas/backlog.md`
+- **Contexto:** Agenda só mostrava chamado de rotina no dia em que o GLPI de fato criava — zero
+  visibilidade das ocorrências futuras das 32 definições ativas de `glpi_ticketrecurrents`.
+- **feat:** novo tipo de evento "Pré-chamado" (cor cinza claro) — placeholder gerado automaticamente
+  pros próximos 30 dias de cada rotina GLPI nativa; converte sozinho quando o chamado real aparece,
+  ou manualmente via botão "Converter em chamado" pra pré-chamados sem vínculo de recorrência.
+- **fix (achado durante a validação):** match de chamado↔definição por igualdade exata de nome
+  falhava silenciosamente pra 2 das 32 definições (nome do chamado real com sufixo/espaço extra
+  em relação ao nome da definição) — gerava placeholder duplicado a cada rodada de sync. Corrigido
+  com match por prefixo + `TRIM()`.
+- Validado em produção: 334 placeholders sem duplicata, conversão simulada sem duplicar linha,
+  3 rodadas de sync consecutivas idempotentes depois do fix.
+- Ver [[../Decisões/ADR-006-agenda-pre-chamado-ticketrecurrents|ADR-006]]
+- **PR #7** aberto (base `feat/orcamento-projeto`), sem merge — falta validação visual do usuário
+
+---
+
+## [2026-10-19] — Sincronização do ARCHITECTURE.md com o estado real (cronograma)
+- **Tipo:** docs
+- **Arquivos alterados:** `Arquitetura/ARCHITECTURE.md`, `Documentação/CRITICAL_FACTS.md`, `Documentação/log.md`
+- **Arquivo novo:** `Decisões/ADR-005-architecture-sync-2026-10.md`
+- **Contexto:** doc estava congelado em junho/2026 (MVP Agenda); meses de trabalho real (Monitor de
+  Rede, Central de Alertas, Orçamento/Despesas, WhatsApp, SEFAZ, Sólides, pfSense, etc.) só existiam
+  em commits git, não documentados aqui.
+- **feat (docs):** Tech Stack corrigida; seção "Domain Modules" nova com inventário completo;
+  Roadmap reescrito (Fase 0 histórico preservada + Fases 1-4 com o estado real: concluído,
+  em validação — PR #6 orçamento/projeto — em andamento, backlog)
+- **fix (docs):** `CRITICAL_FACTS.md` tinha o boilerplate genérico do instalador `claude-init`
+  (manager/stack errados, nunca preenchidos) — corrigido pros fatos reais do portal-glpi
+- Ver [[../Decisões/ADR-005-architecture-sync-2026-10|ADR-005]]
+- **⚠️ Pendência separada:** `Tarefas/backlog.md` e `Logs/` da vault continuam desatualizados
+  desde set/2026 — fora do escopo desta sessão
+
+---
+
 ## [2026-06-07] — Sessão — VNC + Grupos Dinâmicos + Central AnyDesk
 - **Tipo:** feat + fix
 - **Arquivos alterados/novos:** `vnc_central.php`, `rdp_central.php`, `vnc.php`, `anydesk_central.php` (novo), `acessos.php`, `Docs/wiki/projects/portal-glpi-prd.md`

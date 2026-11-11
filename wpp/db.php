@@ -2,6 +2,13 @@
 // Acesso ao banco pro módulo WhatsApp. Reusa o $pdo do portal.
 require_once __DIR__ . '/../agenda/db.php';
 
+// global pro caso deste arquivo ser carregado de dentro de uma função (ex.:
+// db_central_lib.php::db_central_status() só dá require aqui no corpo da
+// função) — sem isso, o require_once de agenda/db.php acima é no-op (já
+// carregado no escopo global por quem chamou antes) e os $pdo->exec() daqui
+// pra baixo quebram com "Call to a member function exec() on null".
+global $pdo;
+
 $pdo->exec("CREATE TABLE IF NOT EXISTS portal_wpp_config (
     chave VARCHAR(64) PRIMARY KEY,
     valor TEXT
