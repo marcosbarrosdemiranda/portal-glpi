@@ -13,12 +13,19 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     if (isset($_POST['action']) && $_POST['action'] === 'save') {
         $arquivo_nf = null;
         if (!empty($_FILES['arquivo_nf']['name'])) {
-            $uploadDir = 'uploads/despesas/';
-            if (!is_dir($uploadDir)) mkdir($uploadDir, 0777, true);
-            $ext = pathinfo($_FILES['arquivo_nf']['name'], PATHINFO_EXTENSION);
-            $fileName = uniqid() . '.' . $ext;
-            if (move_uploaded_file($_FILES['arquivo_nf']['tmp_name'], $uploadDir . $fileName)) {
-                $arquivo_nf = $uploadDir . $fileName;
+            // Whitelist de extensão + MIME real (achado crítico #1 da auditoria
+            // 2026-11-11): sem isso, um .php salvo aqui é executável via HTTP.
+            $extsPermitidas = ['pdf', 'jpg', 'jpeg', 'png'];
+            $mimesPermitidos = ['application/pdf', 'image/jpeg', 'image/png'];
+            $ext = strtolower(pathinfo($_FILES['arquivo_nf']['name'], PATHINFO_EXTENSION));
+            $mimeReal = @finfo_file(finfo_open(FILEINFO_MIME_TYPE), $_FILES['arquivo_nf']['tmp_name']);
+            if (in_array($ext, $extsPermitidas, true) && in_array($mimeReal, $mimesPermitidos, true)) {
+                $uploadDir = 'uploads/despesas/';
+                if (!is_dir($uploadDir)) mkdir($uploadDir, 0777, true);
+                $fileName = uniqid() . '.' . $ext;
+                if (move_uploaded_file($_FILES['arquivo_nf']['tmp_name'], $uploadDir . $fileName)) {
+                    $arquivo_nf = $uploadDir . $fileName;
+                }
             }
         }
 
