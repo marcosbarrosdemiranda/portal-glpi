@@ -53,6 +53,64 @@ try { $pdo->exec("CREATE TABLE IF NOT EXISTS portal_agenda_event_anexos (
 
 $action = $_GET['action'] ?? 'list';
 
+/**
+ * Ao concluir um evento tipo 'projeto', marca TODOS os projetos vinculados
+ * (co_projetos) como 'concluido' no cadastro de Projetos — manual
+ * (portal_projetos_manuais) ou GitHub (portal_projetos_status).
+ *
+ * Só de ida: desmarcar o evento depois não reabre o projeto automaticamente
+ * (mesmo comportamento já usado hoje pra chamados/recorrência).
+ *
+ * Resolve a conta GitHub dona do projeto pelo cache já aquecido
+ * (portal_github_cache, chave "repos:<conta_id>") — nunca chama a API do
+ * GitHub aqui dentro, pra não acrescentar latência/risco ao save do evento.
+ * Nome sem correspondência ou cache frio: ignora silenciosamente.
+ */
+function agendaMarcarProjetosConcluidos(PDO $pdo, $co_projetos_json): void {
+    if (!$co_projetos_json) return;
+    $nomes = json_decode($co_projetos_json, true);
+    if (!is_array($nomes)) return;
+
+    foreach ($nomes as $nome) {
+        $nome = trim((string)$nome);
+        if ($nome === '') continue;
+
+        try {
+            // 1) Projeto manual (sem GitHub)
+            $stM = $pdo->prepare("UPDATE portal_projetos_manuais SET status = 'concluido' WHERE titulo = ?");
+            $stM->execute([$nome]);
+            if ($stM->rowCount() > 0) continue;
+
+            // 2) Projeto GitHub — acha a conta dona pelo cache (sem chamada live à API)
+            $contas = $pdo->query("SELECT id FROM portal_github_contas WHERE ativo = 1")->fetchAll(PDO::FETCH_COLUMN);
+            foreach ($contas as $contaId) {
+                $stC = $pdo->prepare("SELECT payload FROM portal_github_cache WHERE chave = ?");
+                $stC->execute(["repos:$contaId"]);
+                $payload = $stC->fetchColumn();
+                if (!$payload) continue;
+
+                $repos = json_decode($payload, true);
+                if (!is_array($repos)) continue;
+
+                $bate = false;
+                foreach ($repos as $repo) {
+                    if (isset($repo['nome']) && strcasecmp($repo['nome'], $nome) === 0) { $bate = true; break; }
+                }
+                if (!$bate) continue;
+
+                $pdo->prepare("
+                    INSERT INTO portal_projetos_status (conta_id, repo_nome, status)
+                    VALUES (?, ?, 'concluido')
+                    ON DUPLICATE KEY UPDATE status = 'concluido'
+                ")->execute([$contaId, $nome]);
+                break;
+            }
+        } catch (\Throwable $e) {
+            // Silencioso de propósito — nunca travar o save do evento por isso.
+        }
+    }
+}
+
 try {
 
     // ── ANEXOS DE EVENTO (evento puro, sem chamado) ───────────────────────
@@ -362,6 +420,11 @@ try {
             // Novo evento: INSERT
             $stmt = $pdo->prepare($insert_sql);
             $stmt->execute(array_merge($params, [':id' => $id]));
+        }
+
+        // Marca projeto(s) vinculado(s) como concluído quando o evento tipo 'projeto' é concluído
+        if ($tipo === 'projeto' && $concluido === 1) {
+            agendaMarcarProjetosConcluidos($pdo, $co_projetos);
         }
 
         // Sincroniza horário dos co-atendentes do mesmo período (mesmo ticket + mesmo horário original)
