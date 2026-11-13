@@ -59,6 +59,14 @@ try {
                      (tpf.value IS NOT NULL AND tpf.value <> '' AND t.name LIKE CONCAT(TRIM(tpf.value), '%'))
                      OR t.name LIKE CONCAT(TRIM(tr.name), '%')
                    )
+                 -- Desempate quando 2+ definições batem o mesmo nome/template
+                 -- (achado em produção 2026-11-13: duas rotinas Compras/Aquisição
+                 -- de Equipamentos ativas, uma semanal de segunda outra de
+                 -- quinta, mesmo template -- sem isso o LIMIT 1 sempre cai na de
+                 -- id menor, mistaggeando os chamados da outra e quebrando a
+                 -- conversao do pre_chamado correspondente). Prioriza a definicao
+                 -- cujo dia da semana do begin_date e o mesmo do chamado real.
+                 ORDER BY ABS(WEEKDAY(t.date) - WEEKDAY(tr.begin_date)) ASC, tr.id ASC
                  LIMIT 1) AS ticketrecurrents_id
         FROM glpi_tickets t
         JOIN glpi_tickets_users tu ON tu.tickets_id = t.id AND tu.type = 2
