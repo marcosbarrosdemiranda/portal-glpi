@@ -53,63 +53,17 @@ try { $pdo->exec("CREATE TABLE IF NOT EXISTS portal_agenda_event_anexos (
 
 $action = $_GET['action'] ?? 'list';
 
-/**
- * Ao concluir um evento tipo 'projeto', marca TODOS os projetos vinculados
- * (co_projetos) como 'concluido' no cadastro de Projetos — manual
- * (portal_projetos_manuais) ou GitHub (portal_projetos_status).
- *
- * Só de ida: desmarcar o evento depois não reabre o projeto automaticamente
- * (mesmo comportamento já usado hoje pra chamados/recorrência).
- *
- * Resolve a conta GitHub dona do projeto pelo cache já aquecido
- * (portal_github_cache, chave "repos:<conta_id>") — nunca chama a API do
- * GitHub aqui dentro, pra não acrescentar latência/risco ao save do evento.
- * Nome sem correspondência ou cache frio: ignora silenciosamente.
- */
-function agendaMarcarProjetosConcluidos(PDO $pdo, $co_projetos_json): void {
-    if (!$co_projetos_json) return;
-    $nomes = json_decode($co_projetos_json, true);
-    if (!is_array($nomes)) return;
-
-    foreach ($nomes as $nome) {
-        $nome = trim((string)$nome);
-        if ($nome === '') continue;
-
-        try {
-            // 1) Projeto manual (sem GitHub)
-            $stM = $pdo->prepare("UPDATE portal_projetos_manuais SET status = 'concluido' WHERE titulo = ?");
-            $stM->execute([$nome]);
-            if ($stM->rowCount() > 0) continue;
-
-            // 2) Projeto GitHub — acha a conta dona pelo cache (sem chamada live à API)
-            $contas = $pdo->query("SELECT id FROM portal_github_contas WHERE ativo = 1")->fetchAll(PDO::FETCH_COLUMN);
-            foreach ($contas as $contaId) {
-                $stC = $pdo->prepare("SELECT payload FROM portal_github_cache WHERE chave = ?");
-                $stC->execute(["repos:$contaId"]);
-                $payload = $stC->fetchColumn();
-                if (!$payload) continue;
-
-                $repos = json_decode($payload, true);
-                if (!is_array($repos)) continue;
-
-                $bate = false;
-                foreach ($repos as $repo) {
-                    if (isset($repo['nome']) && strcasecmp($repo['nome'], $nome) === 0) { $bate = true; break; }
-                }
-                if (!$bate) continue;
-
-                $pdo->prepare("
-                    INSERT INTO portal_projetos_status (conta_id, repo_nome, status)
-                    VALUES (?, ?, 'concluido')
-                    ON DUPLICATE KEY UPDATE status = 'concluido'
-                ")->execute([$contaId, $nome]);
-                break;
-            }
-        } catch (\Throwable $e) {
-            // Silencioso de propósito — nunca travar o save do evento por isso.
-        }
-    }
-}
+// NOTA (2026-11-16): a função agendaMarcarProjetosConcluidos(), que marcava
+// TODOS os projetos em co_projetos como 'concluido' sempre que um evento
+// tipo='projeto' era salvo com concluido=1, foi REMOVIDA. Causou incidente
+// real: a recorrência diária "projetos que trabalhei hoje" (controle de
+// ponto pessoal, recorrencia_id=14) marca concluido=1 todo dia só pra
+// fechar o registro do dia — isso não significa "o projeto terminou".
+// Em 15/11 ela continha "Segurança Grupo" e "Atualização / importação de
+// imagens..." e ambos foram marcados 'concluido' no cadastro de Projetos
+// mesmo com 33%/15% de progresso. Decisão: nunca inferir conclusão de
+// projeto a partir de um evento de controle de tempo — status de projeto
+// só muda por ação explícita na tela de Projetos (status_set/salvar).
 
 try {
 
@@ -420,11 +374,6 @@ try {
             // Novo evento: INSERT
             $stmt = $pdo->prepare($insert_sql);
             $stmt->execute(array_merge($params, [':id' => $id]));
-        }
-
-        // Marca projeto(s) vinculado(s) como concluído quando o evento tipo 'projeto' é concluído
-        if ($tipo === 'projeto' && $concluido === 1) {
-            agendaMarcarProjetosConcluidos($pdo, $co_projetos);
         }
 
         // Sincroniza horário dos co-atendentes do mesmo período (mesmo ticket + mesmo horário original)
