@@ -407,6 +407,9 @@ $libera_data_passada = ($cards_portal === null) || (($cards_portal['agenda_data_
       padding:.18rem .55rem; border-radius:14px;
       border:1.5px solid #dee2e6; cursor:pointer;
       font-size:.76rem; transition:all .12s; user-select:none; white-space:nowrap;
+      /* nome longo (projeto/atendente) não pode estourar a largura da coluna do
+         modal — trunca com "..." e mantém o nome completo no title (hover) */
+      max-width:100%; overflow:hidden; text-overflow:ellipsis;
     }
     .atendente-multi-chip:hover { border-color:#1a73e8; background:#f0f4ff; }
     .atendente-multi-chip.selected { border-color:#1a73e8; background:#e8f0fe; font-weight:700; }
@@ -2807,6 +2810,7 @@ function _renderProjetosMulti(lista, selecionados) {
     const sel = selecionados.includes(p);
     return `<div class="atendente-multi-chip ${sel ? 'selected' : ''}"
                  data-projeto="${escHtml(p)}"
+                 title="${escHtml(p)}"
                  onclick="toggleChip(this)">
               <i class="bi bi-kanban me-1"></i>
               ${escHtml(p)}
