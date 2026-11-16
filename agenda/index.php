@@ -2863,7 +2863,23 @@ function ajustarCamposPorTipo() {
     if (!projsSel.length && _dadosModal?.titulo) {
       projsSel = _dadosModal.titulo.split(',').map(s => s.trim()).filter(Boolean);
     }
-    carregarListaProjetos(projsSel);
+    if (projsSel.length) {
+      carregarListaProjetos(projsSel);
+    } else {
+      // Marcação nova/vazia nessa data: detecta projetos trabalhados
+      // (commit GitHub + checklist manual concluído no dia) antes de
+      // carregar a lista — nunca sobrescreve seleção já salva (projsSel
+      // só chega vazio aqui quando NÃO havia nada salvo ainda).
+      const dataEv = (document.getElementById('ev-start').value || '').substring(0, 10);
+      if (dataEv) {
+        fetch(`projeto_deteccao_dia.php?data=${encodeURIComponent(dataEv)}`)
+          .then(r => r.json())
+          .then(d => carregarListaProjetos((d.ok && d.projetos) ? d.projetos : []))
+          .catch(() => carregarListaProjetos([]));
+      } else {
+        carregarListaProjetos([]);
+      }
+    }
   }
   // Asterisco de Descrição: obrigatório apenas em chamado/requisição
   const starDesc = document.getElementById('star-descricao');
