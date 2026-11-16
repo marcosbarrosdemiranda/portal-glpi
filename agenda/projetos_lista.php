@@ -14,13 +14,19 @@ require_once __DIR__ . '/db.php';
 require_once __DIR__ . '/config.php';
 require_once __DIR__ . '/../vault_crypto.php';
 require_once __DIR__ . '/../github_client.php';
+require_once __DIR__ . '/../github_cache.php';
 
 $contas = $pdo->query("SELECT * FROM portal_github_contas WHERE ativo=1")->fetchAll(PDO::FETCH_ASSOC);
 
 $nomes = [];
 foreach ($contas as $conta) {
-    $token     = vault_decrypt($conta['token_enc']);
-    $resultado = github_listar_repos($token);
+    $token = vault_decrypt($conta['token_enc']);
+    // Mesmo cache de projetos.php/github_cache_worker.php (chave "repos:<conta_id>",
+    // TTL_REPOS) — sem isso, uma falha/lentidão pontual da API do GitHub nesse
+    // request específico fazia os projetos daquela conta somem do multi-select
+    // da Agenda, mesmo que projetos.php mostrasse todos normalmente (lendo do
+    // cache pré-aquecido pelo worker a cada 10min).
+    $resultado = gh_cached($pdo, "repos:{$conta['id']}", TTL_REPOS, fn() => github_listar_repos($token));
     if (isset($resultado['erro'])) continue; // token invalido/GitHub indisponivel — pula essa conta
 
     $st = $pdo->prepare("SELECT repo_nome, status, visivel FROM portal_projetos_status WHERE conta_id=?");
