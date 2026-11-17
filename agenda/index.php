@@ -1059,14 +1059,12 @@ function toast(msg, type = 'success') {
   const agora = Date.now();
   const ultimo = _toastCache.get(key) || 0;
   if (agora - ultimo < 60000) {
-    console.log('🔇 TOAST BLOQUEADO (cooldown):', msg);
     return; // mesma mensagem já foi exibida nos últimos 60s
   }
   _toastCache.set(key, agora);
   // Limpa cache antigo (>5 min) pra não acumular
   for (const [k, t] of _toastCache) { if (agora - t > 300000) _toastCache.delete(k); }
 
-  console.log('📢 TOAST:', msg, '| type:', type);
   const id  = 'toast-' + Date.now();
   const bg  = type === 'success' ? 'bg-success' : 'bg-danger';
   const icon= type === 'success' ? 'bi-check-circle-fill' : 'bi-exclamation-circle-fill';
@@ -1647,16 +1645,6 @@ function carregarEventos(info, success) {
           }
         };
       });
-      // Log para depuração multi-atendente
-      if (todosEventos.some(e => e.extendedProps.ticket_id)) {
-        const porAtendente = {};
-        todosEventos.forEach(e => {
-          const a = e.extendedProps.atendente || '(sem atendente)';
-          porAtendente[a] = (porAtendente[a] || 0) + 1;
-        });
-        console.log('📊 carregarEventos: total=', todosEventos.length, 'porAtendente=', porAtendente);
-      }
-
       // Aplica filtro de atendente se houver
       success(eventosFiltrados());
     });
@@ -1722,15 +1710,6 @@ function eventosFiltrados() {
       }
       return false;
     });
-    console.log(`📊 eventosFiltrados: filtro="${filtroAtendente}", total=${todosEventos.length}, filtrados=${filtrados.length}`);
-    // Se filtrou menos que o total, loga os excluídos
-    if (filtrados.length < todosEventos.length) {
-      todosEventos.forEach(e => {
-        if (!filtrados.includes(e)) {
-          console.log(`   âŒ excluído: atendente="${e.extendedProps.atendente}", ticket=${e.extendedProps.ticket_id}, tipo=${e.extendedProps.tipo}`);
-        }
-      });
-    }
     // Aplica filtro por tipo
     if (filtroTipo) {
       return filtrados.filter(e => {
@@ -3249,7 +3228,6 @@ function abrirModalResposta() {
   const mostrarFirewall = titulo.includes('Firewal, Unifi e Comunicação Lojas');
   const boxFirewall = document.getElementById('resp-firewall');
   const textoFirewall = document.getElementById('resp-firewall-texto');
-  console.log('DEBUG abertura modal:', { titulo, mostrarFirewall, boxFirewall: !!boxFirewall, textoFirewall: !!textoFirewall });
   if (boxFirewall) boxFirewall.style.display = 'none';
   if (textoFirewall) textoFirewall.textContent = '';
   if (mostrarFirewall && boxFirewall && textoFirewall) {
