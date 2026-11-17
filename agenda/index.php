@@ -1273,6 +1273,12 @@ document.addEventListener('DOMContentLoaded', function() {
     slotLabelFormat: { hour: '2-digit', minute: '2-digit', hour12: false },
     snapDuration: '00:15:00',
     allDaySlot: true,
+    // Sem limite (padrão), muitos eventos no mesmo horário (ex: rotina diária
+    // com 20+ chamados nas primeiras horas da manhã) dividiam a largura entre
+    // todos, virando colunas ilegíveis de 1-2 letras. eventMaxStack limita
+    // quantos ficam visíveis lado a lado; o resto some num link "+N mais" que
+    // abre popover com a lista completa (comportamento nativo do FullCalendar).
+    eventMaxStack: 4,
     editable: <?= $is_ouvinte ? 'false' : 'true' ?>,
     droppable: <?= $is_ouvinte ? 'false' : 'true' ?>,
 
