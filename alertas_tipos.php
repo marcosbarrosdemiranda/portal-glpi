@@ -668,13 +668,19 @@ function alerta_antenas_status(): array
  * vs. alerta_check_sefaz_ms(), que só faz o fetch + delega).
  *
  * @param array $antenas snapshot (mesmo formato de alerta_antenas_status())
+ * @param int $falhasParaCair tolerância — só abre ocorrência com
+ *   falhas_consecutivas >= este valor (default 1 = dispara na 1ª falha,
+ *   comportamento original, preservado pros testes/chamadores que não
+ *   passam o 2º argumento).
  * @return array ocorrências: ['chave','titulo','loja','detalhe']
  */
-function antena_ocorrencias_offline(array $antenas): array
+function antena_ocorrencias_offline(array $antenas, int $falhasParaCair = 1): array
 {
     $out = [];
+    $limiar = max(1, $falhasParaCair);
     foreach ($antenas as $a) {
         if (($a['status'] ?? '') !== 'offline') continue;
+        if ((int) ($a['falhas_consecutivas'] ?? 1) < $limiar) continue;
         $out[] = [
             'chave'   => 'antena_offline:' . $a['id'],
             'titulo'  => 'Antena offline: ' . ($a['nome'] ?? $a['ip'] ?? ''),
@@ -729,7 +735,8 @@ function antena_ocorrencias_clientes_excesso(array $antenas, int $limite): array
 /** @return array ocorrências: ['chave','titulo','loja','detalhe'] */
 function alerta_check_antena_offline(PDO $pdo, array $p): array
 {
-    return antena_ocorrencias_offline(alerta_antenas_status());
+    $falhasParaCair = max(1, (int) wpp_cfg_get('antena_falhas_para_cair', '3'));
+    return antena_ocorrencias_offline(alerta_antenas_status(), $falhasParaCair);
 }
 
 function alerta_check_antena_reinicio(PDO $pdo, array $p): array

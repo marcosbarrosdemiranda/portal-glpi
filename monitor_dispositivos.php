@@ -145,6 +145,12 @@ if ($action !== '') {
                 monitor_grupo_set_monitorar_todos($pdo, (string) ($_POST['grupo'] ?? ''), ($_POST['ligar'] ?? '') === '1');
                 $ok();
                 break;
+            case 'antena_config_salvar':
+                $v = (int) ($_POST['falhas_para_cair'] ?? 0);
+                if ($v < 1) { $err('precisa ser 1 ou mais'); break; }
+                wpp_cfg_set('antena_falhas_para_cair', (string) $v);
+                $ok(['falhas_para_cair' => $v]);
+                break;
             case 'categoria_horario_salvar':
                 $categoria = (string) ($_POST['categoria'] ?? '');
                 if ($categoria === '') { $err('categoria inválida'); break; }
@@ -389,6 +395,19 @@ if ($action !== '') {
       </table>
     </div>
     <div id="fb-grupo" class="small mt-2"></div>
+  </div>
+
+  <div class="card-box">
+    <h6 class="mb-1">Antenas UniFi</h6>
+    <p class="small text-muted mb-2">Alerta de "offline" só dispara depois de N falhas de SSH consecutivas — evita falso-positivo de reinício rápido (ex.: antena reiniciando por ~2min).</p>
+    <div class="d-flex gap-2 align-items-end">
+      <div>
+        <label class="form-label small mb-0">Falhas consecutivas antes de alertar</label>
+        <input type="number" id="antena-falhas" class="form-control form-control-sm" style="width:100px" min="1" value="<?= (int) wpp_cfg_get('antena_falhas_para_cair', '3') ?>">
+      </div>
+      <button type="button" class="btn btn-primary btn-sm" onclick="salvarAntenaConfig()">Salvar</button>
+    </div>
+    <div id="fb-antena-config" class="small mt-2"></div>
   </div>
 
   <div class="card-box">
@@ -740,6 +759,14 @@ function salvarGrupo(grupo) {
     fb('fb-grupo', 'Grupo salvo.', true);
     GRUPOS = GRUPOS.map(g => g.grupo === grupo ? d.grupo : g);
     renderGrupos();
+  });
+}
+
+function salvarAntenaConfig() {
+  const v = document.getElementById('antena-falhas').value;
+  post('antena_config_salvar', { falhas_para_cair: v }).then(d => {
+    if (!d.ok) return fb('fb-antena-config', d.erro || 'falha', false);
+    fb('fb-antena-config', 'Salvo. Vale a partir da próxima rodada do worker.', true);
   });
 }
 
