@@ -22,6 +22,18 @@ t_eq(antena_ocorrencias_offline([['id' => 1, 'status' => 'offline']])[0]['loja']
 t_eq(antena_ocorrencias_offline([['id' => 1, 'status' => 'online']]), [], 'ocorrencias_offline: online -> nenhuma ocorrência');
 t_eq(antena_ocorrencias_offline([['id' => 1, 'status' => 'desconhecido']]), [], 'ocorrencias_offline: desconhecido -> nenhuma ocorrência (não é offline confirmado)');
 
+// Tolerância a falha consecutiva (2026-11-16) — limiar via 2º argumento
+t_eq(antena_ocorrencias_offline([['id' => 1, 'status' => 'offline', 'falhas_consecutivas' => 1]], 3), [],
+    'ocorrencias_offline: limiar 3, 1 falha -> nenhuma ocorrência (tolerância)');
+t_eq(antena_ocorrencias_offline([['id' => 1, 'status' => 'offline', 'falhas_consecutivas' => 2]], 3), [],
+    'ocorrencias_offline: limiar 3, 2 falhas -> ainda nenhuma ocorrência');
+t_eq(count(antena_ocorrencias_offline([['id' => 1, 'status' => 'offline', 'falhas_consecutivas' => 3]], 3)), 1,
+    'ocorrencias_offline: limiar 3, 3 falhas -> atinge o limiar, abre ocorrência');
+t_eq(count(antena_ocorrencias_offline([['id' => 1, 'status' => 'offline', 'falhas_consecutivas' => 5]], 3)), 1,
+    'ocorrencias_offline: limiar 3, 5 falhas -> acima do limiar também abre');
+t_eq(count(antena_ocorrencias_offline([['id' => 1, 'status' => 'offline']])), 1,
+    'ocorrencias_offline: sem 2º argumento (default 1) -> dispara na 1ª falha, comportamento original preservado');
+
 $reiniciou = antena_ocorrencias_reinicio([
     ['id' => 5, 'nome' => 'Loja C', 'uptime_segundos' => 120, 'uptime_anterior' => 50000, 'ultima_verificacao' => '2026-10-10 09:00:00'],
 ]);
@@ -145,6 +157,7 @@ if (isset($pdo) && $pdo instanceof PDO) {
         t_eq($linha1['status'], 'online', 'varrer: SSH ok -> status online');
         t_eq($linha1['uptime_segundos'], 5000, 'varrer: grava uptime do check');
         t_eq($linha1['uptime_anterior'], null, 'varrer: 1ª leitura -> sem uptime_anterior');
+        t_eq($linha1['falhas_consecutivas'], 0, 'varrer: SSH ok -> falhas_consecutivas zerado');
         t_eq(antena_ocorrencias_offline([$linha1]), [], 'varrer+offline: online -> nenhuma ocorrência');
         t_eq(antena_ocorrencias_reinicio([$linha1]), [], 'varrer+reinicio: sem anterior -> nenhuma ocorrência');
 
@@ -167,9 +180,19 @@ if (isset($pdo) && $pdo instanceof PDO) {
         $linha3 = current(array_filter($snap3, fn($a) => (int) $a['id'] === $id));
         t_eq($linha3['status'], 'offline', 'varrer: SSH falhou -> status offline');
         t_eq($linha3['uptime_anterior'], 5000, 'varrer: uptime_anterior guarda o valor de antes do UPDATE');
+        t_eq($linha3['falhas_consecutivas'], 1, 'varrer: 1ª falha de SSH -> falhas_consecutivas = 1');
         $ocorrOffline = antena_ocorrencias_offline([$linha3]);
         t_eq(count($ocorrOffline), 1, 'varrer+offline: antena caiu -> gera 1 ocorrência');
         t_eq($ocorrOffline[0]['chave'], "antena_offline:$id", 'varrer+offline: chave usa o id real da antena');
+        t_eq(antena_ocorrencias_offline([$linha3], 3), [], 'varrer+offline: com limiar 3 configurado, 1 falha ainda não dispara (tolerância em cenário real)');
+
+        // 2ª falha consecutiva — contador acumula (não reseta sozinho)
+        $backdatar();
+        $GLOBALS['__monitor_antena_ssh_fake'] = fn($ip, $u, $s) =>
+            ['ok' => false, 'uptime' => null, 'clientes' => null, 'firmware' => null, 'modelo' => null, 'erro' => 'Falha ao conectar via SSH (código 255)'];
+        $snap3b = monitor_antenas_varrer($pdo, 20);
+        $linha3b = current(array_filter($snap3b, fn($a) => (int) $a['id'] === $id));
+        t_eq($linha3b['falhas_consecutivas'], 2, 'varrer: 2ª falha seguida -> falhas_consecutivas acumula pra 2');
 
         // 3ª varredura: antena voltou, mas com uptime baixo -> reiniciou de fato
         $backdatar();
@@ -178,6 +201,7 @@ if (isset($pdo) && $pdo instanceof PDO) {
         $snap4 = monitor_antenas_varrer($pdo, 20);
         $linha4 = current(array_filter($snap4, fn($a) => (int) $a['id'] === $id));
         t_eq($linha4['status'], 'online', 'varrer: voltou -> status online');
+        t_eq($linha4['falhas_consecutivas'], 0, 'varrer: voltou -> falhas_consecutivas zera de novo');
         t_eq($linha4['uptime_anterior'], null, 'varrer: uptime_anterior reflete o valor antes do UPDATE (ficou null na leitura offline)');
         // uptime_anterior ficou null porque a leitura offline anterior não grava uptime —
         // o sinal de reinício "uptime caiu" só se aplica entre duas leituras ONLINE

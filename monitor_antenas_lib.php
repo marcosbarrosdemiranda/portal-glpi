@@ -56,6 +56,14 @@ require_once __DIR__ . '/entidade_alias.php'; // apelido_entidade() — nome cur
     if (in_array('loja', $cols, true)) {
         $pdo->exec("ALTER TABLE portal_monitor_antenas DROP COLUMN loja");
     }
+
+    // Tolerância a falha intermitente (ex: antena reiniciando por ~2min não
+    // deve virar alerta de "offline") — contador de falhas de SSH consecutivas,
+    // zerado no primeiro sucesso. Limiar configurável globalmente via
+    // wpp_cfg_get('antena_falhas_para_cair', ...), ver alertas_tipos.php.
+    if (!in_array('falhas_consecutivas', $cols, true)) {
+        $pdo->exec("ALTER TABLE portal_monitor_antenas ADD COLUMN falhas_consecutivas INT NOT NULL DEFAULT 0 AFTER status");
+    }
 })();
 
 /**
@@ -283,10 +291,13 @@ function monitor_antenas_varrer(PDO $pdo, int $minIntervaloSeg = 90): array
         $cred = monitor_antena_credencial($antena);
         $check = monitor_antena_ssh_check($antena['ip'], $cred['usuario'], $cred['senha']);
         $status = $check['ok'] ? 'online' : 'offline';
+        // Zera no 1º sucesso; incrementa a cada falha — base da tolerância
+        // configurável (ver antena_ocorrencias_offline() em alertas_tipos.php).
+        $falhasConsecutivas = $check['ok'] ? 0 : ((int) ($antena['falhas_consecutivas'] ?? 0) + 1);
 
         $pdo->prepare("UPDATE portal_monitor_antenas SET
                 status = ?, modelo = ?, firmware_versao = ?, clientes_conectados = ?,
-                uptime_segundos = ?, ultima_verificacao = NOW()
+                uptime_segundos = ?, falhas_consecutivas = ?, ultima_verificacao = NOW()
             WHERE id = ?")
             ->execute([
                 $status,
@@ -294,10 +305,12 @@ function monitor_antenas_varrer(PDO $pdo, int $minIntervaloSeg = 90): array
                 $check['firmware'],
                 $check['clientes'],
                 $check['uptime'],
+                $falhasConsecutivas,
                 $antena['id'],
             ]);
 
         $antena['status'] = $status;
+        $antena['falhas_consecutivas'] = $falhasConsecutivas;
         $antena['modelo'] = $check['modelo'];
         $antena['firmware_versao'] = $check['firmware'];
         $antena['clientes_conectados'] = $check['clientes'];
