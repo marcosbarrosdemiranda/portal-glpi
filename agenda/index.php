@@ -398,14 +398,7 @@ $libera_data_passada = ($cards_portal === null) || (($cards_portal['agenda_data_
        Essa regra sobrescrevia o position:absolute do FullCalendar nos eventos
        do timeGrid, fazendo o card colapsar para 25px (tamanho do conteúdo)
        em vez de preencher o harness corretamente (ex: 150px para 3h). */
-    /* Harness com altura mínima garante espaço pra 1 linha de conteúdo mesmo
-       em evento curtíssimo (ex: 15min a 15min/slot dá uma caixa menor que o
-       ícone+texto) — sem isso, o overflow:visible do .fc-event logo abaixo
-       (necessário pra não cortar texto) espalhava o conteúdo por cima dos
-       cards vizinhos (ex: evento concluído de 15min coberto pelos cards do
-       lado). Não afeta evento longo (harness já é bem maior que o mínimo). */
-    .fc-timegrid-event-harness { min-height: 22px; }
-    .fc-event { overflow: hidden !important; }
+    .fc-event { overflow: visible !important; }
 
     /* Multi-select de atendentes no modal */
     .atendentes-multi-wrap { display:flex; flex-wrap:wrap; gap:.3rem; margin-bottom:.1rem; }
