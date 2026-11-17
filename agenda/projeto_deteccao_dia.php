@@ -27,6 +27,7 @@ if (!preg_match('/^\d{4}-\d{2}-\d{2}$/', $data)) {
 }
 
 $projetos = [];
+$detalhes = []; // pra montar a descrição do evento — commits/itens que bateram na data
 
 // ── 1) GitHub: repo com commit cacheado na data (qualquer autor) ────────
 // Lista de repos = mesmo cache de projetos_lista.php (gh_cached,
@@ -62,26 +63,39 @@ foreach ($contas as $conta) {
 
         $commits = json_decode($payload, true);
         if (!is_array($commits)) continue;
+
+        $commitsDoDia = [];
         foreach ($commits as $cm) {
             if (substr((string)($cm['data'] ?? ''), 0, 10) === $data) {
-                $projetos[] = $nome;
-                break;
+                $commitsDoDia[] = ['msg' => $cm['msg'] ?? '', 'sha' => $cm['sha'] ?? ''];
             }
+        }
+        if ($commitsDoDia) {
+            $projetos[] = $nome;
+            $detalhes[] = ['nome' => $nome, 'tipo' => 'github', 'commits' => $commitsDoDia];
         }
     }
 }
 
 // ── 2) Projetos Manuais: item de checklist concluído na data ────────────
 $st = $pdo->prepare("
-    SELECT DISTINCT pm.titulo
+    SELECT pm.titulo, pmi.texto
     FROM portal_projetos_manuais pm
     JOIN portal_projetos_manuais_itens pmi ON pmi.projeto_id = pm.id
     WHERE pm.status = 'em_execucao' AND DATE(pmi.concluido_em) = ?
+    ORDER BY pm.titulo, pmi.ordem
 ");
 $st->execute([$data]);
-foreach ($st->fetchAll(PDO::FETCH_COLUMN) as $titulo) $projetos[] = $titulo;
+$itensPorProjeto = [];
+foreach ($st->fetchAll(PDO::FETCH_ASSOC) as $row) {
+    $itensPorProjeto[$row['titulo']][] = $row['texto'];
+}
+foreach ($itensPorProjeto as $titulo => $itens) {
+    $projetos[] = $titulo;
+    $detalhes[] = ['nome' => $titulo, 'tipo' => 'manual', 'itens' => $itens];
+}
 
 $projetos = array_values(array_unique($projetos));
 sort($projetos, SORT_NATURAL | SORT_FLAG_CASE);
 
-echo json_encode(['ok' => true, 'data' => $data, 'projetos' => $projetos]);
+echo json_encode(['ok' => true, 'data' => $data, 'projetos' => $projetos, 'detalhes' => $detalhes]);
