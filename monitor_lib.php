@@ -727,6 +727,7 @@ function alerta_check_monitor_ligado_muito_tempo(PDO $pdo, array $p): array { re
 function monitor_categoria_no_horario(PDO $pdo, string $categoria, string $loja = ''): bool
 {
     if ($categoria === '') return true;
+    $categoria = strtolower(trim($categoria));
 
     $ini = null;
     $fim = null;
@@ -734,7 +735,7 @@ function monitor_categoria_no_horario(PDO $pdo, string $categoria, string $loja 
     if ($loja !== '') {
         $st = $pdo->prepare(
             "SELECT horario_inicio, horario_fim FROM portal_dude_horario_excecao
-             WHERE categoria = ? AND loja = ? AND dia_semana = ?"
+             WHERE LOWER(categoria) = LOWER(?) AND loja = ? AND dia_semana = ?"
         );
         $st->execute([$categoria, $loja, (int) date('w')]);
         $exc = $st->fetch(PDO::FETCH_ASSOC);
@@ -745,7 +746,7 @@ function monitor_categoria_no_horario(PDO $pdo, string $categoria, string $loja 
     }
 
     if ($ini === null) {
-        $st = $pdo->prepare("SELECT horario_inicio, horario_fim FROM portal_dude_categoria_config WHERE categoria = ?");
+        $st = $pdo->prepare("SELECT horario_inicio, horario_fim FROM portal_dude_categoria_config WHERE LOWER(categoria) = LOWER(?)");
         $st->execute([$categoria]);
         $row = $st->fetch(PDO::FETCH_ASSOC);
         if (!$row || $row['horario_inicio'] === null || $row['horario_fim'] === null) return true;
@@ -785,6 +786,7 @@ function monitor_categoria_config_listar(PDO $pdo): array
 /** Upsert do horário padrão + limiar de "ligado há muito tempo" de uma categoria (grupo). */
 function monitor_categoria_config_salvar(PDO $pdo, string $categoria, ?string $horarioInicio, ?string $horarioFim, ?int $ligadoHorasMax): void
 {
+    $categoria = strtolower(trim($categoria));
     $pdo->prepare(
         "INSERT INTO portal_dude_categoria_config (categoria, horario_inicio, horario_fim, ligado_horas_max)
          VALUES (?,?,?,?)
@@ -809,6 +811,7 @@ function monitor_horario_excecao_listar(PDO $pdo): array
  */
 function monitor_horario_excecao_salvar(PDO $pdo, string $categoria, string $loja, int $diaSemana, ?string $horarioInicio, ?string $horarioFim): void
 {
+    $categoria = strtolower(trim($categoria));
     if ($horarioInicio === null || $horarioFim === null) {
         monitor_horario_excecao_excluir($pdo, $categoria, $loja, $diaSemana);
         return;
@@ -823,8 +826,9 @@ function monitor_horario_excecao_salvar(PDO $pdo, string $categoria, string $loj
 /** Remove a exceção de (categoria, loja, dia_semana) — volta ao horário padrão da categoria. */
 function monitor_horario_excecao_excluir(PDO $pdo, string $categoria, string $loja, int $diaSemana): void
 {
+    $categoria = strtolower(trim($categoria));
     $pdo->prepare(
-        "DELETE FROM portal_dude_horario_excecao WHERE categoria = ? AND loja = ? AND dia_semana = ?"
+        "DELETE FROM portal_dude_horario_excecao WHERE LOWER(categoria) = LOWER(?) AND loja = ? AND dia_semana = ?"
     )->execute([$categoria, $loja, $diaSemana]);
 }
 
