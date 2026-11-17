@@ -2183,6 +2183,22 @@ function aplicarFiltroProjetos() {
   if (ctgEm) ctgEm.textContent = `${visiveisEmExecucao} projeto(s)`;
   const ctgConc = document.getElementById('contagem-concluido');
   if (ctgConc) ctgConc.textContent = `${visiveisConcluido} projeto(s)`;
+
+  // Filtro de período com resultado em Em Execução/Concluído → abre a
+  // seção automaticamente (sem precisar clicar no cabeçalho pra ver o
+  // que o filtro achou). Só expande, nunca fecha sozinho.
+  if (temFiltroData) {
+    if (visiveisEmExecucao > 0) abrirGrupo('em_execucao');
+    if (visiveisConcluido  > 0) abrirGrupo('concluido');
+  }
+}
+
+function abrirGrupo(chave) {
+  const body = document.getElementById('grupoBody-' + chave);
+  const chv  = document.getElementById('chvGrupo-' + chave);
+  if (!body || body.style.display === '') return; // já aberto
+  body.style.display = '';
+  if (chv) chv.style.transform = 'rotate(-180deg)';
 }
 
 function limparFiltroData() {
