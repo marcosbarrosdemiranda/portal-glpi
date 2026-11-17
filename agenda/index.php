@@ -2783,6 +2783,39 @@ function preencherModal(dados) {
   renderAtendentesMulti(selecionados);
 }
 
+// ── Detecção automática (tipo=projeto): descrição + marcar concluído ───────────
+// Monta um texto legível a partir dos detalhes devolvidos por
+// projeto_deteccao_dia.php (commits do dia por repo, itens de checklist
+// concluídos no dia por projeto manual) pra pré-popular a Descrição do
+// evento — mesma info que já embasa os chips pré-marcados.
+function montarDescricaoDeteccao(dataIso, detalhes) {
+  const [ano, mes, dia] = dataIso.split('-');
+  const dataBr = `${dia}/${mes}/${ano}`;
+  let txt = `Projetos trabalhados em ${dataBr}:\n\n`;
+  detalhes.forEach(d => {
+    txt += `${d.nome}:\n`;
+    if (d.tipo === 'manual') {
+      (d.itens || []).forEach(it => { txt += `- ${it}\n`; });
+    } else {
+      (d.commits || []).forEach(c => { txt += `- ${c.msg}${c.sha ? ' (' + c.sha + ')' : ''}\n`; });
+    }
+    txt += '\n';
+  });
+  return txt.trim();
+}
+// Marcação diária de projeto: ao abrir um dia ainda não concluído, já vem
+// com "Concluído" marcado por padrão (ficará verde na Agenda) — reflete
+// o checkbox manualmente porque setar .checked via JS não dispara onchange.
+function marcarConcluidoAutomatico() {
+  const chk = document.getElementById('ev-concluido');
+  if (chk && !chk.checked) {
+    chk.checked = true;
+    atualizarPreviewCor();
+    mostrarSalvarSeConcluido();
+    toggleFecharGlpi();
+  }
+}
+
 // ── Lista de projetos (tipo=projeto) com multi-select por chips ────────────────
 let _listaProjetosCache = null;
 function carregarListaProjetos(selecionados) {
@@ -2885,10 +2918,17 @@ function ajustarCamposPorTipo() {
       if (dataEv) {
         fetch(`projeto_deteccao_dia.php?data=${encodeURIComponent(dataEv)}`)
           .then(r => r.json())
-          .then(d => carregarListaProjetos((d.ok && d.projetos) ? d.projetos : []))
-          .catch(() => carregarListaProjetos([]));
+          .then(d => {
+            carregarListaProjetos((d.ok && d.projetos) ? d.projetos : []);
+            if (d.ok && d.detalhes && d.detalhes.length) {
+              document.getElementById('ev-descricao').value = montarDescricaoDeteccao(dataEv, d.detalhes);
+            }
+          })
+          .catch(() => carregarListaProjetos([]))
+          .finally(() => marcarConcluidoAutomatico());
       } else {
         carregarListaProjetos([]);
+        marcarConcluidoAutomatico();
       }
     }
   }
