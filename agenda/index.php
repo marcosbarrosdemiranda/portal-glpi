@@ -694,7 +694,7 @@ $libera_data_passada = ($cards_portal === null) || (($cards_portal['agenda_data_
               <option value="">Selecione o requerente...</option>
             </select>
           </div>
-          <div class="col-md-6" id="campo-projeto" style="display:none">
+          <div class="col-12" id="campo-projeto" style="display:none">
             <label class="form-label mb-0">Projetos <span class="text-danger">*</span></label>
             <div id="ev-projetos-multi">
               <div id="lista-projetos-multi" class="atendentes-multi-wrap"></div>
@@ -2836,9 +2836,12 @@ function ajustarCamposPorTipo() {
   // Atendentes: oculta apenas em evento; ajusta largura por tipo
   const atCampo = document.getElementById('campo-atendentes');
   atCampo.style.display = evento ? 'none' : '';
-  // Chamado/Requisição → col-md-6 (ao lado da Entidade); Projeto → col-md-6 (ao lado do Projeto); Reunião → col-12
+  // Chamado/Requisição → col-md-6 (ao lado da Entidade); Projeto → col-12
+  // (linha própria, logo abaixo de Início — nomes de projeto são longos e
+  // emparelhar as duas listas de chips em colunas lado a lado espremia e
+  // vazava da janela); Reunião → col-12.
   atCampo.className = atCampo.className.replace(/\bcol-\S+/g, '').trim()
-    + ((isChamado || projeto) ? ' col-md-6' : ' col-12');
+    + (isChamado ? ' col-md-6' : ' col-12');
   // Chips sempre visíveis, dropdown sempre oculto
   document.getElementById('ev-atendente').style.display        = 'none';
   document.getElementById('ev-atendentes-multi').style.display = '';
