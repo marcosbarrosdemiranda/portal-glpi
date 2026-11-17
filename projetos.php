@@ -1362,14 +1362,6 @@ body  { background:#f0f4f9; font-family:'Segoe UI',sans-serif; font-size:.9rem; 
         <span class="text-muted fw-normal">(<?= count($minhasContas) ?>)</span>
         <i class="bi bi-chevron-down ms-1" id="chvContas" style="font-size:.75rem;transition:transform .2s"></i>
       </h6>
-      <?php if ($minhasContas): ?>
-      <select id="filtroConta" class="form-select form-select-sm" style="max-width:200px" onclick="event.stopPropagation()">
-        <option value="">Todos os técnicos</option>
-        <?php foreach ($minhasContas as $c): ?>
-          <option value="<?= esc($c['apelido']) ?>"><?= esc($c['apelido']) ?></option>
-        <?php endforeach; ?>
-      </select>
-      <?php endif; ?>
     </div>
     <div class="gh-contas-grid" id="gridContas" style="display:none">
       <?php foreach ($minhasContas as $c): ?>
@@ -1397,11 +1389,24 @@ body  { background:#f0f4f9; font-family:'Segoe UI',sans-serif; font-size:.9rem; 
     </div>
   </div>
 
-  <!-- ═══════════════ PROJETO MANUAL (sem conta GitHub) ═══════════════ -->
-  <div class="d-flex justify-content-end mb-3">
+  <!-- ═══════════════ AÇÕES: filtro de técnico + novo manual + atualizar GitHub ═══════════════ -->
+  <div class="d-flex justify-content-end align-items-center flex-wrap gap-2 mb-3">
+    <?php if ($minhasContas): ?>
+    <select id="filtroConta" class="form-select form-select-sm" style="max-width:200px">
+      <option value="">Todos os técnicos</option>
+      <?php foreach ($minhasContas as $c): ?>
+        <option value="<?= esc($c['apelido']) ?>"><?= esc($c['apelido']) ?></option>
+      <?php endforeach; ?>
+    </select>
+    <?php endif; ?>
     <button type="button" class="btn btn-sm btn-outline-primary" style="border-color:#7c3aed;color:#7c3aed" onclick="abrirModalProjetoManualCriar()">
       <i class="bi bi-plus-circle me-1"></i>Novo projeto manual
     </button>
+    <?php if ($minhasContas && !$is_ouvinte): ?>
+    <a href="projetos.php?gh_refresh=1" class="btn btn-sm btn-outline-secondary" style="font-size:.72rem">
+      <i class="bi bi-arrow-clockwise me-1"></i>Atualizar do GitHub
+    </a>
+    <?php endif; ?>
   </div>
 
   <!-- ═══════════════ PROJETOS (GitHub, 3 seções) ═══════════════ -->
@@ -1551,13 +1556,6 @@ body  { background:#f0f4f9; font-family:'Segoe UI',sans-serif; font-size:.9rem; 
           : 'Cadastre uma conta GitHub ou crie um projeto manual acima para ver seus projetos aqui.' ?>
     </div>
   <?php else: ?>
-    <?php if ($minhasContas && !$is_ouvinte): ?>
-    <div class="d-flex justify-content-end mb-2">
-      <a href="projetos.php?gh_refresh=1" class="btn btn-sm btn-outline-secondary" style="font-size:.72rem">
-        <i class="bi bi-arrow-clockwise me-1"></i>Atualizar do GitHub
-      </a>
-    </div>
-    <?php endif; ?>
     <?php foreach ($secoesInfo as $chaveSecao => $info):
       $abertoPorPadrao = ($chaveSecao === 'em_execucao');
     ?>
@@ -1570,6 +1568,9 @@ body  { background:#f0f4f9; font-family:'Segoe UI',sans-serif; font-size:.9rem; 
                 <input type="date" id="filtroDataDe"  class="form-control form-control-sm" style="font-size:.72rem;padding:.15rem .4rem;width:auto" title="Movimentação de">
                 <span style="opacity:.7">até</span>
                 <input type="date" id="filtroDataAte" class="form-control form-control-sm" style="font-size:.72rem;padding:.15rem .4rem;width:auto" title="Movimentação até">
+                <button type="button" class="btn btn-sm btn-outline-light" style="font-size:.68rem;padding:.1rem .4rem" onclick="limparFiltroData()" title="Limpar filtro de período">
+                  <i class="bi bi-x-lg"></i>
+                </button>
               </span>
             <?php endif; ?>
             <span class="gh-grupo-count" id="contagem-<?= $chaveSecao ?>"><?= count($reposPorSecao[$chaveSecao]) ?> projeto(s)</span>
@@ -2149,19 +2150,25 @@ function exportarPrint() {
 
 <?php if (!$modoDetalhe): ?>
 <script>
-// ── Filtro de projetos por técnico + período de movimentação (só Em Execução) ──
+// ── Filtro de projetos por técnico + período de movimentação ───────────────
+// O período vale pra Em Execução E Concluído (projeto concluído que teve
+// movimentação registrada no período selecionado também aparece) — só
+// Futuro nunca é afetado. Um único filtro, campos de data vivem só no
+// cabeçalho de Em Execução.
 function aplicarFiltroProjetos() {
   const conta = document.getElementById('filtroConta')?.value || '';
   const de    = document.getElementById('filtroDataDe')?.value  || '';
   const ate   = document.getElementById('filtroDataAte')?.value || '';
   const temFiltroData = !!(de || ate);
   let visiveisEmExecucao = 0;
+  let visiveisConcluido  = 0;
 
   document.querySelectorAll('.gh-proj-card').forEach(card => {
     let visivel = (!conta || card.dataset.conta === conta);
     const naEmExecucao = !!card.closest('#grupoBody-em_execucao');
+    const noConcluido  = !!card.closest('#grupoBody-concluido');
 
-    if (visivel && temFiltroData && naEmExecucao) {
+    if (visivel && temFiltroData && (naEmExecucao || noConcluido)) {
       let movs = [];
       try { movs = JSON.parse(card.dataset.movs || '[]'); } catch(e) {}
       visivel = movs.some(d => (!de || d >= de) && (!ate || d <= ate));
@@ -2169,10 +2176,19 @@ function aplicarFiltroProjetos() {
 
     card.style.display = visivel ? '' : 'none';
     if (visivel && naEmExecucao) visiveisEmExecucao++;
+    if (visivel && noConcluido)  visiveisConcluido++;
   });
 
-  const contagemEl = document.getElementById('contagem-em_execucao');
-  if (contagemEl) contagemEl.textContent = `${visiveisEmExecucao} projeto(s)`;
+  const ctgEm = document.getElementById('contagem-em_execucao');
+  if (ctgEm) ctgEm.textContent = `${visiveisEmExecucao} projeto(s)`;
+  const ctgConc = document.getElementById('contagem-concluido');
+  if (ctgConc) ctgConc.textContent = `${visiveisConcluido} projeto(s)`;
+}
+
+function limparFiltroData() {
+  document.getElementById('filtroDataDe').value  = '';
+  document.getElementById('filtroDataAte').value = '';
+  aplicarFiltroProjetos();
 }
 document.getElementById('filtroConta')?.addEventListener('change', aplicarFiltroProjetos);
 document.getElementById('filtroDataDe')?.addEventListener('change', aplicarFiltroProjetos);
