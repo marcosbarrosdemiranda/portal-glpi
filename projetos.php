@@ -1564,8 +1564,15 @@ body  { background:#f0f4f9; font-family:'Segoe UI',sans-serif; font-size:.9rem; 
       <div class="gh-grupo-section">
         <div class="gh-grupo-header" style="background:<?= $info['cor'] ?>;cursor:pointer" onclick="toggleGrupo('<?= $chaveSecao ?>')">
           <span><i class="bi <?= $info['icon'] ?> me-2"></i><?= $info['label'] ?></span>
-          <span>
-            <span class="gh-grupo-count"><?= count($reposPorSecao[$chaveSecao]) ?> projeto(s)</span>
+          <span style="display:flex;align-items:center;gap:.5rem">
+            <?php if ($chaveSecao === 'em_execucao'): ?>
+              <span onclick="event.stopPropagation()" style="display:flex;align-items:center;gap:.3rem;font-size:.72rem">
+                <input type="date" id="filtroDataDe"  class="form-control form-control-sm" style="font-size:.72rem;padding:.15rem .4rem;width:auto" title="Movimentação de">
+                <span style="opacity:.7">até</span>
+                <input type="date" id="filtroDataAte" class="form-control form-control-sm" style="font-size:.72rem;padding:.15rem .4rem;width:auto" title="Movimentação até">
+              </span>
+            <?php endif; ?>
+            <span class="gh-grupo-count" id="contagem-<?= $chaveSecao ?>"><?= count($reposPorSecao[$chaveSecao]) ?> projeto(s)</span>
             <i class="bi bi-chevron-down ms-2" id="chvGrupo-<?= $chaveSecao ?>" style="font-size:.75rem;transition:transform .2s<?= $abertoPorPadrao ? ';transform:rotate(-180deg)' : '' ?>"></i>
           </span>
         </div>
@@ -1573,7 +1580,10 @@ body  { background:#f0f4f9; font-family:'Segoe UI',sans-serif; font-size:.9rem; 
           <?php if ($reposPorSecao[$chaveSecao]): ?>
             <div class="gh-proj-grid">
               <?php foreach (array_filter($reposPorSecao[$chaveSecao], fn($r) => ($r['_tipo'] ?? 'github') === 'github') as $repo): ?>
-                <div class="gh-proj-card" data-conta="<?= esc($repo['conta_apelido']) ?>">
+                <?php $movsRepo = array_values(array_unique(array_filter(array_map(
+                    fn($c) => substr($c['data'] ?? '', 0, 10), $repo['commits'] ?? []
+                )))); ?>
+                <div class="gh-proj-card" data-conta="<?= esc($repo['conta_apelido']) ?>" data-movs='<?= esc(json_encode($movsRepo)) ?>'>
                   <div class="gh-proj-topo">
                     <a href="#" onclick="abrirDocumentacao(event,<?= (int)$repo['conta_id'] ?>,'<?= esc($repo['nome']) ?>')" class="gh-proj-nome">
                       <i class="bi bi-journal-text me-1"></i><?= esc($repo['nome']) ?>
@@ -1658,7 +1668,8 @@ body  { background:#f0f4f9; font-family:'Segoe UI',sans-serif; font-size:.9rem; 
                 </div>
               <?php endforeach; ?>
               <?php foreach (array_filter($reposPorSecao[$chaveSecao], fn($r) => ($r['_tipo'] ?? '') === 'manual') as $pmProj): ?>
-                <div class="gh-proj-card manual-proj-card" data-pm-id="<?= (int)$pmProj['id'] ?>">
+                <?php $movsPm = array_values(array_unique(array_filter(array_column($pmProj['itens'] ?? [], 'concluido_em')))); ?>
+                <div class="gh-proj-card manual-proj-card" data-pm-id="<?= (int)$pmProj['id'] ?>" data-movs='<?= esc(json_encode($movsPm)) ?>'>
                   <div class="pm-badge-manual"><i class="bi bi-pencil-square"></i>Manual</div>
                   <div class="gh-proj-topo">
                     <a href="#" onclick="abrirVisualizarProjetoManual(event,<?= esc(json_encode($pmProj)) ?>)" class="gh-proj-nome"><i class="bi bi-journal-text me-1"></i><?= esc($pmProj['titulo']) ?></a>
@@ -2138,14 +2149,34 @@ function exportarPrint() {
 
 <?php if (!$modoDetalhe): ?>
 <script>
-// ── Filtro de projetos por técnico ────────────────────────────────
+// ── Filtro de projetos por técnico + período de movimentação (só Em Execução) ──
 function aplicarFiltroProjetos() {
   const conta = document.getElementById('filtroConta')?.value || '';
+  const de    = document.getElementById('filtroDataDe')?.value  || '';
+  const ate   = document.getElementById('filtroDataAte')?.value || '';
+  const temFiltroData = !!(de || ate);
+  let visiveisEmExecucao = 0;
+
   document.querySelectorAll('.gh-proj-card').forEach(card => {
-    card.style.display = (!conta || card.dataset.conta === conta) ? '' : 'none';
+    let visivel = (!conta || card.dataset.conta === conta);
+    const naEmExecucao = !!card.closest('#grupoBody-em_execucao');
+
+    if (visivel && temFiltroData && naEmExecucao) {
+      let movs = [];
+      try { movs = JSON.parse(card.dataset.movs || '[]'); } catch(e) {}
+      visivel = movs.some(d => (!de || d >= de) && (!ate || d <= ate));
+    }
+
+    card.style.display = visivel ? '' : 'none';
+    if (visivel && naEmExecucao) visiveisEmExecucao++;
   });
+
+  const contagemEl = document.getElementById('contagem-em_execucao');
+  if (contagemEl) contagemEl.textContent = `${visiveisEmExecucao} projeto(s)`;
 }
 document.getElementById('filtroConta')?.addEventListener('change', aplicarFiltroProjetos);
+document.getElementById('filtroDataDe')?.addEventListener('change', aplicarFiltroProjetos);
+document.getElementById('filtroDataAte')?.addEventListener('change', aplicarFiltroProjetos);
 </script>
 <?php endif; ?>
 
