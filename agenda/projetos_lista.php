@@ -14,24 +14,42 @@ require_once __DIR__ . '/db.php';
 require_once __DIR__ . '/config.php';
 require_once __DIR__ . '/../vault_crypto.php';
 require_once __DIR__ . '/../github_client.php';
+require_once __DIR__ . '/../github_cache.php';
 
 $contas = $pdo->query("SELECT * FROM portal_github_contas WHERE ativo=1")->fetchAll(PDO::FETCH_ASSOC);
 
 $nomes = [];
 foreach ($contas as $conta) {
-    $token     = vault_decrypt($conta['token_enc']);
-    $resultado = github_listar_repos($token);
+    $token = vault_decrypt($conta['token_enc']);
+    // Mesmo cache de projetos.php/github_cache_worker.php (chave "repos:<conta_id>",
+    // TTL_REPOS) — sem isso, uma falha/lentidão pontual da API do GitHub nesse
+    // request específico fazia os projetos daquela conta somem do multi-select
+    // da Agenda, mesmo que projetos.php mostrasse todos normalmente (lendo do
+    // cache pré-aquecido pelo worker a cada 10min).
+    $resultado = gh_cached($pdo, "repos:{$conta['id']}", TTL_REPOS, fn() => github_listar_repos($token));
     if (isset($resultado['erro'])) continue; // token invalido/GitHub indisponivel — pula essa conta
 
-    $st = $pdo->prepare("SELECT repo_nome, visivel FROM portal_projetos_status WHERE conta_id=?");
+    $st = $pdo->prepare("SELECT repo_nome, status, visivel FROM portal_projetos_status WHERE conta_id=?");
     $st->execute([$conta['id']]);
     $visMap = [];
-    foreach ($st->fetchAll(PDO::FETCH_ASSOC) as $row) $visMap[$row['repo_nome']] = (int)$row['visivel'];
+    $statusMap = [];
+    foreach ($st->fetchAll(PDO::FETCH_ASSOC) as $row) {
+        $visMap[$row['repo_nome']] = (int)$row['visivel'];
+        $statusMap[$row['repo_nome']] = $row['status'] ?: 'em_execucao';
+    }
 
     foreach ($resultado as $repo) {
         if (($visMap[$repo['nome']] ?? 1) === 0) continue; // ocultado pelo técnico
+        $repoStatus = $statusMap[$repo['nome']] ?? 'em_execucao';
+        if ($repoStatus !== 'em_execucao') continue; // Apenas em execução
         $nomes[] = $repo['nome'];
     }
+}
+
+// Adiciona também projetos manuais com status em_execucao
+$stPm = $pdo->query("SELECT titulo FROM portal_projetos_manuais WHERE status = 'em_execucao'");
+while ($r = $stPm->fetch(PDO::FETCH_ASSOC)) {
+    $nomes[] = $r['titulo'];
 }
 
 $nomes = array_values(array_unique($nomes));

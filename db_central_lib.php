@@ -21,11 +21,15 @@
  */
 function db_central_status(int $max_conexoes = 1200, int $max_cpu = 90, int $max_mem = 90): array
 {
+    require_once __DIR__ . '/wpp/db.php';
     // Nomes de variável dedicados (DB_CENTRAL_*) — evita colidir com DB_PASSWORD
     // de outros serviços no mesmo docker/.env compartilhado do host.
     $user = getenv('DB_CENTRAL_USER') ?: 'buzaneli';
     $host = "$user@192.168.1.10";
     $db_password = getenv('DB_CENTRAL_PASSWORD');
+    if (!$db_password && function_exists('wpp_cfg_get')) {
+        $db_password = (string) wpp_cfg_get('db_central_password', '');
+    }
 
     if (!$db_password) {
         return ['error' => 'DB_CENTRAL_PASSWORD não configurada'];

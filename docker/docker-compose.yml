@@ -119,8 +119,12 @@ services:
     networks:
       - glpi-net
 
-  # Evolution API — gateway WhatsApp. Sem "ports:": só acessível de dentro de
-  # glpi-net (consumida pelo glpi-web).
+  # Evolution API — gateway WhatsApp, consumida de dentro de glpi-net (glpi-web)
+  # e tambem de fora via host: 7415 (dashboard Solides, mapeamento historico que
+  # so existia via "docker run" manual, nao estava neste arquivo - perdido num
+  # recreate em 2026-10-26 quando so' 8090 foi adicionado aqui, quebrando o
+  # Solides) e 8090 (projeto Reconhecimento-facial, adicionado em 2026-10-26).
+  # NAO remover nenhuma das duas sem confirmar com quem consome.
   evolution-api:
     # Pinado por digest em 2026-09-13 (era ":latest", nunca atualizado
     # desde 2026-05-06). NAO subir para 2.4.0-rc2: essa versao exige
@@ -151,6 +155,9 @@ services:
       LOG_BAILEYS: "error"
     volumes:
       - C:\docker\glpi-portal\evolution-instances:/evolution/instances
+    ports:
+      - "7415:8080"
+      - "8090:8080"
     networks:
       - glpi-net
 
