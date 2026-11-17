@@ -2852,24 +2852,32 @@ function ajustarCamposPorTipo() {
   document.getElementById('campo-titulo').style.display  = projeto ? 'none' : '';
   if (projeto) {
     let projsSel = [];
-    try {
-      if (_dadosModal?.co_projetos) {
-        projsSel = JSON.parse(_dadosModal.co_projetos);
-      }
-    } catch(e){}
+    // Fonte correta pra edição de evento existente: editarEvento() monta
+    // "projetos_lista" (primário + co_projetos já combinados) — a chave
+    // "co_projetos" sozinha nunca chega a existir em _dadosModal (nenhum
+    // chamador seta isso), então checar ela primeiro sempre caía pro
+    // fallback de só 1 projeto (o primário), perdendo os secundários.
+    if (Array.isArray(_dadosModal?.projetos_lista) && _dadosModal.projetos_lista.length) {
+      projsSel = _dadosModal.projetos_lista;
+    } else if (_dadosModal?.co_projetos) {
+      try { projsSel = JSON.parse(_dadosModal.co_projetos); } catch(e){}
+    }
     if (!projsSel.length && _dadosModal?.projeto) {
       projsSel = [_dadosModal.projeto];
     }
     if (!projsSel.length && _dadosModal?.titulo) {
       projsSel = _dadosModal.titulo.split(',').map(s => s.trim()).filter(Boolean);
     }
-    if (projsSel.length) {
+    // Dia já CONCLUÍDO: respeita exatamente o que foi salvo, nunca
+    // redetecta. Dia ainda não concluído (evento novo OU ocorrência de
+    // recorrência que só tem valores CLONADOS do evento-mãe — a
+    // recorrência clona projeto/co_projetos pra todas as ocorrências
+    // futuras já na criação, então quase nunca chega "vazio" aqui):
+    // sempre tenta detectar de novo, substituindo o clone/placeholder
+    // pela detecção real do dia.
+    if (_dadosModal?.concluido) {
       carregarListaProjetos(projsSel);
     } else {
-      // Marcação nova/vazia nessa data: detecta projetos trabalhados
-      // (commit GitHub + checklist manual concluído no dia) antes de
-      // carregar a lista — nunca sobrescreve seleção já salva (projsSel
-      // só chega vazio aqui quando NÃO havia nada salvo ainda).
       const dataEv = (document.getElementById('ev-start').value || '').substring(0, 10);
       if (dataEv) {
         fetch(`projeto_deteccao_dia.php?data=${encodeURIComponent(dataEv)}`)
