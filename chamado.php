@@ -533,6 +533,7 @@ foreach ($atribuidos as $a) {
     .btn-excluir-chamado { border-color:#dc3545; color:#dc3545; }
     .btn-excluir-chamado:hover { background:#dc3545; color:#fff; }
   </style>
+  <script src="sessao_guard.js"></script>
 </head>
 <body>
 

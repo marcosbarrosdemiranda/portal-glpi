@@ -228,6 +228,7 @@ $antenaLimiteCfg  = (int) wpp_cfg_get('antena_limite_clientes', '30');
                    cursor:pointer; border-radius:12px; }
     .antena-add:hover { border-color:#1a237e; color:#1a237e; }
   </style>
+  <script src="sessao_guard.js"></script>
 </head>
 <body>
 

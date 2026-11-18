@@ -130,6 +130,7 @@ if ($action !== '') {
     pre.rel { background:#f8fafc; border:1px solid #e5e7eb; border-radius:8px; padding:.75rem; font-size:.75rem; white-space:pre-wrap; margin:.5rem 0 0; }
     footer { text-align:center; color:#bbb; font-size:.78rem; padding:2rem; }
   </style>
+  <script src="sessao_guard.js"></script>
 </head>
 <body>
 <div class="topbar">

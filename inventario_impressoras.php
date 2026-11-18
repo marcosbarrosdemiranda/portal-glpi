@@ -121,6 +121,7 @@ if ($action !== '') {
     .loja-h:first-child { margin-top:0; }
     footer { text-align:center; color:#bbb; font-size:.78rem; padding:2rem; }
   </style>
+  <script src="sessao_guard.js"></script>
 </head>
 <body>
 <div class="topbar">

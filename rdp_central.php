@@ -356,6 +356,7 @@ if ($action) {
     #toast-container{position:fixed;bottom:1.5rem;right:1.5rem;z-index:9999;}
     .badge-senha{display:inline-block;background:#fef3c7;color:#92400e;border-radius:10px;padding:.08rem .45rem;font-size:.6rem;font-weight:600;margin-left:.35rem;vertical-align:middle;}
   </style>
+  <script src="sessao_guard.js"></script>
 </head>
 <body>
 <div class="topbar">

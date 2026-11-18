@@ -320,6 +320,7 @@ body {
   .kpi-card .kpi-val { font-size: 1.6rem; }
 }
 </style>
+  <script src="sessao_guard.js"></script>
 </head>
 <body>
 

@@ -54,6 +54,7 @@ header('Cache-Control: no-store');
   .btn-b { background:#e9edf2; color:#3c4043; }
   .retry { font-size:.8rem; color:#1a73e8; display:block; margin-top:.6rem; cursor:pointer; }
 </style>
+  <script src="sessao_guard.js"></script>
 </head>
 <body>
 <div class="box">

@@ -180,6 +180,7 @@ $podeConfig = !isset($_SESSION['portal_perfil_cards']) || $_SESSION['portal_perf
     .btn-dispensar:hover { background:#ecfdf5; border-color:#16a34a; color:#16a34a; }
     .btn-dispensar:disabled { opacity:.5; cursor:default; }
   </style>
+  <script src="sessao_guard.js"></script>
 </head>
 <body>
 <div class="topbar">

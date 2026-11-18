@@ -324,6 +324,7 @@ body{font-family:"Segoe UI",system-ui,sans-serif;background:#f3f4f6;min-height:1
 .toast-container{position:fixed;bottom:1.5rem;right:1.5rem;z-index:9999;display:flex;flex-direction:column;gap:.5rem}
 .toast{box-shadow:0 4px 12px rgba(0,0,0,.15);border-radius:8px;font-size:.85rem;max-width:380px}
 </style>
+  <script src="sessao_guard.js"></script>
 </head>
 <body>
 

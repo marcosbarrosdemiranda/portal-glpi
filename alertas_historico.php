@@ -80,6 +80,7 @@ function qs(array $over = []): string {
     .paginacao a { text-decoration:none; color:#1a237e; font-weight:600; }
     .paginacao a.disabled { color:#c0c0c0; pointer-events:none; }
   </style>
+  <script src="sessao_guard.js"></script>
 </head>
 <body>
 

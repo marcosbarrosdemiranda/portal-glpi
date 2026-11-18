@@ -135,6 +135,7 @@ $cards_glpi = inv_cards($pdo);
     .tritura-icon { background:#eceff1; color:#546e7a; }
     .videoconf-icon { background:#e8f0fe; color:#1a73e8; }
   </style>
+  <script src="sessao_guard.js"></script>
 </head>
 <body>
 

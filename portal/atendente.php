@@ -140,6 +140,7 @@ $entidade = get_user_entity((int)$user_id);
     /* Divider */
     .section-title { font-weight:700; font-size:.85rem; color:#666; text-transform:uppercase; letter-spacing:.05em; margin-bottom:.75rem; }
   </style>
+  <script src="../sessao_guard.js"></script>
 </head>
 <body>
 

@@ -312,6 +312,7 @@ $filtro_status   = $_GET['status'] ?? 'pendente';
       .anotacao-card .acoes { flex-wrap:wrap; }
     }
   </style>
+  <script src="sessao_guard.js"></script>
 </head>
 <body>
 

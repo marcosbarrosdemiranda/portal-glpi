@@ -249,6 +249,7 @@ if ($export === 'csv') {
       .filtros-card { flex-direction:column; }
     }
   </style>
+  <script src="sessao_guard.js"></script>
 </head>
 <body>
 

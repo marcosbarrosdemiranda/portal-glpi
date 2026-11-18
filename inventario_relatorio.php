@@ -69,6 +69,7 @@ $hoje = date('d/m/Y H:i');
       th { background:#eee !important; -webkit-print-color-adjust:exact; print-color-adjust:exact; }
     }
   </style>
+  <script src="sessao_guard.js"></script>
 </head>
 <body>
 

@@ -263,6 +263,7 @@ if ($action) {
     .stat-pill{background:white;border:1px solid #e5e7eb;border-radius:8px;padding:.4rem .85rem;font-size:.78rem;display:flex;align-items:center;gap:.4rem;}
     #toast-container{position:fixed;bottom:1.5rem;right:1.5rem;z-index:9999;}
   </style>
+  <script src="sessao_guard.js"></script>
 </head>
 <body>
 <div class="topbar">
