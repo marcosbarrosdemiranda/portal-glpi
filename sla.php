@@ -170,6 +170,7 @@ if ($action === 'detalhes') {
 
     @media(max-width:768px) { .tabela-card { overflow-x:auto; } }
   </style>
+  <script src="sessao_guard.js"></script>
 </head>
 <body>
 

@@ -183,6 +183,7 @@ $H = 'inv_h';
     #novoCardBox { background:#fff; border:2px dashed #c5cae9; border-radius:12px; padding:1rem 1.1rem; margin-bottom:1.5rem; }
     #msg { position:fixed; bottom:1.2rem; right:1.2rem; z-index:1100; }
   </style>
+  <script src="sessao_guard.js"></script>
 </head>
 <body>
 

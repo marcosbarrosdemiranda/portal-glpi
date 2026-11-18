@@ -248,6 +248,7 @@ $f_entidade = $_GET['entidade'] ?? '';
     }
 
   </style>
+  <script src="sessao_guard.js"></script>
 </head>
 <body>
 

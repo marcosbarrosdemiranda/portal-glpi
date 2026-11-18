@@ -54,6 +54,7 @@ $h = fn($s) => htmlspecialchars((string)$s, ENT_QUOTES, 'UTF-8');
   .hint { font-size:.8rem; color:#80868b; margin-top:.4rem; }
   a.volta { display:inline-block; margin-top:1.5rem; font-size:.85rem; color:#1a73e8; }
 </style>
+  <script src="sessao_guard.js"></script>
 </head>
 <body>
 <div class="box">

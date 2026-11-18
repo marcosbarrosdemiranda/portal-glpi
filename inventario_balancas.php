@@ -727,6 +727,7 @@ foreach ($servidores as $sv) $total_balancas += (int)$sv['total_balancas'];
       .bl-grid { padding:.5rem; }
     }
   </style>
+  <script src="sessao_guard.js"></script>
 </head>
 <body>
 

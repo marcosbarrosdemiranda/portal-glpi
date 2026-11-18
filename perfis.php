@@ -226,6 +226,7 @@ if ($editId) {
     .btn-novo:hover { opacity: .9; }
     .empty-state { text-align: center; padding: 3rem 1rem; color: #aaa; }
   </style>
+  <script src="sessao_guard.js"></script>
 </head>
 <body>
 

@@ -328,6 +328,7 @@ $entidades = carregarEntidades();
     th.sortable.sort-asc::after { content:'▲'; opacity:1; }
     th.sortable.sort-desc::after { content:'▼'; opacity:1; color:var(--accent); }
   </style>
+  <script src="sessao_guard.js"></script>
 </head>
 <body>
 

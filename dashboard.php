@@ -325,6 +325,7 @@ function pode_ver(string $key, ?array $cards): bool {
       padding: .8rem 2rem; margin-top: auto;
     }
   </style>
+  <script src="sessao_guard.js"></script>
 </head>
 <body>
 

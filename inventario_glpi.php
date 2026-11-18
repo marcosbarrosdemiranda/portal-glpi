@@ -371,6 +371,7 @@ $H = 'inv_h';
     .btn-ghost { background:#f1f3f4; color:#3c4043; }
     #msg { position:fixed; bottom:1.2rem; right:1.2rem; z-index:1100; }
   </style>
+  <script src="sessao_guard.js"></script>
 </head>
 <body>
 

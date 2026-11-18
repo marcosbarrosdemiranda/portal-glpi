@@ -195,6 +195,7 @@ if (($_SESSION['perfil'] ?? '') === 'self-service') { header('Location: dashboar
       z-index: 9999; font-size: 1rem; color: #1a237e; gap: .75rem;
     }
   </style>
+  <script src="sessao_guard.js"></script>
 </head>
 <body>
 

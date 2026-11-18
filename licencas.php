@@ -212,6 +212,7 @@ $hoje = date('Y-m-d');
 
     footer { text-align: center; color: #bbb; font-size: .78rem; padding: 2rem; }
   </style>
+  <script src="sessao_guard.js"></script>
 </head>
 <body>
 

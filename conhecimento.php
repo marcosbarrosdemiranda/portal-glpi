@@ -54,6 +54,7 @@ if (empty($_SESSION['autenticado'])) { header('Location: auth.php'); exit; }
       margin-bottom:1.5rem; letter-spacing:.05em;
     }
   </style>
+  <script src="sessao_guard.js"></script>
 </head>
 <body>
 

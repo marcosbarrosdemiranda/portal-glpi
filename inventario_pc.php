@@ -386,6 +386,7 @@ $qsStale = $stale_filtro ? '&stale=1' : '';
     .pc-cnt { font-size:.8rem; color:#5f6368; display:flex; align-items:center; gap:.75rem; margin:.4rem 0 .6rem; }
     .pc-cnt b { font-weight:700; }
   </style>
+  <script src="sessao_guard.js"></script>
 </head>
 <body>
 

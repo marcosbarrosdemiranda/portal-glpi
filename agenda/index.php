@@ -467,6 +467,7 @@ $libera_data_passada = ($cards_portal === null) || (($cards_portal['agenda_data_
     .gcal-participante .email { color: #6c757d; font-size: .8rem; }
 
   </style>
+  <script src="../sessao_guard.js"></script>
 </head>
 <body>
 

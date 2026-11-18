@@ -637,6 +637,7 @@ foreach ($dirs as $k => $d) {
 
     .badge-dir { font-size:.72rem; padding:.15rem .45rem; border-radius:20px; font-weight:600; }
   </style>
+  <script src="sessao_guard.js"></script>
 </head>
 <body>
 

@@ -403,6 +403,7 @@ function iniciais(string $nome): string {
     .cm-followup .fw-data  { color:#888; font-size:.72rem; margin-left:.5rem; }
     .cm-followup .fw-texto { margin-top:.25rem; color:#333; white-space:pre-wrap; line-height:1.45; }
   </style>
+  <script src="sessao_guard.js"></script>
 </head>
 <body>
 

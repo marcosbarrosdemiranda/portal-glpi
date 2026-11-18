@@ -265,6 +265,7 @@ $grupos = $pdo->query("SELECT DISTINCT grupo FROM portal_vnc WHERE grupo != '' O
 
     #toast-container { position:fixed; bottom:1.5rem; right:1.5rem; z-index:9999; }
   </style>
+  <script src="sessao_guard.js"></script>
 </head>
 <body>
 

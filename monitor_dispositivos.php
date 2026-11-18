@@ -350,6 +350,7 @@ if ($action !== '') {
     .feedback.err { background:#fef2f2; border:1px solid #ef4444; color:#991b1b; display:block; }
     .feedback.info{ background:#eff6ff; border:1px solid #3b82f6; color:#1e40af; display:block; }
   </style>
+  <script src="sessao_guard.js"></script>
 </head>
 <body>
 <div class="topbar">

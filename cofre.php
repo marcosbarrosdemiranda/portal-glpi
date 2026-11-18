@@ -407,6 +407,7 @@ if ($action) {
     .btn-salvar { background:#263238; border-color:#263238; }
     .btn-salvar:hover { background:#37474f; border-color:#37474f; }
   </style>
+  <script src="sessao_guard.js"></script>
 </head>
 <body>
 

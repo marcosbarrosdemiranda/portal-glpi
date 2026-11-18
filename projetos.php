@@ -1307,6 +1307,7 @@ body  { background:#f0f4f9; font-family:'Segoe UI',sans-serif; font-size:.9rem; 
     { -webkit-print-color-adjust:exact; print-color-adjust:exact; }
 }
 </style>
+  <script src="sessao_guard.js"></script>
 </head>
 <body>
 

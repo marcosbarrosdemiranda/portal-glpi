@@ -327,6 +327,7 @@ $chamados_jid = wpp_cfg_get('grupo_chamados_jid', '');
     .gat-campo .un { font-size:.8rem; color:#6b7280; }
     footer { text-align:center; color:#bbb; font-size:.78rem; padding:2rem; }
   </style>
+  <script src="sessao_guard.js"></script>
 </head>
 <body>
 <div class="topbar">

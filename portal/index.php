@@ -121,6 +121,7 @@ $user_id = (int)($_SESSION['user_id'] ?? 0);
 
     @media(max-width:900px) { .two-col { grid-template-columns:1fr; } }
   </style>
+  <script src="../sessao_guard.js"></script>
 </head>
 <body>
 
