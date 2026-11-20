@@ -19,6 +19,7 @@ require_once __DIR__ . '/monitor_lib.php';
 require_once __DIR__ . '/monitor_links_lib.php'; // rede_link — links de internet das lojas (pfSense)
 require_once __DIR__ . '/sefaz_lib.php';
 require_once __DIR__ . '/solides_lib.php';
+require_once __DIR__ . '/reconhecimento_lib.php';
 require_once __DIR__ . '/impressoras_lib.php';
 require_once __DIR__ . '/monitor_antenas_lib.php'; // antenas UniFi via SSH (worker consome via HTTP, ver alerta_antenas_status())
 require_once __DIR__ . '/wpp/evo_api.php'; // evo_send_text() — usado por alerta_dispensar()
@@ -318,6 +319,28 @@ function alertas_catalogo(): array
             ],
             'check'  => 'alerta_check_solides_sem_contato',
             'render' => 'alerta_render_solides',
+            'icone'  => 'bi-wifi-off',
+            'cor'    => 'warning',
+        ],
+        'reconhecimento_checagem' => [
+            'nome'      => 'Reconhecimento Facial com problema',
+            'descricao' => 'Checagem de saúde do Reconhecimento Facial fora do normal (Defense, Evolution, WhatsApp, Envio). Vem do webhook do coletor periodicamente.',
+            'params'    => [
+                'minutos' => ['label' => 'Ignorar diagnóstico mais velho que (min)', 'default' => 15, 'min' => 6, 'max' => 240],
+            ],
+            'check'  => 'alerta_check_reconhecimento_checagem',
+            'render' => 'alerta_render_reconhecimento',
+            'icone'  => 'bi-camera-video',
+            'cor'    => 'danger',
+        ],
+        'reconhecimento_sem_contato' => [
+            'nome'      => 'Reconhecimento Facial sem contato',
+            'descricao' => 'O coletor de Reconhecimento Facial parou de mandar o diagnóstico de saúde — coletor, rede ou webhook fora do ar.',
+            'params'    => [
+                'minutos' => ['label' => 'Minutos sem contato', 'default' => 15, 'min' => 6, 'max' => 240],
+            ],
+            'check'  => 'alerta_check_reconhecimento_sem_contato',
+            'render' => 'alerta_render_reconhecimento',
             'icone'  => 'bi-wifi-off',
             'cor'    => 'warning',
         ],
