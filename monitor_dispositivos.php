@@ -499,6 +499,16 @@ if ($action !== '') {
   <div class="tab-pane" id="tab-catalogo">
     <h6 class="mb-1">Catálogo de Alertas</h6>
     <p class="small text-muted mb-3">Ligue/desligue cada tipo de alerta e ajuste os parâmetros, o lembrete e a notificação no grupo Alertas do WhatsApp.</p>
+
+    <div class="card-box mb-3" style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;padding:1rem;">
+      <h6 class="mb-2"><i class="bi bi-gear me-1"></i>Configurações de Webhooks e Integrações Externas</h6>
+      <p class="small text-muted mb-2">Gere tokens e obtenha URLs de webhook para sistemas externos integrados à Central de Alertas:</p>
+      <div class="d-flex gap-2 flex-wrap">
+        <a href="solides_config.php" class="btn btn-sm btn-outline-primary"><i class="bi bi-fingerprint me-1"></i>Ponto (API Sólides)</a>
+        <a href="reconhecimento_config.php" class="btn btn-sm btn-outline-primary"><i class="bi bi-camera-video me-1"></i>Reconhecimento Facial</a>
+      </div>
+    </div>
+
     <div id="lista-catalogo"><div class="text-muted small">Carregando…</div></div>
 
     <div class="card-box mt-3">
