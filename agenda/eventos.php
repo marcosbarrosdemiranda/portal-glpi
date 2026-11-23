@@ -299,7 +299,7 @@ try {
         $is_edit = isset($body['id']) && $body['id'] !== null && $body['id'] !== '';
         $id = $is_edit ? (string)$body['id'] : uniqid('ev_', true);
 
-        $titulo       = preg_replace('/^#\d+\s*[-–]\s*/', '', $body['titulo'] ?? 'Sem título');
+        $titulo       = preg_replace('/^#\d+\s*[-–]\s*/u', '', $body['titulo'] ?? 'Sem título');
         $descricao    = $body['descricao']    ?? '';
         $start        = $body['start']        ?? '';
         $end          = $body['end']          ?? $start;
