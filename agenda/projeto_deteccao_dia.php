@@ -54,7 +54,6 @@ foreach ($contas as $conta) {
     foreach ($resultado as $repo) {
         $nome = $repo['nome'];
         if (($visMap[$nome] ?? 1) === 0) continue;
-        if (($statusMap[$nome] ?? 'em_execucao') !== 'em_execucao') continue;
 
         $stC = $pdo->prepare("SELECT payload FROM portal_github_cache WHERE chave = ?");
         $stC->execute(["commits:{$conta['id']}:{$nome}"]);
@@ -82,7 +81,7 @@ $st = $pdo->prepare("
     SELECT pm.titulo, pmi.texto
     FROM portal_projetos_manuais pm
     JOIN portal_projetos_manuais_itens pmi ON pmi.projeto_id = pm.id
-    WHERE pm.status = 'em_execucao' AND DATE(pmi.concluido_em) = ?
+    WHERE DATE(pmi.concluido_em) = ?
     ORDER BY pm.titulo, pmi.ordem
 ");
 $st->execute([$data]);

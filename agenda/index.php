@@ -2825,7 +2825,10 @@ function _renderProjetosMulti(lista, selecionados) {
   if (!Array.isArray(selecionados)) {
     selecionados = selecionados ? [selecionados] : [];
   }
-  wrap.innerHTML = lista.map(p => {
+  // Garante que projetos selecionados que não estão no catálogo padrão
+  // (ex: projetos concluídos recentemente mas trabalhados no dia) apareçam como chips
+  const listaCompleta = [...new Set([...lista, ...selecionados])];
+  wrap.innerHTML = listaCompleta.map(p => {
     const sel = selecionados.includes(p);
     return `<div class="atendente-multi-chip ${sel ? 'selected' : ''}"
                  data-projeto="${escHtml(p)}"
@@ -2897,7 +2900,10 @@ function ajustarCamposPorTipo() {
     // futuras já na criação, então quase nunca chega "vazio" aqui):
     // sempre tenta detectar de novo, substituindo o clone/placeholder
     // pela detecção real do dia.
-    if (_dadosModal?.concluido) {
+    // Dia já CONCLUÍDO COM projetos salvos: respeita exatamente o que foi salvo.
+    // Se está concluído mas sem nenhum projeto salvo (ex: gerado antes da correção
+    // ou vazio), permite redetectar.
+    if (_dadosModal?.concluido && projsSel.length > 0) {
       carregarListaProjetos(projsSel);
     } else {
       const dataEv = (document.getElementById('ev-start').value || '').substring(0, 10);
@@ -2905,15 +2911,18 @@ function ajustarCamposPorTipo() {
         fetch(`projeto_deteccao_dia.php?data=${encodeURIComponent(dataEv)}`)
           .then(r => r.json())
           .then(d => {
-            carregarListaProjetos((d.ok && d.projetos) ? d.projetos : []);
-            if (d.ok && d.detalhes && d.detalhes.length) {
+            const detectados = (d.ok && d.projetos) ? d.projetos : [];
+            // Se já havia projsSel salvos (mesmo com concluido=1 sem itens), une com os detectados
+            const combinados = [...new Set([...projsSel, ...detectados])];
+            carregarListaProjetos(combinados);
+            if (d.ok && d.detalhes && d.detalhes.length && !document.getElementById('ev-descricao').value.trim()) {
               document.getElementById('ev-descricao').value = montarDescricaoDeteccao(dataEv, d.detalhes);
             }
           })
-          .catch(() => carregarListaProjetos([]))
+          .catch(() => carregarListaProjetos(projsSel))
           .finally(() => marcarConcluidoAutomatico());
       } else {
-        carregarListaProjetos([]);
+        carregarListaProjetos(projsSel);
         marcarConcluidoAutomatico();
       }
     }
