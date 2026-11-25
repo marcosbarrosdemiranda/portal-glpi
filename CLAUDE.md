@@ -288,6 +288,35 @@ REGRAS ESPECIAIS:
 
 ---
 
+## SKILLS GLOBAIS ÚTEIS NESTE PROJETO
+
+> Instaladas em `~/.claude/skills/` (global, +100 skills). A maioria é de
+> domínios que este projeto não toca (vídeo, TTS, 3D, GSAP, Remotion,
+> HyperFrames, Manim, outros clientes). As que sempre valem aqui:
+
+| Skill | Por quê |
+|---|---|
+| `solides-api` | Integra direto com `solides_lib.php`/`webhook_solides.php` (Ponto, API Sólides) |
+| `prd-projeto` | Formato exato do `PRD.md` lido por `parseProjeto()` em `projetos.php` deste repo |
+| `security-audit` | Projeto já tem histórico de auditoria (`project_security-audit-2026-11-11`), webhooks expostos, dados sensíveis (facial, senhas) |
+| `agent-browser` | QA exploratório / screenshots do portal rodando |
+| `codebase-memory-mcp` | Mapear o codebase PHP grande sem framework antes de mexer |
+| `find-skills` | Descobrir skill nova quando nenhuma das acima servir |
+| `task-observer` | Captura padrão/correção durante qualquer sessão (genérico, sempre ativo) |
+
+**Usar com RESSALVA — conflitam com regras já fixadas acima neste arquivo:**
+
+| Skill | Conflito | Como usar aqui |
+|---|---|---|
+| `testes-pre-producao` | Comportamento padrão é "rodar a suíte completa antes de commit/push" — bate de frente com a seção `TESTES` acima (`run.php` roda contra banco de **produção**, pode disparar WhatsApp real). | Rodar só o arquivo mexido, nunca a suíte inteira, mesmo que a skill peça "completa". |
+| `fluxo-de-entrega` | Fluxo de git embutido é `git pull --rebase` + `push para dev` — este projeto nunca dá `git pull` no container e usa branch por spec/feature empilhada (ver seção `GIT` e `CONTEXTO DO PROJETO`), não uma branch `dev` única. | Só a parte de documentação/registro de sessão serve; ignorar os passos de git da skill e seguir a seção `GIT` deste arquivo. |
+
+Todo o resto do catálogo global (vídeo, áudio, 3D, animação, Remotion,
+HyperFrames, `rpinfo-api`, etc.) é de outros projetos/domínios — não
+invocar aqui a menos que o pedido do usuário mude de escopo.
+
+---
+
 ## LIÇÕES APRENDIDAS
 
 > Máx 10 itens. Quando virar padrão em `.knowledge/patterns.md`, remover daqui.
