@@ -23,7 +23,21 @@ const RECONHECIMENTO_ORIGEM = 'reconhecimento';
         evento      VARCHAR(20) NOT NULL DEFAULT 'saude',
         recebido_em DATETIME NOT NULL
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
+
+    // [SPEC: reconhecimento-resumo-rotina-diaria] última face detectada — bloco
+    // opcional mandado pelo coletor na carona do mesmo webhook de saúde. Só a
+    // última (sem histórico de imagens): upsert junto com a linha de saúde.
+    $pdo->exec("ALTER TABLE portal_reconhecimento_saude
+        ADD COLUMN IF NOT EXISTS ultima_face_quando DATETIME NULL,
+        ADD COLUMN IF NOT EXISTS ultima_face_nome VARCHAR(255) NULL,
+        ADD COLUMN IF NOT EXISTS ultima_face_canal VARCHAR(255) NULL,
+        ADD COLUMN IF NOT EXISTS ultima_face_thumb MEDIUMTEXT NULL");
 })();
+
+// [SPEC: reconhecimento-resumo-rotina-diaria] limite de tamanho do thumb_b64
+// recebido do coletor — acima disso descarta a imagem (mantém nome/quando/canal)
+// pra não inchar o payload/linha.
+const RECONHECIMENTO_FACE_THUMB_MAX_BYTES = 400 * 1024;
 
 /* ───────────────────────────── Tokens / config ───────────────────────────── */
 
@@ -43,24 +57,64 @@ function reconhecimento_gerar_webhook_token(): string
 
 /* ───────────────────────────── Webhook: gravação ───────────────────────────── */
 
-/** Grava o diagnóstico recebido como o último da origem (upsert). */
+/**
+ * Grava o diagnóstico recebido como o último da origem (upsert). Bloco
+ * `ultima_face` é opcional — [SPEC: reconhecimento-resumo-rotina-diaria]:
+ * se ausente, as colunas ultima_face_* ficam intocadas (upsert não zera o
+ * que já estava lá, já que são colunas separadas da linha de saúde).
+ */
 function reconhecimento_registrar_payload(PDO $pdo, array $payload, string $origem = RECONHECIMENTO_ORIGEM): void
 {
     $status = (string) ($payload['status'] ?? '');
     if (!in_array($status, ['ok', 'alerta', 'falha'], true)) $status = 'falha';
 
     $checagens = is_array($payload['checagens'] ?? null) ? array_values($payload['checagens']) : [];
-    $pdo->prepare("INSERT INTO portal_reconhecimento_saude (origem, status, resumo, checagens, evento, recebido_em)
-                   VALUES (?,?,?,?,?,NOW())
-                   ON DUPLICATE KEY UPDATE status = VALUES(status), resumo = VALUES(resumo),
-                       checagens = VALUES(checagens), evento = VALUES(evento), recebido_em = VALUES(recebido_em)")
-        ->execute([
-            $origem,
-            $status,
-            mb_substr((string) ($payload['resumo'] ?? ''), 0, 1000),
-            json_encode($checagens, JSON_UNESCAPED_UNICODE),
-            mb_substr((string) ($payload['evento'] ?? 'saude'), 0, 20),
-        ]);
+
+    $face = is_array($payload['ultima_face'] ?? null) ? $payload['ultima_face'] : null;
+    $faceQuando = null;
+    $faceNome = null;
+    $faceCanal = null;
+    $faceThumb = null;
+    if ($face !== null) {
+        $quandoRaw = (string) ($face['quando'] ?? '');
+        $faceQuando = $quandoRaw !== '' && strtotime($quandoRaw) !== false ? date('Y-m-d H:i:s', strtotime($quandoRaw)) : null;
+        $faceNome = $faceQuando !== null ? mb_substr((string) ($face['nome'] ?? ''), 0, 255) : null;
+        $faceCanal = $faceQuando !== null ? mb_substr((string) ($face['canal'] ?? ''), 0, 255) : null;
+        $thumbRaw = (string) ($face['thumb_b64'] ?? '');
+        // descarta a imagem (mantém nome/quando/canal) se vier maior que o limite —
+        // não quebra o resto do payload, só não guarda a miniatura dessa vez.
+        if ($faceQuando !== null && $thumbRaw !== '' && strlen($thumbRaw) <= RECONHECIMENTO_FACE_THUMB_MAX_BYTES) {
+            $faceThumb = $thumbRaw;
+        } elseif ($faceQuando !== null && $thumbRaw !== '') {
+            error_log('reconhecimento_registrar_payload: ultima_face.thumb_b64 descartado (' . strlen($thumbRaw) . ' bytes > limite)');
+        }
+    }
+
+    $sql = "INSERT INTO portal_reconhecimento_saude (origem, status, resumo, checagens, evento, recebido_em)
+            VALUES (?,?,?,?,?,NOW())
+            ON DUPLICATE KEY UPDATE status = VALUES(status), resumo = VALUES(resumo),
+                checagens = VALUES(checagens), evento = VALUES(evento), recebido_em = VALUES(recebido_em)";
+    $params = [
+        $origem,
+        $status,
+        mb_substr((string) ($payload['resumo'] ?? ''), 0, 1000),
+        json_encode($checagens, JSON_UNESCAPED_UNICODE),
+        mb_substr((string) ($payload['evento'] ?? 'saude'), 0, 20),
+    ];
+
+    if ($faceQuando !== null) {
+        $sql = "INSERT INTO portal_reconhecimento_saude
+                    (origem, status, resumo, checagens, evento, recebido_em,
+                     ultima_face_quando, ultima_face_nome, ultima_face_canal, ultima_face_thumb)
+                VALUES (?,?,?,?,?,NOW(),?,?,?,?)
+                ON DUPLICATE KEY UPDATE status = VALUES(status), resumo = VALUES(resumo),
+                    checagens = VALUES(checagens), evento = VALUES(evento), recebido_em = VALUES(recebido_em),
+                    ultima_face_quando = VALUES(ultima_face_quando), ultima_face_nome = VALUES(ultima_face_nome),
+                    ultima_face_canal = VALUES(ultima_face_canal), ultima_face_thumb = VALUES(ultima_face_thumb)";
+        $params = array_merge($params, [$faceQuando, $faceNome, $faceCanal, $faceThumb]);
+    }
+
+    $pdo->prepare($sql)->execute($params);
 }
 
 /** @return array|null linha de portal_reconhecimento_saude */
@@ -70,6 +124,82 @@ function reconhecimento_ultimo_diagnostico(PDO $pdo, string $origem = RECONHECIM
     $st->execute([$origem]);
     $row = $st->fetch(PDO::FETCH_ASSOC);
     return $row ?: null;
+}
+
+/* ───────────────────────────── Resumo ontem/hoje (Rotina Diária) ───────────────────────────── */
+// [SPEC: reconhecimento-resumo-rotina-diaria] opção B aprovada: histórico de
+// transições nova/resolvida (portal_alertas_historico) agrupado em ontem/hoje,
+// pareando pela mesma `chave` — mesma fonte de dados da Central de Alertas,
+// sem tabela nova.
+
+/**
+ * Agrupa as transições de reconhecimento_checagem/reconhecimento_sem_contato
+ * em "ontem" e "hoje" (relativo a $agoraTs), pareando nova→resolvida por chave.
+ * @return array{ontem: array, hoje: array} cada dia: array de
+ *   ['chave','titulo','aberta_em','resolvida_em'] (resolvida_em null = ainda aberta)
+ */
+function reconhecimento_relatorio_dias(PDO $pdo, int $agoraTs): array
+{
+    $hojeInicio = strtotime('today', $agoraTs);
+    $ontemInicio = $hojeInicio - 86400;
+
+    $st = $pdo->prepare(
+        "SELECT chave, evento, titulo, criado_em FROM portal_alertas_historico
+         WHERE tipo IN ('reconhecimento_checagem', 'reconhecimento_sem_contato')
+           AND criado_em >= ?
+         ORDER BY chave, criado_em ASC"
+    );
+    $st->execute([date('Y-m-d H:i:s', $ontemInicio)]);
+    $linhas = $st->fetchAll(PDO::FETCH_ASSOC);
+
+    $abertas = []; // chave => linha 'nova' ainda sem par 'resolvida'
+    $dias = ['ontem' => [], 'hoje' => []];
+    foreach ($linhas as $l) {
+        $ts = strtotime((string) $l['criado_em']);
+        $dia = $ts >= $hojeInicio ? 'hoje' : 'ontem';
+        if ($l['evento'] === 'nova') {
+            $abertas[$l['chave']] = ['chave' => $l['chave'], 'titulo' => (string) $l['titulo'], 'aberta_em' => $l['criado_em'], 'resolvida_em' => null, 'dia' => $dia];
+        } elseif ($l['evento'] === 'resolvida' && isset($abertas[$l['chave']])) {
+            $abertas[$l['chave']]['resolvida_em'] = $l['criado_em'];
+            $dias[$abertas[$l['chave']]['dia']][] = $abertas[$l['chave']];
+            unset($abertas[$l['chave']]);
+        }
+    }
+    // o que ficou em $abertas nunca resolveu dentro da janela — ainda em aberto.
+    foreach ($abertas as $a) {
+        $dias[$a['dia']][] = $a;
+    }
+
+    return $dias;
+}
+
+/** Formata o resultado de reconhecimento_relatorio_dias() no mesmo padrão visual do Sólides. */
+function reconhecimento_relatorio_texto(array $dias): string
+{
+    $fmtDia = function (array $ocorr): string {
+        if (!$ocorr) return 'sem anormalidades';
+        $abertos = count(array_filter($ocorr, fn($o) => $o['resolvida_em'] === null));
+        $linhas = [count($ocorr) . ' anormalidade(s)' . ($abertos > 0 ? ", {$abertos} ainda em aberto" : '')];
+        foreach ($ocorr as $o) {
+            $horaAbriu = date('H:i', strtotime((string) $o['aberta_em']));
+            if ($o['resolvida_em'] !== null) {
+                $linhas[] = '  ✅ ' . $o['titulo'] . ' às ' . $horaAbriu . ' — resolvido às ' . date('H:i', strtotime((string) $o['resolvida_em']));
+            } else {
+                $linhas[] = '  ❌ ' . $o['titulo'] . ' às ' . $horaAbriu . ' — AINDA EM ABERTO';
+            }
+        }
+        return implode("\n", $linhas);
+    };
+
+    $totalAnormal = count($dias['ontem']) + count($dias['hoje']);
+    $cabecalho = 'Reconhecimento Facial: ' . ($totalAnormal === 0 ? '✅ sem anormalidades' : "❌ {$totalAnormal} anormalidade(s)");
+
+    $ontemLbl = date('d/m', strtotime('yesterday'));
+    $hojeLbl = date('d/m');
+
+    return $cabecalho
+        . "\nOntem ({$ontemLbl}): " . $fmtDia($dias['ontem'])
+        . "\nHoje ({$hojeLbl}): " . $fmtDia($dias['hoje']);
 }
 
 /* ───────────────────────────── Regras de alerta (puras) ───────────────────────────── */
