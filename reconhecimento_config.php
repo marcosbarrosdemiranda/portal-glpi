@@ -134,6 +134,13 @@ if ($action !== '') {
 <footer>Portal GLPI &bull; Reconhecimento Facial</footer>
 
 <script>
+// [review] achado pré-existente (não introduzido por esta spec, mas corrigido
+// de passagem por estar na mesma função): u.resumo vem do payload do webhook
+// (coletor autenticado só por token) e ia direto pra innerHTML sem escapar.
+function escHtml(s) {
+    return String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+}
+
 async function carregarStatus() {
     try {
         const res = await fetch('reconhecimento_config.php?action=status');
@@ -152,16 +159,24 @@ async function carregarStatus() {
         if (d.ultimo) {
             const u = d.ultimo;
             const badge = u.status === 'ok' ? '✅' : (u.status === 'alerta' ? '⚠️' : '❌');
-            document.getElementById('ultimo').innerHTML = `último diagnóstico: <b>${badge} ${u.status.toUpperCase()}</b> &mdash; ${u.resumo || '(sem resumo)'} <span class="text-muted">(${u.recebido_em})</span>`;
+            document.getElementById('ultimo').innerHTML = `último diagnóstico: <b>${badge} ${escHtml(u.status.toUpperCase())}</b> &mdash; ${escHtml(u.resumo || '(sem resumo)')} <span class="text-muted">(${escHtml(u.recebido_em)})</span>`;
 
-            // [SPEC: reconhecimento-resumo-rotina-diaria]
+            // [SPEC: reconhecimento-resumo-rotina-diaria] critério de aceite #3 —
+            // mostra aviso explícito em vez de só esconder quando o coletor
+            // ainda não manda a última face.
             const faceWrap = document.getElementById('ultimaFaceWrap');
+            const faceImg = document.getElementById('ultimaFaceImg');
+            const faceLegenda = document.getElementById('ultimaFaceLegenda');
             if (u.ultima_face && u.ultima_face.thumb_b64) {
-                document.getElementById('ultimaFaceImg').src = 'data:image/jpeg;base64,' + u.ultima_face.thumb_b64;
-                document.getElementById('ultimaFaceLegenda').textContent = 'Última face: ' + (u.ultima_face.nome || '?') + ' em ' + u.ultima_face.quando + (u.ultima_face.canal ? ' (' + u.ultima_face.canal + ')' : '');
+                faceImg.style.display = '';
+                faceImg.src = 'data:image/jpeg;base64,' + u.ultima_face.thumb_b64;
+                faceLegenda.textContent = 'Última face: ' + (u.ultima_face.nome || '?') + ' em ' + u.ultima_face.quando + (u.ultima_face.canal ? ' (' + u.ultima_face.canal + ')' : '');
                 faceWrap.classList.remove('d-none');
             } else {
-                faceWrap.classList.add('d-none');
+                faceImg.style.display = 'none';
+                faceImg.removeAttribute('src');
+                faceLegenda.textContent = 'coletor ainda não envia a última face — atualizar o coletor';
+                faceWrap.classList.remove('d-none');
             }
         } else {
             document.getElementById('ultimo').textContent = 'último diagnóstico: nenhum recebido ainda';

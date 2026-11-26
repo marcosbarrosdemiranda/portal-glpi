@@ -15,6 +15,14 @@ if (empty($_SESSION['autenticado'])) {
     echo json_encode(['ok' => false, 'erro' => 'não autenticado']);
     exit;
 }
+// [review] dado biométrico (nome + miniatura de rosto) — mesmo bloqueio de perfil
+// self-service/portal já aplicado em reconhecimento_config.php pra esse dado.
+if (($_SESSION['perfil'] ?? '') === 'self-service') {
+    http_response_code(403);
+    header('Content-Type: application/json');
+    echo json_encode(['ok' => false, 'erro' => 'sem permissão']);
+    exit;
+}
 
 require_once __DIR__ . '/agenda/db.php';
 require_once __DIR__ . '/reconhecimento_lib.php';
@@ -46,7 +54,8 @@ if ($ultimo) {
     $statusTexto = 'Reconhecimento Facial: nenhum diagnóstico recebido ainda via webhook.';
 }
 
-$relTexto = reconhecimento_relatorio_texto(reconhecimento_relatorio_dias($pdo, time()));
+$agoraTs = time();
+$relTexto = reconhecimento_relatorio_texto(reconhecimento_relatorio_dias($pdo, $agoraTs), $agoraTs);
 
 $face = null;
 if ($ultimo && !empty($ultimo['ultima_face_quando'])) {

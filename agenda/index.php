@@ -3251,10 +3251,20 @@ function abrirModalResposta() {
       .then(r => r.json())
       .then(d => {
         textoReconhecimento.textContent = d.ok ? d.texto : 'Reconhecimento Facial: falha ao carregar o relatório (' + (d.erro || 'erro') + ') — preencha manualmente.';
-        if (d.ok && d.face && d.face.thumb_b64 && wrapFaceReconhecimento && imgFaceReconhecimento) {
-          imgFaceReconhecimento.src = 'data:image/jpeg;base64,' + d.face.thumb_b64;
-          legendaFaceReconhecimento.textContent = 'Última face: ' + (d.face.nome || '?') + ' em ' + d.face.quando + (d.face.canal ? ' (' + d.face.canal + ')' : '');
-          wrapFaceReconhecimento.style.display = '';
+        if (wrapFaceReconhecimento && imgFaceReconhecimento && legendaFaceReconhecimento) {
+          if (d.ok && d.face && d.face.thumb_b64) {
+            imgFaceReconhecimento.style.display = 'block';
+            imgFaceReconhecimento.src = 'data:image/jpeg;base64,' + d.face.thumb_b64;
+            legendaFaceReconhecimento.textContent = 'Última face: ' + (d.face.nome || '?') + ' em ' + d.face.quando + (d.face.canal ? ' (' + d.face.canal + ')' : '');
+            wrapFaceReconhecimento.style.display = '';
+          } else if (d.ok) {
+            // [SPEC: reconhecimento-resumo-rotina-diaria] critério de aceite #3 —
+            // coletor ainda não manda a última face: aviso em vez de sumir calado.
+            imgFaceReconhecimento.removeAttribute('src');
+            imgFaceReconhecimento.style.display = 'none';
+            legendaFaceReconhecimento.textContent = 'coletor ainda não envia a última face — atualizar o coletor';
+            wrapFaceReconhecimento.style.display = '';
+          }
         }
       })
       .catch(() => { textoReconhecimento.textContent = 'Reconhecimento Facial: falha ao carregar o relatório — preencha manualmente.'; });

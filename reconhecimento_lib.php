@@ -110,7 +110,10 @@ function reconhecimento_registrar_payload(PDO $pdo, array $payload, string $orig
                 ON DUPLICATE KEY UPDATE status = VALUES(status), resumo = VALUES(resumo),
                     checagens = VALUES(checagens), evento = VALUES(evento), recebido_em = VALUES(recebido_em),
                     ultima_face_quando = VALUES(ultima_face_quando), ultima_face_nome = VALUES(ultima_face_nome),
-                    ultima_face_canal = VALUES(ultima_face_canal), ultima_face_thumb = VALUES(ultima_face_thumb)";
+                    ultima_face_canal = VALUES(ultima_face_canal),
+                    -- [review] thumb descartado por tamanho (faceThumb=null) não deve apagar
+                    -- a última miniatura boa que já estava gravada — só sobrescreve se vier uma nova.
+                    ultima_face_thumb = COALESCE(VALUES(ultima_face_thumb), ultima_face_thumb)";
         $params = array_merge($params, [$faceQuando, $faceNome, $faceCanal, $faceThumb]);
     }
 
@@ -173,8 +176,13 @@ function reconhecimento_relatorio_dias(PDO $pdo, int $agoraTs): array
     return $dias;
 }
 
-/** Formata o resultado de reconhecimento_relatorio_dias() no mesmo padrão visual do Sólides. */
-function reconhecimento_relatorio_texto(array $dias): string
+/**
+ * Formata o resultado de reconhecimento_relatorio_dias() no mesmo padrão visual
+ * do Sólides. $agoraTs deve ser o mesmo valor passado a reconhecimento_relatorio_dias()
+ * — [review] evita rótulos de data calculados do relógio real quando o chamador
+ * usar um $agoraTs diferente de "agora" (ex.: teste, ou tela de um dia específico).
+ */
+function reconhecimento_relatorio_texto(array $dias, int $agoraTs): string
 {
     $fmtDia = function (array $ocorr): string {
         if (!$ocorr) return 'sem anormalidades';
@@ -191,11 +199,16 @@ function reconhecimento_relatorio_texto(array $dias): string
         return implode("\n", $linhas);
     };
 
-    $totalAnormal = count($dias['ontem']) + count($dias['hoje']);
-    $cabecalho = 'Reconhecimento Facial: ' . ($totalAnormal === 0 ? '✅ sem anormalidades' : "❌ {$totalAnormal} anormalidade(s)");
+    $todasOcorr = array_merge($dias['ontem'], $dias['hoje']);
+    $totalAnormal = count($todasOcorr);
+    // [review] cabeçalho inclui o total em aberto, igual ao exemplo da spec aprovada.
+    $totalAbertos = count(array_filter($todasOcorr, fn($o) => $o['resolvida_em'] === null));
+    $cabecalho = 'Reconhecimento Facial: ' . ($totalAnormal === 0
+        ? '✅ sem anormalidades'
+        : "❌ {$totalAnormal} anormalidade(s)" . ($totalAbertos > 0 ? ", {$totalAbertos} em aberto" : ''));
 
-    $ontemLbl = date('d/m', strtotime('yesterday'));
-    $hojeLbl = date('d/m');
+    $ontemLbl = date('d/m', $agoraTs - 86400);
+    $hojeLbl = date('d/m', $agoraTs);
 
     return $cabecalho
         . "\nOntem ({$ontemLbl}): " . $fmtDia($dias['ontem'])
