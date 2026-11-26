@@ -3233,6 +3233,33 @@ function abrirModalResposta() {
       .catch(() => { textoSolides.textContent = 'Ponto (API Sólides): falha ao carregar o relatório — preencha manualmente.'; });
   }
 
+  // [SPEC: reconhecimento-resumo-rotina-diaria] Mesma rotina: Reconhecimento
+  // Facial — status + histórico ontem/hoje (texto) + miniatura da última face
+  // (só visual; não entra no texto da resposta, ver enviarResposta()).
+  const boxReconhecimento = document.getElementById('resp-reconhecimento');
+  const textoReconhecimento = document.getElementById('resp-reconhecimento-texto');
+  const wrapFaceReconhecimento = document.getElementById('resp-reconhecimento-face-wrap');
+  const imgFaceReconhecimento = document.getElementById('resp-reconhecimento-face-img');
+  const legendaFaceReconhecimento = document.getElementById('resp-reconhecimento-face-legenda');
+  if (boxReconhecimento) boxReconhecimento.style.display = 'none';
+  if (textoReconhecimento) textoReconhecimento.textContent = '';
+  if (wrapFaceReconhecimento) wrapFaceReconhecimento.style.display = 'none';
+  if (mostrarBackup && boxReconhecimento && textoReconhecimento) {
+    boxReconhecimento.style.display = '';
+    textoReconhecimento.textContent = 'Carregando relatório do Reconhecimento Facial…';
+    fetch('../reconhecimento_resumo_ajax.php')
+      .then(r => r.json())
+      .then(d => {
+        textoReconhecimento.textContent = d.ok ? d.texto : 'Reconhecimento Facial: falha ao carregar o relatório (' + (d.erro || 'erro') + ') — preencha manualmente.';
+        if (d.ok && d.face && d.face.thumb_b64 && wrapFaceReconhecimento && imgFaceReconhecimento) {
+          imgFaceReconhecimento.src = 'data:image/jpeg;base64,' + d.face.thumb_b64;
+          legendaFaceReconhecimento.textContent = 'Última face: ' + (d.face.nome || '?') + ' em ' + d.face.quando + (d.face.canal ? ' (' + d.face.canal + ')' : '');
+          wrapFaceReconhecimento.style.display = '';
+        }
+      })
+      .catch(() => { textoReconhecimento.textContent = 'Reconhecimento Facial: falha ao carregar o relatório — preencha manualmente.'; });
+  }
+
   // Mesma rotina: status do Banco de Dados Central (conexões/CPU/memória).
   const boxDb = document.getElementById('resp-db-status');
   const textoDb = document.getElementById('resp-db-texto');
@@ -3527,6 +3554,14 @@ async function enviarResposta() {
   if (boxSolides && boxSolides.style.display !== 'none') {
     const textoSolides = document.getElementById('resp-solides-texto').textContent.trim();
     if (textoSolides) blocos.push(textoSolides);
+  }
+
+  // [SPEC: reconhecimento-resumo-rotina-diaria] só o texto entra na resposta —
+  // a miniatura da última face é só conferência visual no modal.
+  const boxReconhecimento = document.getElementById('resp-reconhecimento');
+  if (boxReconhecimento && boxReconhecimento.style.display !== 'none') {
+    const textoReconhecimento = document.getElementById('resp-reconhecimento-texto').textContent.trim();
+    if (textoReconhecimento) blocos.push(textoReconhecimento);
   }
 
   const boxDb = document.getElementById('resp-db-status');
