@@ -918,6 +918,19 @@ $libera_data_passada = ($cards_portal === null) || (($cards_portal['agenda_data_
               <div id="resp-solides-texto" class="p-3 border rounded" style="background:#f8fafc;white-space:pre-wrap;font-family:monospace;font-size:.72rem"></div>
             </div>
 
+            <!-- [SPEC: reconhecimento-resumo-rotina-diaria] Reconhecimento Facial —
+                 mesma rotina diária, logo abaixo de Ponto: status + histórico
+                 ontem/hoje (texto, entra na resposta) + miniatura da última face
+                 (só visual, não entra no texto enviado ao GLPI). -->
+            <div id="resp-reconhecimento" style="display:none" class="mb-3">
+              <label class="form-label fw-semibold">📷 Reconhecimento Facial</label>
+              <div id="resp-reconhecimento-texto" class="p-3 border rounded" style="background:#f8fafc;white-space:pre-wrap;font-family:monospace;font-size:.72rem"></div>
+              <div id="resp-reconhecimento-face-wrap" style="display:none" class="mt-2">
+                <img id="resp-reconhecimento-face-img" style="max-width:150px;border-radius:6px;display:block" alt="Última face detectada"/>
+                <small id="resp-reconhecimento-face-legenda" class="text-muted"></small>
+              </div>
+            </div>
+
             <!-- Status Banco de Dados Central (monitoramento 192.168.1.10) — logo
                  abaixo de Ponto, mesmo padrão de informativo na resposta final. -->
             <div id="resp-db-status" style="display:none" class="mb-3">
