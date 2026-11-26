@@ -933,6 +933,19 @@ $libera_data_passada = ($cards_portal === null) || (($cards_portal['agenda_data_
             <div id="resp-backup-texto" class="p-3 border rounded" style="background:#f8fafc;white-space:pre-wrap;font-family:monospace;font-size:.72rem"></div>
           </div>
 
+          <!-- [SPEC: reconhecimento-resumo-rotina-diaria] Reconhecimento Facial —
+               mesma rotina diária, logo abaixo do Resumo de Backups: status +
+               histórico ontem/hoje (texto, entra na resposta) + miniatura da
+               última face (só visual, não entra no texto enviado ao GLPI). -->
+          <div id="resp-reconhecimento" style="display:none" class="col-12 mb-3">
+            <label class="form-label fw-semibold">📷 Reconhecimento Facial</label>
+            <div id="resp-reconhecimento-texto" class="p-3 border rounded" style="background:#f8fafc;white-space:pre-wrap;font-family:monospace;font-size:.72rem"></div>
+            <div id="resp-reconhecimento-face-wrap" style="display:none" class="mt-2">
+              <img id="resp-reconhecimento-face-img" style="max-width:150px;border-radius:6px;display:block" alt="Última face detectada"/>
+              <small id="resp-reconhecimento-face-legenda" class="text-muted"></small>
+            </div>
+          </div>
+
           <!-- Latência dos pfSense (rotina diária de Firewall e Comunicação Lojas) — informativo,
                não editável; entra junto na resposta final do chamado na hora de enviar. -->
           <div id="resp-firewall" style="display:none" class="col-12 mb-3">
@@ -3220,6 +3233,43 @@ function abrirModalResposta() {
       .catch(() => { textoSolides.textContent = 'Ponto (API Sólides): falha ao carregar o relatório — preencha manualmente.'; });
   }
 
+  // [SPEC: reconhecimento-resumo-rotina-diaria] Mesma rotina: Reconhecimento
+  // Facial — status + histórico ontem/hoje (texto) + miniatura da última face
+  // (só visual; não entra no texto da resposta, ver enviarResposta()).
+  const boxReconhecimento = document.getElementById('resp-reconhecimento');
+  const textoReconhecimento = document.getElementById('resp-reconhecimento-texto');
+  const wrapFaceReconhecimento = document.getElementById('resp-reconhecimento-face-wrap');
+  const imgFaceReconhecimento = document.getElementById('resp-reconhecimento-face-img');
+  const legendaFaceReconhecimento = document.getElementById('resp-reconhecimento-face-legenda');
+  if (boxReconhecimento) boxReconhecimento.style.display = 'none';
+  if (textoReconhecimento) textoReconhecimento.textContent = '';
+  if (wrapFaceReconhecimento) wrapFaceReconhecimento.style.display = 'none';
+  if (mostrarBackup && boxReconhecimento && textoReconhecimento) {
+    boxReconhecimento.style.display = '';
+    textoReconhecimento.textContent = 'Carregando relatório do Reconhecimento Facial…';
+    fetch('../reconhecimento_resumo_ajax.php')
+      .then(r => r.json())
+      .then(d => {
+        textoReconhecimento.textContent = d.ok ? d.texto : 'Reconhecimento Facial: falha ao carregar o relatório (' + (d.erro || 'erro') + ') — preencha manualmente.';
+        if (wrapFaceReconhecimento && imgFaceReconhecimento && legendaFaceReconhecimento) {
+          if (d.ok && d.face && d.face.thumb_b64) {
+            imgFaceReconhecimento.style.display = 'block';
+            imgFaceReconhecimento.src = 'data:image/jpeg;base64,' + d.face.thumb_b64;
+            legendaFaceReconhecimento.textContent = 'Última face: ' + (d.face.nome || '?') + ' em ' + d.face.quando + (d.face.canal ? ' (' + d.face.canal + ')' : '');
+            wrapFaceReconhecimento.style.display = '';
+          } else if (d.ok) {
+            // [SPEC: reconhecimento-resumo-rotina-diaria] critério de aceite #3 —
+            // coletor ainda não manda a última face: aviso em vez de sumir calado.
+            imgFaceReconhecimento.removeAttribute('src');
+            imgFaceReconhecimento.style.display = 'none';
+            legendaFaceReconhecimento.textContent = 'coletor ainda não envia a última face — atualizar o coletor';
+            wrapFaceReconhecimento.style.display = '';
+          }
+        }
+      })
+      .catch(() => { textoReconhecimento.textContent = 'Reconhecimento Facial: falha ao carregar o relatório — preencha manualmente.'; });
+  }
+
   // Mesma rotina: status do Banco de Dados Central (conexões/CPU/memória).
   const boxDb = document.getElementById('resp-db-status');
   const textoDb = document.getElementById('resp-db-texto');
@@ -3514,6 +3564,14 @@ async function enviarResposta() {
   if (boxSolides && boxSolides.style.display !== 'none') {
     const textoSolides = document.getElementById('resp-solides-texto').textContent.trim();
     if (textoSolides) blocos.push(textoSolides);
+  }
+
+  // [SPEC: reconhecimento-resumo-rotina-diaria] só o texto entra na resposta —
+  // a miniatura da última face é só conferência visual no modal.
+  const boxReconhecimento = document.getElementById('resp-reconhecimento');
+  if (boxReconhecimento && boxReconhecimento.style.display !== 'none') {
+    const textoReconhecimento = document.getElementById('resp-reconhecimento-texto').textContent.trim();
+    if (textoReconhecimento) blocos.push(textoReconhecimento);
   }
 
   const boxDb = document.getElementById('resp-db-status');

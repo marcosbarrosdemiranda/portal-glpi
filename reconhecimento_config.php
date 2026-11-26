@@ -32,6 +32,14 @@ if ($action !== '') {
                 'resumo'      => $ultimo['resumo'],
                 'evento'      => $ultimo['evento'],
                 'recebido_em' => $ultimo['recebido_em'],
+                // [SPEC: reconhecimento-resumo-rotina-diaria] conferência rápida
+                // da última face sem precisar abrir o chamado da Agenda.
+                'ultima_face' => !empty($ultimo['ultima_face_quando']) ? [
+                    'quando'    => $ultimo['ultima_face_quando'],
+                    'nome'      => (string) ($ultimo['ultima_face_nome'] ?? ''),
+                    'canal'     => (string) ($ultimo['ultima_face_canal'] ?? ''),
+                    'thumb_b64' => $ultimo['ultima_face_thumb'] !== null ? (string) $ultimo['ultima_face_thumb'] : null,
+                ] : null,
             ] : null,
         ]);
         exit;
@@ -100,6 +108,12 @@ if ($action !== '') {
       </div>
     </div>
     <div class="status-linha" id="ultimo">último diagnóstico: —</div>
+    <!-- [SPEC: reconhecimento-resumo-rotina-diaria] última face recebida —
+         conferência rápida de que a captura está funcionando. -->
+    <div id="ultimaFaceWrap" class="d-none mt-2" style="display:flex;align-items:center;gap:.6rem">
+      <img id="ultimaFaceImg" style="max-width:90px;border-radius:6px" alt="Última face detectada"/>
+      <small id="ultimaFaceLegenda" class="text-muted"></small>
+    </div>
     <div class="d-flex gap-2 mt-3">
       <button type="button" class="btn btn-primary btn-sm" onclick="gerarToken()"><i class="bi bi-key me-1"></i>Gerar novo token</button>
     </div>
@@ -120,6 +134,13 @@ if ($action !== '') {
 <footer>Portal GLPI &bull; Reconhecimento Facial</footer>
 
 <script>
+// [review] achado pré-existente (não introduzido por esta spec, mas corrigido
+// de passagem por estar na mesma função): u.resumo vem do payload do webhook
+// (coletor autenticado só por token) e ia direto pra innerHTML sem escapar.
+function escHtml(s) {
+    return String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+}
+
 async function carregarStatus() {
     try {
         const res = await fetch('reconhecimento_config.php?action=status');
@@ -138,7 +159,25 @@ async function carregarStatus() {
         if (d.ultimo) {
             const u = d.ultimo;
             const badge = u.status === 'ok' ? '✅' : (u.status === 'alerta' ? '⚠️' : '❌');
-            document.getElementById('ultimo').innerHTML = `último diagnóstico: <b>${badge} ${u.status.toUpperCase()}</b> &mdash; ${u.resumo || '(sem resumo)'} <span class="text-muted">(${u.recebido_em})</span>`;
+            document.getElementById('ultimo').innerHTML = `último diagnóstico: <b>${badge} ${escHtml(u.status.toUpperCase())}</b> &mdash; ${escHtml(u.resumo || '(sem resumo)')} <span class="text-muted">(${escHtml(u.recebido_em)})</span>`;
+
+            // [SPEC: reconhecimento-resumo-rotina-diaria] critério de aceite #3 —
+            // mostra aviso explícito em vez de só esconder quando o coletor
+            // ainda não manda a última face.
+            const faceWrap = document.getElementById('ultimaFaceWrap');
+            const faceImg = document.getElementById('ultimaFaceImg');
+            const faceLegenda = document.getElementById('ultimaFaceLegenda');
+            if (u.ultima_face && u.ultima_face.thumb_b64) {
+                faceImg.style.display = '';
+                faceImg.src = 'data:image/jpeg;base64,' + u.ultima_face.thumb_b64;
+                faceLegenda.textContent = 'Última face: ' + (u.ultima_face.nome || '?') + ' em ' + u.ultima_face.quando + (u.ultima_face.canal ? ' (' + u.ultima_face.canal + ')' : '');
+                faceWrap.classList.remove('d-none');
+            } else {
+                faceImg.style.display = 'none';
+                faceImg.removeAttribute('src');
+                faceLegenda.textContent = 'coletor ainda não envia a última face — atualizar o coletor';
+                faceWrap.classList.remove('d-none');
+            }
         } else {
             document.getElementById('ultimo').textContent = 'último diagnóstico: nenhum recebido ainda';
         }
