@@ -1499,7 +1499,7 @@ body  { background:#f0f4f9; font-family:'Segoe UI',sans-serif; font-size:.9rem; 
 
   // ── Projetos manuais (sem conta GitHub) — progresso calculado on-the-fly ──
   $pmRows = $pdo->query("
-      SELECT pm.id, pm.titulo, pm.descricao, pm.status, pm.previsao, pm.responsaveis,
+      SELECT pm.id, pm.titulo, pm.descricao, pm.status, pm.previsao, pm.responsaveis, pm.criado_em,
              COUNT(i.id) AS total_itens, COALESCE(SUM(i.concluido),0) AS feitas_itens
       FROM portal_projetos_manuais pm
       LEFT JOIN portal_projetos_manuais_itens i ON i.projeto_id = pm.id
@@ -1582,8 +1582,9 @@ body  { background:#f0f4f9; font-family:'Segoe UI',sans-serif; font-size:.9rem; 
           <?php if ($reposPorSecao[$chaveSecao]): ?>
             <div class="gh-proj-grid">
               <?php foreach (array_filter($reposPorSecao[$chaveSecao], fn($r) => ($r['_tipo'] ?? 'github') === 'github') as $repo): ?>
-                <?php $movsRepo = array_values(array_unique(array_filter(array_map(
-                    fn($c) => substr($c['data'] ?? '', 0, 10), $repo['commits'] ?? []
+                <?php $movsRepo = array_values(array_unique(array_filter(array_merge(
+                    !empty($repo['ultimo_push']) ? [substr($repo['ultimo_push'], 0, 10)] : [],
+                    array_map(fn($c) => substr($c['data'] ?? '', 0, 10), $repo['commits'] ?? [])
                 )))); ?>
                 <div class="gh-proj-card" data-conta="<?= esc($repo['conta_apelido']) ?>" data-movs='<?= esc(json_encode($movsRepo)) ?>'>
                   <div class="gh-proj-topo">
@@ -1670,7 +1671,10 @@ body  { background:#f0f4f9; font-family:'Segoe UI',sans-serif; font-size:.9rem; 
                 </div>
               <?php endforeach; ?>
               <?php foreach (array_filter($reposPorSecao[$chaveSecao], fn($r) => ($r['_tipo'] ?? '') === 'manual') as $pmProj): ?>
-                <?php $movsPm = array_values(array_unique(array_filter(array_column($pmProj['itens'] ?? [], 'concluido_em')))); ?>
+                <?php $movsPm = array_values(array_unique(array_filter(array_merge(
+                    !empty($pmProj['criado_em']) ? [substr($pmProj['criado_em'], 0, 10)] : [],
+                    array_column($pmProj['itens'] ?? [], 'concluido_em')
+                )))); ?>
                 <div class="gh-proj-card manual-proj-card" data-pm-id="<?= (int)$pmProj['id'] ?>" data-movs='<?= esc(json_encode($movsPm)) ?>'>
                   <div class="pm-badge-manual"><i class="bi bi-pencil-square"></i>Manual</div>
                   <div class="gh-proj-topo">
@@ -2207,9 +2211,11 @@ function limparFiltroData() {
   document.getElementById('filtroDataAte').value = '';
   aplicarFiltroProjetos();
 }
-document.getElementById('filtroConta')?.addEventListener('change', aplicarFiltroProjetos);
-document.getElementById('filtroDataDe')?.addEventListener('change', aplicarFiltroProjetos);
-document.getElementById('filtroDataAte')?.addEventListener('change', aplicarFiltroProjetos);
+['change', 'input'].forEach(evt => {
+  document.getElementById('filtroConta')?.addEventListener(evt, aplicarFiltroProjetos);
+  document.getElementById('filtroDataDe')?.addEventListener(evt, aplicarFiltroProjetos);
+  document.getElementById('filtroDataAte')?.addEventListener(evt, aplicarFiltroProjetos);
+});
 </script>
 <?php endif; ?>
 
